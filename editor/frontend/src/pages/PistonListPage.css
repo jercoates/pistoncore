@@ -1,0 +1,104 @@
+.piston-list-page { max-width: 1100px; }
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.page-header h1 { font-size: 20px; font-weight: 600; }
+
+.list-layout {
+  display: flex;
+  gap: 20px;
+}
+
+.folder-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  text-align: left;
+  font-size: 13px;
+}
+.folder-item:hover { color: var(--color-text); background: var(--color-surface-2); }
+.folder-item.active { color: var(--color-accent); border-color: var(--color-accent); }
+
+.folder-count {
+  background: var(--color-border);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+.piston-list-area { flex: 1; min-width: 0; }
+
+.list-toolbar { margin-bottom: 12px; }
+.search-input { width: 280px; }
+
+.group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+  padding: 12px 0 6px;
+}
+
+.piston-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
+}
+.piston-row:hover { border-color: var(--color-accent); }
+.piston-row.disabled { opacity: 0.55; }
+
+.piston-indicator {
+  color: var(--color-enabled);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.piston-row.disabled .piston-indicator { color: var(--color-disabled); }
+
+.piston-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.piston-name { font-size: 15px; font-weight: 500; margin-bottom: 2px; }
+.piston-desc { font-size: 13px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.piston-meta { font-size: 12px; }
+
+.piston-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.empty-state {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--color-text-dim);
+}
+
+.page-loading, .page-error {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.page-error { color: var(--color-error); }

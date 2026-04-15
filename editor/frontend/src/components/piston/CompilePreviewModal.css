@@ -1,0 +1,57 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  width: 800px;
+  max-width: 95vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.modal-subtitle { font-size: 13px; }
+
+.modal-actions { display: flex; gap: 8px; }
+
+.modal-warnings {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(255, 152, 0, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.warning-item { font-size: 13px; }
+
+.modal-code {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-bg);
+  margin: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}

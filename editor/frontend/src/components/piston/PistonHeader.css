@@ -1,0 +1,61 @@
+.piston-header-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+}
+
+.field-group label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.field-group input,
+.field-group select {
+  width: 100%;
+}
+
+.optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-dim);
+}
+
+.enabled-toggle {
+  flex-shrink: 0;
+  padding-bottom: 6px;
+}
+
+.enabled-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.enabled-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.enabled-label.on { color: var(--color-success); }
+.enabled-label.off { color: var(--color-text-dim); }

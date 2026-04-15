@@ -1,0 +1,14 @@
+.vars-empty { font-size: 13px; padding: 4px 0; }
+
+.vars-list { display: flex; flex-direction: column; gap: 8px; }
+
+.var-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.var-name { width: 160px; flex-shrink: 0; }
+.var-type { width: 180px; flex-shrink: 0; }
+.var-default { flex: 1; }
+.var-remove { flex-shrink: 0; }

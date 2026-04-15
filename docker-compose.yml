@@ -1,0 +1,18 @@
+services:
+  pistoncore:
+    build: ./editor
+    container_name: pistoncore
+    ports:
+      - "7777:7777"
+    environment:
+      - PISTONCORE_HA_URL=http://homeassistant.local:8123
+      - PISTONCORE_HA_TOKEN=your_long_lived_token_here
+      - PISTONCORE_DEBUG=true
+    volumes:
+      - pistoncore_data:/data
+      # Mount backend source for live reload in dev
+      - ./editor/backend:/app/backend
+    restart: unless-stopped
+
+volumes:
+  pistoncore_data:

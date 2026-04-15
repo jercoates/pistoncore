@@ -1,0 +1,47 @@
+.triggers-empty { font-size: 13px; padding: 4px 0; }
+.triggers-list { display: flex; flex-direction: column; gap: 10px; }
+
+.trigger-row {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trigger-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.trigger-type-select { flex: 1; }
+.trigger-remove { flex-shrink: 0; }
+
+.trigger-detail { display: flex; flex-direction: column; gap: 10px; }
+
+.trigger-device-row { display: flex; flex-direction: column; gap: 10px; }
+
+.state-fields { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+.inline-field label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.inline-field .optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-dim);
+}

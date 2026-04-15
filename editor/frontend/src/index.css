@@ -1,0 +1,92 @@
+/* PistonCore — base styles */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg: #1a1a2e;
+  --color-surface: #16213e;
+  --color-surface-2: #0f3460;
+  --color-border: #2a2a4a;
+  --color-accent: #4a9eff;
+  --color-accent-hover: #6eb5ff;
+  --color-success: #4caf50;
+  --color-warning: #ff9800;
+  --color-error: #f44336;
+  --color-text: #e8e8f0;
+  --color-text-muted: #9999bb;
+  --color-text-dim: #666688;
+  --color-enabled: #4caf50;
+  --color-disabled: #666688;
+
+  --font-mono: 'Courier New', Courier, monospace;
+  --font-ui: system-ui, -apple-system, sans-serif;
+
+  --radius: 4px;
+  --radius-lg: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.4);
+
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+button {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  transition: background 0.15s;
+}
+
+button.primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+button.primary:hover { background: var(--color-accent-hover); }
+
+button.secondary {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+button.secondary:hover { background: var(--color-border); }
+
+button.danger {
+  background: var(--color-error);
+  color: #fff;
+}
+
+input, select, textarea {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--color-accent);
+}
+
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.text-muted { color: var(--color-text-muted); }
+.text-dim { color: var(--color-text-dim); }
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-error { color: var(--color-error); }

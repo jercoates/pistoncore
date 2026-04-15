@@ -1,0 +1,13 @@
+{
+  "domain": "pistoncore",
+  "name": "PistonCore",
+  "version": "0.1.0",
+  "documentation": "https://github.com/jercoates/pistoncore",
+  "issue_tracker": "https://github.com/jercoates/pistoncore/issues",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@jercoates"],
+  "iot_class": "local_push",
+  "config_flow": true,
+  "integration_type": "service"
+}

@@ -1,0 +1,46 @@
+.collapsible-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--color-surface);
+  transition: background 0.1s;
+}
+.section-header:hover { background: var(--color-border); }
+
+.section-chevron { font-size: 10px; color: var(--color-text-dim); width: 12px; }
+.section-title { font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+.section-count {
+  font-size: 11px;
+  background: var(--color-surface-2);
+  border-radius: 10px;
+  padding: 1px 7px;
+  color: var(--color-text-muted);
+}
+.section-badge {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  margin-left: 4px;
+}
+.section-action {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--color-accent);
+  padding: 2px 8px;
+  border-radius: var(--radius);
+}
+.section-action:hover { background: rgba(74,158,255,0.12); }
+
+.section-body {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--color-border);
+}

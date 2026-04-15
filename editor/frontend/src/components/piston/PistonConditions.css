@@ -1,0 +1,39 @@
+.conds-empty { font-size: 13px; padding: 4px 0; }
+.conds-list { display: flex; flex-direction: column; gap: 8px; }
+
+.cond-row {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.join-select {
+  width: 80px;
+  font-weight: 700;
+  color: var(--color-warning);
+}
+
+.cond-fields { display: flex; flex-direction: column; gap: 8px; }
+
+.cond-op-value { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+
+.inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+.inline-field label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cond-remove { align-self: flex-end; }

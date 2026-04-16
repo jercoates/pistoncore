@@ -8,3 +8,49 @@ Pro-Tip: Make sure your Instruction File for Claude specifies: "Debug messages m
 Your "Away from Desk" Task:
 Since you're wondering what the API can send, ask Claude this specific question later:
 "I am building a Custom Integration for Home Assistant. How can I use hass.bus.async_listen to capture custom events and send them to my front-end via a WebSocket API for live debugging
+go over When a piston uses a Global Variable and generates a .py script, also generate a tiny 'Comment Header' in that script that lists every variable it uses. This way, the Editor can 'scan' the folder and know exactly which variables are in use without needing a database
+go over wrighting updates as they save variables ect in the editor to ha file at the same time.  Put notice in the global variable file that editing manually is at your own risk.
+Always treat the File (the JSON) as the "Master" and the HA state as the "Temporary
+The "Sync on Startup" Blueprint
+Since you are using the "Folder-Drop" method, your startup sync doesn't need to be complex. It just needs to be consistent.
+
+How to add this to your notes:
+
+The "Init" Trigger: Use the Home Assistant homeassistant.start event.
+
+The "State Loader": This trigger calls a single Python script (e.g., piston_init.py).
+
+The Handshake: This script reads your globals.json from the Unraid mount and pushes those values into the HA "Live" memory.
+add a "Version Check" to your notes? (e.g., If the globals.json was saved with PistonCore v1.0, but you've upgraded to v1.1, the sync script checks to make sure the data format still matches).
+add a way to alert if the file goes corrupt but only 
+add a hard do not do it if the logic digs into the core of ha and can cause real problems.
+The "Ironclad" Safety Check Notes
+i want the system to be "self-healing." Here is how to structure that safety check in your notes:
+ 
+The "Dead Man's Switch": If the piston_init.py script can't find globals.json on the Unraid mount during startup, it shouldn't just crash. It should:
+
+Post a persistent notification to the HA UI: "CRITICAL: PistonCore storage not found. Using default failsafe values."
+
+The Failsafe: Have a "hard-coded" set of safe defaults (e.g., is_holiday: false, watering_allowed: false) so you don't accidentally flood the lawn because a file didn't mount.
+
+The "Core Lockdown" Rule: Add this directive to your Master Spec:
+
+"PistonCore is strictly a Generator and API Client. It is forbidden from:
+
+Modifying .storage/ folders.
+
+Editing configuration.yaml directly.
+
+Accessing the home-assistant_v2.db file."
+PistonCore will have a 'Download Blueprint' button. This gives the user a text file to paste into their AI of choice. It says: 'You are a PistonCore assistant. Always output logic in this specific JSON format so the local validator can read it
+
+he "Device Mapping" Gatekeeper
+In your notes, this creates a very clean, two-step "Commissioning" process:
+
+The Logical Import: You paste the JSON logic (the "If/Then" nests) into PistonCore.
+
+The Physical Mapping: PistonCore scans the JSON, finds placeholders like [LIVING_ROOM_LIGHT] or [BACKFLOW_SENSOR_1], and highlights them in red.
+
+The UI then presents a dropdown of live devices pulled directly from your Home Assistant instance.
+
+You "map" the logic to the actual hardware.

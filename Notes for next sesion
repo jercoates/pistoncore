@@ -1,0 +1,5 @@
+device vs entity identity discussion
+One physical Sonos speaker has multiple entities in HA: media player, volume sensor, shuffle state, etc. They all share the same friendly name because they're all the same device, just different capabilities.
+So the device picker needs to work at the device level not the entity level. You pick "Announcement Sonos" as a device, then PistonCore figures out which entity to use based on what you're trying to do with it. Just like WebCoRE — you picked the device, not the entity ID.
+That's actually a cleaner experience AND it solves the duplicate name problem entirely. Three entries called "announcement" are three entities of the same physical Sonos speaker — in the picker you'd just see it once as one device.
+This is also why the companion needs to fetch device profiles not just entity lists — the device is the thing the user thinks about, the entities are HA's internal implementation detail.

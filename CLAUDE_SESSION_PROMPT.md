@@ -1,329 +1,188 @@
 # PistonCore — Claude Session Starter Prompt
 
 Paste this at the start of every new Claude session to restore context.
-Update the "Last session" and "This session" sections each time.
+Update the "Last session" and "Next session" sections each time.
 
 ---
 
-I am building an open source project called PistonCore — a WebCoRE-style
-visual automation builder for Home Assistant.
+## How to use this prompt
+
+1. Paste this entire file at the start of a new Claude session
+2. Tell Claude what you want to work on today
+3. At the end of the session update "Last session" and "Next session" before saving
+
+---
+
+## Project Overview
+
+I am building an open source project called PistonCore — a WebCoRE-style visual automation builder for Home Assistant.
 
 GitHub repo: https://github.com/jercoates/pistoncore
 
-# PistonCore Design Document
-**Version:** 0.2
-**Status:** Draft — Ready for Development
-**Last Updated:** April 2026
+**The design document is the authoritative source for all decisions.** Before writing any code read DESIGN.md from the repo. Do not rely on memory or assumptions — the design has changed significantly and the code must match the current design.
 
 ---
 
-## 1. What Is PistonCore?
+## Key Facts
 
-PistonCore is an open-source visual automation builder for Home Assistant, designed to feel immediately familiar to anyone who has used WebCoRE on SmartThings or Hubitat. It lets you build complex automations — called **pistons** — through a form-driven UI using dropdowns populated directly from your actual HA devices, without ever writing YAML or Python manually.
-
-**PistonCore is not a home automation platform. It is a tool for building automations on top of one.**
-
-It does not add devices, manage integrations, or extend HA's capabilities in any way. It reads what HA already has, gives you a better way to write logic against it, and compiles that logic to native HA files that run permanently and independently.
-
-**PistonCore does not need to be running for your automations to work.** Compiled files are standard HA automation files. If you uninstall PistonCore tomorrow, every piston you built keeps running forever. No lock-in, no dependency on a running engine, no proprietary runtime format.
-
----
-
-## 2. Core Philosophy
-
-- **No required central server.** Runs locally on Unraid, Raspberry Pi, any Docker host.
-- **Automations are yours.** Compiled files are standard HA files.
-- **PistonCore never touches files it did not create.** Hard rule, no exceptions.
-- **Shareable by design.** Pistons are plain JSON. Paste anywhere, import from URL.
-- **AI-friendly from day one.** Piston JSON format is documented for AI generation.
-- **Open and community driven.** MIT licensed.
-- **Familiar to WebCoRE users.** Piston concept, structure, and terminology intentionally close to WebCoRE.
-- **Plain English everywhere.** No pictograms, no symbols, no icon-only controls.
+- I have almost no programming background. I am directing the vision, you are writing the code.
+- This is built in limited sessions. The session prompt and DESIGN.md are your memory between sessions.
+- I run Unraid as my primary server. The app will run as a Docker container on Unraid.
+- I have a dedicated test Unraid instance with a clean Home Assistant VM for testing.
+- My cousin is an occasional technical advisor — he has coding knowledge but limited home automation knowledge.
+- Traffic is already coming to the GitHub repo. Real users are watching.
 
 ---
 
-## 3. Core Concepts
+## Current State of the Repo
 
-### What is a Piston?
-A piston is a self-contained automation rule. It has a name, optional variables, one or more triggers, optional conditions, and an action tree with if/then/else logic.
+### Root files (do not move these):
+- `README.md` — project overview
+- `DESIGN.md` — full design specification v0.5 — **read this first every session**
+- `DESIGN.md` — full design specification v0.5
+- `LICENSE` — MIT
+- `CLAUDE_SESSION_PROMPT.md` — this file
+- `RESEARCH_NOTES.md` — background research
 
-### Key Terms
+### session2_archive/
+Contains all code from Session 2. This code was built against an earlier design that has since changed significantly. It is kept for reference — do not build on top of it directly. Useful parts to reference:
+- `session2_archive/editor/backend/` — FastAPI backend structure, storage system, piston models, API routes are worth reviewing
+- `session2_archive/editor/frontend/` — React frontend, largely superseded by new UI direction
+- `session2_archive/companion/` — HA companion integration skeleton
 
-| PistonCore Term | WebCoRE Equivalent | Meaning |
-|---|---|---|
-| Piston | Piston | A complete automation rule |
-| Trigger | Trigger | What starts the piston |
-| Condition | Condition | A check that must pass before actions run |
-| Action | Action/Command | Something that happens |
-| Global Variable | Global Variable | A value shared across all pistons |
-| Piston Variable | Local Variable | A temporary value used only within one piston run |
-| Role | Device placeholder | An abstract device slot filled with a real entity at import time |
-| Compile | Parse | Convert piston JSON to native HA files |
-
-### Simple vs Complex Pistons
-
-Auto-detected — user never chooses:
-- **Simple → HA YAML automation**
-- **Complex → PyScript .py file**
-
-Complex if: variables used, nested if/else, loops, wait-for-state, counters.
+### What does NOT exist yet (needs to be built fresh):
+- New editor frontend matching v0.5 design (framework not prescribed — see DESIGN.md Section 7)
+- Dynamic multi-step condition wizard with live HA capability fetching
+- Updated companion that fetches full device capability profiles
+- Compiler template system (external files, not hardcoded)
+- Piston status / troubleshoot page as the hub
+- All toolbar visibility toggle behavior
 
 ---
 
-## 4. Variables
+## The Most Important Design Changes Since Session 2
 
-### Global Variables
-- Defined at PistonCore level, available to every piston, persist permanently
-- Managed from main settings screen, separate from individual pistons
-- Changing a global value takes effect for all pistons — no redeployment needed
-- **The global variables panel is visible as a sidebar while editing a piston** (collapsible right panel, reference only — not editable from the editor)
+Read DESIGN.md fully but pay special attention to these areas that changed most significantly:
 
-### Piston Variables
-- Defined inside a single piston, only exist while that piston is running
-- Clearly labeled: "Temporary — forgotten when this piston finishes running"
+**1. The editor is a structured document, not a form.**
+It should feel like viewing code in a text editor — logic always visible top to bottom, indented to show nesting. NOT dropdowns and form fields. See Section 7 of DESIGN.md.
 
-### Variable Types
-| Type | Description |
-|---|---|
-| Text | A word or sentence |
-| Number | Any numeric value |
-| Yes/No | True or false |
-| Date/Time | A point in time or duration |
-| Device | A single HA entity reference |
-| Devices | A collection of HA entity references (supports mixed entity types) |
+**2. The condition wizard is a dynamic multi-step modal.**
+Not a static dropdown. Each step's options are generated from HA based on what was selected in the previous step. PistonCore never maintains its own device capability database — it always asks HA. See Section 5.5 of DESIGN.md.
 
-**Device and Devices variables always show the friendly name, never the entity ID.**
-**Devices variables work as action targets** — "Turn off {Device_Lights}" acts on all entities in the collection.
+**3. The companion must fetch full device capability profiles.**
+Not just entity lists. Every attribute and supported state for every device. The condition wizard depends on this data. See Section 10.2 of DESIGN.md.
 
----
+**4. The status page is the hub for every piston.**
+Navigation flow is: List → Status page → Editor → back to Status page. Folder assignment, export (green/red camera), and run log all live on the status page, not in the editor. See Section 7 of DESIGN.md.
 
-## 5. Piston Structure
+**5. Global variables live in PyScript's variable store.**
+Not HA helpers. Any piston using a global automatically compiles to PyScript. See Section 3 of DESIGN.md.
 
-### Header
-Name, description, folder, mode (single/restart/queued/parallel), enabled/disabled.
+**6. The compiler uses external template files.**
+Not hardcoded output. Templates live in the Docker volume and are user-replaceable with AI assistance. See Section 9 of DESIGN.md.
 
-### Piston Variables
-Optional. Temporary, forgotten when piston finishes.
-
-### Triggers
-Types: state change, numeric threshold, time, sunrise/sunset, time pattern, HA event, webhook, called by another piston, manual only.
-
-### Conditions
-Checked after trigger fires. Plain English operators (equals, does not equal, is greater than, is less than, is between, is on, is off, contains, does not contain, is before, is after). Multiple conditions joined with AND or OR — written in full.
-
-### Action Tree
-
-**This is the core of the editor. Key interaction model from WebCoRE:**
-
-- Every level of the action tree has a visible `+ Add action` at the bottom
-- If/Then/Else branches each have their own `+ Add action` inline
-- Actions can be nested arbitrarily deep inside if/then/else branches
-- Each action group can have an "Only when" restriction (a condition that gates just that group, without a full if/then)
-- Indentation visually communicates nesting depth
-- The `+ Add` prompt is always visible at every valid insertion point — user never hunts for where to add
-
-**Action types:**
-- Call service (any HA service, target a role or Devices variable)
-- If / Then / Else (recursive, same structure at every depth)
-- Set variable
-- Wait (fixed duration or until a specific time)
-- Wait for state (with optional timeout)
-- Repeat (count or while condition)
-- Call another piston
-- Log message
-- Stop
+**7. Frontend framework is not prescribed.**
+React is not required. The UI feel requirements take priority over any specific technology. Whatever framework best produces the structured document editor feel is the right choice. See Section 7 of DESIGN.md.
 
 ---
 
-## 6. The JSON Sharing Format
+## Tech Stack
 
-Pistons stored and shared as plain JSON. Device references use **roles** — named placeholders. Actual entity IDs live in `device_map` (never shared). When importing, PistonCore prompts user to map each role to a real entity via dropdown.
-
-### Sharing Methods
-Paste JSON, URL import, file (.piston extension), AI generation.
-
----
-
-## 7. The Editor UI
-
-### UI Rules — No Exceptions
-1. No pictograms for logic. AND/OR written as "AND" and "OR". No symbols.
-2. No entity IDs ever visible to the user.
-3. All dropdowns populated from live HA data.
-4. Sections are collapsible with plain English labels.
-5. Errors are plain English.
-6. **Global variables visible in a collapsible right sidebar while editing** — reference only, shows name, type, and current value/entities.
-
-### Piston List Screen
-- Category/folder headers with piston count (e.g. "Lights (13)")
-- Each row: colored status dot, piston name, enabled/disabled state, last run time (right-aligned, only shown if run)
-- Inline enable/disable toggle without opening editor
-- Clean, dense list — no cards, no thumbnails
-
-### Piston Editor Screen
-- Top toolbar: back to list, save button, advanced mode toggle
-- Header section (name, description, folder, mode, enabled)
-- Collapsible sections: Piston Variables (advanced only), Triggers, Conditions, Actions
-- Right sidebar: Global Variables panel (collapsible, reference only)
-- Footer: Preview compiled output, Deploy to Home Assistant
-
-### Simple / Advanced Mode
-Toggle at top. Simple hides variables, limits trigger/action types. Switching never breaks a piston.
+- **Backend:** Python FastAPI
+- **Frontend:** Framework not prescribed — must produce structured document editor feel
+- **Piston storage:** JSON files in Docker volume
+- **Compiler output:** YAML (simple pistons) or PyScript (complex pistons) via external templates
+- **Default port:** 7777
+- **HA integration:** Companion custom integration installed via HACS
+- **Target deployment:** Docker on Unraid, Unraid Community Apps template planned
 
 ---
 
-## 8. Logging and Debugging (Per-Piston Detail View)
+## V1 Core Feature Set
 
-Each piston has a detail/status view (accessible from the list without opening the editor):
+Build only these in V1. Everything else is a future feature. See Section 14 of DESIGN.md for the full list.
 
-- **Status card:** enabled/paused, one-click pause/resume
-- **Quick facts:** last ran, next scheduled run, number of triggers, devices referenced
-- **Run log:** each execution with expandable detail showing each action, pass/fail, duration
-- **Pause/resume** from this view without opening the editor
+**Statement types for V1:**
+- If Block (Condition and Group)
+- Action
+- Timer / Wait
+- Wait for state with timeout
+- Only when restrictions
+- Repeat loop with condition
+- Nested ifs to any depth
 
-Future (not session 3): per-action timing markers in the run log.
-
----
-
-## 9. Compilation and Deployment
-
-### Output File Locations
-- Simple pistons → `<ha_config>/automations/pistoncore/<piston_name>.yaml`
-- Complex pistons → `<ha_config>/pyscript/pistoncore/<piston_name>.py`
-- PistonCore NEVER writes outside its own subfolders
-
-### Deployment Flow
-1. User clicks Deploy to HA
-2. PistonCore compiles piston JSON to appropriate format
-3. File sent to companion integration
-4. Companion writes file to HA config directory
-5. Companion calls HA reload service
-6. Automation is live within seconds
-
----
-
-## 10. The Two Components
-
-### PistonCore Editor (Docker Container)
-- Python FastAPI backend, React frontend
-- Default port: 7777
-- Piston storage: JSON files in mounted Docker volume
-- Unraid Community Apps template planned
-
-### PistonCore Companion (HA Custom Integration)
-- Installed via HACS
-- Provides local API for: fetching HA entity/device/area/service data, writing compiled files, triggering reloads, reporting run status
+**Editor features for V1:**
+- Toolbar with visibility toggles (define, restrictions, complex ifs, move mode)
+- Drag and drop block reordering
+- Global variables right sidebar (read-only reference)
+- Simple / Advanced mode toggle
+- Safe share export (green camera) and full export (red camera)
+- Duplicate piston
+- Import from backup code and backup file
+- Piston status page as hub (folder assignment, exports, run log, edit button)
+- Run log with plain English detail
+- Pause/resume from list and status page
+- Compiler templates (external, user replaceable)
+- EntityPicker with type-to-filter search (name and area)
+- Dynamic capability-driven multi-step condition wizard
+- True/false last evaluation result on piston list
 
 ---
 
-## 11. Distribution
-GitHub (MIT license), Docker Hub, Unraid Community Apps, HACS, HA Community Forums.
-
----
-
-## 12. Out of Scope for V1
-Mobile app, multi-user auth, central cloud server, direct WebCoRE piston import, piston marketplace, HA dashboard cards, version history/rollback, nested folders.
-
----
-
-## 15. Development Log
-
----
+## Session Log
 
 ### Session 1 — April 2026
-
-**What was decided:**
-- Project conceived, name PistonCore chosen
-- Full design document written (see above)
-- GitHub repo created: https://github.com/jercoates/pistoncore
-- DESIGN.md, README.md, LICENSE (MIT), CLAUDE_SESSION_PROMPT.md added to repo
-
----
+- Project conceived, design document written
+- GitHub repo created with docs
 
 ### Session 2 — April 2026
+- FastAPI backend scaffolded — routes, models, storage, HA client, compiler
+- React frontend scaffolded — all pages, editor sections, EntityPicker
+- Companion integration skeleton built
+- 19 API endpoints verified
+- Compiler verified against example piston
+- All code now in session2_archive — superseded by v0.5 design changes
 
-**What was built:**
-
-Full folder structure scaffolded for both components.
-
-**Backend (FastAPI) — all tested and verified:**
-- `main.py` — app entry point, CORS, all routers
-- `core/config.py` — env-var config (PISTONCORE_HA_URL, PISTONCORE_HA_TOKEN, etc.)
-- `core/storage.py` — piston CRUD as JSON files, globals, settings. Round-trip tested.
-- `models/piston.py` — complete Pydantic models for every concept in the design doc
-- `models/entity.py` — Entity and EntitySummary models
-- `services/ha_client.py` — HA API client with caching, plain English error messages
-- `services/entity_service.py` — raw HA states → friendly-name entity objects, grouped by domain
-- `services/compiler.py` — auto-detects simple vs complex. Simple → valid HA YAML. Complex → PyScript stub.
-- 19 API endpoints registered and verified
-
-**Compiler verified:** Design doc example piston (Driveway Lights at Sunset) compiled to correct HA YAML with entity IDs resolved from device map.
-
-**Companion integration (HA side):**
-- manifest.json, config_flow.py, const.py, __init__.py, api.py
-- HTTP endpoints: health check, deploy (write file + trigger reload), delete
-- Hard constraint enforced: only writes inside automations/pistoncore/ or pyscript/pistoncore/
-
-**Frontend (React + Vite):**
-- Full routing: Piston List, Editor, Globals, Settings pages
-- AppLayout with nav sidebar
-- All editor sections: PistonHeader, PistonVariables, PistonTriggers, PistonConditions, PistonActions
-- EntityPicker — live HA data, friendly names grouped by domain, no entity IDs shown
-- CollapsibleSection — shared wrapper used throughout
-- CompilePreviewModal — shows compiled output with copy button
-- GlobalsPage — add/edit/remove global variables
-- SettingsPage — HA URL/token config with connection test
-- api.js — all backend calls centralized
-
-**What does NOT work yet:**
-- If/Then/Else nested action editor (stub only — "coming next session" message shown)
-- PyScript compiler (stub only)
-- Import/role-mapping UI
-- End-to-end deploy (compile → companion → HA file write)
-- Piston log/status panel
-- Global variables right sidebar in editor
-- hacs.json for companion
+### Session 2 Strategy Review — April 2026
+- Extensive WebCoRE screenshot review
+- Design doc rewritten as v0.5 — major changes to UI model, architecture, and scope
+- Frontend decoupled from React
+- Condition wizard redesigned as dynamic multi-step
+- Status page established as piston hub
+- Compiler template system designed
+- V1 scope tightened to real world core feature set
+- Future features list established
 
 ---
 
-### Session 3 — Goals
+## Last Session
+Session 2 strategy review. No new code written. Major design changes captured in DESIGN.md v0.5. All Session 2 code moved to session2_archive.
 
-**UI design decisions made between sessions (from WebCoRE screenshot analysis):**
+## This Session — Start Here
+Read DESIGN.md from the repo before doing anything else.
 
-1. **Piston list:** Switch from folder sidebar to inline category headers with count (WebCoRE style — "Lights (13)") — more familiar to target audience, denser, more scannable
-2. **Global variables sidebar:** Add collapsible right panel to the editor showing all globals (name, type, value/entities) — reference only while editing, not editable from there
-3. **If/Then/Else interaction model:** Inline `+ Add condition` and `+ Add action` at every valid insertion point inside every branch, recursive nesting, indentation shows depth
-4. **"Only when" restrictions:** Individual action groups can have a condition that gates just that group without a full if/then wrapper — add this as an optional per-action-group feature
-5. **Devices variable as action target:** Devices globals/variables must work as targets in call_service actions (acts on all entities in the collection)
-6. **Piston detail/status view:** Accessible from list without opening editor — status, quick facts, run log, pause/resume
+Suggested starting point for the first coding session against v0.5:
 
-**Priority build order for session 3:**
-1. Refactor piston list to inline category headers (drop sidebar)
-2. Build if/then nested action editor with recursive `+ Add` interaction
-3. Add global variables right sidebar to editor
-4. Piston detail/status view (status card + quick facts + run log skeleton)
-5. Import/role-mapping UI
-6. Connect end-to-end deploy (editor → compile → companion → HA)
+1. Decide on frontend framework — review session2_archive React frontend and discuss whether to keep React or switch. The structured document editor feel is the requirement, the framework is the tool.
+2. Scaffold the new folder structure for editor and companion
+3. Start with the companion — get it fetching full device capability profiles from HA since everything else depends on that data
+4. Get the Docker container running on test Unraid so the UI can be seen in a browser
 
-**Tech stack:**
-- Python FastAPI backend
-- React frontend (Vite, React Query, Zustand, React Router)
-- Piston storage as JSON files in Docker volume
-- Default port 7777
-- MIT license
-- Compiles simple pistons to HA YAML, complex to PyScript
-
-**Key file locations:**
-- Backend entry: `editor/backend/main.py`
-- All routes: `editor/backend/api/routes/`
-- Piston models: `editor/backend/models/piston.py`
-- Compiler: `editor/backend/services/compiler.py`
-- Storage: `editor/backend/core/storage.py`
-- Frontend pages: `editor/frontend/src/pages/`
-- Piston editor sections: `editor/frontend/src/components/piston/`
-- Shared components: `editor/frontend/src/components/shared/`
-- API client: `editor/frontend/src/utils/api.js`
+Do not start writing editor UI code until the framework decision is made and confirmed.
 
 ---
 
-*PistonCore is an independent open-source project. It is not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*
+## Reference Videos for WebCoRE UI Context
+
+If you need to understand what WebCoRE looks like before making UI decisions:
+- Introduction: https://www.youtube.com/watch?v=Dh5CSp-xdfM
+- Dashboard: https://www.youtube.com/watch?v=HIzgoXgLUxQ
+- Conditions vs Triggers: https://www.youtube.com/watch?v=L4axJ4MCYRU
+- Variables: https://www.youtube.com/watch?v=6d3wtjjCLiM
+
+Note: These are beginner level only. For complex feature reference, see the WebCoRE screenshots in the project discussion history.
+
+---
+
+*PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

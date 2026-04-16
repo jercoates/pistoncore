@@ -3,3 +3,8 @@ One physical Sonos speaker has multiple entities in HA: media player, volume sen
 So the device picker needs to work at the device level not the entity level. You pick "Announcement Sonos" as a device, then PistonCore figures out which entity to use based on what you're trying to do with it. Just like WebCoRE — you picked the device, not the entity ID.
 That's actually a cleaner experience AND it solves the duplicate name problem entirely. Three entries called "announcement" are three entities of the same physical Sonos speaker — in the picker you'd just see it once as one device.
 This is also why the companion needs to fetch device profiles not just entity lists — the device is the thing the user thinks about, the entities are HA's internal implementation detail.
+PistonCore must be 'silent' by default. Debugging data should only be generated and transmitted when a specific 'debug_mode' flag is active for a piston. Prioritize system stability over UI updates.
+Pro-Tip: Make sure your Instruction File for Claude specifies: "Debug messages must be sent via the PistonCore Custom WebSocket Event, not by writing to the main HA system log." This keeps the "junk" out of the user's main logs.
+Your "Away from Desk" Task:
+Since you're wondering what the API can send, ask Claude this specific question later:
+"I am building a Custom Integration for Home Assistant. How can I use hass.bus.async_listen to capture custom events and send them to my front-end via a WebSocket API for live debugging

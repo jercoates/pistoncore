@@ -969,4 +969,24 @@ DESIGN.md updated to v0.6. No code written this session.
 
 ---
 
+## 25. IMPORTANT — Pending Corrections (Read Before Coding)
+
+**A corrections and additions file exists in this repo called "Notes for next session."**
+
+**This file contains confirmed corrections to this document. Where the notes conflict with anything written above, the notes take priority.**
+
+**Do not write code against the following sections until the notes have been read and reconciled:**
+
+- Section 4.1 and Section 19 — Global variables storage (correction pending)
+- Section 4.3 — Yes/No variable type (correction pending)
+- Section 5 and Section 17.2 — Phase 1 data fetching (correction pending — WebSocket not REST)
+- Section 17.3 — Companion setup details (significant additions pending)
+- Section 11 — Dry run behavior differs between YAML and PyScript (correction pending)
+- Compiler template system — not yet fully defined, do not write compiler code until next design session
+- Call another piston — YAML limitations documented in notes
+- Piston run status reporting — mechanism defined in notes, not yet in this document
+
+**DESIGN.md v0.7 will incorporate all of these. Until then the notes file is authoritative for these sections.**
+---
+
 *PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

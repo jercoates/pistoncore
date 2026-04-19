@@ -49,3 +49,44 @@ The companion cannot be implemented until its integration contract is defined.
 
 Suggested design action
 Keep the architecture decisions that are already settled, but mark the items above as required follow-up design work before coding begins.
+New design clarification — manual context lookup when HA data is unclear
+If PistonCore fetches device capability data from Home Assistant and the returned context is missing, incomplete, ambiguous, or clearly inconsistent with normal expectations, the wizard must not guess. Instead, PistonCore prompts the user to review the device behavior and define the missing context manually.
+
+This applies not only when HA returns no usable capability data, but also when:
+
+the capability name is unusual or non-standard,
+
+the reported unit of measurement is unexpected,
+
+the value scale appears inconsistent with normal devices of that type,
+
+or HA exposes raw data without enough meaning for the wizard to safely determine valid operators, comparisons, or action options.
+
+Required behavior
+PistonCore always tries live HA capability data first.
+
+If the data is clear enough, the wizard uses it directly.
+
+If the data is unclear, partial, or missing context, the user is prompted to look it up and define it manually.
+
+The user-defined context is stored locally and reused for that device on future runs.
+
+The wizard must prefer showing fewer options over showing incorrect options.
+
+No automatic translation layer should invent meaning that HA did not provide and the user did not confirm.
+
+Example
+A user installs a new luminance sensor that reports lux using an unusual attribute name, or reports values at a scale far outside what is normally expected for that device class. If PistonCore cannot confidently determine how that capability should be presented, it prompts the user to define:
+
+what the capability represents,
+
+what unit it uses,
+
+whether scaling or interpretation is needed for display,
+
+and which comparisons should be available in the wizard.
+
+Why it matters
+This keeps the system honest. PistonCore is allowed to be incomplete but correct, instead of pretending it understands every odd device report and then building bad automations from wrong assumptions.
+
+

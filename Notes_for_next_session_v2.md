@@ -272,3 +272,396 @@ Do not write production code until items 3 and 4 are complete.
 
 Session 5 — April 2026
 Sources: WebCoRE screenshots, design review, session discussion
+
+---
+
+## ADDITIONAL DECISIONS — LATE SESSION 5
+
+### 14. Revised Auto-Detection Rule — Simpler and More Accurate
+
+The 10-condition list in DESIGN.md Section 3.1 enumerates symptoms.
+Replace with three root-cause rules that are simpler and more accurate:
+
+**If ANY of these are true → compile to PyScript:**
+1. Any non-device variable is used (Text, Number, Yes/No, Date/Time)
+   Device and Devices variables are the only variable types that can stay in YAML
+   because they compile to entity references, not HA helpers
+2. Any HA helper would be required to implement the logic
+   (input_boolean, input_number, input_text, timer, etc.)
+3. Any feature used is not natively supported in a standard YAML automation block
+   (waits mid-piston, loops, state persistence across triggers, cancel tasks, etc.)
+
+**YAML only when ALL of these are true:**
+- No variables of any kind, OR Device/Devices variables only
+- Single trigger OR multiple triggers with no state tracking between them
+- Simple linear action sequence with no branching that requires helpers
+- No waits, no loops, no state persistence
+- Everything maps directly to native YAML automation syntax with no workarounds
+
+In practice the vast majority of real WebCoRE pistons compile to PyScript.
+YAML is for simple set-and-forget automations only.
+
+Update DESIGN.md Section 3.1 with these three rules. Remove the 10-condition list.
+
+---
+
+### 15. Helper-Based YAML — Explicitly Deferred Not Excluded
+
+Helper-based YAML compilation (using input_boolean, input_number etc to replicate
+state management in YAML) is deferred to a future version — not permanently excluded.
+
+Reason for deferral: producing correct helper-based YAML automatically is complex,
+error-prone, and took significant AI-assisted effort even for a single hand-crafted example.
+V1 keeps the boundary clean — no helpers, hard PyScript boundary.
+
+Future addition path: the AI-UPDATE-GUIDE.md in the yaml compiler template folder is
+exactly the mechanism for adding helper-based patterns later. A community contributor
+can add this capability without touching core code.
+
+Document this explicitly in DESIGN.md so future contributors understand the decision.
+
+---
+
+### 16. PyScript Compiler Is the Real Compiler — YAML Is Trivial By Comparison
+
+Confirmed by real-world example: a piston with variables, multiple triggers, and state
+tracking required extensive AI-assisted work to produce correct YAML. The equivalent
+PyScript compiles naturally because:
+- Variables are just Python variables — no helpers needed
+- Multiple triggers are just event listeners
+- OR/AND logic is just if/elif/else
+- State persists naturally within a running script
+- Wait is just task.sleep()
+- Cancel all pending tasks is just task cancellation
+
+The compiled PyScript structure mirrors the WebCoRE piston structure almost directly —
+just Python syntax instead of WebCoRE syntax. This makes the PyScript compiler
+template straightforward to design and maintain.
+
+Design the PyScript compiler template first and completely.
+The YAML compiler template is simple enough to add after.
+
+---
+
+### 17. Cancel All Pending Tasks — Missing From Spec
+
+The WebCoRE screenshot shows "Cancel all pending tasks" as a statement type.
+This is not in DESIGN.md Section 21 or FRONTEND_SPEC statement types.
+
+Add to both. In PyScript this compiles to task cancellation.
+In YAML this forces PyScript compilation (not native to YAML).
+
+---
+
+---
+
+## WIZARD AND FEATURE FINDINGS — LATE SESSION 5 (FROM SCREENSHOTS)
+
+### 18. Variable Types — Full WebCoRE List
+
+Our spec has: Text, Number, Yes/No, Date/Time, Device, Devices
+WebCoRE actual list:
+
+Basic:
+- Dynamic
+- String (text)
+- Boolean (true/false)
+- Number (integer)
+- Number (decimal)
+- Large number (long)
+- Date and Time
+- Date (date only)
+- Time (time only)
+- Device
+
+Advanced lists (list variant of every basic type):
+- Dynamic list
+- String list (text)
+- Boolean list (true/false)
+- Number list (integer)
+- Number list (decimal)
+- Large number list (long)
+- Date and Time list
+- Date list (date only)
+- Time list (time only)
+
+Decision for PistonCore v1:
+- Implement basic types first
+- Integer vs decimal separation should be kept — affects how values are handled
+- Date-only and Time-only are useful and should be included
+- List variants are a v2 feature unless there is strong demand
+- Update DESIGN.md Section 4.3 with the corrected basic type list
+
+---
+
+### 19. Statement Type Picker — Full List From Screenshots
+
+WebCoRE shows two groups when adding a statement:
+
+Basic statements:
+- If Block
+- Action (with/do block)
+- Timer
+
+Advanced statements:
+- Switch (pattern matching against a set of values)
+- Do Block (groups statements into a single block)
+- On event (executes only when certain events happen)
+- For Loop (count-based iteration)
+- For Each Loop (iterates over a device list)
+- While Loop (condition-based loop)
+- Repeat Loop (executes until condition is met)
+- Break (interrupts inner loop)
+- Exit (stops piston immediately)
+
+From clipboard (paste previously copied statement)
+
+Gaps in current PistonCore spec:
+- Switch statement — not in spec
+- Do Block — not in spec
+- On event — not in spec
+- For Loop (count-based) — not in spec (we have For Each only)
+- While Loop — not in spec
+- Break — not in spec
+- Clipboard paste — not in spec
+
+All of these are implementable in PyScript.
+
+Decision: Add all to DESIGN.md Section 21 V1 feature set.
+Evaluate which are truly needed for v1 vs v2 based on real user need.
+Switch, While Loop, Break, and On event are likely needed for power users.
+Timer may overlap with HA's own scheduler — evaluate before implementing.
+
+---
+
+### 20. Condition Wizard — First Step Is Condition vs Group
+
+The condition wizard does NOT go straight to device picker.
+First step presents two choices:
+
+Condition — "a single comparison between two or more operands,
+the basic building block of a decisional statement"
+[Add a condition]
+
+Group — "a collection of conditions, with a logical operator between
+them, allowing for complex decisional statements"
+[Add a group]
+
+Groups are how WebCoRE handles complex AND/OR logic — they are
+first-class objects, not just chained conditions.
+
+This is completely missing from WIZARD_SPEC v0.1.
+Update WIZARD_SPEC v0.2 to add this as the first wizard step.
+
+---
+
+### 21. Which Interaction Step — Physical vs Programmatic
+
+After selecting a device and attribute in the condition wizard,
+a step appears: "Which interaction"
+Options: Any interaction / Physical interaction / Programmatic interaction
+
+This distinguishes between a state change caused by a person physically
+using a device vs a state change caused by an automation or app.
+
+Not in WIZARD_SPEC v0.1. Add to v0.2.
+
+HA equivalent: context.id tracking or context.parent_id on state changes.
+This is implementable in PyScript — evaluate feasibility in sandbox.
+
+---
+
+### 22. Device Picker Sections — Action Wizard
+
+The action device picker has five sections:
+1. Virtual devices (Location — system-level commands)
+2. Physical devices (full device list)
+3. Local variables (device type variables defined in this piston)
+4. Global variables (device type global variables)
+5. System variables: $currentEventDevice, $device, $devices,
+   $location, $previousEventDevice
+
+System variables are completely missing from our spec.
+These are runtime context variables injected by WebCoRE.
+PistonCore equivalent needs to be defined — what context variables
+does a running PyScript piston have access to?
+
+Add system variables to DESIGN.md and WIZARD_SPEC.
+
+---
+
+### 23. Action Task Wizard — "Add a new task" Not "Add a new action"
+
+The task wizard title is "Add a new task" not "Add a new action".
+"With... {device}" shown at top.
+"Do... Please select a command" is the only step.
+Commands are filtered to the selected device plus location commands.
+Add more / Add buttons work same as condition wizard.
+
+Commands are tagged by type: emulated / custom / device / location
+This tagging tells the user what kind of command it is.
+
+---
+
+### 24. Location Commands — Full List From Screenshots
+
+These are system-level commands not tied to a specific device.
+They appear in the command list for every device via the Location virtual device.
+
+From screenshots (partial list — scroll was cut off):
+- Append to file
+- Append to fuel stream (Hubitat-specific — skip)
+- Cancel all pending tasks
+- Capture attributes to global store
+- Capture attributes to local store
+- Clear fuel stream (Hubitat-specific — skip)
+- Clear piston tile (Hubitat-specific — skip)
+- Delete file
+- Execute piston
+- Execute Rule (Hubitat-specific — skip)
+- LIFX commands (integration-specific — comes from HA service registry)
+- Log to console
+- Make a web request
+- No operation
+- Read fuel stream (Hubitat-specific — skip)
+- Restore attributes from global/local store
+- Resume piston
+- Send an IFTTT Maker event (comes from HA service registry if installed)
+- Send email (comes from HA service registry if configured)
+- Send notification
+- Send PUSH notification
+- Send SMS notification (comes from HA service registry — Twilio etc)
+- Set Hubitat Safety Monitor status (Hubitat-specific — skip)
+- Set location mode
+- Set piston state
+- Set piston tile colors/footer/text/title (Hubitat-specific — skip)
+- Set variable
+- Store media
+- Wait for date and time
+- Wait for time
+- Wait randomly
+- Wait
+- Wake a LAN device
+- Write to file
+
+---
+
+### 25. Action Philosophy — If HA Has a Service for It, It's Available
+
+Key design decision confirmed this session:
+
+PistonCore never maintains its own integration or command list.
+The action wizard pulls live services from HA's service registry.
+If the user has Twilio installed — SMS appears automatically.
+If they have SMTP configured — email appears automatically.
+If they have the mobile app — push notification appears automatically.
+
+PistonCore only needs to define explicitly the location/system commands
+that are NOT HA services — Wait, Set variable, Execute piston, etc.
+
+This means PistonCore inherits every HA integration automatically.
+No version updates needed when new integrations appear in HA.
+This is stronger than WebCoRE which maintained its own integration list.
+
+---
+
+### 26. "Only During These Modes" — Mode Restriction on Actions
+
+After selecting a command (e.g. Turn on), a new field appears:
+"Only during these modes" with options: Day / Evening / Night / Away
+
+This is a Location Mode restriction built into every action.
+Not in our spec. This is a WebCoRE/Hubitat concept.
+
+HA equivalent: HA has input_select or zone-based mode tracking
+but no native "location mode" concept like SmartThings/Hubitat.
+
+Decision: Do not implement "Only during these modes" as a built-in
+action restriction in v1. HA users handle mode-based logic through
+conditions and if blocks. If a user needs mode-based restrictions,
+they add a condition checking their mode input_select.
+Document this as a deliberate divergence from WebCoRE.
+
+---
+
+### 27. Control Another Piston — First-Class Feature
+
+Confirmed: Starting, stopping, enabling, disabling, and triggering
+other HA automations from within a piston is a first-class feature.
+
+Implementable entirely through native HA services:
+- automation.turn_on
+- automation.turn_off
+- automation.trigger
+- automation.reload
+
+These survive PistonCore uninstall completely — they are native HA services.
+
+In the action wizard this should appear as:
+"Control another piston" → Start / Stop / Enable / Disable / Trigger
+"Control an HA automation" → same options for non-PistonCore automations
+
+Add to DESIGN.md Section 21 and WIZARD_SPEC.
+
+---
+
+### 28. Independence Guarantee — Clarified
+
+The honest independence statement for all PistonCore features:
+
+Simple YAML pistons:
+- Run forever after PistonCore uninstall ✅
+- Run with HA app only ✅
+- Not affected by PyScript removal ✅
+
+Complex PyScript pistons:
+- Run after PistonCore uninstall ✅ (PyScript still installed)
+- Run with HA app only ✅ (PyScript still installed)
+- Stop if PyScript is removed ❌
+
+Global variables:
+- Still readable by PyScript after PistonCore uninstall ✅
+- Fail if PyScript is removed ❌
+- globals.json file persists in HA config after uninstall ✅
+
+HA service calls from pistons (notifications, device control etc):
+- All work after PistonCore uninstall ✅
+- All work with HA app only ✅
+- Not affected by PyScript removal ✅ (for YAML), ❌ (for PyScript)
+
+This table should be added to DESIGN.md Section 23.
+
+---
+
+### 29. Help Files for End Users — Next Design Item
+
+Jeremy wants end user help documentation written soon.
+Writing help files before coding is complete improves the design —
+it forces clarity on flows that look fine in a spec but confuse users.
+
+Suggested help file structure:
+- Getting Started — what PistonCore is and isn't
+- Your First Piston — step by step walkthrough
+- Understanding Triggers vs Conditions
+- Using Variables
+- Sharing Pistons (Snapshot vs Backup)
+- Troubleshooting
+
+This can be worked on independently of coding progress.
+Add to next session agenda.
+
+---
+
+## REVISED NEXT SESSION AGENDA — IN PRIORITY ORDER
+
+1. Read DESIGN.md v0.7, FRONTEND_SPEC.md, WIZARD_SPEC.md, this notes file
+2. Produce DESIGN.md v0.8 incorporating all corrections
+3. Produce FRONTEND_SPEC.md v0.2 incorporating layout corrections
+4. Produce WIZARD_SPEC.md v0.2 incorporating wizard flow corrections
+5. Design the compiler template system — primary remaining blocker
+6. Write AI-UPDATE-GUIDE.md files once compiler is designed
+7. Begin end user help file outline
+8. Update CLAUDE_SESSION_PROMPT.md
+9. Begin backend scaffolding only after compiler template system is defined
+
+---

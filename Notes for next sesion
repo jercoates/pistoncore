@@ -95,3 +95,5 @@ At first launch PistonCore displays a plain English explanation of the differenc
 When a user builds a piston and tries to use a feature that requires PyScript but their piston would compile to YAML, PistonCore prompts: "This feature requires converting your piston to a Complex piston (PyScript). Would you like to convert? Your logic will be preserved."
 If YAML loses too much function during implementation testing, evaluate pushing to PyScript-only compilation. Add this as a decision point during sandbox testing — not a decision made now
 The experimental warning at first launch covers this — users are informed things may not work perfectly until thoroughly tested
+
+perminent note for any ai reading this: What technical assumptions in this design are most likely to be wrong

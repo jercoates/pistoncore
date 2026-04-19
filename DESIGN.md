@@ -1,6 +1,6 @@
 # PistonCore Design Document
 
-**Version:** 0.6
+**Version:** 0.7
 **Status:** Draft — Ready for Development
 **Last Updated:** April 2026
 
@@ -14,24 +14,23 @@ PistonCore is an open-source visual automation builder for Home Assistant, desig
 
 It does not add devices, manage integrations, or extend HA's capabilities in any way. It reads what HA already has, gives you a better way to write logic against it, and compiles that logic to native HA files that run permanently and independently.
 
-**PistonCore does not need to be running for your automations to work.** Compiled files are standard HA automation files. If you uninstall PistonCore tomorrow, every piston you built keeps running forever. No lock-in, no dependency on a running engine, no proprietary runtime format.
+**PistonCore does not need to be running for your automations to work.** Compiled files are standard HA automation files. If you uninstall PistonCore tomorrow, every piston you built keeps running — as long as the relevant runtime (YAML native or PyScript) remains installed. Simple YAML pistons are unconditionally permanent. Complex PyScript pistons require PyScript to remain installed.
 
 ---
 
 ## 2. Core Philosophy
 
-These principles guide every design decision:
-
 * **No required central server.** PistonCore runs locally on Unraid, a Raspberry Pi, any Docker host, or optionally on a cloud server someone else hosts. Nothing depends on servers controlled by the project maintainers.
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 12.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message, a text file. Import from a URL or paste directly. No account required, no server involved.
-* **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description. A user can describe what they want to an AI and paste the result straight into the editor.
-* **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute. The project belongs to the community.
-* **Familiar to WebCoRE users.** The piston concept, structure, terminology, keywords, and logging behavior are intentionally close to WebCoRE so experienced users can pick it up immediately with minimal relearning.
-* **Plain English everywhere, icons plus labels for universal actions.** Logic operators, conditions, and descriptive text are always written in plain English. Buttons that perform actions use an icon paired with a plain English label — never an icon alone and never a label alone on universal actions. See Section 7 for UI rules.
-* **Silent by default.** PistonCore generates no debug output unless the user explicitly activates tracing for a specific piston. System stability takes priority over UI updates.
-* **Minimum footprint in HA.** PistonCore touches only what is absolutely necessary. It uses the HA REST API for reads and the companion integration for writes. It is architecturally prohibited from touching HA core files.
+* **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
+* **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
+* **Familiar to WebCoRE users.** The piston concept, structure, terminology, keywords, and logging behavior are intentionally close to WebCoRE so experienced users can pick it up immediately.
+* **Plain English everywhere, icons plus labels for universal actions.** Logic operators and descriptive text are always written in plain English. Buttons use an icon paired with a plain English label — never an icon alone.
+* **Silent by default.** PistonCore generates no debug output unless the user explicitly activates tracing for a specific piston.
+* **Minimum footprint in HA.** PistonCore touches only what is absolutely necessary and only what the user explicitly confirms during setup.
+* **Incomplete but correct is better than complete but wrong.** The wizard must prefer showing fewer options over showing incorrect options. PistonCore is allowed to not know something. It is not allowed to guess wrong.
 
 ---
 
@@ -59,76 +58,87 @@ A piston is a self-contained automation rule. It has a name, optional variables,
 
 ### Simple vs Complex Pistons
 
-PistonCore automatically decides what to compile to based on what your piston does. You never choose — it detects it:
+PistonCore automatically decides what to compile to based on what your piston does. You never choose — it detects it using explicit rules defined in Section 3.1.
 
 * **Simple piston → compiles to a HA YAML automation file**
-  * No variables used
-  * Simple conditions, no deep nesting
-  * No loops, no waits mid-piston
-  * Straightforward service calls
-
 * **Complex piston → compiles to a PyScript `.py` file**
-  * Variables used
-  * Nested if/else trees
-  * Loops or repeating actions
-  * Wait for a set time mid-piston
-  * Wait for an entity to reach a state (with optional timeout)
-  * Counters or computed values
 
-Both compile targets are native HA files and run without PistonCore being active.
+Both compile targets are native HA files and run without PistonCore being active. Simple YAML pistons run permanently and unconditionally. Complex PyScript pistons require PyScript to remain installed in HA.
+
+**PyScript is the primary compile target.** It is completed and stabilized before the YAML compiler. A working PyScript-only PistonCore is more useful to more users than a half-working dual-mode system.
+
+### 3.1 Auto-Detection Boundary — Explicit Rules
+
+The compiler uses an ordered list of conditions to decide compile target. If **any** condition is true, the piston compiles to PyScript. No judgment calls. The list is unambiguous and testable.
+
+**Conditions that force PyScript compilation:**
+
+1. The piston defines one or more piston variables
+2. The piston reads or writes any global variable
+3. The action tree contains a Repeat block
+4. The action tree contains a For Each block
+5. The action tree contains a Wait for State action (with or without timeout)
+6. The action tree contains a Wait action that is not the last action (mid-piston wait)
+7. The action tree contains a Call Another Piston action where the piston needs to wait for completion
+8. The action tree contains if/else nesting deeper than two levels
+9. The action tree contains more than one If block at the top level
+10. TEP or TCP advanced options are set on any statement
+
+If none of the above are true, the piston compiles to YAML.
+
+**When a piston crosses the boundary mid-build:** If a user adds a statement that would force PyScript compilation and their piston is currently YAML-bound, PistonCore prompts: *"This feature requires converting your piston to a Complex piston (PyScript). Your logic will be preserved. Continue?"* The user must confirm. The compile target indicator in the editor updates visibly when the target changes.
 
 ---
 
 ## 4. Variables
 
-PistonCore has two types of variables, both important and both included in v1.
-
 ### 4.1 Global Variables
 
-Defined once at the PistonCore level. Available to every piston. Persist permanently until you change them.
+Defined once at the PistonCore level. Available to every piston. Persist permanently until changed.
 
-**These are house-level settings.** Real world examples:
+**Storage:** Global variables are stored in `<ha_config>/pistoncore/globals.json`. This file is written by the companion whenever the user saves a change in the PistonCore UI. It lives in HA's config directory — not in the Docker volume — so compiled PyScript files can read it at runtime without any Docker dependency.
 
-* A **battery check piston** reads a global Devices variable containing all your battery-powered sensors. Add a new sensor to the house, add it to the global once — the piston picks it up automatically.
-* An **announcement piston** reads a global Device variable pointing to your speaker setup. Change your speakers, update the global once, every piston that uses it updates automatically.
-* A **house mode** global Text variable ("home", "away", "vacation", "night") that dozens of pistons can check.
+**Runtime access by PyScript pistons:** Compiled PyScript files read globals.json directly at runtime using Python file I/O. **This must be validated in sandbox before the compiler is written.** Known risks:
 
-**Storage and sync:** Global variables are stored in a JSON file on the Docker volume. This JSON file is the permanent master record. When a user saves a change to a global variable in the PistonCore UI, the value is written to the JSON file and immediately pushed to HA's live memory in the same operation. No manual sync step is required.
+* Plain `open()` / `json.load()` may block HA's event loop in the async PyScript environment
+* Permission failures are possible on supervised installs or restricted Docker volume mounts
+* AppArmor restrictions on some HA installation types
 
-**Startup sync:** On HA startup, an init script reads the globals JSON and pushes all values into HA live memory to restore state. If the globals file cannot be found at startup, a persistent notification appears in the HA UI: "CRITICAL: PistonCore storage not found. Using default failsafe values." Safe hardcoded defaults prevent automations from running in an unknown state.
+**Three fallback solutions to test in priority order:**
+* Solution A: Wrap file read in `task.executor()` — runs blocking I/O in a thread pool without blocking HA (preferred)
+* Solution B: Cache globals in `hass.data` on companion startup and read from there at runtime
+* Solution C: Expose globals via a PyScript module at `<ha_config>/pyscript/modules/pistoncore_globals.py` that PyScript auto-reloads when changed
 
-**Version checking:** The globals JSON includes a PistonCore version field. The startup sync script checks that the file format matches the running version before loading. A mismatch triggers a notification rather than loading potentially incompatible data.
+The compiler template must implement whichever solution sandbox confirms works. Do not write the compiler until this is resolved.
 
-**Manual edit warning:** The globals JSON file includes a prominent comment warning that manual edits are at the user's own risk and may corrupt piston behavior. PistonCore always treats the file as the master — if it is corrupted, PistonCore will detect this and alert rather than silently load bad data.
+**If globals.json is missing at runtime:** The piston logs a plain English error and stops gracefully. It does not silently fall back to hidden defaults.
 
-**PyScript variable tracking:** When a piston compiles to a `.py` file and uses global variables, the compiled file includes a comment header listing every global variable it references. This allows PistonCore to scan the compiled folder and know which globals are in use without maintaining a separate database.
+**PyScript comment header:** Every compiled `.py` file includes a comment header listing every global variable it references. This allows PistonCore to scan the compiled folder and determine global variable usage without a database.
+
+**Manual edit warning:** The globals.json file includes a prominent comment warning that manual edits are at the user's own risk. If the file is detected as corrupt on startup, PistonCore posts a persistent HA notification and uses safe hardcoded defaults. It never silently loads corrupt data.
 
 ### 4.2 Piston Variables
 
 Defined inside a single piston. Only exist while that piston is running. Forgotten when the piston finishes.
 
-**These are piston-level temporary state.** Real world examples:
-
-* A motion lighting piston tracks whether the light was already on before motion fired — so it can restore the original state when motion clears.
-* A temperature piston tracks the last reading to compare against the current one to detect rapid changes.
-* A counter tracking how many times something happened within one piston run.
+Only visible in Advanced mode.
 
 ### 4.3 Variable Types
 
-Both global and piston variables use the same types:
-
-| Type | Description | Example |
+| Type | Description | Notes |
 |---|---|---|
 | Text | A word or sentence | "away", "Good morning" |
 | Number | Any numeric value | 75, 0.5, -10 |
-| Yes/No | True or false, on or off | Yes, No |
+| Yes/No | True or false | **HA boolean helpers only.** Not for device states. |
 | Date/Time | A point in time or duration | 10:30 PM, 45 minutes |
 | Device | A single HA entity reference | Your driveway light |
-| Devices | A collection of HA entity references | All your battery sensors, all your announcement speakers |
+| Devices | A collection of HA entity references | All your battery sensors |
+
+**Yes/No is restricted to actual HA boolean helpers only.** Device states use the native values HA reports — on/off, open/closed, detected/clear, active/inactive — never a yes/no abstraction. The capability-driven wizard fetches and displays real native values from HA for each specific device. No translation layer.
 
 **Device and Devices variables always show the friendly name, never the entity ID.**
 
-**Devices variables can contain mixed device types** — your emergency announcement Devices variable can contain both Sonos speakers and Alexa devices in the same list.
+**Devices variables can contain mixed device types.**
 
 ---
 
@@ -136,36 +146,61 @@ Both global and piston variables use the same types:
 
 ### Device-Level Picker
 
-PistonCore operates at the device level, not the entity level. One physical device (such as a Sonos speaker) exposes multiple entities in HA — media player, volume sensor, shuffle state, and so on. These all share the same friendly name because they represent the same physical thing.
+PistonCore operates at the device level, not the entity level. The user always picks a physical device by friendly name, device name, or area. PistonCore never exposes entity IDs.
 
-The user always picks a physical device, not an entity ID. PistonCore never exposes entity IDs to the user.
-
-The device picker supports search by friendly name, device name, or area. It is a type-to-filter field, not a static dropdown.
+The device picker is a type-to-filter search field, not a static dropdown.
 
 ### Capability-Driven Attribute Selection
 
-After picking a device, the user picks which capability or attribute they want to act on or evaluate. This list is fetched live from HA for that specific device — it is never a hardcoded list maintained by PistonCore. The list always reflects exactly what HA reports for that device at that moment.
+After picking a device, the user picks which capability or attribute to act on. This list is fetched live from HA for that specific device using the WebSocket API commands listed in Section 5.1. It is never a hardcoded list maintained by PistonCore.
 
-This is a multi-step flow:
+Multi-step flow:
 1. Pick the device (by friendly name, device name, or area)
-2. Pick the capability or attribute from the live list HA returns for that device
+2. Pick the capability or attribute — list fetched live from HA
 3. Pick the comparison or action based on that capability
 
-Entity resolution — determining which underlying HA entity handles the selected capability — is done internally by PistonCore. The user never sees or selects entity IDs.
+Entity resolution is handled internally by PistonCore. The user never sees or selects entity IDs.
 
-### Unknown Device Fallback
+### 5.1 WebSocket API — Required Commands
 
-PistonCore always attempts to pull capability data from HA first. This covers the vast majority of devices.
+All device, entity, capability, trigger, condition, and service data is fetched via the HA WebSocket API. The REST API is used only for simple one-off calls (such as automation/reload) that do not require a persistent connection.
 
-If HA returns no usable capability data for a device, PistonCore shows a one-time **"Define this device"** screen for that specific device. The user labels each entity exposed by that device in plain English ("This is the motion sensor", "This is the battery level", "This is the tamper alert"). PistonCore stores that definition locally on the Docker volume.
+PistonCore opens a WebSocket connection to HA using the long-lived access token on first launch and keeps it open during the session.
 
-From that point on, the device behaves exactly like any HA-known device in the picker — the user's labels appear in capability dropdowns. The definition is editable at any time from a **"My Device Definitions"** screen in PistonCore settings.
+Key WebSocket commands the wizard depends on:
+* `get_triggers_for_target` — all valid triggers for a specific device
+* `get_conditions_for_target` — all valid conditions for a specific device
+* `get_services_for_target` — all valid services for a specific device
+* `config/entity_registry/list_for_display` — optimized entity list for UI display
 
-This fallback triggers once per device, not once per piston. Users who add devices regularly will see it occasionally for new unknown devices only.
+### 5.2 Capability Data Quality and Graceful Degradation
 
-### Why This Requires Full Device Profiles from the Companion
+The WebSocket commands return best-effort data. Output quality varies by device type and integration. Known problem areas: Zigbee (ZHA/Zigbee2MQTT), Z-Wave, MQTT, media players, custom/community integrations.
 
-The companion integration must fetch full device capability profiles from HA — not just entity lists. Every attribute, every supported state, every available service for every device. The condition wizard and action builder depend entirely on this data being complete and current.
+**Required behavior:**
+* If capability data is clear, the wizard uses it directly
+* If capability data is returned but incomplete, the wizard shows what it has and adds an *"Other / Manual"* option at the bottom of each list
+* If HA returns no usable capability data at all, the Unknown Device Fallback triggers (see Section 5.3)
+* If capability data is present but ambiguous, unusual, or inconsistent with normal expectations for that device class, PistonCore prompts the user to review and define the missing context manually (see Section 5.4)
+* The wizard never crashes or shows incorrect options — it always degrades to showing less rather than showing wrong
+
+A small curated fallback layer for device types HA handles poorly is acceptable and does not violate the design philosophy. This layer is built incrementally based on real gaps found during sandbox testing.
+
+### 5.3 Unknown Device Fallback
+
+If HA returns no usable capability data for a device, PistonCore shows a one-time **"Define this device"** screen for that specific device. The user labels each entity in plain English. PistonCore stores that definition locally on the Docker volume.
+
+From that point on the device behaves like any HA-known device in the picker. Definitions are editable from the **"My Device Definitions"** screen in PistonCore settings.
+
+This triggers once per device, not once per piston.
+
+### 5.4 Manual Context Lookup for Ambiguous Data
+
+If PistonCore fetches capability data that is present but unclear — unusual attribute names, unexpected units of measurement, values at unexpected scale, raw data without enough meaning to safely determine valid operators or comparisons — the wizard must not guess.
+
+**Required behavior:** PistonCore prompts the user to look up the device behavior and define the missing context manually. The user-defined context is stored locally and reused for that device on future runs.
+
+This keeps the system honest. PistonCore is allowed to be incomplete. It is not allowed to invent meaning that HA did not provide and the user did not confirm.
 
 ---
 
@@ -173,39 +208,31 @@ The companion integration must fetch full device capability profiles from HA —
 
 Every piston has the following sections in order. All sections except the header are collapsible.
 
-A piston is built from **Statements**. There are two kinds:
+A piston is built from **Statements**. Two kinds:
 
-* **Decisional statements** — control the flow of execution: `if`, `else if`, `else`, `end if`, `repeat`, `for each`, `while`, `end repeat`
+* **Decisional statements** — control flow: `if`, `else if`, `else`, `end if`, `repeat`, `for each`, `while`, `end repeat`
 * **Executive statements** — execute things: `with [device] do [action]`, `set variable`, `wait`, `wait for state`, `log message`, `call another piston`, `stop`
-
-This maps directly to WebCoRE's statement model and uses the same keywords.
 
 ### 6.1 Header
 
 * **Name** — human readable, becomes the filename when compiled
-* **Description** — optional, shown in piston list and sharing previews
-* **Folder** — which user-defined folder this piston lives in (set here or on the status page)
-* **Mode** — what happens if the piston triggers while already running:
-  * *Single* — ignore new triggers while running (default)
-  * *Restart* — cancel current run and start fresh
-  * *Queued* — finish current run then start next
-  * *Parallel* — run multiple instances simultaneously
-* **Enabled / Disabled** — pause a piston without deleting it
+* **Description** — optional
+* **Folder** — set here or on the status page
+* **Mode** — Single (default) / Restart / Queued / Parallel
+* **Enabled / Disabled**
 
 ### 6.2 Piston Variables
 
-Optional. Defined at the top, available throughout this piston only.
-Clearly labeled: *"Temporary — forgotten when this piston finishes running."*
-Only visible in Advanced mode.
+Optional. Only visible in Advanced mode. Labeled: *"Temporary — forgotten when this piston finishes running."*
 
 ### 6.3 Triggers
 
-What starts the piston. One or more triggers. Uses the same multi-step wizard as conditions and actions (see Section 8).
+One or more triggers. Uses the same multi-step wizard as conditions and actions.
 
 Trigger types:
 * Device or entity state change — `changes`, `changes to`, `changes from`, `changes from X to Y`
 * Numeric — `rises above`, `drops below`
-* State with duration — `changes to [value] and stays for [duration]` — compiles to HA's native `for:` parameter
+* State with duration — `changes to [value] and stays for [duration]` — compiles to HA native `for:` parameter
 * Button/momentary device — `gets [event]`, `gets any`
 * Time — a specific time of day
 * Sunrise / Sunset with optional offset in minutes
@@ -219,13 +246,11 @@ Trigger types:
 
 Checked after a trigger fires. If conditions are not met the piston stops silently.
 
-Conditions use plain English operators written out in full — never symbols. Multiple conditions are grouped with **AND** or **OR** — written in full, never symbols. XOR is not supported.
-
-Condition setup uses the same device-level picker and live capability list described in Section 5.
+Operators are plain English, written in full. Device states use native HA values — on/off, open/closed, detected/clear, etc. — never a yes/no abstraction. Multiple conditions grouped with AND or OR — written in full, never symbols.
 
 ### 6.5 Action Tree
 
-A top-to-bottom sequence of statements that can branch. Uses `with / do / end with` and `if / then / else / end if` keywords matching WebCoRE. See Section 8 for the wizard that builds each statement.
+Top-to-bottom sequence of statements using `with / do / end with` and `if / then / else / end if` keywords matching WebCoRE.
 
 ---
 
@@ -233,26 +258,22 @@ A top-to-bottom sequence of statements that can branch. Uses `with / do / end wi
 
 ### Overall Feel
 
-The editor is a **structured document viewed top to bottom**. Logic is always visible — indentation shows nesting. It reads like a well-formatted script, not a web form. A user who has used WebCoRE should be able to build a basic piston within a few minutes without reading documentation.
+The editor is a **structured document viewed top to bottom**. Logic is always visible — indentation shows nesting. It reads like a well-formatted script. Keywords match WebCoRE exactly: `if`, `then`, `else if`, `else`, `end if`, `with`, `do`, `end with`, `repeat`, `for each`, `only when`.
 
-Keywords like `if`, `then`, `else if`, `else`, `end if`, `with`, `do`, `end with`, `repeat`, `for each`, `only when` are the structural anchors — matching WebCoRE's keywords exactly.
+### Frontend Technology
 
-Indentation increases with nesting depth. Deeply nested logic is deeply indented.
+**Vanilla JS, HTML, and CSS.** No framework. This keeps the dependency footprint minimal and makes the code readable by any contributor without framework knowledge. The cousin's working implementations use this stack and are the basis for integration.
 
 ### UI Rules — No Exceptions
 
-1. **No pictograms for logic.** AND/OR is written "AND" and "OR". Equals is written "equals". Greater than is written "is greater than". No symbols that require learning a visual language.
-2. **No entity IDs ever visible to the user.** All entity references show the friendly name, device name, and area. Entity IDs are handled internally.
-3. **All dropdowns populated from live HA data.** You never type a device name or service name. You always pick from what HA reports.
-4. **Sections are collapsible** with clear plain English text labels — not icons alone.
-5. **Errors are plain English.** "Action 3 failed: the device you selected was not found in Home Assistant" — not technical error codes.
-6. **Buttons that perform actions use icon plus plain English label.** Example: `📷 Snapshot`, `📷 Backup`, `▶ Test`, `✎ Edit`. Never icon alone.
-7. **Automatic validation on save.** When a piston is saved, PistonCore immediately checks for problems and displays any warnings or errors on the status page without the user having to ask.
-8. **Compiled output is never shown to the user.** The YAML or PyScript output is hidden. It is an implementation detail, not a user-facing feature.
-
-### Frontend Framework
-
-The frontend framework is not prescribed. The feel requirement — structured document editor, indented logic tree, inline ghost text insertion, wizard modals — takes priority over any technology preference. The session2_archive contains prior React scaffolding but it is not required. Use whatever framework best produces this feel.
+1. No pictograms for logic. AND/OR, equals, greater than — always written in plain English.
+2. No entity IDs ever visible to the user.
+3. All dropdowns populated from live HA data.
+4. Sections are collapsible with plain English labels.
+5. Errors are plain English.
+6. Buttons use icon plus plain English label. Never icon alone.
+7. Automatic validation on save. Warnings appear on the status page without the user asking.
+8. Compiled output is never shown to the user.
 
 ### Inline Ghost Text — Primary Insertion Method
 
@@ -261,26 +282,39 @@ At every valid insertion point in the document, ghost text appears inline:
 * `+ add a new task`
 * `+ add a new restriction`
 
-Clicking any ghost text opens the multi-step wizard modal for that insertion point. This is the primary way statements are added — not a toolbar.
+Clicking opens the multi-step wizard modal for that insertion point. This is the primary way statements are added.
 
 ### Simple / Advanced Mode Toggle
 
-A single toggle at the top of the editor. Default is Simple.
+Single global toggle at the top of the editor. Default is Simple.
 
-* **Simple mode** — hides piston variables, limits to most common trigger and action types, plain English presentation throughout
-* **Advanced mode** — shows everything: piston variables, all trigger types, all action types, loops, wait-for-state, nested if/else to any depth, call another piston, TEP/TCP policy options in wizard
+* **Simple** — hides piston variables, limits to most common types, plain English throughout
+* **Advanced** — shows everything including piston variables, all types, loops, wait-for-state, deep nesting, TEP/TCP in wizard
 
-Switching modes never breaks a piston. Advanced pistons open correctly in simple mode — advanced features just cannot be edited until switching back to advanced.
+This is the only global mode control. No per-block toggles.
 
-**This is the only global mode control.** There are no per-block show/hide toggles in the document itself.
+Switching modes never breaks a piston.
 
 ### Per-Statement Advanced Options (Cog in Wizard)
 
-Each statement wizard modal has a **cog icon** in the bottom right corner with tooltip "Show/Hide advanced options". Clicking it expands additional options for that specific statement — Task Execution Policy, Task Cancellation Policy, Execution Method (sync/async). These are always accessible regardless of Simple/Advanced mode but are hidden until needed.
+Each wizard modal has a cog icon (bottom right, tooltip: "Show/Hide advanced options") expanding:
+* Task Execution Policy (TEP)
+* Task Cancellation Policy (TCP)
+* Execution Method (sync/async)
+
+Available regardless of Simple/Advanced mode but hidden until needed. TEP and TCP are only relevant for PyScript pistons — PistonCore shows a note if these are set on a YAML-bound piston.
 
 ### Drag and Drop
 
-Statements can be dragged and reordered within the document. Exact drag behavior (whether cross-block dragging is permitted) to be determined during implementation based on what produces the most natural feel.
+**This must be designed before the editor data model is built.** See Section 7.1.
+
+### Role Creation During Piston Building
+
+**This must be decided before the editor data model is built.** See Section 7.2.
+
+### Navigation and State Transitions
+
+**This must be defined before frontend coding begins.** See Section 7.3.
 
 ### Piston List Screen
 
@@ -309,18 +343,25 @@ Statements can be dragged and reordered within the document. Exact drag behavior
 └──────────────────┴──────────────────────────────────┘
 ```
 
-* Folders created from this page only — not from inside the editor or wizard
+* Folders created from this page only
 * New pistons land in Uncategorized automatically — no folder prompt on creation
 * Pause/Resume available per piston from this list
 * True/false last evaluation result shown per piston (✅/❌)
 * Global Variables drawer accessible from this page
 * Import button (paste JSON, URL, or file upload)
+* Mode indicator visible: PyScript Only / Full Mode
+
+**PyScript-only mode notice (subtle, footer or sidebar):**
+*"PistonCore manages automations in its own subfolder. Automations created directly in Home Assistant are not visible or managed here."*
+
+**Full Mode notice (prominent):**
+*"PistonCore is running in Full Mode (YAML + PyScript). Creating automations directly in the Home Assistant GUI may cause unexpected behavior. Manage all automations through PistonCore."*
 
 ### Piston Status Page
 
-**Navigation flow: List → Status Page → Editor → Status Page**
+**Navigation: List → Status Page → Editor → Status Page**
 
-The status page is the hub for every piston. Saving in the editor returns here.
+The status page is the hub for every piston. Saving in the editor always returns here.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -337,6 +378,7 @@ The status page is the hub for every piston. Saving in the editor returns here.
 │                      [Trace: OFF]  [⚠ Notify: OFF]  │
 ├─────────────────────────────────────────────────────┤
 │  QUICK FACTS                                        │
+│  Compile target: PyScript / YAML                    │
 │  Last ran: 10 minutes ago                           │
 │  Next scheduled: sunset today                       │
 │  Devices used: Driveway Main Light                  │
@@ -354,11 +396,11 @@ The status page is the hub for every piston. Saving in the editor returns here.
 └─────────────────────────────────────────────────────┘
 ```
 
-**Compiled output (YAML or PyScript) is NOT shown on this page.** It is an internal implementation detail.
+Compiled output (YAML or PyScript) is **not** shown on this page.
 
-**Failure notification toggle:** When enabled, a piston failure fires a persistent notification in the HA UI (visible in the HA bell/notification panel until dismissed) AND sets a visible flag/badge on the piston in the PistonCore UI if the Docker container is running. Configured per piston via the `⚠ Notify` toggle on this page.
+**Failure notification toggle:** When enabled, a piston failure fires a persistent notification in the HA UI AND sets a visible badge on the piston in PistonCore.
 
-**Trace toggle:** When enabled and Test is pressed or the piston fires naturally, trace numbers appear overlaid on log entries matching each condition and action line number — exactly as WebCoRE did. Test must be pressed at least once before Trace becomes available on a new piston.
+**Trace toggle:** When Trace is on and the piston runs, trace numbers overlay log entries matching line numbers in the document. Test must be pressed at least once on a new piston before Trace becomes available.
 
 ### Piston Editor Screen
 
@@ -371,16 +413,17 @@ The status page is the hub for every piston. Saving in the editor returns here.
 │  Folder: [Outdoor Lighting ▼]                       │
 │  Mode: [Single — ignore new triggers while running] │
 │  [● Enabled]              [Simple mode / Advanced]  │
+│  Compile target: [PyScript]                         │
 ├─────────────────────────────────────────────────────┤
 │  ▼ PISTON VARIABLES                         [+ Add] │
 │  Temporary — forgotten when this piston finishes    │
 │  (none)                                             │
 ├─────────────────────────────────────────────────────┤
-│  ▼ TRIGGERS                                 [+ Add] │
+│  ▼ TRIGGERS                                         │
 │  Sun event — Sunset — no offset                     │
 │  + add a new trigger                                │
 ├─────────────────────────────────────────────────────┤
-│  ▼ CONDITIONS                               [+ Add] │
+│  ▼ CONDITIONS                                       │
 │  (none — piston runs on every trigger)              │
 ├─────────────────────────────────────────────────────┤
 │  ▼ ACTIONS                                          │
@@ -406,73 +449,191 @@ The status page is the hub for every piston. Saving in the editor returns here.
 └─────────────────────────────────────────────────────┘
 ```
 
-**Save returns the user to the status page for this piston.** It does not stay in the editor.
+**Save returns the user to the status page.** It does not stay in the editor.
 
-**Log Level** is set per piston at the bottom of the editor: None / Minimal / Full.
-* If log level is None: saving clears the log
-* If log level is Minimal or Full: saving preserves the log
-* This matches WebCoRE behavior exactly
+**Log Level** per piston: None / Minimal / Full. If None, saving clears the log. If Minimal or Full, saving preserves the log. Matches WebCoRE behavior exactly.
+
+---
+
+## 7.1 Drag and Drop Rules — MUST BE DEFINED BEFORE EDITOR DATA MODEL
+
+**Status: Open — blocking editor implementation.**
+
+Drag and drop behavior affects the document data model, undo/redo, and state management. It cannot be deferred to implementation.
+
+**Questions to resolve:**
+* Can statements be dragged freely across any boundary, or only within their containing block?
+* Can a statement be dragged into or out of an if/else branch?
+* Can a statement be dragged into or out of a repeat block?
+* What happens to indentation and nesting when a statement is dropped at a new level?
+* Is undo supported for drag operations? If so, how many levels?
+* What is the visual affordance for a valid vs invalid drop target?
+
+**Proposed conservative default (to be confirmed):**
+* Statements can be freely reordered within their containing block
+* Dragging across block boundaries (into or out of an if/else branch, into or out of a repeat) is not supported in v1 — the user must cut and re-add at the new location
+* This simplifies the data model significantly and avoids complex nesting mutation logic
+* Add cross-block drag as a v2 feature once the data model is stable
+
+**This must be confirmed before the editor data model (Section 7.2) is designed.**
+
+---
+
+## 7.2 Nested Statement Tree Data Structure — MUST BE DEFINED BEFORE EDITOR DATA MODEL
+
+**Status: Open — blocking editor and compiler implementation.**
+
+The editor manipulates a tree of statements in memory. This tree is serialized to piston JSON on save. A developer cannot build the editor without this defined.
+
+**Proposed structure (to be confirmed and expanded):**
+
+Every statement node has at minimum:
+```json
+{
+  "id": "stmt_001",
+  "type": "if_block",
+  "condition": { ... },
+  "true_branch": [ /* array of statement nodes */ ],
+  "false_branch": [ /* array of statement nodes */ ],
+}
+```
+
+```json
+{
+  "id": "stmt_002",
+  "type": "with_block",
+  "target_role": "driveway_light",
+  "tasks": [ /* array of task nodes */ ]
+}
+```
+
+```json
+{
+  "id": "stmt_003",
+  "type": "repeat_block",
+  "condition": { ... },
+  "body": [ /* array of statement nodes */ ]
+}
+```
+
+```json
+{
+  "id": "stmt_004",
+  "type": "wait",
+  "until": "23:00:00"
+}
+```
+
+**Open questions to resolve:**
+* How is else_if represented — as a nested structure within the false_branch, or as a sibling node with its own condition?
+* How are Only When restrictions attached to a statement — as a child property or a sibling node?
+* What is the maximum nesting depth enforced by the editor vs the compiler?
+* How does the editor generate and maintain unique statement IDs during editing (add, delete, reorder)?
+* How does the compiler walk this tree — depth-first recursive descent?
+
+**This structure must be finalized before any editor or compiler code is written.**
+
+---
+
+## 7.3 Navigation and State Transitions — MUST BE DEFINED BEFORE FRONTEND CODING
+
+**Status: Open — blocking frontend implementation.**
+
+**Unsaved changes:**
+If a user navigates away from the editor with unsaved changes, PistonCore shows a prompt: *"You have unsaved changes. Save, Discard, or Cancel?"* Cancel returns the user to the editor. Discard navigates away without saving. Save triggers the save pipeline then navigates.
+
+**Back button behavior:**
+The back button on the status page returns the user to the folder their piston is in — not always the root piston list. If the piston is in Uncategorized, the back button returns to the list with Uncategorized selected.
+
+**Browser refresh:**
+On refresh, PistonCore restores: the currently open folder in the piston list, the last viewed status page (if on the status page), and the editor state if in the editor (from local browser storage — unsaved changes preserved).
+
+**WebSocket drop while in editor:**
+If the WebSocket connection to HA drops while the user is in the editor: show a reconnecting banner at the top of the editor, disable the Deploy button, disable wizard capability fetching, preserve all unsaved work in local browser storage. When the connection is restored, remove the banner and re-enable all features.
+
+---
+
+## 7.4 Role Creation During Piston Building — MUST BE DECIDED BEFORE EDITOR DATA MODEL
+
+**Status: Open — blocking editor data model.**
+
+When a user picks a device in the wizard while building a piston from scratch, what is created internally — a named role or a hard entity reference?
+
+**Options:**
+* **Always create roles automatically** — every device picked gets an auto-generated role name (e.g., `device_1`, `driveway_light`). This makes every piston inherently shareable but adds friction for single-user builds.
+* **Always use hard entity references internally, convert to roles on Snapshot export** — the editor stores real entity IDs internally. On Snapshot export, PistonCore automatically generates roles from the entity references and strips the IDs. The user never manages roles unless they explicitly share.
+* **Ask the user** — on first device pick, ask: *"Are you building this piston just for yourself, or to share?"* Shareable path creates roles; personal path creates hard references.
+
+**Recommendation for discussion:** Option B (hard references internally, auto-roles on export) is the simplest user experience and avoids surfacing the role concept to users who never share. The role system remains fully functional for sharing — it just happens automatically on export rather than during building.
+
+**This must be decided before the editor data model is designed.**
 
 ---
 
 ## 8. The Condition, Trigger, and Action Wizard
 
-When a user clicks any `+ add a new...` ghost text, or clicks to edit an existing statement, a **multi-step modal wizard** opens. Triggers, conditions, and actions all use this same wizard pattern.
+When a user clicks any ghost text or edits an existing statement, a **multi-step modal wizard** opens. Triggers, conditions, and actions all use this same wizard pattern.
 
-Each step's options are generated from HA based on what was selected in the previous step. PistonCore never maintains its own device capability database — it always asks HA.
+Each step's options are generated from HA based on what was selected in the previous step. PistonCore never maintains its own device capability database — it always asks HA via WebSocket.
 
-The wizard builds a plain English sentence at the top as the user goes through each step. This sentence is the breadcrumb — it shows what has been selected so far and grows with each step.
+The wizard builds a plain English sentence at the top as the user progresses. This sentence is the breadcrumb.
 
 **Condition wizard flow:**
-1. What to compare — pick: Physical Device, Variable, Time, Date, Location/Presence, HA System
+1. What to compare — Physical Device, Variable, Time, Date, Location/Presence, HA System
 2. Pick the device — searchable by name or area
-3. Pick the capability or attribute — list fetched live from HA for that device
-4. Pick the operator — list appropriate to the selected capability (see Section 9)
+3. Pick the capability or attribute — live from HA WebSocket
+4. Pick the operator — appropriate to the selected capability (Section 9)
 5. Compare to — value, another device, a variable, or a time
 
-**Action wizard flow (with block):**
+**Action wizard flow:**
 1. Pick the device
-2. Pick the capability or service — list fetched live from HA for that device
+2. Pick the capability or service — live from HA WebSocket
 3. Configure the service call parameters — fields generated from HA's service schema
 
 **Trigger wizard flow:**
-Same as condition wizard with trigger-specific operators available (changes to, rises above, etc.) and an optional duration field ("and stays for [duration]") that appears when relevant.
+Same as condition wizard with trigger-specific operators and an optional duration field ("and stays for [duration]") when relevant.
 
-**Wizard cog — advanced options:**
-Each wizard modal has a cog icon (bottom right, tooltip: "Show/Hide advanced options") that expands:
-* Task Execution Policy (TEP) — Always execute / Execute on condition state change only / Execute on piston state change only
-* Task Cancellation Policy (TCP) — Cancel on condition change (default) / Cancel on piston state change / Cancel on either / Never cancel
-* Execution Method — Synchronous (default) / Asynchronous
+### 8.1 Wizard Capability Map — MUST BE DEFINED BEFORE WIZARD CODING
 
-TEP and TCP are only relevant for PyScript (complex) pistons. PistonCore shows a note if these are set on a piston that compiles to YAML.
+**Status: Open — blocking wizard implementation.**
+
+A developer needs a map of: given a device of type X with capability Y, what operators are valid, what value types are valid for comparison, and what service parameters appear in the action wizard. This is the core logic that makes the wizard context-aware.
+
+**Questions to resolve:**
+* Is this map stored as a data file the wizard reads, or as code logic inside the wizard?
+* How does the map handle capability types not in the map — fall through to "Other / Manual"?
+* How does the map version — if HA changes what a capability supports, does the map update?
+* Who maintains this map — is it community-contributed to the repo?
+
+**This must be defined before wizard coding begins.**
 
 ---
 
 ## 9. Comparison Operators — Full Supported Set
 
-All operators are written in plain English. Symbols are never used for logic.
+All operators written in plain English. Symbols never used for logic. Device states use native HA values — never yes/no abstraction.
 
-### Condition Operators (evaluate current state)
+### Condition Operators
 
-| Operator | Plain English Label |
+| Operator | Notes |
 |---|---|
-| is / is not | is / is not |
-| is any of / is not any of | is any of / is not any of |
-| is between / is not between | is between / is not between |
-| is greater than | is greater than |
-| is less than | is less than |
-| is greater than or equal to | is greater than or equal to |
-| is less than or equal to | is less than or equal to |
-| was true for at least (duration) | was true for at least — PyScript only |
-| was false for at least (duration) | was false for at least — PyScript only |
-| is before (time) | is before |
-| is after (time) | is after |
-| is between (times) | is between |
-| date is before | date is before |
-| date is after | date is after |
-| date is between | date is between |
+| is / is not | |
+| is any of / is not any of | |
+| is between / is not between | |
+| is greater than | |
+| is less than | |
+| is greater than or equal to | |
+| is less than or equal to | |
+| was true for at least [duration] | PyScript only |
+| was false for at least [duration] | PyScript only |
+| is before [time] | |
+| is after [time] | |
+| is between [times] | |
+| date is before | |
+| date is after | |
+| date is between | |
 
-### Trigger Operators (fire when something happens)
+### Trigger Operators
 
 | Operator | Notes |
 |---|---|
@@ -482,9 +643,9 @@ All operators are written in plain English. Symbols are never used for logic.
 | changes from X to Y | specific transition |
 | rises above | numeric |
 | drops below | numeric |
-| changes to [value] and stays for [duration] | compiles to HA native `for:` — not a separate operator |
-| gets [event] | button/momentary device, specific event |
-| gets any | button/momentary device, any event |
+| changes to [value] and stays for [duration] | compiles to HA native `for:` |
+| gets [event] | button/momentary, specific event |
+| gets any | button/momentary, any event |
 | receives [attribute value] | specific attribute subscription |
 | event occurs | any event on attribute |
 
@@ -493,11 +654,10 @@ All operators are written in plain English. Symbols are never used for logic.
 * AND
 * OR
 
-XOR is not supported. `followed by` (sequence detection) is not supported — no HA equivalent exists.
+XOR not supported. `followed by` not supported. `range` deferred to v2.
 
 ### Multi-Device Aggregation
 
-When a Devices variable or multiple devices are selected:
 * any of [devices] is/are
 * all of [devices] are
 * none of [devices] are
@@ -506,25 +666,17 @@ When a Devices variable or multiple devices are selected:
 
 ## 10. Export and Import
 
-### Export — Snapshot (📷 green label)
+### Snapshot (📷 green label)
 
-Exports an anonymized version of the piston with all entity mappings stripped. The logic, structure, roles, and role labels are preserved. Safe to post on forums, GitHub, Discord, or share with anyone. Recipients map their own devices on import.
+Anonymized export. All entity mappings stripped. Roles and logic preserved. Safe to post publicly. New piston ID generated on import.
 
-### Export — Backup (📷 red label)
+### Backup (📷 red label)
 
-Exports the full piston including entity mappings. Intended for personal restore only. Labeled clearly in the UI: "For your own restore only — do not share." The compiled file hash is included.
-
-### Import — Snapshot Flow
-
-A Snapshot import always contains unmapped role placeholders. On import PistonCore shows the device mapping screen — each unmapped role is presented with a dropdown of live devices from HA. The user maps each role before the piston can be saved or deployed. A new piston ID is generated on import.
-
-### Import — Backup Flow
-
-A Backup import contains real entity mappings. If those entities exist in the importing HA instance, PistonCore uses them as-is and treats the import as a restore. The original piston ID is preserved. If entities are not found, PistonCore falls through to the role mapping screen exactly like a Snapshot import.
+Full export including entity mappings. Labeled clearly: *"For your own restore only — do not share."* Original piston ID preserved on import. If entities exist in the importing HA instance they are used as-is. If not, falls through to role mapping screen.
 
 ### Import Methods
 
-* Paste JSON directly into the import dialog
+* Paste JSON directly
 * Paste a URL pointing to any raw JSON file
 * Upload a `.piston` file
 * AI-generated JSON pasted from any AI assistant
@@ -533,75 +685,72 @@ A Backup import contains real entity mappings. If those entities exist in the im
 
 ## 11. AI Prompt Feature
 
-The main piston list page has a **Copy AI Prompt** button. Clicking it copies the PistonCore JSON format specification to the clipboard. No user data, entity information, or global variables are included — only the format specification. The user pastes it into any AI assistant, describes what they want, and the AI generates a valid PistonCore JSON template with role placeholders. The user imports that template and maps the placeholders to their real devices.
+The main piston list page has a **Copy AI Prompt** button. **This feature needs redesign before implementation.**
 
-User data stays private. The AI never sees entity IDs or personal configuration.
+**The problem with the v0.6 design:** Copying only the JSON format spec gives an AI no context about the user's actual devices or intent. The AI produces generic output that still requires significant manual work.
+
+**Revised design (to be finalized):**
+The copied prompt must include at minimum:
+* The PistonCore JSON format specification
+* The role labels defined in the piston being worked on (if editing an existing piston)
+* A plain English summary of the user's mapped devices by friendly name — not entity IDs
+
+User data privacy rule: **No entity IDs are ever included.** Friendly names only. The AI never sees HA-internal identifiers.
+
+**This feature must be redesigned in detail before implementation.**
 
 ---
 
 ## 12. File Signature and Manual Edit Detection
 
-Every compiled `.yaml` and `.py` file written by PistonCore includes a signature header block:
+Every compiled file written by PistonCore includes a signature header:
 
 ```
 # !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
-# pc_piston_id: a3f8c2d1 | pc_version: 0.6 | pc_hash: [hash of compiled file content]
+# pc_piston_id: a3f8c2d1 | pc_version: 0.7 | pc_hash: [hash of compiled content]
 ```
 
-The hash is computed from the compiled file content (YAML or PyScript). This is how PistonCore enforces the "never touch files it did not create" rule — it only operates on files that contain its own signature.
+On deploy, if the existing file's hash does not match what PistonCore expects, it stops and shows a **diff** of exactly what changed, then asks: **Overwrite** or **Cancel**.
 
-**On deploy:** PistonCore reads the existing file's hash before writing. If the hash does not match what PistonCore expects, it stops and shows the user a **diff** of exactly what lines changed, then asks:
-* **Overwrite** — deploy and replace manual changes with the new compiled version
-* **Cancel** — do nothing, preserve the manual edits
-
-This gives users full control over their files while ensuring PistonCore never silently destroys manual work.
+PistonCore only operates on files that contain its own signature. It never touches any other file.
 
 ---
 
 ## 13. Pre-Save Validation Pipeline
 
-When a user saves a piston and Deploy to HA is triggered, PistonCore runs a validation pipeline before writing anything to the production HA directories.
+### On Save (always runs — no HA involvement)
 
-**Stage 1 — Internal validation (always runs):**
-PistonCore checks the piston JSON for obvious problems before compiling:
+Stage 1 — Internal validation:
 * No triggers defined
 * Action references a device not found in HA
 * Global variable referenced but not defined
 * Required role not mapped
 
-Results appear as warnings/errors on the status page validation banner immediately after save — even before deployment is attempted.
+Results appear as warnings/errors on the status page validation banner immediately after save.
 
-**Stage 2 — Compile to sandbox (on deploy):**
-PistonCore compiles the piston to a temporary sandbox location, not the production HA directories.
+### On Deploy (runs after save, before writing to HA)
 
-**Stage 3 — HA validation:**
-* YAML pistons: companion calls `hass --script check_config` against the sandbox. This is a full HA-native validation. HA keeps running — no restart, no disruption.
-* PyScript pistons: companion runs Python syntax check (`py_compile`) against the sandbox. This catches syntax errors but not all runtime errors — PyScript validation is best-effort by nature.
+Stage 2 — Compile to sandbox (temporary location, not production HA directories)
 
-**Stage 4 — Decision:**
-* If validation passes → file moves from sandbox to production directory, hash is computed and written to the file header, piston JSON is updated, user lands on status page with success confirmation.
-* If validation fails → nothing is written to production. User sees the validation error.
+Stage 3 — HA validation:
+* **YAML pistons:** `hass --script check_config` validates the entire HA config including the sandbox file. **This is slow and runs on the full config, not just the piston file.** It runs only on deploy, not on save. If this proves too disruptive during implementation testing, fall back to deploy-time only with a clear user note that YAML validation is best-effort.
+* **PyScript pistons:** `py_compile` syntax check against the sandbox. Best-effort — catches syntax errors but not all runtime errors.
 
-**Error display:**
-Raw error text is shown as returned by HA or Python. For known common errors, a plain English explanation is shown below the raw error. Unknown errors show raw only — the user can copy and paste to an AI for translation. The plain English lookup table grows over time via community contributions to the repo.
+Stage 4 — Decision:
+* Pass → file moves to production, hash written to header, user lands on status page with success
+* Fail → nothing written to production, user sees validation error (raw error shown plus plain English explanation for known errors)
 
 ---
 
 ## 14. Safety Rules — Core Lockdown
 
-PistonCore is strictly a generator and API client. These restrictions are architectural — they cannot be configured away or overridden by any user action:
-
-**PistonCore is forbidden from:**
+PistonCore is architecturally forbidden from:
 * Modifying `.storage/` folders
-* Editing `configuration.yaml` directly
+* Editing `configuration.yaml` directly (except the one-time additions during companion setup, which require explicit user confirmation — see Section 17.3)
 * Accessing `home-assistant_v2.db`
 * Writing to any directory it did not create
 * Writing to any file that does not contain its own signature header
 * Calling any undocumented HA internal API
-
-**The only HA-side additions** are a small set of lines added to HA config during companion setup, handled through the normal HACS installation process.
-
-**Corruption detection:** If the globals JSON file is detected as corrupt on startup, PistonCore posts a persistent HA notification and uses safe hardcoded defaults. It never silently loads corrupt data.
 
 ---
 
@@ -609,59 +758,47 @@ PistonCore is strictly a generator and API client. These restrictions are archit
 
 ### Log Level — Per Piston
 
-Each piston has an independent log level set at the bottom of the editor:
-* **None** — no logging. Saving with this level set clears the existing log.
+Set at the bottom of the editor: None / Minimal / Full.
+
+* **None** — no logging. Saving clears the existing log.
 * **Minimal** — trigger events and errors only
-* **Full** — every condition checked, every action taken, pass/fail, timing
+* **Full** — every condition checked, every action, pass/fail, timing
 
-If log level is Minimal or Full, saving preserves the existing log — exactly as WebCoRE did.
-
-### Log Panel (Status Page)
-
-Most recent runs at the top. Each entry shows:
-* When the piston triggered and what triggered it
-* Each condition checked and whether it passed or failed — in plain English
-* Each action taken and whether it succeeded
-* Any errors in plain English
-* How long the run took
-* Clear Log button
+If Minimal or Full, saving preserves the existing log — exactly as WebCoRE did.
 
 ### Log Message Action
 
-A "Log message" statement type can be added anywhere in the action tree. The user selects a message type:
-* Info (default color)
-* Warning (yellow)
-* Error (red)
-* Debug (gray)
-* Trace (blue)
-
-Manual log messages always appear in the log regardless of log level setting — even when log level is None. This matches WebCoRE behavior exactly.
+A "Log message" statement can be added anywhere in the action tree. Message types: Info / Warning / Error / Debug / Trace (color-coded). Manual log messages always appear regardless of log level setting, even when level is None. Matches WebCoRE behavior exactly.
 
 ### Trace Mode
 
-A toggle on the status page. Test must be pressed at least once on a new piston before Trace becomes available.
+Toggle on status page. Test must be pressed at least once on a new piston before Trace becomes available.
 
-When Trace is on and the piston runs (via Test or natural trigger):
-* Trace numbers appear overlaid on log entries
-* Numbers align with condition and action line numbers in the document
-* Allows line-by-line follow-along to see exactly where a problem occurred
-* Trace data is transmitted via a custom PistonCore WebSocket event
-* Trace data is never written to the main HA system log
-* When Trace is off, no debug data is generated or transmitted at all
+When Trace is on and the piston runs:
+* Trace numbers overlay log entries matching condition and action line numbers
+* Trace data transmitted via custom PistonCore WebSocket event
+* Trace data never written to the main HA system log
+* When Trace is off, no debug data generated or transmitted at all
 
-### Test / Dry Run
+### Test / Dry Run — Behavior Differs by Compile Target
 
-The Test button on the status page and editor fires the piston manually right now. In dry run mode it shows what actions would have been called without actually calling them.
+**YAML pistons:** Dry run is fully supported — shows what actions would be called without calling them.
 
-### Error Handling
+**PyScript pistons:** Dry run executes the logic but attempts to skip service calls by wrapping them in a dry-run flag that the compiled template checks. **If this proves too complex or unreliable during implementation, fall back to:** PyScript test mode fires the piston live with a clear warning: *"This will execute real actions on your devices."* No silent fake dry run.
 
-When a piston fails mid-run:
-* The error is logged in plain English
-* The piston stops at the point of failure
-* Remaining actions are not executed
-* If failure notification is enabled: persistent notification fires in the HA UI AND a badge appears on the piston in PistonCore
-* The piston stays enabled and tries again on the next trigger
-* Errors are never silent
+This difference must be clearly documented in the UI. Developer to assess the dry-run flag approach viability before committing to it.
+
+### Run Status Reporting
+
+Compiled pistons fire a standard HA event at completion (success or failure):
+* PyScript: `hass.bus.fire` in the compiled template
+* YAML: `event:` action at the end of the automation
+
+The companion listens for these events via its own WebSocket subscription to HA and relays run status to the PistonCore Docker. The run log updates from this data.
+
+**Important:** HA event delivery is best-effort, not guaranteed. Under load or during WebSocket reconnection, events can be lost. The UI must handle missing status gracefully — show *"Status unknown"* rather than wrong information. Run log entries timestamp when received, not just when the piston ran.
+
+**Open question:** Confirm that YAML automations can fire a custom event on completion and document the exact syntax. Confirm `hass.bus.fire` works as expected in compiled PyScript files.
 
 ---
 
@@ -671,22 +808,20 @@ When a piston fails mid-run:
 
 * Simple pistons → `<ha_config>/automations/pistoncore/<piston_name>.yaml`
 * Complex pistons → `<ha_config>/pyscript/pistoncore/<piston_name>.py`
+* Globals → `<ha_config>/pistoncore/globals.json`
 * PistonCore never writes outside its own named subfolders
-* PistonCore never modifies, moves, or deletes any file that does not contain its own signature header
-* Filenames come from the piston name
+* PistonCore never writes to any file that does not contain its own signature header
 
-### PyScript Comment Header
+### Call Another Piston — Mode Limitations
 
-Every compiled `.py` file includes a comment header listing:
-* Piston name, created date, modified date, PistonCore version, build number
-* Every global variable the piston references
-
-This allows PistonCore to scan the compiled folder and determine global variable usage without a database.
+* **PyScript → PyScript:** Supported, implement cleanly
+* **YAML → YAML:** Fire-and-forget only. The called piston is triggered but PistonCore cannot wait for it to complete. User is warned of this limitation in the wizard: *"Calling another piston from a Simple piston will trigger it but will not wait for it to finish. Switch to Advanced mode if you need to wait for the called piston to complete."*
+* **YAML → PyScript or mixed:** If the user needs to call another piston and wait, this forces conversion to PyScript. The conversion prompt applies.
 
 ### Deployment Flow
 
-1. User clicks **Deploy to HA**
-2. Pre-save validation pipeline runs (see Section 13)
+1. User clicks Deploy to HA
+2. Pre-save validation pipeline runs (Section 13)
 3. If validation passes, companion writes file to production directory
 4. Companion calls the HA reload service
 5. Automation is live within seconds
@@ -694,7 +829,7 @@ This allows PistonCore to scan the compiled folder and determine global variable
 
 ### Manual Edit Warning
 
-If a compiled file's hash does not match on deploy, PistonCore shows a diff and asks Overwrite or Cancel before touching anything. See Section 12.
+If a compiled file's hash does not match on deploy, PistonCore shows a diff and asks Overwrite or Cancel before touching anything.
 
 ---
 
@@ -703,55 +838,126 @@ If a compiled file's hash does not match on deploy, PistonCore shows a diff and 
 ### 17.1 PistonCore Editor (Docker Container)
 
 * **Backend:** Python (FastAPI)
-* **Frontend:** Framework not prescribed — must produce the structured document editor feel described in Section 7
+* **Frontend:** Vanilla JS, HTML, and CSS — no framework
 * **Runs on:** Any Docker host — Unraid, Raspberry Pi, NAS, cloud VPS
 * **Default port:** 7777 (configurable)
 * **Piston storage:** JSON files in a mounted Docker volume
 * **No internet required** for local use
 
-Unraid Community Apps template planned for one-click installation.
+Unraid Community Apps template planned.
 
 ### 17.2 First-Run Setup — Two Phase
 
 **Phase 1 — Editor only (immediate):**
-On first launch, the user enters their HA URL and a long-lived HA access token. PistonCore uses the HA REST API to pull all devices, entities, capabilities, areas, and services. The user can begin building and editing pistons immediately. No companion required.
+User enters HA URL and long-lived access token. PistonCore opens a WebSocket connection to HA and pulls all devices, entities, capabilities, areas, and services. The user can begin building and editing pistons immediately. No companion required.
 
 **Phase 2 — Companion (prompted when needed):**
-When the user first attempts to deploy a piston to HA, PistonCore detects that the companion is not installed and prompts the user to install it via HACS. The companion is required only for writing compiled files and validation. Until deployment is needed, the companion is not required.
+When the user first attempts to deploy a piston to HA, PistonCore detects that the companion is not installed and prompts installation via HACS.
 
 ### 17.3 PistonCore Companion (HA Custom Integration)
 
 Installed into Home Assistant via HACS.
 
-Provides a local API that the editor uses to:
+#### Setup Mode Selection
+
+Before making any changes to HA, the companion presents three options:
+
+**Option A — PyScript Only (Recommended for existing installations)**
+*"PistonCore will compile all pistons to PyScript. Your existing automations are completely untouched. No changes to your automation configuration are made. This is the safest choice for existing HA installations."*
+* No `!include_dir_merge_list` change needed
+* No conflict with existing or future GUI automations
+* PyScript custom integration must be installed via HACS
+* Full PistonCore feature set available
+
+**Option B — Full Mode (Recommended for new/fresh HA installations only)**
+*"PistonCore will support both Simple (YAML) and Complex (PyScript) pistons. This requires a change to your configuration.yaml that may affect how your existing GUI automations behave. Recommended only for new HA installations or users prepared to manage their existing automations carefully."*
+* Requires `!include_dir_merge_list` configuration.yaml change
+* May affect GUI automation editor behavior — confirmed real-world risk
+* Requires double confirmation (two separate screens)
+
+**Option C — Cancel**
+*"Make no changes. Exit setup. Your HA installation is unchanged."*
+
+The chosen mode is stored in PistonCore settings and displayed prominently in both the PistonCore UI and the HA companion card. Changing modes later requires going through the same warning and confirmation flow again.
+
+#### Confirmation Screen — All Modes
+
+Before making any changes, PistonCore displays a plain English summary of every change it is about to make:
+
+*"PistonCore needs to make the following changes to your Home Assistant installation. Please review and confirm:*
+
+* *Add `pyscript: allow_code_remote: true` to your configuration.yaml — this allows PistonCore to reload PyScript files after deployment without restarting HA.*
+* *Create folder `<ha_config>/automations/pistoncore/` — compiled YAML automations will be written here. (Full Mode only)*
+* *Create folder `<ha_config>/pyscript/pistoncore/` — compiled PyScript automations will be written here.*
+* *Create file `<ha_config>/pistoncore/globals.json` — global variables will be stored here.*
+* *(Full Mode only) Add `automation: !include_dir_merge_list automations/` to your configuration.yaml — this allows HA to load automations from subfolders, including the pistoncore subfolder.*
+
+*No other changes will be made. PistonCore will never modify any file it did not create."*
+
+User must click **I Agree — Make These Changes** to proceed, or **Cancel** to abort with nothing changed.
+
+#### Double Confirmation for Full Mode
+
+Full Mode users see two separate confirmation screens before any changes:
+
+**Screen 1:** Everything in the confirmation screen above, specific to Full Mode changes.
+
+**Screen 2:** *"Important — going forward, creating automations directly in the Home Assistant GUI may cause unexpected behavior with PistonCore's YAML pistons. We recommend managing all automations through PistonCore from this point. Do you understand and wish to continue?"*
+
+Both confirmations are logged in PistonCore settings for support reference.
+
+#### Existing Configuration Detection
+
+Before presenting the mode selection screen, the companion scans existing HA configuration and warns specifically if complex existing YAML automation includes or GUI automations are detected. Never assumes a clean configuration.
+
+#### configuration.yaml Additions (exact lines)
+
+Full Mode:
+```yaml
+automation: !include_dir_merge_list automations/
+```
+
+All modes (PyScript):
+```yaml
+pyscript:
+  allow_code_remote: true
+```
+
+These are the only configuration.yaml modifications PistonCore ever makes. After this one-time setup, deploying new pistons requires only writing the file and calling the appropriate reload service — no further configuration.yaml changes ever needed.
+
+#### Companion Capabilities
+
 * Fetch full device capability profiles from HA (all attributes, all supported states, all services per device)
 * Write compiled piston files to the correct HA directories
+* Write globals.json to `<ha_config>/pistoncore/`
 * Execute `hass --script check_config` for YAML validation
 * Execute `py_compile` for PyScript syntax checking
-* Trigger HA reload after deployment
-* Report piston run status back to the editor
+* Call `automation/reload` after YAML deployment
+* Call `pyscript.reload` after PyScript deployment
+* Listen for PistonCore run status events via WebSocket subscription and relay to the Docker editor
 * Transmit Trace debug data via custom WebSocket event
 
-Requires a long-lived HA access token configured once at setup.
+#### Compiler Template System
+
+**Status: Not yet defined — do not write compiler code until this is designed.**
+
+The design mentions compiler templates as external and user-replaceable but has not defined: the template format, where they live on the Docker volume, how the compiler fills them in from piston JSON, or what "user replaceable" means in practice. This requires a dedicated design discussion before coding.
 
 ---
 
 ## 18. The JSON Sharing Format
 
-Pistons are stored internally and shared externally as plain JSON.
+### Role System and Piston ID
 
-### Key Design Decisions
+* Device references use **roles** — named placeholders, not hard entity IDs
+* The actual entity IDs live in a `device_map` — never included in Snapshot exports
+* Format is versioned
 
-* Device references use **roles** — named placeholders like `motion_sensor` or `driveway_light` — not hard entity IDs
-* The actual entity IDs live in a `device_map` section that belongs to your installation and is never included in a Snapshot export
-* The JSON schema is fully documented so AI tools can generate valid pistons
-* The format is versioned so future PistonCore updates can handle older pistons gracefully
+**Role creation during piston building:** See Section 7.4 — this decision is open and must be made before the editor data model is designed.
 
-### Piston ID Generation and Collision Handling
-
-* Piston IDs are short hashes generated at creation time
-* **Snapshot import:** always generates a new ID — the piston is always a new separate piston
-* **Backup import:** preserves the original ID and treats the import as a restore of the same piston. If the entity mappings in the backup exist in the current HA instance, they are used as-is. If not, the role mapping screen is shown.
+**Piston IDs:**
+* Snapshot import always generates a new ID
+* Backup import preserves the original ID and restores if entities exist in the importing HA instance
 
 ### Example Piston JSON
 
@@ -762,6 +968,7 @@ Pistons are stored internally and shared externally as plain JSON.
   "name": "Driveway Lights at Sunset",
   "description": "Turns on driveway lights at sunset and off at 11pm",
   "mode": "single",
+  "compile_target": "yaml",
   "roles": {
     "driveway_light": {
       "label": "Driveway Light",
@@ -783,6 +990,7 @@ Pistons are stored internally and shared externally as plain JSON.
   "conditions": [],
   "actions": [
     {
+      "id": "stmt_001",
       "type": "with_block",
       "target_role": "driveway_light",
       "tasks": [
@@ -794,10 +1002,12 @@ Pistons are stored internally and shared externally as plain JSON.
       ]
     },
     {
+      "id": "stmt_002",
       "type": "wait",
       "until": "23:00:00"
     },
     {
+      "id": "stmt_003",
       "type": "with_block",
       "target_role": "driveway_light",
       "tasks": [
@@ -815,80 +1025,37 @@ Pistons are stored internally and shared externally as plain JSON.
 
 ## 19. Global Variables Management
 
-Managed from PistonCore's main settings screen, separate from any individual piston.
+Managed from PistonCore's main settings screen.
 
 The global variables screen shows:
 * All defined globals with their current values and types
 * Which pistons reference each global (scanned from PyScript comment headers)
 * Add, edit, and delete globals
 
-Changing a global value writes to the JSON file and pushes to HA live memory immediately — no redeployment of pistons needed.
+Changing a global value writes to globals.json immediately — no redeployment of pistons needed.
 
-A **Global Variables drawer** is also accessible from the main piston list page as a read-only reference panel — matching the WebCoRE right sidebar.
+A **Global Variables drawer** is accessible from the main piston list page as a read-only reference panel.
 
 ---
 
 ## 20. Folders
 
-Pistons are organized into user-defined single-level folders. Nested folders are out of scope for v1.
+Single-level user-defined folders. Nested folders out of scope for v1.
 
-**Folder creation:** Folders are created from the main piston list page only. There is no inline folder creation in the editor or wizard.
-
-**Folder assignment:** Folder assignment is never mandatory. New pistons land in **Uncategorized** automatically — no prompt on creation. Folder assignment is done via a dropdown on the piston status page or in the editor header. This matches how WebCoRE handled folder assignment on the piston overview/debug page.
-
-Pistons with no folder assigned appear in the **Uncategorized** bucket in the folder sidebar.
+* Created from the main piston list page only
+* New pistons land in **Uncategorized** automatically — no prompt on creation
+* Folder assignment via dropdown on status page or in editor header
+* Pistons with no folder appear in Uncategorized in the folder sidebar
 
 ---
 
 ## 21. V1 Core Feature Set
 
-Build only these in V1. Everything else is a future feature.
-
 **Statement types:**
-* If Block (with when true / when false branches)
-* With / Do block (action execution)
-* Only When restrictions (per statement)
-* Wait (fixed duration)
-* Wait for state with timeout
-* Set variable
-* Repeat loop with condition
-* For each (iterate over a Devices variable)
-* Log message
-* Call another piston
-* Stop
+If Block, With/Do block, Only When restrictions, Wait (fixed duration), Wait for state with timeout, Set variable, Repeat loop, For each, Log message, Call another piston, Stop
 
 **Editor features:**
-* Structured document editor — indented tree, inline ghost text insertion
-* WebCoRE-matching keywords: if / then / else if / else / end if / with / do / end with / repeat / for each / only when
-* Drag and drop block reordering
-* Global variables right sidebar (read-only reference) on main list page
-* Simple / Advanced mode toggle
-* Per-statement advanced options cog in wizard (TEP, TCP, Execution Method)
-* 📷 Snapshot and 📷 Backup export
-* Duplicate piston
-* Import from JSON paste, URL, and file
-* Piston status page as hub — navigation: List → Status → Editor → Status
-* Save returns to status page
-* Run log with plain English detail
-* Log level per piston (None / Minimal / Full) with WebCoRE-matching save behavior
-* Log message action with five color-coded types
-* Trace mode via WebSocket
-* Test must be run once before Trace is available (WebCoRE behavior)
-* Pause/resume from list and status page
-* Compiler templates (external, user replaceable)
-* Device picker — type-to-filter search by name and area
-* Unknown device fallback — one-time define screen, stored locally, editable
-* Dynamic capability-driven multi-step wizard for triggers, conditions, and actions
-* Trigger wizard with optional duration field (stays for)
-* Full operator set (see Section 9) — XOR and followed-by excluded
-* True/false last evaluation result on piston list
-* Copy AI Prompt button on piston list
-* Automatic validation warnings on save (status page banner)
-* Pre-deploy validation pipeline — HA check_config for YAML, py_compile for PyScript
-* File signature and hash system — manual edit detection with diff display
-* Failure notification — HA persistent notification + PistonCore badge
-* My Device Definitions screen for unknown device definitions
-* Piston ID system — new ID on Snapshot import, preserved ID on Backup restore
+Structured document editor — indented tree, inline ghost text insertion, WebCoRE-matching keywords, drag and drop block reordering, Global variables drawer on main list page, Simple/Advanced mode toggle, per-statement cog in wizard (TEP/TCP/Execution Method), Snapshot and Backup export, duplicate piston, import from JSON/URL/file, piston status page as hub, save returns to status page, run log with plain English detail, log level per piston with WebCoRE-matching save behavior, log message action with five color-coded types, trace mode via WebSocket, test required before trace available, pause/resume, compiler templates (external, user replaceable — format TBD), device picker with type-to-filter search, unknown device fallback — one-time define screen, dynamic capability-driven multi-step wizard, trigger wizard with duration field, full operator set (Section 9), true/false last evaluation result on list, copy AI prompt button (redesign required), automatic validation on save, pre-deploy validation pipeline, file signature and hash system, failure notification, My Device Definitions screen, piston ID system
 
 ---
 
@@ -896,7 +1063,7 @@ Build only these in V1. Everything else is a future feature.
 
 * Mobile app
 * Multi-user authentication
-* Central cloud server maintained by the project
+* Central cloud server
 * Direct WebCoRE piston import / migration
 * Piston marketplace or registry
 * HA dashboard status cards
@@ -904,11 +1071,24 @@ Build only these in V1. Everything else is a future feature.
 * Nested folders
 * `followed by` sequence operator
 * XOR logical operator
-* `range` trigger operator (numeric range entry/exit) — deferred to v2
+* `range` trigger operator — deferred to v2
+* Cross-block drag and drop — deferred to v2
 
 ---
 
-## 23. Distribution Plan
+## 23. PyScript Independence Warning
+
+The "uninstall PistonCore and automations keep running forever" promise is unconditional for Simple YAML pistons. For Complex PyScript pistons it depends on PyScript remaining installed.
+
+**Simple YAML pistons:** Permanently independent. Truly run forever without PistonCore or PyScript.
+
+**Complex PyScript pistons:** Require PyScript to remain installed. If PyScript is removed: all complex pistons stop running, trace/status reporting stop working, globals.json reads fail.
+
+This is an acceptable known risk. The experimental warning at first launch covers this. Documentation must be clear about which promise applies to which piston type.
+
+---
+
+## 24. Distribution Plan
 
 | Channel | Purpose | When |
 |---|---|---|
@@ -920,7 +1100,7 @@ Build only these in V1. Everything else is a future feature.
 
 ---
 
-## 24. Development Log
+## 25. Development Log
 
 ### Session 1 — April 2026
 Project conceived. Design document written. GitHub repo created.
@@ -929,64 +1109,52 @@ Project conceived. Design document written. GitHub repo created.
 FastAPI backend scaffolded. React frontend scaffolded. Companion skeleton built. 19 API endpoints verified. Compiler verified against example piston. All code now in session2_archive.
 
 ### Session 2 Strategy Review — April 2026
-Extensive WebCoRE screenshot review. Design rewritten as v0.5. Major changes to UI model, architecture, and scope. Frontend decoupled from React. Condition wizard redesigned as dynamic multi-step. Status page established as piston hub. Compiler template system designed. V1 scope tightened.
+Extensive WebCoRE screenshot review. Design rewritten as v0.5. Major changes to UI model, architecture, scope. Frontend decoupled from React. Condition wizard redesigned as dynamic multi-step. Status page established as piston hub. Compiler template system designed. V1 scope tightened.
 
 ### Session 3 — April 2026
-Design refined through WebCoRE screenshot analysis and structured topic review. Key decisions made:
-- Device picker operates at device level, not entity level
-- Capability selection is live from HA, never from a PistonCore-maintained list
-- Trace mode is a user toggle on the status page via WebSocket
-- Global variables write to JSON and push to HA live memory immediately on save
-- Safety lockdown is architectural
-- PyScript comment headers track global variable usage without a database
-- AI Prompt button copies format spec only — no user data
-- Export is Snapshot (anonymized) and Backup (full, personal only)
-- Two-phase setup: Phase 1 REST API only, Phase 2 companion on first deploy
-- Automatic validation on save displays warnings on status page
-- Six open questions documented for next session
-
-DESIGN.md updated to v0.5. No code written this session.
+Design refined through WebCoRE screenshot analysis. Six open questions documented for next session. DESIGN.md updated to v0.5. No code written.
 
 ### Session 4 — April 2026
-All six open questions from Section 20 resolved. Full design review against WebCoRE wiki and documentation. Key decisions made:
+All six open questions resolved. Full design review against WebCoRE wiki. Frontend framework confirmed as vanilla JS/HTML/CSS (cousin's implementation). DESIGN.md updated to v0.6. No code written.
 
-- **Compiled output hidden** — not shown on status page
-- **Save returns to status page** — not stay in editor
-- **Trigger wizard** — same multi-step wizard as conditions and actions
-- **Folder assignment** — no prompt on creation, lands in Uncategorized, assigned via dropdown on status page (matches WebCoRE behavior)
-- **Piston ID on import** — Snapshot always gets new ID; Backup preserves original ID and restores if entities exist in HA
-- **Failure notification** — HA persistent notification + PistonCore badge, toggle per piston on status page
-- **Unknown device fallback** — HA first always; if no capability data returned, one-time Define screen per device, stored locally, editable
-- **File signature and hash system** — every compiled file gets signature header, hash of compiled content, manual edit detection shows diff before asking Overwrite/Cancel
-- **Pre-save validation pipeline** — Stage 1 internal checks; Stage 2 sandbox compile; Stage 3 HA check_config (YAML) or py_compile (PyScript); Stage 4 commit or stop
-- **Editor document model** — structured document, indented tree, WebCoRE keywords, inline ghost text insertion, single global Simple/Advanced toggle, per-statement cog in wizard for TEP/TCP/Execution Method
-- **Full WebCoRE operator set reviewed** — XOR removed, followed-by removed, range deferred to v2, geofence handled naturally via changes-to on person/zone entity
-- **Logging** — implemented as close to WebCoRE as HA allows: log level per piston, save behavior matches WebCoRE, five log message types, Trace via WebSocket with line number overlay, Test required before Trace available
-- **Frontend framework** — not prescribed, cousin's working implementation to be integrated; framework to be confirmed
-- **Three pages defined**: Main list page, Status page (hub), Editor page — full content of each documented in Section 7
+### Session 5 — April 2026
+DESIGN.md v0.7 produced incorporating all corrections from notes files and Claude Projects review. Key changes from v0.6:
 
-DESIGN.md updated to v0.6. No code written this session.
+- **Global variables storage corrected** — companion writes globals.json to `<ha_config>/pistoncore/`, PyScript reads at runtime (sandbox validation required first, three fallback solutions defined)
+- **Yes/No variable type corrected** — restricted to HA boolean helpers only; device states use native HA values
+- **Phase 1 data fetching corrected** — WebSocket API, not REST API; specific required commands listed
+- **Dry run corrected** — YAML gets preview, PyScript gets live-fire with warning or dry-run flag (developer to assess viability)
+- **Setup flow redesigned** — PyScript Only vs Full Mode as explicit choice; double confirmation for Full Mode; existing config detection required
+- **PyScript is primary compile target** — YAML compiler is secondary
+- **Auto-detection boundary made explicit** — ten testable conditions that force PyScript; no judgment calls
+- **Companion setup made explicit** — exact configuration.yaml lines, plain English confirmation screen, per-item change list
+- **Four Gemini gaps documented** — navigation state (7.3), nested tree structure (7.2), save pipeline (Section 13 stage notes), wizard capability map (8.1)
+- **Four Claude Projects findings added** — auto-detection rules (3.1), check_config scope note (Section 13), AI prompt redesign (Section 11), role creation open question (7.4), drag and drop must be defined before data model (7.1)
+- **PyScript independence warning added** — Section 23 clarifies which independence promise applies to which piston type
+- **Run status reporting mechanism defined** — HA events, companion WebSocket relay, best-effort delivery acknowledged
+- **Call another piston limitations documented** — per compile target
+- **Frontend confirmed** — vanilla JS, HTML, CSS
+
+**Open items blocking coding:**
+1. Drag and drop rules (Section 7.1)
+2. Nested statement tree data structure (Section 7.2)
+3. Role creation during piston building (Section 7.4)
+4. Wizard capability map (Section 8.1)
+5. Compiler template system (Section 17.3)
+6. globals.json sandbox validation (Section 4.1)
+7. AI Prompt feature redesign (Section 11)
+8. Editor save pipeline (Section 13 — on-save stage needs more detail)
+
+No code written this session.
 
 ---
 
-## 25. IMPORTANT — Pending Corrections (Read Before Coding)
+## 26. Standing Questions — Ask Every AI Reviewing This Design
 
-**A corrections and additions file exists in this repo called "Notes for next session."**
+* What technical assumptions in this design are most likely to be wrong?
+* What features described here cannot work the way they are described?
+* What has been left undefined that will block a developer from writing code?
 
-**This file contains confirmed corrections to this document. Where the notes conflict with anything written above, the notes take priority.**
-
-**Do not write code against the following sections until the notes have been read and reconciled:**
-
-- Section 4.1 and Section 19 — Global variables storage (correction pending)
-- Section 4.3 — Yes/No variable type (correction pending)
-- Section 5 and Section 17.2 — Phase 1 data fetching (correction pending — WebSocket not REST)
-- Section 17.3 — Companion setup details (significant additions pending)
-- Section 11 — Dry run behavior differs between YAML and PyScript (correction pending)
-- Compiler template system — not yet fully defined, do not write compiler code until next design session
-- Call another piston — YAML limitations documented in notes
-- Piston run status reporting — mechanism defined in notes, not yet in this document
-
-**DESIGN.md v0.7 will incorporate all of these. Until then the notes file is authoritative for these sections.**
 ---
 
 *PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

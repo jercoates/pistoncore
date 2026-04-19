@@ -753,3 +753,68 @@ Do not poll other AIs until v0.8/v0.2/v0.2 are published.
 ---
 
 Session 5 complete — April 2026
+
+---
+
+## COMPILER TEMPLATE DESIGN APPROACH — CONFIRMED
+
+### Breaking the Chicken and Egg Problem
+
+The compiler template system cannot be designed abstractly because:
+- The Jinja2 template needs to know what variables the compiler passes
+- The compiler needs to know what the template expects
+- Both depend on how the piston tree is walked
+- The piston tree walk depends on which statement types exist
+
+The solution is to work BACKWARDS from known good output — not forwards
+from abstract structure.
+
+### Session 6 Compiler Exercise — Do This BEFORE Producing v0.8
+
+Use the driveway lights piston — already in DESIGN.md Section 18 as the
+example piston JSON. It is simple enough to work with but complete enough
+to reveal the full compiler structure.
+
+Step 1 — Write valid PyScript for the driveway lights piston BY HAND
+Do not use a template. Write what correct PyScript output should look like
+for that specific piston. This is the target output.
+
+Step 2 — Work backwards to the template
+Given the hand-written PyScript output, identify what parts are fixed
+(always the same for any piston) and what parts are variable (filled in
+from piston JSON). The fixed parts become the template. The variable
+parts become the placeholders.
+
+Step 3 — Work backwards to the compiler
+Given the template placeholders, determine what data the compiler needs
+to provide. This reveals what the compiler must extract from the piston
+JSON and how it must walk the tree to get it.
+
+Step 4 — Define the compiler walk
+Document the exact recursive function the compiler uses to walk the
+statement tree and generate the template context object.
+
+Step 5 — Verify
+Feed the piston JSON through the designed compiler logic on paper.
+Confirm it produces the same output as the hand-written PyScript.
+
+Once this works for the driveway lights piston the structure is defined.
+Adding new statement types (Switch, While, etc.) is just adding new cases
+to the compiler walk and new blocks to the template.
+
+### Why This Approach Works
+
+- Starts from something concrete and correct
+- Reveals the structure naturally instead of imposing it abstractly
+- The AI-UPDATE-GUIDE files write themselves once the template exists
+- The ha-stubs.py mock objects become obvious from the PyScript output
+- The globals.json access pattern is visible in the hand-written PyScript
+
+### This Is a Design Session — Not a Coding Session
+
+No code is written in session 6 until this exercise is complete on paper.
+The output of this exercise is a document — COMPILER_SPEC.md — that
+defines the template format, the compiler walk, and the placeholder names.
+That document is what gets reviewed by other AIs before any code is written.
+
+---

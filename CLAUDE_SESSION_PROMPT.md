@@ -188,6 +188,7 @@ concept finalized. No code written.
 2. Read FRONTEND_SPEC.md v0.1 from the repo
 3. Read WIZARD_SPEC.md v0.1 from the repo
 4. Read Notes_for_next_session.md from the repo — corrections take priority over v0.7
+   (file was updated late session 5 — if you see Notes_for_next_session_v2.md use that one)
 5. Read permanent notes ask each ai from the repo
 6. Produce DESIGN.md v0.8 incorporating all corrections from notes file
 7. Produce FRONTEND_SPEC.md v0.2 incorporating layout and rendering corrections

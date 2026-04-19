@@ -96,4 +96,20 @@ When a user builds a piston and tries to use a feature that requires PyScript bu
 If YAML loses too much function during implementation testing, evaluate pushing to PyScript-only compilation. Add this as a decision point during sandbox testing — not a decision made now
 The experimental warning at first launch covers this — users are informed things may not work perfectly until thoroughly tested
 
+Gemini design review findings — four gaps identified:
+Gap 1 — UI transitions and stateful navigation:
+The design defines page content but not navigation behavior. Before frontend coding begins define:
+
+What happens to unsaved editor changes if the user navigates away — prompt to save, discard, or cancel navigation
+What the back button does from the status page — returns to the folder the piston is in, not always the root list
+What state is preserved on browser refresh — piston list position, open folder, last viewed status page
+What happens if the WebSocket connection to HA drops while the user is in the editor — show a reconnecting banner, disable deploy button, preserve unsaved work locally
+
+Gap 2 — Recursive component tree data structure:
+The design describes the visual appearance of the nested statement tree but not the data structure that drives it. Before frontend coding begins define the exact JSON structure that represents a nested piston in the editor's internal state — how an if block contains its true_children and false_children, how a repeat block contains its body, how nesting to any depth is represented. This structure is what the editor manipulates and what gets serialized to the piston JSON on save. A developer cannot build the editor without this defined.
+Gap 3 — Editor save pipeline:
+The design defines the deploy-to-HA validation pipeline (Section 13) but not the simpler save pipeline that runs every time the user hits Save in the editor. Define: what gets written where on save, whether save can fail and what happens if it does, whether save is instant or has a loading state, and what the user sees between clicking Save and landing on the status page.
+Gap 4 — UI Capability Map for the wizard:
+The design describes the wizard concept and the operator list but does not define the decision tree that drives wizard step 3 and beyond. A developer needs a map of: given a device of type X with capability Y, what operators are valid, what value types are valid for comparison, and what service parameters appear in the action wizard. This is the core logic that makes the wizard context-aware. Define this before wizard coding begins — either as a document or as a structured data file the wizard reads from.
+
 perminent note for any ai reading this: What technical assumptions in this design are most likely to be wrong

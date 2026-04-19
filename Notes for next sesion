@@ -1,120 +1,115 @@
-Take all of this information as suggestion or clues to what i want and prompt me for more detail on each subject.  most of these are copy pasts of discusions from other ai's going over different ideas and problems
+Design correction — Yes/No variable type (flagged by power user):
+The Yes/No variable type in Section 4.3 needs to be corrected. Yes/No implies a simple true/false abstraction but HA booleans only apply to actual HA boolean helpers. Devices report their own native states — on/off, open/closed, detected/clear, active/inactive — not yes/no.
+Decision: Keep Yes/No as a variable type for actual HA boolean helpers only. For device states, the capability-driven wizard fetches and displays the real native values from HA — whatever HA reports for that specific device. No translation layer, no abstraction. The wizard already does this correctly by design. The variable type table in Section 4.3 should be updated to clarify this distinction, and any UI text that implies Yes/No covers device on/off states should be corrected.
+When updating DESIGN.md for this, also check Section 6.4 conditions and Section 9 operators to make sure no operator language assumes yes/no as a device state.
+Design correction — Global variables storage (Section 4.1 and Section 19):
+Remove all references to "push to HA live memory" and input helpers. Remove the startup sync script entirely.
+Correct design: When globals are saved in PistonCore, the companion writes <ha_config>/pistoncore/globals.json. Compiled PyScript files read this file directly at runtime using standard Python file reading — confirmed viable by PyScript documentation. No Docker dependency, no input helpers, no size limits, no UI exposure. If globals.json is missing when a piston runs, the piston logs a plain English error and stops gracefully.
+Also add to Section 17.3: PyScript requires allow_code_remote: true in configuration.yaml for the pyscript.reload service to work. Companion setup must instruct the user to add this line or complex piston deployment will fail.
+Section 16 / Section 17.3 — YAML subfolder requires configuration.yaml entry:
+The companion setup must add automation: !include_dir_merge_list automations/ to configuration.yaml once during initial setup. This allows HA to pick up YAML files from automations/pistoncore/ automatically. This is the only configuration.yaml modification PistonCore makes. Document this explicitly in Section 17.3 companion setup instructions. After this one-time addition, deploying new YAML pistons requires only writing the file and calling automation/reload — no further configuration.yaml changes ever needed.
+Section 17.3 — companion setup — be explicit:
+The one configuration.yaml addition required is:
+automation: !include_dir_merge_list automations/
+This is the same change Jeremy already makes manually on his own HA. Document this exact line in the companion setup instructions so it is not left ambiguous for the developer.
+New design requirement — companion setup transparency (add to Section 17.3):
+During companion setup, before making any changes to Home Assistant, PistonCore must display a plain English summary of exactly what it is about to do and require the user to explicitly confirm before proceeding.
+The confirmation screen must list every change individually. Example:
+"PistonCore needs to make the following changes to your Home Assistant installation. Please review and confirm:
 
-If pistoncore can not pull what a a device does then expose entity ids for user to pick or creat a define for them in pistoncore (show once when device is added and let the user define what each id does).
-You mention PistonCore never touches files it did not create.
-To do this safely: You’ll need a "Signature" or "Metadata" block in the JSON that gets written as a comment at the top of the .py or .yaml file.
-Example: # PistonCore-ID: [Unique-Hash].
-If the hash doesn't match when PistonCore tries to update it, it should stop and warn the user: "Manual changes detected. Overwrite?"
-Does this "Signature" idea fit with how you want to handle the "no lock-in" philosophy? (It ensures you don't accidentally overwrite a user's manual tweak.)
-🛡️ Refining the Header
-Since you're adding this to your notes for Claude, here is a punchy way to define that header so the AI generates it perfectly every time:
-The "Human" Warning: A big, clear comment like:
-# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
-The "Machine" Data: A hidden metadata line for your Docker to read:
-# pc_piston_id: 12345 | pc_version: 0.5 | pc_hash: a1b2c3d4
+Add automation: !include_dir_merge_list automations/ to your configuration.yaml — this allows HA to load automations from subfolders, including the pistoncore subfolder.
+Add pyscript: allow_code_remote: true to your configuration.yaml — this allows PistonCore to reload PyScript files after deployment without restarting HA.
+Create folder <ha_config>/automations/pistoncore/ — compiled YAML automations will be written here.
+Create folder <ha_config>/pyscript/pistoncore/ — compiled PyScript automations will be written here.
+Create file <ha_config>/pistoncore/globals.json — global variables will be stored here.
+
+No other changes will be made. PistonCore will never modify any file it did not create."
+User must click I Agree — Make These Changes to proceed, or Cancel to abort with nothing changed.
+If setup is cancelled nothing is written. If setup fails partway through, PistonCore reports exactly which step failed and what was and was not written.
+Next session agenda item — companion design review:
+The companion (HA custom integration) has been defined piecemeal through Docker design decisions. Before companion code is written, run a dedicated review of Section 17.3 to make sure it is complete and internally consistent. Key areas that emerged late and need consolidation:
+
+Exact configuration.yaml additions and the user confirmation screen
+globals.json written to <ha_config>/pistoncore/ — no Docker dependency at runtime
+pyscript.reload service call after PyScript deployment
+automation/reload API call after YAML deployment
+Filesystem write access to automations/pistoncore/ and pyscript/pistoncore/
+Full device capability profile fetching — not just entity lists
+Trace data via custom WebSocket event
+Validation pipeline execution (check_config and py_compile)
+
+The Docker editor is designed first. Companion design review happens before companion coding begins.
+Design correction — Phase 1 data fetching uses WebSocket API not REST (Sections 5, 17.2, 17.3):
+The design currently says Phase 1 uses the HA REST API to pull device and capability data. This is incorrect. The WebSocket API must be used instead for the following reasons:
+The WebSocket API has specific commands the REST API does not have that PistonCore requires:
+
+get_triggers_for_target — all valid triggers for a specific device
+get_conditions_for_target — all valid conditions for a specific device
+get_services_for_target — all valid services for a specific device
+config/entity_registry/list_for_display — optimized entity list for UI display
+
+These are the exact commands the capability-driven wizard depends on. Without them PistonCore cannot populate the wizard dropdowns correctly from live HA data.
+Correct design: PistonCore opens a WebSocket connection to HA using the long-lived access token on first launch and keeps it open during the session. All device, entity, capability, trigger, condition, and service data is fetched via WebSocket. The REST API is used only for simple one-off calls that don't require a persistent connection such as automation/reload.
+Update all references to "HA REST API" in Phase 1 setup (Section 17.2) to "HA WebSocket API." Update Section 5 device model accordingly. The long-lived access token works for both — no change to setup flow required.
+Note 1 — Dry Run for PyScript (Item 3):
+The dry run / test feature for PyScript pistons is technically risky. Intercepting HA service calls inside a running PyScript file without actually executing them has no clean native mechanism.
+Decision: Do not attempt a PyScript dry run that intercepts service calls. Instead:
+
+For YAML pistons: dry run is fully supported — show what would be called without calling it
+For PyScript pistons: dry run executes the logic but skips all service calls by wrapping them in a dry-run flag that the compiled template checks. If this proves too complex or unreliable during implementation, fall back to: PyScript test mode fires the piston live with a clear warning "This will execute real actions on your devices." No silent fake dry run.
+Document this difference clearly in the UI — YAML test shows a preview, PyScript test is a live fire with warning.
+Add to next session agenda: developer to assess whether dry-run flag approach is viable before committing to it.
 
 
-To get Claude to build the editor and not just a static preview, you need to explain the "Document Model" of WebCoRE.
-📝 Add these "Mechanical Notes" for your Claude Session
-1. The "Statement" vs. "Action" distinction
-In WebCoRE, you don't just "add a line." You add a Statement.
-A Statement can be a Control Flow (If/Then, For Each, While) or a Task (With [Device] do [Action]).
-The Logic: Tell Claude the editor is a Nested Tree. Every "If" statement is a parent that has two lists of children: true_children and false_children (Else).
-2. The "Selection" Flow
-Claude needs to understand that input isn't a free-text box. It’s a Wizard:
-Step 1: Pick the Statement type (e.g., "If Block").
-Step 2: Pick the Device/Role (from your Role system).
-Step 3: The UI filters the options. If the device is a bulb, show "Brightness"; if it's a lock, show "Locked/Unlocked."
-The Note: Tell Claude to build a "Capability-to-Command Map" so the UI only shows what the device can actually do.
-3. The "Drag-and-Drop" Hierarchy
-Because WebCoRE is linear, Claude might try to build a "Canvas" (like Node-Red).
-Correct it: "This is a Structured Document Editor, like a code editor, where blocks can be dragged up or down, but always stay in a vertical sequence."
-🛠️ A Specific Prompt to "Teach" Claude the Mechanics
-Try giving Claude this specific framing:
-"To build the PistonCore editor, do not think of it as a drawing canvas. Think of it as a recursive form builder. Every 'If' block is a container that can hold other 'If' blocks or 'Action' blocks. Write the TypeScript interface for a 'Statement' that supports this nesting."
-💡 Why this fixes the "Secret" issue
-If Claude understands the Tree Structure, it will automatically know how the JSON should be formed.
-Input: User clicks "Add If."
-Process: UI adds a new object to the children array of the current block.
-Output: The JSON is automatically "valid" because the UI structure is the JSON structure.
-Does that help explain the "How it gets there" part?
-If you'd like, I can draft a Functional Specification for the "Condition Builder"—the part where you pick a device and see its attributes. This is usually the "magic" that makes WebCoRE feel so easy compared to YAML.
-How do you want to handle the "Device Picker"—should it search by Area (Room) or by Device Class (Lights, Switches)?
-WebCoRE's magic was in the conditional wizard, your next session needs to define the Selection Pipeline.
-1. The Main, Debug, and Editor Content
-To keep Claude on track, define exactly what "lives" on each page:
-Main Page (Dashboard):
-List of all pistons (Name, Status, Last Ran).
-The "Global Variables" Drawer: Access to your house-level variables.
-Primary Actions: Create New, Import (from JSON/URL), Backup All.
-Debug Page (The "Live" View):
-Trace Log: Real-time event stream from HA.
-State Highlighting: The visual logic tree lights up (True/False) as the events hit.
-Force Run: A button to trigger the "Then" block manually.
-Editor Page (The Logic Tree):
-The Breadcrumb: Shows where you are in a nested If/Else.
-The Toolset: Add Statement, Add Group, Add Wait.
-2. The "Pre-Save" Validation Loop
-To ensure PistonCore never breaks a user's Home Assistant, you need to enforce this specific "Save Pipeline" in your instructions:
-Stage: User hits "Save" in the UI.
-Generate: Backend creates a temporary .yaml or .py file in a /tmp folder.
-Validate: Docker calls hass --script check_config -c /tmp/test_dir.
+Note 2 — Compiler Template System (Item 4):
+The design mentions compiler templates as external and user-replaceable but never defines what they actually are or how they work. This needs a dedicated design discussion before coding starts.
+Prompt for next session: Before writing the compiler, ask Claude to walk through exactly how the template system works — what format the templates are in, where they live on the Docker volume, how the compiler fills them in from piston JSON, and what "user replaceable" means in practice. Do not write compiler code until this is defined.
+
+Note 3 — Call Another Piston (Item 5):
+The "call another piston" statement type has a hidden technical problem. For PyScript pistons calling other PyScript pistons this is manageable. For YAML pistons there is no native way to trigger another automation and wait for it to finish — HA can fire an event that triggers another automation but cannot wait for its completion.
 Decision:
-If Valid: Move file to the real HA automations/ folder and update the Piston JSON.
-If Invalid: Stop. Do not save. Return the exact line error to the UI for the user to fix.
-3. The Editor Selection Wizard (The Hard Part)
-This is where Claude needs the "WebCoRE logic map." Tell Claude that every Condition is a 4-step wizard:
-Selection 1: The Role/Device: "What are we looking at?" (e.g., Kitchen Motion).
-Selection 2: The Attribute: "What part of it?" (e.g., Motion, Illuminance, Battery).
-Selection 3: The Operator: "What is it doing?" (e.g., changes to, is, stays for).
-Selection 4: The Value: "What is the threshold?" (e.g., Active, 5 minutes, 100 lux).
-🛠️ Pro-Tip for your Notes
-Ask Claude to build a "Capability Registry." This is a simple list that tells the UI: "If the user picks a 'Light' role, show the attributes 'Power', 'Brightness', and 'Color'. Do NOT show 'Humidity'."
-Since your screenshots showed Claude that its initial "basic if block" was way off, it means the AI is still thinking in Standard Web Forms (boring boxes) rather than the Structured Document Editor (indented logic tree) that defines WebCoRE.
-To get the "Selections and Options" right, you need to tell Claude that the editor is context-aware. It shouldn't show every option at once; it should build the sentence as you go.
-🛠️ The "Selection Pipeline" for your Notes
-To fix the editor features, tell Claude to use this 4-Step Progressive Disclosure model:
-Step 1: The Logic Type
-User clicks "Add Statement."
-Options: If Block, With Block (Action), Wait, or Variable Set.
-Step 2: The Subject (Roles)
-If If or With is chosen, show a list of Roles (not Entities).
-Note: The UI must look like a "sentence starter."
-Step 3: The Capability Filter
-Once a Role is picked (e.g., "Main Light"), the next dropdown only shows attributes that role has (e.g., Switch, Level, Color).
-Step 4: The Comparison / Command
-If block: Show operators (is, changes to, stays active for).
-With block: Show commands (Turn On, Set Level, Toggle).
-🛡️ The "Save & Validation" Logic
-Since you want the logic checks to happen before the save hits HA, add this "Guardrail" to your session notes:
-The "Draft" State: The editor works on a JSON object in the browser's memory.
-The "Pre-Flight" Check: When the user hits "Save," the backend generates the YAML/PyScript into a Sandbox Folder.
-The "Hass" Check: PistonCore runs hass --script check_config.
-The "Commit": Only if the check returns 0 (Success) does the file move to the production folder.
-💡 How to handle the "Features & Options"
-WebCoRE was famous for "Advanced Options" (like TEP—Task Execution Policy). Tell Claude to hide these in a "Cog Icon" menu for each block.
-Keep the Main View clean (just the logic "sentence").
-Put the Complex Tweaks (cancellation policies, delays) inside a modal/drawer.
-🚀 To Advance Your Goal
-Since Claude struggled with the screenshots, the best next step is to define the UI Component Hierarchy.
-Which part of the "If Block" selection was the most "off" in Claude's version?
-The dropdowns were too generic?
-The nesting (indents) didn't look right?
-The device attributes didn't match the HA devices?
-:
-Draft a "UI Component Tree" (defining exactly how a nested 'If' looks).
-Create a "Capability-to-Operator" map (so 'Temperature' doesn't get 'Turn On' as an option).
-Outline the "Save & Validate" Python script logic.
-Tell me which one to break down for your notes.
+
+PyScript → PyScript: supported, implement cleanly
+YAML → YAML: supported as fire-and-forget only — triggers the other piston but does not wait for it to complete. User is warned of this limitation in the wizard when they add this statement to a simple piston
+YAML → PyScript or mixed: if a user's piston needs to call another piston and wait, this forces conversion to PyScript. The conversion prompt applies here
+Add a clear note in the wizard: "Calling another piston from a Simple piston will trigger it but will not wait for it to finish. Switch to Advanced mode if you need to wait for the called piston to complete."
 
 
-most helpfull suggestion yet
-To find the "hidden" features of WebCoRE without making Claude read ancient code, you need to point it toward the WebCoRE Wiki and Documentation. Even though the project is old, the manuals are the perfect "spec sheet" for the UI options.
-🔍 Where Claude Can Find the "Porting" Info
-Tell Claude to search for or use its training data on these three specific resources:
-The "Conditions & Triggers" List: Have Claude look up the list of WebCoRE Comparison Operators. This ensures you don't miss things like "was true for," "is any of," or "is between."
-Task Execution Policy (TEP): This is the "hidden" feature that made WebCoRE powerful. It defines what happens to a "Wait" if the condition changes. Claude needs to know about "Cancel on condition change" (TCP).
-Variable Data Types: Look up WebCoRE’s supported types (Dynamic, Device, Boolean, etc.) to ensure your JSON schema can handle them.
+Note 4 — Piston Run Status Reporting (Item 6):
+The design says the companion reports piston run status back to PistonCore but never defines how. Compiled pistons run independently inside HA — PistonCore has no direct visibility into their execution.
+Decision: Keep it simple and avoid risky custom mechanisms. Use what HA already provides:
+
+Each compiled piston (both YAML and PyScript) fires a standard HA event at completion — success or failure — using HA's built-in hass.bus.fire in PyScript or event: in YAML
+The companion listens for these events via its own WebSocket subscription to HA
+When it receives a PistonCore event, it relays the run status to the PistonCore Docker via the existing WebSocket connection
+The run log in PistonCore updates from this data
+This uses only standard HA event mechanisms — no custom hacks, no fragile workarounds
+Add to next session agenda: confirm that YAML automations can fire a custom event on completion and what that syntax looks like, and confirm PyScript hass.bus.fire works as expected in compiled files
 
 
+Note 5 — YAML vs PyScript feature parity and user warnings (captures your decisions):
+Decision — feature parity approach:
 
+Where YAML cannot support a feature cleanly, do not fake it with a workaround
+At first launch PistonCore displays a plain English explanation of the difference between Simple pistons (YAML) and Complex pistons (PyScript) and what features are only available in Complex mode
+When a user builds a piston and tries to use a feature that requires PyScript but their piston would compile to YAML, PistonCore prompts: "This feature requires converting your piston to a Complex piston (PyScript). Would you like to convert? Your logic will be preserved."
+If YAML loses too much function during implementation testing, evaluate pushing to PyScript-only compilation. Add this as a decision point during sandbox testing — not a decision made now
+The experimental warning at first launch covers this — users are informed things may not work perfectly until thoroughly tested
+
+Gemini design review findings — four gaps identified:
+Gap 1 — UI transitions and stateful navigation:
+The design defines page content but not navigation behavior. Before frontend coding begins define:
+
+What happens to unsaved editor changes if the user navigates away — prompt to save, discard, or cancel navigation
+What the back button does from the status page — returns to the folder the piston is in, not always the root list
+What state is preserved on browser refresh — piston list position, open folder, last viewed status page
+What happens if the WebSocket connection to HA drops while the user is in the editor — show a reconnecting banner, disable deploy button, preserve unsaved work locally
+
+Gap 2 — Recursive component tree data structure:
+The design describes the visual appearance of the nested statement tree but not the data structure that drives it. Before frontend coding begins define the exact JSON structure that represents a nested piston in the editor's internal state — how an if block contains its true_children and false_children, how a repeat block contains its body, how nesting to any depth is represented. This structure is what the editor manipulates and what gets serialized to the piston JSON on save. A developer cannot build the editor without this defined.
+Gap 3 — Editor save pipeline:
+The design defines the deploy-to-HA validation pipeline (Section 13) but not the simpler save pipeline that runs every time the user hits Save in the editor. Define: what gets written where on save, whether save can fail and what happens if it does, whether save is instant or has a loading state, and what the user sees between clicking Save and landing on the status page.
+Gap 4 — UI Capability Map for the wizard:
+The design describes the wizard concept and the operator list but does not define the decision tree that drives wizard step 3 and beyond. A developer needs a map of: given a device of type X with capability Y, what operators are valid, what value types are valid for comparison, and what service parameters appear in the action wizard. This is the core logic that makes the wizard context-aware. Define this before wizard coding begins — either as a document or as a structured data file the wizard reads from.
+
+perminent note for any ai reading this: What technical assumptions in this design are most likely to be wrong

@@ -29,7 +29,7 @@ GitHub repo: https://github.com/jercoates/pistoncore
 - This is built in limited sessions. The session prompt and DESIGN.md are your memory between sessions.
 - I run Unraid as my primary server. The app will run as a Docker container on Unraid.
 - I have a dedicated test Unraid instance with a clean Home Assistant VM for testing.
-- My cousin is an occasional technical advisor — he has coding knowledge but limited home automation knowledge. He has built two working tested versions of the frontend using his own framework (framework not yet confirmed — ask at start of next session). He uses GitHub Copilot against the repo to generate code. DESIGN.md is the authoritative document Copilot reads.
+- My cousin is an occasional technical advisor — he has coding knowledge but limited home automation knowledge. He builds the frontend using vanilla JS, HTML, and CSS. He uses GitHub Copilot against the repo to generate code. DESIGN.md, FRONTEND_SPEC.md, and WIZARD_SPEC.md are the authoritative documents Copilot reads.
 - Traffic is already coming to the GitHub repo. Real users are watching.
 
 ---
@@ -38,74 +38,93 @@ GitHub repo: https://github.com/jercoates/pistoncore
 
 ### Root files (do not move these):
 - `README.md` — project overview
-- `DESIGN.md` — full design specification v0.6 — **read this first every session**
-- `LICENSE` — MIT
+- `DESIGN.md` — full design specification v0.7 — **read this first every session**
+- `FRONTEND_SPEC.md` — frontend developer specification v0.1
+- `WIZARD_SPEC.md` — wizard capability map and behavior v0.1
+- `Notes_for_next_session.md` — corrections and decisions from Session 5 — **read this second**
+- `permanent notes ask each ai` — standing questions to ask every AI doing a design review
 - `CLAUDE_SESSION_PROMPT.md` — this file
-- `RESEARCH_NOTES.md` — background research
-- `Notes for next session` — additional notes file in repo
+- `LICENSE` — MIT
 
 ### session2_archive/
-Contains all code from Session 2. Built against an earlier design — kept for reference only. Do not build on top of it directly.
-- `session2_archive/editor/backend/` — FastAPI backend structure, storage system, piston models, API routes
-- `session2_archive/editor/frontend/` — React frontend, superseded by v0.6 design
-- `session2_archive/companion/` — HA companion integration skeleton
+Contains all code from Session 2. Built against an earlier design — kept for reference only.
+Do not build on top of it directly.
 
-### What does NOT exist yet (needs to be built fresh):
-- New editor frontend matching v0.6 design
-- Dynamic multi-step condition, trigger, and action wizard with live HA capability fetching
-- Updated companion that fetches full device capability profiles
-- Compiler template system (external files, not hardcoded)
-- Piston status page as the hub
-- Two-phase setup flow
-- Trace mode via WebSocket
-- Snapshot and Backup export
-- File signature and hash system
-- Pre-save validation pipeline
-- Unknown device fallback and My Device Definitions screen
+### What does NOT exist yet (needs to be built):
+- DESIGN.md v0.8 incorporating all corrections from Notes_for_next_session.md
+- FRONTEND_SPEC.md v0.2 incorporating layout and rendering corrections
+- Backend FastAPI skeleton matching v0.7 architecture
+- Compiler template system (format not yet defined — see open items)
+- AI-UPDATE-GUIDE.md files (cannot be written until compiler is designed)
+- Docker container setup
+- Companion integration
 
 ---
 
-## Design is Complete — No Open Questions
+## Design is Largely Complete — Read Notes File for Corrections
 
-All six open questions from previous sessions have been resolved. DESIGN.md v0.6 is the authoritative source. Do not re-open resolved questions. If something seems unclear, read DESIGN.md Section by Section before asking.
+DESIGN.md v0.7 is the current authoritative design. Notes_for_next_session.md contains
+confirmed corrections that take priority over v0.7 in specific areas. Produce v0.8 at
+the start of the next session before writing any code.
 
-Key decisions already locked in (do not re-litigate):
-- Compiled output is hidden from users — not shown on status page
-- Save in editor returns to status page
-- Trigger wizard uses same multi-step pattern as conditions and actions
-- Folder assignment: no prompt on creation, lands in Uncategorized, assigned on status page
-- Piston IDs: Snapshot import always gets new ID, Backup import preserves original
-- Failure notification: HA persistent notification + PistonCore badge, per piston toggle
-- Unknown device fallback: HA first always, one-time Define screen if no capability data returned
-- File signature and hash system: every compiled file gets header, hash of compiled content, diff shown on manual edit detection
-- Pre-save validation: internal checks → sandbox compile → HA check_config (YAML) or py_compile (PyScript) → commit or stop
-- Editor is a structured document, indented tree, WebCoRE keywords, inline ghost text insertion
-- Single global Simple/Advanced toggle — no per-block toggles in document
-- Per-statement cog in wizard for TEP, TCP, Execution Method
-- Full operator set per Section 9 of DESIGN.md — XOR and followed-by excluded, range deferred to v2
-- Geofence handled naturally via changes-to on person/zone entity — no special operator
-- Logging matches WebCoRE: log level per piston, five log message types, Trace via WebSocket with line number overlay
-- Frontend framework: not prescribed — cousin's working implementation to be integrated
-- Three pages: Main list, Status page (hub), Editor — content defined in Section 7 of DESIGN.md
-- Output files go in pistoncore subfolders only: automations/pistoncore/ and pyscript/pistoncore/
+### Key decisions already locked in (do not re-litigate):
+
+**Architecture:**
+- Backend: Python FastAPI
+- Frontend: Vanilla JS, HTML, CSS — no framework
+- Piston storage: JSON files in Docker volume
+- Compiler output: Jinja2 templates (YAML for simple pistons, PyScript for complex)
+- Default port: 7777
+- HA integration: Phase 1 via HA WebSocket API, Phase 2 via companion (HACS)
+- Two Docker volume folders: pistoncore-userdata/ and pistoncore-customize/
+
+**UI — match WebCoRE exactly:**
+- Piston list: single scrolling list with folder section headers — NOT two-column layout
+- Editor: structured document, indented tree, WebCoRE keywords
+- Keywords: execute/end execute, define/end define, if/when true/when false (editor display), if/then/end if (saved format), with/do/end with, repeat/do/until/end repeat, for each/do/end for each, only when
+- Status page: shows piston script read-only (NOT compiled YAML/PyScript)
+- Compiled output (YAML/PyScript) is never shown to the user
+- Trace numbers are statement numbers not line numbers
+- Ghost text insertion points: + add a new statement / task / trigger / condition / restriction
+- Right-click context menu: copy / cut / duplicate / delete / clear clipboard
+- Global variables sidebar on editor right side
+
+**Sharing:**
+- JSON export only — no central server short codes (deliberate divergence from WebCoRE)
+- Snapshot (green camera) = anonymized, safe to share
+- Backup (red camera) = full with entity mappings, personal restore only
+
+**Validation:**
+- Runs on Docker — no HA dependency for core validation
+- Stage 1: internal checks (Docker)
+- Stage 2: py_compile or yamllint (Docker)
+- Stage 3: stub mock import for PyScript (Docker)
+- Stage 4: HA check_config for YAML — optional, only if companion installed
+- Rules defined in external JSON files in pistoncore-customize/validation-rules/
+- Updateable without code changes
+
+**Compiler:**
+- Jinja2 templates in pistoncore-customize/compiler-templates/
+- Template format not yet fully defined — do not write compiler code until defined
+- Each template folder has an AI-UPDATE-GUIDE.md for community maintenance
+
+**PyScript vs YAML:**
+- PyScript is primary compile target — complete first
+- YAML is secondary
+- Auto-detection uses explicit 10-condition ordered list — see DESIGN.md Section 3.1
+- PyScript Only vs Full Mode is an explicit user choice at setup
 
 ---
 
-## Tech Stack
+## Open Items Blocking Coding
 
-- **Backend:** Python FastAPI
-- **Frontend:** Framework TBD — cousin has working tested versions, confirm framework at start of next session
-- **Piston storage:** JSON files in Docker volume
-- **Compiler output:** YAML (simple pistons) or PyScript (complex pistons) via external templates
-- **Default port:** 7777
-- **HA integration:** Phase 1 via HA REST API, Phase 2 via companion custom integration installed via HACS
-- **Target deployment:** Docker on Unraid, Unraid Community Apps template planned
+Do not write production code until these are resolved:
 
----
-
-## V1 Core Feature Set
-
-See DESIGN.md Section 21 for the complete list. Do not add features outside this list.
+1. **Compiler template system** — format, placeholders, how compiler walks the piston tree
+   Blocks: Jinja2 templates, AI-UPDATE-GUIDE.md files, compiler code
+2. **settings / end settings block** — research WebCoRE behavior, define contents
+3. **globals.json sandbox validation** — requires running PyScript/HA to test fallback solutions
+4. **AI Prompt feature redesign** — needs friendly name context without entity IDs
 
 ---
 
@@ -115,45 +134,68 @@ See DESIGN.md Section 21 for the complete list. Do not add features outside this
 Project conceived, design document written, GitHub repo created with docs.
 
 ### Session 2 — April 2026
-FastAPI backend scaffolded, React frontend scaffolded, companion integration skeleton built, 19 API endpoints verified, compiler verified against example piston. All code now in session2_archive.
+FastAPI backend scaffolded, React frontend scaffolded, companion integration skeleton built,
+19 API endpoints verified, compiler verified against example piston. All code now in
+session2_archive.
 
 ### Session 2 Strategy Review — April 2026
-Extensive WebCoRE screenshot review. Design doc rewritten as v0.5 — major changes to UI model, architecture, and scope. Frontend decoupled from React. Condition wizard redesigned as dynamic multi-step. Status page established as piston hub. Compiler template system designed. V1 scope tightened.
+Extensive WebCoRE screenshot review. Design doc rewritten as v0.5 — major changes to UI
+model, architecture, and scope. Frontend decoupled from React. Condition wizard redesigned
+as dynamic multi-step. Status page established as piston hub. Compiler template system
+designed. V1 scope tightened.
 
 ### Session 3 — April 2026
-Design refinement session. No code written. Key decisions made through WebCoRE screenshot analysis and structured topic review. DESIGN.md updated to v0.5 and committed to repo. Six open design questions documented for next session.
+Design refinement session. No code written. Key decisions made through WebCoRE screenshot
+analysis and structured topic review. DESIGN.md updated to v0.5. Six open design questions
+documented for next session.
 
 ### Session 4 — April 2026
-Full design review session. No code written. All six open questions resolved. WebCoRE wiki and documentation scraped for full operator set, logging behavior, and UI flow reference. Key decisions:
-- All six open questions answered (see DESIGN.md Section 24 development log for full list)
-- Full WebCoRE operator set reviewed and documented in DESIGN.md Section 9
-- Logging system designed to match WebCoRE as closely as HA allows
-- Three pages fully defined: Main list, Status page, Editor (Section 7)
-- File signature and hash system designed (Section 12)
-- Pre-save validation pipeline designed (Section 13)
-- Unknown device fallback designed (Section 5)
-- Piston ID and import collision handling resolved (Section 18)
-- Cousin's involvement clarified: has working frontend, uses Copilot against repo
-- DESIGN.md updated to v0.6 and successfully committed to repo
+Full design review session. No code written. All six open questions resolved. WebCoRE wiki
+and documentation scraped for full operator set, logging behavior, and UI flow reference.
+DESIGN.md updated to v0.6 and committed to repo.
+
+### Session 5 — April 2026
+Full design and correction session. No code written. Key accomplishments:
+- DESIGN.md updated to v0.7
+- FRONTEND_SPEC.md v0.1 written — complete frontend developer specification
+- WIZARD_SPEC.md v0.1 written — closes capability map gap, lightning bolt distinction,
+  no-trigger upgrade flow, full attribute type operator map
+- Frontend technology confirmed: vanilla JS, HTML, CSS
+- Drag and drop rules defined: within-block reorder only, cut/paste for cross-block
+- Statement tree data structure defined
+- Editor save pipeline defined
+- Docker validation approach defined — no HA dependency
+- Validation rules file design defined — updateable without code changes
+- Docker volume folder structure defined — two self-explanatory named folders
+- AI-UPDATE-GUIDE.md concept defined — one per template folder, community maintainable
+- Compiler template format confirmed: Jinja2
+- WebCoRE screenshots reviewed — 8 corrections captured in Notes_for_next_session.md
+  including: piston list is single column, status page shows read-only script not compiled
+  output, execute/end execute wraps action tree, if/then vs when true/when false distinction,
+  repeat/until structure, AND/OR indentation, trace = statement numbers not line numbers
 
 ---
 
 ## Last Session
-Session 4 — full design review, all open questions resolved, DESIGN.md updated to v0.6 and committed to repo. No code written.
+Session 5 — April 2026. Full design and correction session. DESIGN.md v0.7, FRONTEND_SPEC
+v0.1, and WIZARD_SPEC v0.1 produced and pushed to repo. WebCoRE screenshots reviewed and
+corrections documented. Docker volume structure, validation rules file, and AI-UPDATE-GUIDE
+concept finalized. No code written.
 
 ## Next Session — Start Here
 
-1. Read DESIGN.md from the repo before doing anything else.
-2. **Confirm cousin's frontend framework** — what did he use for his two working versions? This determines the frontend section of the tech stack.
-3. Review cousin's current working code if available — identify what matches v0.6 design and what does not.
-4. Decide on folder structure for the new build.
-5. Begin scaffolding:
-   - Backend: FastAPI skeleton matching v0.6 architecture
-   - Companion: Phase 1 REST API pull of device capability profiles
-   - Frontend: stub pages for Main list, Status page, and Editor
-6. Get the Docker container running on test Unraid so the UI can be seen in a browser — even if it is just stub pages.
+1. Read DESIGN.md v0.7 from the repo
+2. Read FRONTEND_SPEC.md v0.1 from the repo
+3. Read WIZARD_SPEC.md v0.1 from the repo
+4. Read Notes_for_next_session.md from the repo — corrections take priority over v0.7
+5. Read permanent notes ask each ai from the repo
+6. Produce DESIGN.md v0.8 incorporating all corrections from notes file
+7. Produce FRONTEND_SPEC.md v0.2 incorporating layout and rendering corrections
+8. Design the compiler template system — this is the primary blocker
+9. Write AI-UPDATE-GUIDE.md files once compiler template system is defined
+10. Begin backend scaffolding only after compiler template system is defined
 
-Do not write production-quality editor UI code until the framework is confirmed and the cousin's existing work has been reviewed.
+Do not write production code until the compiler template system is designed.
 
 ---
 
@@ -165,8 +207,10 @@ If you need to understand what WebCoRE looks like before making UI decisions:
 - Conditions vs Triggers: https://www.youtube.com/watch?v=L4axJ4MCYRU
 - Variables: https://www.youtube.com/watch?v=6d3wtjjCLiM
 
-Note: These are beginner level only. For complex feature reference, see DESIGN.md and the WebCoRE wiki at wiki.webcore.co.
+Note: These are beginner level only. For complex feature reference, see DESIGN.md,
+FRONTEND_SPEC.md, WIZARD_SPEC.md, and the WebCoRE wiki at wiki.webcore.co.
 
 ---
 
-*PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*
+*PistonCore is an independent open-source project. Not affiliated with Home Assistant,
+Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

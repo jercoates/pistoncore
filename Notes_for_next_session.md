@@ -288,3 +288,82 @@ Do not write production code until COMPILER_SPEC.md is complete.
 Do not poll other AIs until updated specs are published.
 ---
 Session 6 complete — April 2026
+
+treat this section as things to go over with me to compare to current design and ways to clarify explinations.
+Absolutely — here are the key insights I think are most useful to feed into Claude.
+
+Core position
+PistonCore should treat the piston JSON as the source of truth and Home Assistant scripts/automations as compiled deployment artifacts that can be regenerated whenever Home Assistant changes syntax or structure.
+
+That means HA churn is not a migration problem for the user; it is a recompilation problem for the compiler, which is exactly the right boundary for long-term maintenance.
+
+Why native-first
+Home Assistant scripts are native reusable action sequences, and Home Assistant creates an entity for each script so it can be called from automations or other scripts.
+
+Because the native script engine already supports variables, branching, repeats, waits, and nested sequences, it should be the default target for most pistons, with PyScript reserved for truly non-native edge cases.
+
+Why not PyScript-first
+PyScript is a custom integration, not native Home Assistant, and its installation docs explicitly describe it as a HACS/custom component path rather than a built-in capability.
+
+So a PyScript-first compiler makes your platform dependent on an external integration for normal operation, which increases maintenance risk and weakens the “runs forever without PistonCore” promise.
+
+The reusable-script insight
+The reusable part is not abstract or theoretical: in Home Assistant, a script is its own callable entity, and inputs can be passed into it so one script can be reused by many automations with different values.
+
+For PistonCore, that means the natural native shape is automation = trigger wrapper and script = reusable action body.
+
+Compiler architecture
+The design should have three layers:
+
+piston JSON / AST as the stable authoring model,
+
+semantic lowering to abstract HA concepts,
+
+version-specific emitters for current HA script/automation structure.
+
+That way, if Home Assistant changes YAML keys, nesting, or preferred structures again, you update the emitter, not the piston model or wizard behavior.
+
+Managed artifact rule
+Generated HA scripts and automations should be treated as compiler-owned artifacts. They can be replaced wholesale on recompile, and users should not be encouraged to hand-edit them in HA because that creates merge/drift problems instead of deterministic regeneration.
+
+The clean mental model is: edit piston in PistonCore, compile, validate in HA, then deploy and reload.
+
+Validation pipeline
+A solid deployment path is:
+
+compile candidate HA artifacts,
+
+do syntax/lint checks,
+
+let Home Assistant validate/reload the native artifacts,
+
+only replace the active deployed version if HA accepts them.
+
+That uses HA itself as the final authority for native-target validation, which is stronger than trying to fully replicate HA validation rules inside PistonCore.
+
+Globals insight
+Persistent piston globals should map to native HA helpers rather than a custom globals file whenever possible, because helper entities fit HA’s persistence model and survive independently of PistonCore.
+
+Script-local variables then handle per-run transient state, while helpers handle cross-run state.
+
+Suggested wording for Claude
+You could give Claude something like this:
+
+Piston JSON remains the canonical source model.
+
+HA scripts + automations are compiled outputs, never the source of truth.
+
+Recompilation is the migration strategy when HA changes syntax.
+
+Native HA scripts are the primary backend.
+
+PyScript is fallback only for features with no practical native equivalent.
+
+Generated HA artifacts are compiler-managed and replaceable.
+
+Validation should rely on HA as the final authority for native deploys.
+
+Persistent globals should prefer HA helper-backed storage over custom files.
+
+One strategic sentence
+The strongest framing is: PistonCore is not just an automation builder; it is a compatibility-preserving compiler that insulates users from Home Assistant automation churn while targeting native HA execution whenever possible.

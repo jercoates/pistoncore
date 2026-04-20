@@ -1,12 +1,12 @@
 # PistonCore Wizard Specification
 
-**Version:** 0.1
+**Version:** 0.2
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
 This document defines the capability-driven wizard in full detail.
 Read DESIGN.md and FRONTEND_SPEC.md first.
-This document closes DESIGN.md Section 8.1 (Wizard Capability Map).
+This document closes DESIGN.md Section 8 (Wizard Capability Map).
 
 **Guiding rule:** Match WebCoRE's wizard behavior exactly where possible.
 Deviation requires a specific documented reason.
@@ -37,6 +37,24 @@ These apply to every wizard instance regardless of statement type:
 
 ---
 
+## First Step — Condition or Group
+
+When the user clicks to add a condition (in the CONDITIONS section, inside an if_block condition, or in an only_when restriction), the wizard does NOT go straight to the device picker.
+
+The first step presents two choices:
+
+**Condition** — *"a single comparison between two or more operands, the basic building block of a decisional statement"*
+`[Add a condition]`
+
+**Group** — *"a collection of conditions, with a logical operator between them, allowing for complex decisional statements"*
+`[Add a group]`
+
+Groups are first-class objects, not just chained conditions. This is how WebCoRE handles complex AND/OR logic. A group contains multiple conditions linked by AND or OR. Groups can be nested inside other groups.
+
+This first step does not apply when adding triggers — triggers go directly to the device/event picker.
+
+---
+
 ## Triggers vs Conditions — The Lightning Bolt Distinction
 
 This is one of the most important behaviors from WebCoRE and must be replicated exactly.
@@ -58,7 +76,7 @@ Inside the wizard, when the user reaches the operator selection step, the operat
 ⚡ TRIGGERS — fire when this happens
   ⚡ changes to detected
   ⚡ changes to clear
-  ⚡ changes (any value)
+  ⚡ changes (any)
 
 CONDITIONS — check current state
   is detected
@@ -68,8 +86,7 @@ CONDITIONS — check current state
 ```
 
 The user picks from either group. Their choice determines whether this comparison is a trigger
-or a condition. The visual distinction makes this clear without requiring the user to understand
-the technical difference.
+or a condition.
 
 ### At the piston level
 
@@ -82,26 +99,66 @@ conditions group. The user can override this.
 
 ### The "upgrade" behavior
 
-If the user has built a piston with no triggers at all and tries to save, PistonCore shows a warning:
+If the user has built a piston with no triggers at all and tries to save, PistonCore shows a warning
+on the status page validation banner:
 
-*"This piston has no triggers. It will never run automatically. Would you like to convert one of
-your conditions to a trigger?"*
+*"⚠ This piston has no triggers. It will never run automatically."*
 
-If the user clicks Yes, PistonCore shows the conditions list and lets them pick one to promote.
-The promoted condition moves to the TRIGGERS section and its operator is updated to the
-trigger-equivalent (e.g., "is detected" becomes "changes to detected").
+And offers: *"Would you like to promote one of your conditions to a trigger?"*
+`[Yes — show me]` `[No — I'll add a trigger manually]`
 
-This matches WebCoRE's behavior exactly and prevents a common new-user mistake.
+If the user clicks Yes, PistonCore shows the piston's conditions. User picks one.
+PistonCore converts it:
+- Moves it to the TRIGGERS section
+- Changes its type from `condition` to `trigger`
+- Updates the operator to the trigger-equivalent (e.g., "is open" → "changes to open")
+- Shows the updated piston with the promoted trigger highlighted
+
+This matches WebCoRE's behavior exactly.
+
+---
+
+## Which Interaction Step — Physical vs Programmatic
+
+After selecting a device and attribute in the condition wizard, the wizard may show an optional step:
+
+**Which interaction:**
+- Any interaction
+- Physical interaction — state change caused by a person physically using the device
+- Programmatic interaction — state change caused by an automation or app
+
+This distinguishes between a person flipping a light switch vs an automation turning the light on.
+
+**Implementation note:** This is implementable in PyScript via HA context tracking (`context.id`, `context.parent_id` on state changes). Evaluate feasibility in sandbox before committing to this wizard step. If not feasible in the sandbox environment, omit this step from v1.
+
+This step only appears when the selected operator is a trigger-type (⚡) and the device supports context tracking. It does not appear for condition operators.
 
 ---
 
 ## Capability Map — The Core Decision Tree
 
-This is the map that drives wizard steps 3, 4, and 5.
+This is the map that drives wizard steps for operator selection and value input.
 Given a device's attribute type, this map defines valid operators and valid value input types.
 
-The wizard reads this map to populate the operator dropdown and determine what input to show
-for the right-hand value.
+The capability map lives in the frontend. The backend provides raw HA data.
+The frontend applies the map to determine operators and input types.
+
+### How Attribute Type Is Determined
+
+The backend determines attribute type from HA capability data and includes it in the capabilities response. Detection runs in the backend before data reaches the wizard.
+
+**Detection logic (in priority order):**
+
+1. If the capability's `device_class` is a known binary class (motion, door, window, smoke, moisture, occupancy, plug, outlet, lock) → **Binary**
+2. If the capability's `device_class` is a known numeric class (temperature, humidity, battery, illuminance, power, energy, signal_strength, pm25, co2, voltage, current) → **Numeric**
+3. If the capability has a `unit_of_measurement` → **Numeric**
+4. If the capability has a defined `options` list (input_select, enum) → **Enum / Multi-state**
+5. If the capability's domain is `cover` and attribute is `current_position` → **Numeric with Position**
+6. If the capability's domain is `light` and attribute is `brightness` → **Numeric with Position**
+7. If the capability's domain is `input_boolean` → **HA Boolean Helper**
+8. If the capability's domain is `person` or `device_tracker` → **Location / Presence**
+9. If the capability's domain is `sensor` with no unit → **Enum / Multi-state** (use reported states)
+10. If none of the above match → **Unknown / Ambiguous** — show fallback operators
 
 ### Attribute Types and Their Operators
 
@@ -109,8 +166,8 @@ for the right-hand value.
 
 #### Binary — on/off, open/closed, detected/clear, active/inactive, locked/unlocked, wet/dry, present/not present
 
-These devices have exactly two states. The actual state labels come from HA for the specific device
-(do not hardcode "on/off" — fetch the real values).
+These devices have exactly two states. The actual state labels come from HA for the specific device.
+Do not hardcode "on/off" — fetch the real values.
 
 **Trigger operators (⚡):**
 | Operator | Value input |
@@ -248,13 +305,13 @@ These are numeric but with a known range. Show a slider as the primary input, nu
 | is home | No value input needed |
 | is away | No value input needed |
 
-Note: Geofence is handled naturally through changes-to on person/zone entity. No special geofence operator needed.
+Note: Geofence is handled naturally through changes-to on person/zone entity.
 
 ---
 
 #### HA Boolean Helper — input_boolean
 
-These are the only devices that use Yes/No language. All other binary devices use their native state labels.
+These are the only devices that use Yes/No language. All other binary devices use native state labels.
 
 **Trigger operators (⚡):**
 | Operator | Value input |
@@ -317,10 +374,32 @@ How many of these devices must match?
 ```
 
 The selected aggregation becomes part of the plain English sentence:
-"Any of (Smoke Detectors)'s smoke changes to detected"
-"All of (Door Contacts) are closed"
+- "Any of (Smoke Detectors)'s smoke changes to detected"
+- "All of (Door Contacts) are closed"
+- "None of (Motion Sensors) are active"
 
 This matches WebCoRE's multi-device comparison behavior exactly.
+
+---
+
+## System Variables — Runtime Context
+
+PistonCore pistons have access to runtime context variables injected at compile time.
+These appear in the device picker under a "System Variables" section alongside physical devices and user-defined variables.
+
+System variables available in compiled pistons:
+
+| Variable | Type | Description |
+|---|---|---|
+| $currentEventDevice | Device | The device that triggered the piston |
+| $previousEventDevice | Device | The device that triggered the previous piston run |
+| $device | Device | Current device in a for_each loop |
+| $devices | Devices | Full collection in a for_each loop |
+| $triggerValue | Text | The value that caused the trigger to fire |
+| $previousValue | Text | The previous value before the trigger |
+
+These variables are only available in PyScript pistons. They are not available in YAML pistons.
+If a user adds a system variable reference to a YAML-bound piston, the compile-target conversion prompt appears.
 
 ---
 
@@ -350,12 +429,49 @@ These are the input types the wizard shows in the final step based on the operat
 The action wizard follows the same device-first pattern but ends with a command and parameters
 instead of an operator and value.
 
+**Action philosophy:** PistonCore never maintains its own integration or command list. The action
+wizard pulls live services from HA's service registry. If the user has Twilio installed — SMS
+appears. If they have the mobile app — push notification appears. PistonCore only defines
+explicitly the system commands that are NOT HA services.
+
 **Action wizard steps:**
-1. Pick the device — same type-to-filter picker as conditions
+1. Pick the device (or system command) — same type-to-filter picker as conditions
 2. Pick the command/service — list fetched live from HA for that device
 3. Configure parameters — fields generated from HA's service schema for that command
 
-**Parameter input types by command:**
+### Device Picker Sections (Action Wizard)
+
+The action device picker has five sections, matching WebCoRE's structure:
+
+1. **System commands** — PistonCore location/system commands not tied to a specific device
+2. **Physical devices** — full device list from HA
+3. **Local variables** — Device-type variables defined in this piston
+4. **Global variables** — Device-type global variables
+5. **System variables** — $currentEventDevice, $device, $devices, etc.
+
+### System Commands (non-HA-service actions)
+
+These are PistonCore-defined commands that appear in the action wizard for every piston.
+They are NOT pulled from HA's service registry — PistonCore defines them:
+
+| Command | Description | Notes |
+|---|---|---|
+| Wait | Pause for a fixed duration or until a time | Always available |
+| Wait for state | Pause until an entity reaches a state, with timeout | PyScript only |
+| Wait randomly | Pause for a random duration within a range | PyScript only |
+| Set variable | Assign or modify a piston or global variable | |
+| Cancel all pending tasks | Cancel any pending async tasks in this piston | PyScript only |
+| Execute piston | Trigger another piston | Same as call_piston statement |
+| Control piston | Start/Stop/Enable/Disable/Trigger a piston or HA automation | |
+| Log to console | Write a message to the piston log | |
+| No operation | Does nothing — placeholder | Useful for stub branches |
+| Make a web request | HTTP GET/POST to any URL | PyScript only |
+| Wake a LAN device | Send a WOL packet | |
+
+All other commands (notifications, device control, scripts, scenes, etc.) come from HA's
+service registry for the selected device. PistonCore inherits every HA integration automatically.
+
+### Parameter Input Types by Command
 
 | Command type | Parameter inputs |
 |---|---|
@@ -375,57 +491,38 @@ instead of an operator and value.
 | scene.turn_on | No parameters |
 | Unknown service | Raw parameter editor — key/value pairs |
 
-All parameter options are fetched from HA's service schema for that specific service.
-PistonCore never hardcodes parameter lists — HA is always the source of truth.
-If HA returns no schema for a service, show the raw key/value editor as fallback.
+All parameter options are fetched from HA's service schema. PistonCore never hardcodes parameter lists. If HA returns no schema for a service, show the raw key/value editor as fallback.
 
 ---
 
 ## Wizard Plain English Sentence — Full Examples
 
-The sentence at the top of the wizard builds as the user selects each step.
-
-**Condition example:**
+**Trigger example:**
 - Step 1: *"When..."*
 - Step 2: *"When Front Door..."*
 - Step 3: *"When Front Door's contact..."*
 - Step 4: *"When Front Door's contact ⚡ changes to..."*
 - Step 5: *"When Front Door's contact ⚡ changes to open"*
 
-**Multi-device condition example:**
+**Multi-device trigger example:**
 - Step 1: *"When..."*
 - Step 2: *"When any of (Smoke Detectors)..."*
 - Step 3: *"When any of (Smoke Detectors)'s smoke..."*
 - Step 4: *"When any of (Smoke Detectors)'s smoke ⚡ changes to..."*
 - Step 5: *"When any of (Smoke Detectors)'s smoke ⚡ changes to detected"*
 
+**Condition example:**
+- Step 0: Selected "Condition"
+- Step 1: *"Check if..."*
+- Step 2: *"Check if Front Door..."*
+- Step 3: *"Check if Front Door's contact..."*
+- Step 4: *"Check if Front Door's contact is..."*
+- Step 5: *"Check if Front Door's contact is open"*
+
 **Action example:**
 - Step 1: *"Turn..."*
 - Step 2: *"Turn Driveway Main Light..."*
 - Step 3: *"Turn Driveway Main Light on at 75% brightness"*
-
----
-
-## How Attribute Type Is Determined
-
-The wizard determines the attribute type from the HA capability data returned for the device.
-This drives which operator set to show.
-
-**Detection logic (in priority order):**
-
-1. If the capability's `device_class` is a known binary class (motion, door, window, smoke, moisture, occupancy, plug, outlet, lock) → **Binary**
-2. If the capability's `device_class` is a known numeric class (temperature, humidity, battery, illuminance, power, energy, signal_strength, pm25, co2, voltage, current) → **Numeric**
-3. If the capability has a `unit_of_measurement` → **Numeric**
-4. If the capability has a defined `options` list (input_select, enum) → **Enum / Multi-state**
-5. If the capability's domain is `cover` and attribute is `current_position` → **Numeric with Position**
-6. If the capability's domain is `light` and attribute is `brightness` → **Numeric with Position**
-7. If the capability's domain is `input_boolean` → **HA Boolean Helper**
-8. If the capability's domain is `person` or `device_tracker` → **Location / Presence**
-9. If the capability's domain is `sensor` with no unit → **Enum / Multi-state** (use reported states)
-10. If none of the above match → **Unknown / Ambiguous** — show fallback operators
-
-This detection runs in the backend when capability data is fetched from HA.
-The frontend receives the attribute type alongside the capability data and uses it to select the operator set.
 
 ---
 
@@ -438,6 +535,7 @@ While the wizard is open, it maintains this state object:
   "context": "trigger | condition | action",
   "step": 3,
   "selections": {
+    "statement_class": "condition | group",
     "subject_type": "device",
     "device_id": "abc123",
     "device_label": "Front Door",
@@ -445,11 +543,12 @@ While the wizard is open, it maintains this state object:
     "attribute_type": "binary",
     "native_states": ["open", "closed"],
     "aggregation": null,
+    "interaction": "any",
     "operator_group": "trigger",
     "operator": "changes to",
     "value": "open"
   },
-  "sentence": "When Front Door's contact changes to open"
+  "sentence": "When Front Door's contact ⚡ changes to open"
 }
 ```
 
@@ -473,6 +572,7 @@ When the wizard completes a condition or trigger, it produces a condition object
     "attribute_type": "binary"
   },
   "aggregation": "any | all | none | null",
+  "interaction": "any | physical | programmatic",
   "operator": "changes to",
   "value": "open",
   "duration": null,
@@ -486,24 +586,27 @@ When the wizard completes a condition or trigger, it produces a condition object
 `group_operator` is `AND` or `OR` — applies to this condition's relationship with the next
 condition in the array. Omit on the last condition.
 
+`interaction` defaults to `"any"`. Only relevant for trigger-type conditions on PyScript pistons.
+If omitted or `"any"`, no context filtering is applied.
+
 ---
 
 ## No-Trigger Warning — The Upgrade Flow
 
 If the user saves a piston with no triggers defined:
 
-**Step 1 — Warning banner on status page:**
-"⚠ This piston has no triggers. It will never run automatically."
+**Step 1 — Warning on status page validation banner:**
+*"⚠ This piston has no triggers. It will never run automatically."*
 
 **Step 2 — Offer to upgrade:**
-"Would you like to promote one of your conditions to a trigger?"
-[Yes — show me] [No — I'll add a trigger manually]
+*"Would you like to promote one of your conditions to a trigger?"*
+`[Yes — show me]` `[No — I'll add a trigger manually]`
 
 **Step 3 — If Yes:**
-Show the piston's conditions. User picks one.
+Show the piston's conditions list. User picks one to promote.
 PistonCore converts it:
 - Moves it to the TRIGGERS section
-- Changes its type from "condition" to "trigger"
+- Changes type from `condition` to `trigger`
 - Updates the operator to the trigger-equivalent (e.g., "is open" → "changes to open")
 - Shows the updated piston with the promoted trigger highlighted
 
@@ -515,19 +618,21 @@ This matches WebCoRE's behavior exactly.
 
 **Simple mode wizard:**
 - Does not show piston variable picker in value inputs
-- Does not show loop statement types (Repeat, For Each)
+- Does not show loop statement types (Repeat, For Each, While, For Loop)
 - Does not show Wait for State action
 - Does not show Call Another Piston action
+- Does not show Cancel All Pending Tasks, Break, Switch, Do Block, On Event
 - Does not show TEP/TCP cog options (cog icon still present but those options are hidden)
 - Duration operators are available (they compile to HA native `for:` in YAML)
+- System variables not shown
 
 **Advanced mode wizard:**
 - Shows everything
 
 **YAML → PyScript promotion inside the wizard:**
-If a user in Simple mode tries to select an operator that forces PyScript (e.g., "was detected for at least"), PistonCore shows a prompt before proceeding:
-"This option requires converting your piston to a Complex piston (PyScript). Your logic will be preserved. Continue?"
-[Yes, convert] [No, pick something else]
+If a user selects an operator or feature that forces PyScript compilation, PistonCore shows a prompt before proceeding:
+*"This option requires converting your piston to a Complex piston (PyScript). Your logic will be preserved. Continue?"*
+`[Yes, convert]` `[No, pick something else]`
 
 If they confirm, the piston's compile target updates and the wizard continues.
 
@@ -546,6 +651,7 @@ The wizard frontend makes these backend calls during the wizard flow:
 | Value input for native states | Included in capabilities response | native_states array |
 | Service picker (actions) | `GET /api/device/{id}/services` | List of services with name, label, schema |
 | Service parameters | Included in services response | Parameter schema with types, min, max, options |
+| Zones (location operators) | `GET /api/zones` | List of zones with id and label |
 
 The capability map in this document is implemented in the frontend.
 The backend provides raw HA data. The frontend applies the map to determine operators and input types.
@@ -556,10 +662,13 @@ The backend provides raw HA data. The frontend applies the map to determine oper
 
 These affect the wizard but are not yet decided:
 
-1. **Collapse/expand for individual conditions inside an if block** — WebCoRE supported this. Include in v1 or defer?
-2. **Simulator / step-through dry run** — WebCoRE had this. For PistonCore, the Test button covers most of this need. Full step-through is a v2 feature.
-3. **"followed by" sequence operator** — excluded from v1 per DESIGN.md. No HA equivalent exists.
-4. **Expression editor for advanced value inputs** — WebCoRE let advanced users type expressions. PistonCore v1 uses structured inputs only. Expression editor is v2.
+1. **Which-interaction step feasibility** — requires sandbox validation before implementing. PyScript context tracking needs to be confirmed as reliable. See DESIGN.md Section 8.6.
+2. **Collapse/expand for individual conditions inside an if block** — WebCoRE supported this. Include in v1 or defer?
+3. **System variable availability in YAML pistons** — currently defined as PyScript-only. Confirm whether any system variables are expressible in native YAML triggers/templates.
+4. **Timer statement type** — WebCoRE had a Timer statement. May overlap with HA's scheduler. Evaluate before implementing. See DESIGN.md Section 22.
+5. **Simulator / step-through dry run** — WebCoRE had this. PistonCore v1 uses Test button. Full step-through is v2.
+6. **"followed by" sequence operator** — excluded from v1 per DESIGN.md. No HA equivalent exists.
+7. **Expression editor for advanced value inputs** — WebCoRE let advanced users type expressions. PistonCore v1 uses structured inputs only. Expression editor is v2.
 
 ---
 

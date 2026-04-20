@@ -1,6 +1,6 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.1
+**Version:** 0.2
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
@@ -40,66 +40,70 @@ There is no fourth page. The wizard is a modal that opens on top of the editor.
 
 ### Layout
 
-Two-column layout. Left column is the folder sidebar. Right column is the piston list for the selected folder.
+Single scrolling list. **Not a two-column layout.** Folder names appear as inline section headers
+with a piston count — the same pattern WebCoRE uses. There is no folder sidebar column.
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  PistonCore            [Copy AI Prompt]  [+ New]    │
 │  [Search pistons...]                                │
-├──────────────────┬──────────────────────────────────┤
-│  FOLDERS         │  Outdoor Lighting                │
-│                  │  ─────────────────────────────── │
-│  Outdoor    ──▶  │  ● Driveway Lights at Sunset  ✅  │
-│  Lighting        │    Last ran: 10 minutes ago       │
-│                  │                                   │
-│  Indoor          │  ● Side Gate Motion Light     ✅  │
-│  Lighting        │    Last ran: 2 hours ago          │
-│                  │                                   │
-│  Security        │  ○ Holiday Lights (disabled)  —   │
-│                  │    Never deployed                 │
-│  HVAC            │                                   │
-│                  │                                   │
-│  Notifications   │                                   │
-│                  │                                   │
-│  Uncategorized   │                                   │
-│                  │                                   │
-│  [+ New Folder]  │                                   │
-└──────────────────┴──────────────────────────────────┘
+├─────────────────────────────────────────────────────┤
+│  Outdoor Lighting (3)                               │
+│  ─────────────────────────────────────────────────  │
+│  ● Driveway Lights at Sunset          ✅  08:46:25  │
+│  ● Side Gate Motion Light             ✅  14:22:01  │
+│  ○ Holiday Lights (disabled)          —   Never     │
+│                                                     │
+│  Security (2)                                       │
+│  ─────────────────────────────────────────────────  │
+│  ● Front Door Alert                   ✅  09:11:44  │
+│  ● Garage Monitor                     ❌  07:30:12  │
+│                                                     │
+│  Uncategorized (1)                                  │
+│  ─────────────────────────────────────────────────  │
+│  ● Test Piston                        —   Never     │
+│                                                     │
+│                              [+ New Folder] [Import]│
+└─────────────────────────────────────────────────────┘
 ```
 
-### Folder Sidebar
+### Folder Section Headers
 
-- Lists all user-defined folders plus Uncategorized at the bottom
-- Clicking a folder selects it and shows its pistons in the right column
-- `[+ New Folder]` button at the bottom — opens a simple inline text input to name the new folder
+- Folder name in a distinct color (teal or equivalent, matching WebCoRE's style) as a section divider
+- Piston count shown inline: "Outdoor Lighting (3)"
+- A horizontal rule or divider line below the header
+- Folders are sorted alphabetically; Uncategorized always appears last
+- `[+ New Folder]` button at the bottom of the list — opens a simple inline text input to name the new folder
 - Folders are created here only — not in the editor or wizard
-- Active folder is visually highlighted
 
-### Piston List (right column)
+### Piston List Items
 
-Each piston shows:
-- Enabled indicator: ● (green, enabled) or ○ (gray, disabled)
+Each piston shows on a single row:
+- Enabled indicator: `●` (green, enabled) or `○` (gray, disabled)
 - Piston name — clicking navigates to the Status Page for that piston
-- Last ran time or "Never deployed"
-- Last evaluation result: ✅ (true) / ❌ (false) / — (never run or disabled)
+- Last evaluation result: `✅` (true) / `❌` (false) / `—` (never run or disabled) — shown inline after the name
+- Last ran timestamp — shown right-aligned as a time only: `08:46:25` not "10 minutes ago". Shows `Never` if never run.
 - Pause/Resume button per piston (inline, subtle)
 
 ### Global Variables Drawer
 
-Accessible from the main list page. A slide-out panel from the right side showing all global variables and their current values — read only. Matches the WebCoRE right sidebar behavior.
+Accessible from the main list page via a button or link in the header area.
+A slide-out panel from the right side showing all global variables and their current values — read only.
+Matches the WebCoRE right sidebar behavior.
 
 ### Mode Notice
 
-**PyScript-only mode (subtle, footer or sidebar):**
-"PistonCore manages automations in its own subfolder. Automations created directly in Home Assistant are not visible or managed here."
+**PyScript-only mode (subtle, footer):**
+*"PistonCore manages automations in its own subfolder. Automations created directly in Home Assistant are not visible or managed here."*
 
-**Full Mode (prominent banner):**
-"PistonCore is running in Full Mode (YAML + PyScript). Creating automations directly in the Home Assistant GUI may cause unexpected behavior. Manage all automations through PistonCore."
+**Full Mode (prominent banner at top):**
+*"PistonCore is running in Full Mode (YAML + PyScript). Creating automations directly in the Home Assistant GUI may cause unexpected behavior. Manage all automations through PistonCore."*
 
 ### Buttons
 
-- `[Copy AI Prompt]` — copies the PistonCore JSON format spec to clipboard (no user data)
-- `[+ New]` — creates a new blank piston and navigates to its Status Page
+- `[Copy AI Prompt]` — copies the PistonCore JSON format spec to clipboard (redesign required — see DESIGN.md Section 11)
+- `[+ New]` — creates a new blank piston and navigates to its Status Page. New piston lands in Uncategorized.
+- `[+ New Folder]` — opens inline text input at the bottom of the list
 - `[Import]` — opens import dialog (paste JSON, paste URL, or upload .piston file)
 
 ---
@@ -119,18 +123,34 @@ Saving in the editor always returns here.
 │  ⚠ VALIDATION                                       │
 │  (warnings appear here automatically after save)    │
 ├─────────────────────────────────────────────────────┤
-│  [✎ Edit] [▶ Test] [📷 Snapshot] [📷 Backup]        │
-│  [⧉ Duplicate] [🗑 Delete]                          │
+│  [✎ Edit] [▶ Test — Preview Mode] [📷 Snapshot]     │
+│  [📷 Backup] [⧉ Duplicate] [🗑 Delete]              │
 │                      [Trace: OFF]  [⚠ Notify: OFF]  │
 ├─────────────────────────────────────────────────────┤
 │  QUICK FACTS                                        │
-│  Compile target: PyScript                           │
-│  Last ran: 10 minutes ago                           │
+│  Compile target: YAML                               │
+│  Last ran: 08:46:25                                 │
 │  Next scheduled: sunset today                       │
 │  Devices used: Driveway Main Light                  │
 ├─────────────────────────────────────────────────────┤
+│  PISTON SCRIPT (read-only)                          │
+│  execute                                            │
+│  1   with                                           │
+│  2     (Driveway Main Light)                        │
+│  3   do                                             │
+│  4     Turn On                                      │
+│  5       Brightness: 100%                           │
+│  6   end with;                                      │
+│  7   wait until 11:00 PM;                           │
+│  8   with                                           │
+│  9     (Driveway Main Light)                        │
+│  10  do                                             │
+│  11    Turn Off                                     │
+│  12  end with;                                      │
+│  end execute;                                       │
+├─────────────────────────────────────────────────────┤
 │  LOG                          [▼ Full] [Clear Log]  │
-│  10:42 PM — Triggered by sunset                     │
+│  08:46:25 — Triggered by sunset                     │
 │    Condition 1: No conditions — passed              │
 │    Action 1: Turn On Driveway Main Light — ✅        │
 │    Action 2: Wait until 11:00 PM                    │
@@ -142,9 +162,42 @@ Saving in the editor always returns here.
 └─────────────────────────────────────────────────────┘
 ```
 
+### Piston Script Panel
+
+Displayed below Quick Facts, above the Log panel.
+
+This shows the piston in **read-only form** — the same visual document the editor shows, rendered
+with syntax highlighting and statement numbers. This is PistonCore's own visual format, the script
+the user authored. It is NOT compiled output (YAML or PyScript).
+
+**Compiled output (YAML or PyScript) is never shown on this page.**
+
+Rendering rules:
+- `execute` and `end execute;` appear as wrapper lines at the top and bottom of the script
+- Statement numbers appear on the left (used by Trace mode)
+- Keywords are styled the same as in the editor (distinct color/weight)
+- Indentation matches the editor indentation
+- The saved format is used here: `then / end if;` (not `when true / when false`)
+- The view is read-only — clicking on it opens the editor
+
+### Test Button — Label Differs by Compile Target
+
+The Test button label must indicate what will happen BEFORE the user clicks:
+
+- **YAML piston:** `[▶ Test — Preview Mode]`
+- **PyScript piston:** `[▶ Test — Live Fire ⚠]`
+
+This distinction is non-negotiable. The user must know before clicking whether they are getting
+a preview or executing real device actions. The ⚠ warning symbol must be visible on the button itself.
+
+For PyScript test, show a confirmation dialog before firing:
+*"This will execute real actions on your devices. Are you sure?"*
+`[Yes, run it]` `[Cancel]`
+
 ### Navigation
 
 - `← My Pistons` returns to the folder this piston is in — not always the root list
+- If the piston is in Uncategorized, the back button returns to the list with Uncategorized visible
 - `[✎ Edit]` opens the Editor for this piston
 - Folder dropdown on this page allows reassigning the piston to a different folder
 
@@ -153,13 +206,13 @@ Saving in the editor always returns here.
 All buttons use icon + plain English label. Never icon alone.
 
 - `[✎ Edit]` — opens editor
-- `[▶ Test]` — fires the piston manually (dry run for YAML, live fire with warning for PyScript)
+- `[▶ Test — Preview Mode]` or `[▶ Test — Live Fire ⚠]` — fires the piston manually, label by compile target
 - `[📷 Snapshot]` — green label — anonymized export, safe to share
 - `[📷 Backup]` — red label — full export including entity mappings, personal restore only
 - `[⧉ Duplicate]` — creates a copy of the piston, lands in Uncategorized
 - `[🗑 Delete]` — deletes the piston with a confirmation prompt
 - `[Trace: OFF/ON]` — toggle, only active after Test has been pressed at least once
-- `[⚠ Notify: OFF/ON]` — toggle, enables failure notifications
+- `[⚠ Notify: OFF/ON]` — toggle, enables failure notifications via persistent HA UI notification
 
 ### Validation Banner
 
@@ -172,7 +225,8 @@ Most recent runs at the top. Each run entry is collapsible.
 Log level selector: Full / Minimal / None (mirrors what is set in the editor).
 `[Clear Log]` button clears all entries.
 
-**Compiled output (YAML or PyScript) is never shown on this page.**
+Timestamps in the log are shown as the time the event was received, not just when the piston ran.
+If status is unknown (WebSocket drop, missed event), show: *"Status unknown"* — never wrong information.
 
 ---
 
@@ -189,7 +243,7 @@ Log level selector: Full / Minimal / None (mirrors what is set in the editor).
 │  Folder: [Outdoor Lighting ▼]                       │
 │  Mode: [Single ▼]                                   │
 │  [● Enabled]              [Simple / Advanced]       │
-│  Compile target: YAML → PyScript indicator          │
+│  Compile target: [YAML] ← updates live              │
 ├─────────────────────────────────────────────────────┤
 │  ▼ PISTON VARIABLES              [+ Add] (Adv only) │
 ├─────────────────────────────────────────────────────┤
@@ -202,8 +256,10 @@ Log level selector: Full / Minimal / None (mirrors what is set in the editor).
 │  + add a new condition                              │
 ├─────────────────────────────────────────────────────┤
 │  ▼ ACTIONS                                          │
-│  [action tree — see Section below]                  │
+│  execute                                            │
+│  [action tree — indented, see rendering section]    │
 │  + add a new statement                              │
+│  end execute;                                       │
 ├─────────────────────────────────────────────────────┤
 │  [▶ Test]  [💾 Save]  [📷 Snapshot] [📷 Backup]     │
 │  Log Level: [Full ▼]                                │
@@ -216,10 +272,19 @@ Log level selector: Full / Minimal / None (mirrors what is set in the editor).
 Save does not stay in the editor.
 If save fails, an error banner appears at the top of the editor. The user stays in the editor with their work intact.
 
+**Save pipeline:**
+1. Frontend validates piston has a name — if empty, stop and highlight the field
+2. Frontend sends piston JSON to backend via POST
+3. Save button shows loading state: "Saving..."
+4. Backend writes piston JSON to Docker volume, runs Stage 1 validation
+5. Backend returns success or failure plus any validation warnings
+6. If success → navigate to status page, warnings appear in banner if any
+7. If write fails → stay in editor, error banner: "Save failed — your work is preserved. Try again."
+
 ### Unsaved Changes
 
 If the user navigates away with unsaved changes, show a prompt:
-"You have unsaved changes. Save, Discard, or Cancel?"
+*"You have unsaved changes. Save, Discard, or Cancel?"*
 - Save → triggers save pipeline then navigates
 - Discard → navigates without saving
 - Cancel → returns user to editor
@@ -227,7 +292,7 @@ If the user navigates away with unsaved changes, show a prompt:
 ### Browser Refresh
 
 On refresh, restore from local browser storage:
-- Currently open folder in the piston list
+- Currently open folder / scroll position in the piston list
 - Last viewed status page (if on status page)
 - Editor state if in the editor — unsaved changes preserved
 
@@ -244,7 +309,7 @@ If the WebSocket connection to HA drops:
 
 Shows the current compile target (YAML or PyScript) based on the auto-detection rules.
 Updates live as the user adds statements. If the target changes from YAML to PyScript mid-build,
-show a brief notification: "This piston now requires PyScript compilation."
+show a brief inline notification: *"This piston now requires PyScript compilation."*
 
 ### Simple / Advanced Toggle
 
@@ -252,14 +317,16 @@ Single global toggle. Default is Simple.
 
 **Simple mode hides:**
 - Piston Variables section
-- Loop statement types (Repeat, For Each)
+- Loop statement types (Repeat, For Each, While, For Loop)
 - Wait for State action
 - Call Another Piston action
+- Break, Cancel All Pending Tasks, On Event, Switch, Do Block
 - TEP/TCP options in wizard
 
 **Advanced mode shows everything.**
 
-Switching modes never destroys data. A piston built in Advanced mode opens correctly in Simple mode — advanced features are just not editable until switching back.
+Switching modes never destroys data. A piston built in Advanced mode opens correctly in Simple mode
+— advanced features are not editable until switching back.
 
 ---
 
@@ -268,18 +335,28 @@ Switching modes never destroys data. A piston built in Advanced mode opens corre
 This is the core of the editor. It renders the piston's action tree as a structured document
 that reads top to bottom like a script.
 
+The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the
+frontend. **execute and end execute are not data nodes in the JSON.** The JSON `actions` array
+is the execute body. The frontend adds the wrapper rendering only.
+
 ### Visual Rules — Match WebCoRE Exactly
 
-- Keywords are rendered in a distinct color/weight: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`
-- Indentation increases with nesting depth — each level adds one indent stop
-- Curly braces `{` and `}` mark branch boundaries, exactly as WebCoRE does
+- Keywords are rendered in a distinct color/weight: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`, `execute`, `end execute;`, `define`, `end define;`, `settings`, `end settings;`
+- Indentation increases with nesting depth — each level adds one indent stop (suggest 2rem per level)
+- Curly braces `{` and `}` mark branch boundaries in editor display — styled same as keywords
 - `end if;` closes every if block at the same indent level as the opening `if`
 - `else if` and `else` appear at the same indent level as the opening `if`
-- `when true` and `when false` label the branches inside an if block
+- `when true` and `when false` label the branches inside an if block **in the editor**
+- `then` and `end if;` are used in the **status page read-only view** and export format
+- `and` and `or` between conditions appear at the **same indent level as the conditions**
+- `until` in a repeat block appears at the **bottom** of the block, before `end repeat;`
+- Statement numbers appear on the left side (used by Trace mode)
+- Line numbers are NOT shown — trace uses statement numbers, not line numbers
 
-### Rendered Example
+### Editor Rendering Example
 
 ```
+execute
 if
   Any of (@Smoke_Detectors)'s smoke changes to detected
   {
@@ -321,12 +398,45 @@ do
   end if;
   + add a new statement
 end for each;
+repeat
+do
+  + add a new statement
+until
+  [condition]
+end repeat;
 + add a new statement
+end execute;
+```
+
+### Status Page Read-Only Rendering Example
+
+```
+execute
+1  if
+2    Any of (@Smoke_Detectors)'s smoke changes to detected
+3  then
+4    with
+5      (@Notification_Text)
+6    do
+7      Send device notification "Smoke detected";
+8    end with;
+9  end if;
+10 for each ($device in {@Smoke_Detectors})
+11 do
+12   if
+13     Any of ($device)'s smoke is detected
+14   then
+15     + (empty branch)
+16   end if;
+17 end for each;
+end execute;
 ```
 
 ### Ghost Text — Primary Insertion Method
 
-At every valid insertion point, ghost text appears inline in a muted color:
+At every valid insertion point, ghost text appears inline in a muted color.
+Ghost text is always visible at valid insertion points — not only on hover.
+
 - `+ add a new statement` — at the top level and inside blocks
 - `+ add a new task` — inside a with/do block
 - `+ add a new trigger` — in the triggers section
@@ -334,7 +444,6 @@ At every valid insertion point, ghost text appears inline in a muted color:
 - `+ add a new restriction` — after an `only when` line
 
 Clicking any ghost text opens the wizard modal for that insertion point.
-Ghost text is not shown when hovering — it is always visible at valid insertion points.
 
 ### Right-Click Context Menu
 
@@ -346,11 +455,11 @@ Right-clicking any statement node shows:
 - Clear clipboard (if clipboard has content)
 
 Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement.
-Cut statement is visually dimmed in place until pasted or clipboard is cleared.
+Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
 
 ### Within-Block Drag to Reorder
 
-Statements can be dragged to reorder within their containing block.
+Statements can be dragged to reorder within their containing block only.
 Dragging across block boundaries is not supported in v1 — use cut and paste for that.
 Valid drop targets highlight on hover.
 No undo for drag operations in v1.
@@ -363,6 +472,10 @@ This is the internal JSON structure the editor manipulates in memory.
 This same structure is serialized to the piston JSON file on save.
 The compiler reads this same structure to generate YAML or PyScript.
 
+**execute / end execute is a rendering artifact.** It is not represented in the JSON.
+The `actions` array in the piston JSON IS the execute block body. The frontend renders
+`execute` and `end execute;` as wrapper lines when displaying the document.
+
 ### Node Types
 
 **if_block**
@@ -370,10 +483,10 @@ The compiler reads this same structure to generate YAML or PyScript.
 {
   "id": "stmt_001",
   "type": "if_block",
-  "condition": { ...condition object... },
-  "only_when": [ ...array of condition objects... ],
-  "true_branch": [ ...array of statement nodes... ],
-  "false_branch": [ ...array of statement nodes... ]
+  "condition": { "...condition object..." },
+  "only_when": [ "...array of condition objects..." ],
+  "true_branch": [ "...array of statement nodes..." ],
+  "false_branch": [ "...array of statement nodes..." ]
 }
 ```
 `else if` is represented as the first node in `false_branch` being another `if_block`.
@@ -385,21 +498,24 @@ The compiler reads this same structure to generate YAML or PyScript.
   "id": "stmt_002",
   "type": "with_block",
   "target_role": "porch_light",
-  "only_when": [ ...array of condition objects... ],
-  "tasks": [ ...array of task nodes... ]
+  "only_when": [ "...array of condition objects..." ],
+  "tasks": [ "...array of task nodes..." ]
 }
 ```
 
 **repeat_block**
+
+The `until` condition is at the bottom of the block in rendering. In JSON it is stored as a `condition` property:
 ```json
 {
   "id": "stmt_003",
   "type": "repeat_block",
-  "condition": { ...condition object... },
-  "only_when": [ ...array of condition objects... ],
-  "body": [ ...array of statement nodes... ]
+  "condition": { "...condition object — the until condition..." },
+  "only_when": [ "...array of condition objects..." ],
+  "body": [ "...array of statement nodes..." ]
 }
 ```
+Rendered as: `repeat / do / [body] / until / [condition] / end repeat;`
 
 **for_each_block**
 ```json
@@ -408,8 +524,73 @@ The compiler reads this same structure to generate YAML or PyScript.
   "type": "for_each_block",
   "variable_name": "$device",
   "collection_role": "smoke_detectors",
-  "only_when": [ ...array of condition objects... ],
-  "body": [ ...array of statement nodes... ]
+  "only_when": [ "...array of condition objects..." ],
+  "body": [ "...array of statement nodes..." ]
+}
+```
+
+**while_block**
+```json
+{
+  "id": "stmt_011",
+  "type": "while_block",
+  "condition": { "...condition object..." },
+  "only_when": [ "...array of condition objects..." ],
+  "body": [ "...array of statement nodes..." ]
+}
+```
+
+**for_loop** (count-based)
+```json
+{
+  "id": "stmt_012",
+  "type": "for_loop",
+  "variable_name": "$i",
+  "from": 1,
+  "to_expression": "10",
+  "step": 1,
+  "only_when": [ "...array of condition objects..." ],
+  "body": [ "...array of statement nodes..." ]
+}
+```
+
+**switch_block**
+```json
+{
+  "id": "stmt_013",
+  "type": "switch_block",
+  "subject": { "...condition subject object..." },
+  "cases": [
+    {
+      "value": "on",
+      "body": [ "...array of statement nodes..." ]
+    },
+    {
+      "value": "off",
+      "body": [ "...array of statement nodes..." ]
+    }
+  ],
+  "default_body": [ "...array of statement nodes..." ]
+}
+```
+
+**do_block** (groups statements into a single named block)
+```json
+{
+  "id": "stmt_014",
+  "type": "do_block",
+  "label": "Optional label",
+  "body": [ "...array of statement nodes..." ]
+}
+```
+
+**on_event** (executes only when certain events happen)
+```json
+{
+  "id": "stmt_015",
+  "type": "on_event",
+  "event": { "...event descriptor..." },
+  "body": [ "...array of statement nodes..." ]
 }
 ```
 
@@ -474,7 +655,37 @@ Level options: `info` / `warning` / `error` / `debug` / `trace`
 }
 ```
 `wait_for_completion: true` only valid for PyScript pistons.
-YAML pistons always fire-and-forget — `wait_for_completion` is ignored with a UI warning.
+YAML pistons always fire-and-forget. If `wait_for_completion` is true on a YAML piston, the UI shows a warning and the compiler ignores the flag.
+
+**control_piston** (start/stop/enable/disable/trigger another piston or HA automation)
+```json
+{
+  "id": "stmt_016",
+  "type": "control_piston",
+  "target_type": "piston",
+  "target_id": "b7e2a1f4",
+  "action": "trigger"
+}
+```
+`target_type`: `piston` or `ha_automation`
+`action`: `start` / `stop` / `enable` / `disable` / `trigger`
+
+**cancel_pending_tasks**
+```json
+{
+  "id": "stmt_017",
+  "type": "cancel_pending_tasks"
+}
+```
+Forces PyScript compilation if used.
+
+**break** (interrupts inner loop)
+```json
+{
+  "id": "stmt_018",
+  "type": "break"
+}
+```
 
 **stop**
 ```json
@@ -486,22 +697,28 @@ YAML pistons always fire-and-forget — `wait_for_completion` is ignored with a 
 
 ### Condition Object
 
-Used inside `if_block.condition`, `repeat_block.condition`, and `only_when` arrays.
+Used inside `if_block.condition`, `repeat_block.condition`, `while_block.condition`, and `only_when` arrays.
 
 ```json
 {
+  "id": "cond_001",
   "subject": {
     "type": "device",
     "role": "motion_sensor",
-    "capability": "motion"
+    "capability": "motion",
+    "attribute_type": "binary"
   },
-  "operator": "is",
+  "aggregation": "any",
+  "operator": "changes to",
   "value": "detected",
+  "duration": null,
   "group_operator": "AND"
 }
 ```
 
 `group_operator` is `AND` or `OR` — applies to this condition's relationship with the next condition in the array. Omit on the last condition in the array.
+
+`aggregation`: `any` / `all` / `none` / `null` (null = single device, no aggregation)
 
 Subject types: `device` / `variable` / `time` / `date` / `sun` / `ha_system`
 
@@ -528,6 +745,18 @@ Opens when the user clicks any ghost text or clicks to edit an existing statemen
 - Clicking Cancel closes the wizard with no changes
 - Clicking Done (final step) closes the wizard and inserts or updates the statement
 
+### First Step — Condition or Group
+
+When adding to the CONDITIONS section or inside an if block condition, the first step presents:
+
+**Condition** — "a single comparison between two or more operands, the basic building block of a decisional statement"
+`[Add a condition]`
+
+**Group** — "a collection of conditions, with a logical operator between them, allowing for complex decisional statements"
+`[Add a group]`
+
+Groups are first-class objects. This is how WebCoRE handles complex AND/OR logic.
+
 ### Cog Icon — Advanced Options
 
 Every wizard modal has a cog icon in the bottom right corner.
@@ -538,22 +767,24 @@ Clicking expands:
 - Execution Method (Synchronous / Asynchronous)
 
 These are always accessible but hidden by default.
-If set on a YAML-bound piston, show a note: "These options only apply to Complex (PyScript) pistons."
+If set on a YAML-bound piston, show a note: *"These options only apply to Complex (PyScript) pistons."*
 
 ### Wizard Steps — Condition / Trigger
 
+0. Condition or Group (when adding to conditions section)
 1. What to evaluate — Physical Device / Variable / Time / Date / Location / HA System
 2. Pick the device — type-to-filter search by friendly name, device name, or area
 3. Pick the capability or attribute — list fetched live from HA for that specific device
-4. Pick the operator — list appropriate to the selected capability
+4. Pick the operator — trigger group (⚡) or condition group, appropriate to the selected capability
+   (Optional) Which interaction — Any / Physical / Programmatic
 5. Compare to — value input, another device, a variable, or a time
 
 The plain English sentence at the top grows with each step. Example progression:
 - Step 1: "When..."
 - Step 2: "When Porch Motion Sensor..."
 - Step 3: "When Porch Motion Sensor's motion..."
-- Step 4: "When Porch Motion Sensor's motion changes to..."
-- Step 5: "When Porch Motion Sensor's motion changes to detected"
+- Step 4: "When Porch Motion Sensor's motion ⚡ changes to..."
+- Step 5: "When Porch Motion Sensor's motion ⚡ changes to detected"
 
 ### Wizard Steps — Action (with block)
 
@@ -561,12 +792,21 @@ The plain English sentence at the top grows with each step. Example progression:
 2. Pick the capability or service — list fetched live from HA
 3. Configure parameters — fields generated from HA's service schema
 
+### Call Another Piston — Warning Before Target Selection
+
+If the piston is YAML-bound and the user initiates a Call Another Piston action, show immediately — **before** the target piston picker:
+
+*"Simple pistons trigger the called piston but cannot wait for it to finish. To wait for completion, convert this piston to Complex (PyScript)."*
+`[Convert and continue]` `[Use fire-and-forget]` `[Cancel]`
+
+This must appear BEFORE the user picks the target piston, not after.
+
 ### Loading State
 
 If the backend is fetching capability data from HA when the wizard opens, show a loading spinner inside the dropdown. Never show an empty dropdown — always show loading state until data arrives or an error occurs.
 
 If capability data fails to load, show:
-"Could not load device capabilities. Check your Home Assistant connection."
+*"Could not load device capabilities. Check your Home Assistant connection."*
 With a Retry button.
 
 ---
@@ -577,10 +817,11 @@ The frontend never calls HA directly. All HA data comes from the FastAPI backend
 
 The backend provides these endpoints the frontend uses:
 
-- `GET /api/devices` — all devices with friendly names and areas
+- `GET /api/devices` — all devices with friendly names, areas, domains
+- `GET /api/device/{id}/capabilities` — capabilities with attribute_type and native_states
 - `GET /api/device/{id}/triggers` — valid triggers for a device
 - `GET /api/device/{id}/conditions` — valid conditions for a device
-- `GET /api/device/{id}/services` — valid services for a device
+- `GET /api/device/{id}/services` — valid services for a device with parameter schema
 - `GET /api/pistons` — all pistons with status
 - `GET /api/piston/{id}` — single piston JSON
 - `POST /api/piston/{id}/save` — save piston JSON
@@ -588,6 +829,10 @@ The backend provides these endpoints the frontend uses:
 - `POST /api/piston/{id}/test` — fire piston manually
 - `GET /api/globals` — all global variables
 - `WebSocket /ws` — live log updates, trace data, run status events
+
+The capability map (which operators are valid for which attribute types) lives in the frontend.
+The backend provides raw HA data. The frontend applies the map to determine operators and input types.
+Full capability map is defined in WIZARD_SPEC.md.
 
 Exact endpoint signatures to be confirmed with the backend developer.
 
@@ -598,15 +843,15 @@ Exact endpoint signatures to be confirmed with the backend developer.
 Match WebCoRE's visual language as closely as possible:
 
 - Dark background editor area
-- Keywords in a distinct highlight color
+- Keywords in a distinct highlight color (teal or similar — match WebCoRE)
+- Folder section headers in teal or the same keyword color
 - Ghost text in a muted/gray color — clearly secondary
 - Indentation uses consistent spacing (suggest 2rem per level)
 - Curly braces `{` and `}` styled the same as keywords
-- Line numbers visible on the left side of the action tree (used by Trace mode)
+- Statement numbers visible on the left side of the action tree (used by Trace mode)
 - Selected statement has a visible highlight/border
 - Cut statement is visually dimmed (50% opacity or similar)
-
-The goal is that a WebCoRE user sits down, looks at the editor, and immediately feels at home.
+- `and` and `or` between conditions rendered at same indent as conditions, not indented further
 
 ---
 
@@ -626,10 +871,13 @@ The frontend's job is: render the tree, let the user edit it, send it to the bac
 
 These affect the frontend but are not yet decided. Do not implement them until they are:
 
-1. **Wizard Capability Map** — the decision tree that determines valid operators and value types given a device capability. Defined in DESIGN.md Section 8.1. Required before wizard coding.
+1. **Compiler template system** — must be designed before any backend coding (COMPILER_SPEC.md, Session 7)
 2. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 11.
 3. **Exact backend API signatures** — to be confirmed with backend developer.
-4. **globals.json runtime access method** — affects whether global variable values can be shown live in the editor sidebar. See DESIGN.md Section 4.1.
+4. **globals.json runtime access method** — affects whether global variable values can be shown live. See DESIGN.md Section 4.1.
+5. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 26.
+6. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 8.6.
+7. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 22.
 
 ---
 

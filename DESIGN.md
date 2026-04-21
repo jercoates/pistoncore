@@ -1,6 +1,6 @@
 # PistonCore Design Document
 
-**Version:** 0.9
+**Version:** 0.9.1
 **Status:** Draft — Ready for Development
 **Last Updated:** April 2026
 
@@ -1183,7 +1183,7 @@ DESIGN.md v0.7, FRONTEND_SPEC.md v0.1, and WIZARD_SPEC.md v0.1 produced. WebCoRE
 DESIGN.md v0.8, FRONTEND_SPEC.md v0.2, and WIZARD_SPEC.md v0.2 produced incorporating all Session 5 notes file corrections (32 items). No code written.
 
 ### Session 7 — April 2026
-Architecture confirmed: Native HA Script as primary compile target, PyScript as fallback for break/cancel_pending_tasks/on_event only. Five HA script capability gaps researched and resolved. Perplexity conversation reviewed — confirmed design was already ahead of its suggestions. Added "Compiled files are compiler-owned artifacts" and "The compiler absorbs Home Assistant churn" to Section 2 Core Philosophy. Globals architecture updated from globals.json file to companion-managed native HA helpers. Setup mode complexity eliminated — one configuration.yaml labeled include replaces Full Mode / PyScript Only distinction. Minimum HA version floor established at 2023.1. Test button unified to Live Fire ⚠ for both targets. DESIGN.md updated to v0.9. COMPILER_SPEC.md not yet written — next primary item.
+Architecture confirmed: Native HA Script as primary compile target, PyScript as fallback for break/cancel_pending_tasks/on_event only. Five HA script capability gaps researched and resolved. Perplexity conversation reviewed. Added "Compiled files are compiler-owned artifacts" and "The compiler absorbs Home Assistant churn" to Section 2 Core Philosophy. Globals architecture updated from globals.json file to companion-managed native HA helpers. Setup mode complexity eliminated. Minimum HA version floor established at 2023.1. Test button unified to Live Fire ⚠. DESIGN.md updated to v0.9. COMPILER_SPEC.md v0.1 written. WIZARD_SPEC.md updated to v0.3 — binary sensor on/off validation catch, display_value/compiled_value separation. AI-REVIEW-PROMPT.md written. Section 27 expanded with logic validation rule. DESIGN.md bumped to v0.9.1.
 
 ---
 
@@ -1201,11 +1201,41 @@ Note: globals.json sandbox validation (formerly item 3) is resolved — globals 
 
 ---
 
-## 27. Standing Questions — Ask Every AI Reviewing This Design
+## 27. Standing Questions and Validation Workflow
+
+### The Three Standing Questions — Ask Every AI Reviewing This Design
 
 * What technical assumptions in this design are most likely to be wrong?
 * What features described here cannot work the way they are described?
 * What has been left undefined that will block a developer from writing code?
+
+See `AI-REVIEW-PROMPT.md` in the repo root for the full external AI review prompt,
+including a fourth compiler-specific question and rules for how to interpret responses.
+
+### Logic Validation Rule — Before Any New Spec or Code
+
+**Any new technical approach, HA behavior assumption, or logic choice must be validated
+against real HA behavior BEFORE it is written into a spec or implemented in code.**
+
+This rule exists because incorrect assumptions propagate through all downstream documents
+and code. It is always cheaper to validate first than to rewrite a spec or debug compiled
+output later.
+
+**What must be validated:**
+- How HA returns state values for any entity type (e.g. binary sensors return "on"/"off",
+  not friendly labels like "open"/"closed" — caught in Session 7)
+- Whether a native HA script feature works the way the spec assumes
+- Whether a WebSocket API command returns the data structure expected
+- Any compiler output pattern that has not been hand-verified against real HA YAML
+
+**How to validate:**
+Search current HA documentation, fetch HA source or developer docs, or check real HA
+community examples. Run the validation before writing any new spec content or code.
+
+**When bringing in feedback from other AIs:**
+Other AIs can be confidently wrong about HA-specific behavior. Any HA behavior claim
+from an external AI review must be validated against real HA docs before it is acted on.
+Bring all external AI feedback to the primary session for evaluation before updating specs.
 
 ---
 

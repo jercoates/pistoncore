@@ -1,6 +1,6 @@
 # PistonCore Wizard Specification
 
-**Version:** 0.2
+**Version:** 0.3
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
@@ -164,26 +164,58 @@ The backend determines attribute type from HA capability data and includes it in
 
 ---
 
-#### Binary — on/off, open/closed, detected/clear, active/inactive, locked/unlocked, wet/dry, present/not present
+#### Binary — door, window, motion, smoke, moisture, lock, and all other binary_sensor device classes
 
-These devices have exactly two states. The actual state labels come from HA for the specific device.
-Do not hardcode "on/off" — fetch the real values.
+**Critical implementation note:** Home Assistant binary sensors ALWAYS report `"on"` or `"off"` as
+their actual state value — regardless of device_class or what the UI displays. A door sensor with
+`device_class: door` shows "Open/Closed" in the HA frontend but its real state is `"on"` or `"off"`.
+
+**This is different from WebCoRE on Hubitat/SmartThings**, where drivers return named states like
+`"open"`, `"closed"`, `"detected"` directly. In HA, those named labels are display-only.
+
+**The wizard shows friendly labels (Open/Closed, Detected/Clear, etc.) to the user.**
+**The piston JSON stores both the display label AND the compiled value separately.**
+**The compiler always uses the compiled value — never the display label.**
+
+The friendly label pairs shown in the wizard come from PistonCore's own device_class lookup table,
+NOT from HA. HA does not return these labels as state values.
+
+**Device_class → friendly label pairs (wizard display only):**
+
+| device_class | "on" label | "off" label |
+|---|---|---|
+| door / window / opening / garage | Open | Closed |
+| motion / occupancy / presence | Detected | Clear |
+| smoke / gas / carbon_monoxide / carbon_dioxide | Detected | Clear |
+| moisture / wet | Wet | Dry |
+| lock | Unlocked | Locked |
+| battery | Low | Normal |
+| plug / outlet | Plugged in | Unplugged |
+| light | Light detected | No light |
+| sound / vibration | Detected | Clear |
+| heat / cold | Hot / Cold | Normal |
+| connectivity | Connected | Disconnected |
+| problem / safety | Problem / Unsafe | OK / Safe |
+| tamper | Tampered | Clear |
+| update | Update available | Up to date |
+| running | Running | Not running |
+| (none / default) | On | Off |
 
 **Trigger operators (⚡):**
 | Operator | Value input |
 |---|---|
-| ⚡ changes to [state] | Dropdown of native states from HA |
-| ⚡ changes from [state] | Dropdown of native states from HA |
-| ⚡ changes from [state] to [state] | Two dropdowns of native states |
+| ⚡ changes to [label] | Dropdown showing friendly labels — compiles to "on" or "off" |
+| ⚡ changes from [label] | Dropdown showing friendly labels — compiles to "on" or "off" |
+| ⚡ changes from [label] to [label] | Two dropdowns — each compiles to "on" or "off" |
 | ⚡ changes (any) | No value input needed |
 
 **Condition operators:**
 | Operator | Value input |
 |---|---|
-| is [state] | Dropdown of native states from HA |
-| is not [state] | Dropdown of native states from HA |
-| was [state] for at least [duration] | Dropdown of native states + duration picker |
-| was [state] for less than [duration] | Dropdown of native states + duration picker |
+| is [label] | Dropdown showing friendly labels — compiles to "on" or "off" |
+| is not [label] | Dropdown showing friendly labels — compiles to "on" or "off" |
+| was [label] for at least [duration] | Dropdown + duration picker — label compiles to "on" or "off" |
+| was [label] for less than [duration] | Dropdown + duration picker — label compiles to "on" or "off" |
 
 ---
 
@@ -215,24 +247,26 @@ Do not hardcode "on/off" — fetch the real values.
 
 #### Enum / Multi-state — media player state (playing/paused/idle/off), cover position (open/closed/opening/closing), HVAC mode (heat/cool/auto/off), alarm state, scene, input_select
 
-These devices have more than two named states. The state list comes from HA for the specific device.
+These entities have named states that ARE the real HA state values — not display labels over on/off.
+The state list is fetched from HA: `options` attribute for input_select/select, `hvac_modes` attribute
+for climate, current state + known domain states for media_player and cover.
 
 **Trigger operators (⚡):**
 | Operator | Value input |
 |---|---|
-| ⚡ changes to [state] | Dropdown of native states from HA |
-| ⚡ changes from [state] | Dropdown of native states from HA |
-| ⚡ changes from [state] to [state] | Two dropdowns of native states |
+| ⚡ changes to [state] | Dropdown of real state values from HA |
+| ⚡ changes from [state] | Dropdown of real state values from HA |
+| ⚡ changes from [state] to [state] | Two dropdowns of real state values |
 | ⚡ changes (any) | No value input needed |
 
 **Condition operators:**
 | Operator | Value input |
 |---|---|
-| is [state] | Dropdown of native states from HA |
-| is not [state] | Dropdown of native states from HA |
-| is any of [states] | Multi-select dropdown of native states |
-| is not any of [states] | Multi-select dropdown of native states |
-| was [state] for at least [duration] | Dropdown of native states + duration picker |
+| is [state] | Dropdown of real state values from HA |
+| is not [state] | Dropdown of real state values from HA |
+| is any of [states] | Multi-select dropdown of real state values |
+| is not any of [states] | Multi-select dropdown of real state values |
+| was [state] for at least [duration] | Dropdown of real state values + duration picker |
 
 ---
 
@@ -311,7 +345,8 @@ Note: Geofence is handled naturally through changes-to on person/zone entity.
 
 #### HA Boolean Helper — input_boolean
 
-These are the only devices that use Yes/No language. All other binary devices use native state labels.
+These are the only devices that use Yes/No language. All other binary devices use the friendly
+label system described in the Binary section above.
 
 **Trigger operators (⚡):**
 | Operator | Value input |
@@ -398,8 +433,8 @@ System variables available in compiled pistons:
 | $triggerValue | Text | The value that caused the trigger to fire |
 | $previousValue | Text | The previous value before the trigger |
 
-These variables are only available in PyScript pistons. They are not available in YAML pistons.
-If a user adds a system variable reference to a YAML-bound piston, the compile-target conversion prompt appears.
+These variables are only available in PyScript pistons. They are not available in native script pistons.
+If a user adds a system variable reference to a native-script-bound piston, the compile-target conversion prompt appears.
 
 ---
 
@@ -409,7 +444,8 @@ These are the input types the wizard shows in the final step based on the operat
 
 | Input type | When used | What it shows |
 |---|---|---|
-| Native state dropdown | Binary, enum operators | Dropdown populated from HA's reported states for that device |
+| Binary label dropdown | Binary sensor operators | Friendly labels (Open/Closed etc.) from device_class table — compiles to "on"/"off" |
+| Real state dropdown | Enum/multi-state operators | Actual state values from HA (playing, heat, open, etc.) |
 | Number input | Numeric operators | Number field with unit label from HA |
 | Slider + number | Position/range operators | Slider with min/max from HA + number input |
 | Time picker | Time operators | HH:MM AM/PM selector |
@@ -457,7 +493,7 @@ They are NOT pulled from HA's service registry — PistonCore defines them:
 | Command | Description | Notes |
 |---|---|---|
 | Wait | Pause for a fixed duration or until a time | Always available |
-| Wait for state | Pause until an entity reaches a state, with timeout | PyScript only |
+| Wait for state | Pause until an entity reaches a state, with timeout | Native script + PyScript |
 | Wait randomly | Pause for a random duration within a range | PyScript only |
 | Set variable | Assign or modify a piston or global variable | |
 | Cancel all pending tasks | Cancel any pending async tasks in this piston | PyScript only |
@@ -497,31 +533,31 @@ All parameter options are fetched from HA's service schema. PistonCore never har
 
 ## Wizard Plain English Sentence — Full Examples
 
-**Trigger example:**
+**Trigger example (binary sensor — door):**
 - Step 1: *"When..."*
 - Step 2: *"When Front Door..."*
 - Step 3: *"When Front Door's contact..."*
 - Step 4: *"When Front Door's contact ⚡ changes to..."*
-- Step 5: *"When Front Door's contact ⚡ changes to open"*
+- Step 5: *"When Front Door's contact ⚡ changes to Open"*
+
+The wizard shows "Open" (friendly label). The piston JSON stores `display_value: "Open"` and
+`compiled_value: "on"`. The compiled YAML uses `to: "on"`.
+
+**Trigger example (enum — media player):**
+- Step 5: *"When Living Room Speaker ⚡ changes to Playing"*
+
+The wizard shows "Playing". The piston JSON stores `display_value: "Playing"` and
+`compiled_value: "playing"`. Both are the same for non-binary entities.
 
 **Multi-device trigger example:**
-- Step 1: *"When..."*
-- Step 2: *"When any of (Smoke Detectors)..."*
-- Step 3: *"When any of (Smoke Detectors)'s smoke..."*
-- Step 4: *"When any of (Smoke Detectors)'s smoke ⚡ changes to..."*
-- Step 5: *"When any of (Smoke Detectors)'s smoke ⚡ changes to detected"*
+- Step 5: *"When any of (Smoke Detectors)'s smoke ⚡ changes to Detected"*
 
 **Condition example:**
-- Step 0: Selected "Condition"
-- Step 1: *"Check if..."*
-- Step 2: *"Check if Front Door..."*
-- Step 3: *"Check if Front Door's contact..."*
-- Step 4: *"Check if Front Door's contact is..."*
-- Step 5: *"Check if Front Door's contact is open"*
+- Step 5: *"Check if Front Door's contact is Open"*
+
+Display: "Open". Compiles to `state: "on"`.
 
 **Action example:**
-- Step 1: *"Turn..."*
-- Step 2: *"Turn Driveway Main Light..."*
 - Step 3: *"Turn Driveway Main Light on at 75% brightness"*
 
 ---
@@ -541,16 +577,22 @@ While the wizard is open, it maintains this state object:
     "device_label": "Front Door",
     "capability": "contact",
     "attribute_type": "binary",
-    "native_states": ["open", "closed"],
+    "display_states": ["Open", "Closed"],
+    "compiled_states": ["on", "off"],
     "aggregation": null,
     "interaction": "any",
     "operator_group": "trigger",
     "operator": "changes to",
-    "value": "open"
+    "display_value": "Open",
+    "compiled_value": "on"
   },
-  "sentence": "When Front Door's contact ⚡ changes to open"
+  "sentence": "When Front Door's contact ⚡ changes to Open"
 }
 ```
+
+Note the separation of `display_states`/`compiled_states` and `display_value`/`compiled_value`.
+For non-binary entities these pairs are identical. For binary sensors they differ — display uses
+friendly labels, compiled uses `"on"`/`"off"`.
 
 On Done, this state is converted to a condition object or statement node and inserted into the piston tree.
 On Cancel, this state is discarded.
@@ -574,11 +616,18 @@ When the wizard completes a condition or trigger, it produces a condition object
   "aggregation": "any | all | none | null",
   "interaction": "any | physical | programmatic",
   "operator": "changes to",
-  "value": "open",
+  "display_value": "Open",
+  "compiled_value": "on",
   "duration": null,
   "group_operator": "AND"
 }
 ```
+
+`display_value` — shown in the PistonCore editor and status page read-only view.
+`compiled_value` — used by the compiler when generating HA YAML. For binary sensors this is
+always `"on"` or `"off"`. For all other entity types `display_value` and `compiled_value` are the same.
+
+The compiler ALWAYS uses `compiled_value`. Never `display_value`.
 
 `type: "trigger"` → ⚡ icon, appears in TRIGGERS section, creates HA event subscription
 `type: "condition"` → no icon, appears in CONDITIONS section or inside if_block.condition
@@ -607,7 +656,7 @@ Show the piston's conditions list. User picks one to promote.
 PistonCore converts it:
 - Moves it to the TRIGGERS section
 - Changes type from `condition` to `trigger`
-- Updates the operator to the trigger-equivalent (e.g., "is open" → "changes to open")
+- Updates the operator to the trigger-equivalent (e.g., "is Open" → "changes to Open")
 - Shows the updated piston with the promoted trigger highlighted
 
 This matches WebCoRE's behavior exactly.
@@ -623,15 +672,15 @@ This matches WebCoRE's behavior exactly.
 - Does not show Call Another Piston action
 - Does not show Cancel All Pending Tasks, Break, Switch, Do Block, On Event
 - Does not show TEP/TCP cog options (cog icon still present but those options are hidden)
-- Duration operators are available (they compile to HA native `for:` in YAML)
+- Duration operators are available (they compile to HA native `for:` syntax)
 - System variables not shown
 
 **Advanced mode wizard:**
 - Shows everything
 
-**YAML → PyScript promotion inside the wizard:**
+**Native Script → PyScript promotion inside the wizard:**
 If a user selects an operator or feature that forces PyScript compilation, PistonCore shows a prompt before proceeding:
-*"This option requires converting your piston to a Complex piston (PyScript). Your logic will be preserved. Continue?"*
+*"This option requires converting your piston to a PyScript piston. Your logic will be preserved. Continue?"*
 `[Yes, convert]` `[No, pick something else]`
 
 If they confirm, the piston's compile target updates and the wizard continues.
@@ -645,16 +694,18 @@ The wizard frontend makes these backend calls during the wizard flow:
 | Step | Backend call | Returns |
 |---|---|---|
 | Device picker | `GET /api/devices` | All devices with id, friendly name, area, domain |
-| Capability picker | `GET /api/device/{id}/capabilities` | List of capabilities with name, attribute_type, native_states |
+| Capability picker | `GET /api/device/{id}/capabilities` | List of capabilities with name, attribute_type, device_class |
+| Binary label lookup | Frontend only — no backend call | Friendly label pairs from device_class table in this document |
+| Enum state list | `GET /api/device/{id}/state` | Current state + options attribute if present |
 | Trigger operators | Derived from attribute_type | No backend call — wizard uses the capability map in this document |
 | Condition operators | Derived from attribute_type | No backend call — wizard uses the capability map in this document |
-| Value input for native states | Included in capabilities response | native_states array |
 | Service picker (actions) | `GET /api/device/{id}/services` | List of services with name, label, schema |
 | Service parameters | Included in services response | Parameter schema with types, min, max, options |
 | Zones (location operators) | `GET /api/zones` | List of zones with id and label |
 
 The capability map in this document is implemented in the frontend.
 The backend provides raw HA data. The frontend applies the map to determine operators and input types.
+Binary sensor friendly labels come from the device_class table in this document — not from HA.
 
 ---
 
@@ -664,7 +715,7 @@ These affect the wizard but are not yet decided:
 
 1. **Which-interaction step feasibility** — requires sandbox validation before implementing. PyScript context tracking needs to be confirmed as reliable. See DESIGN.md Section 8.6.
 2. **Collapse/expand for individual conditions inside an if block** — WebCoRE supported this. Include in v1 or defer?
-3. **System variable availability in YAML pistons** — currently defined as PyScript-only. Confirm whether any system variables are expressible in native YAML triggers/templates.
+3. **System variable availability in native script pistons** — currently defined as PyScript-only. Confirm whether any system variables are expressible in native YAML triggers/templates.
 4. **Timer statement type** — WebCoRE had a Timer statement. May overlap with HA's scheduler. Evaluate before implementing. See DESIGN.md Section 22.
 5. **Simulator / step-through dry run** — WebCoRE had this. PistonCore v1 uses Test button. Full step-through is v2.
 6. **"followed by" sequence operator** — excluded from v1 per DESIGN.md. No HA equivalent exists.

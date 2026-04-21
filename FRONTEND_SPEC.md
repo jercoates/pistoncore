@@ -1,6 +1,6 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.3
+**Version:** 0.4
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
@@ -463,6 +463,12 @@ Ghost text is always visible at valid insertion points — not only on hover.
 
 Clicking any ghost text opens the wizard modal for that insertion point.
 
+### only_when Rendering — Populated State
+
+When restrictions are added, they render as plain English using the display_value from the condition object. The `only when` keyword stays visible. Multiple restrictions show `and` between them at the same indent level. See DESIGN.md Section 19a for full rendering examples with populated restrictions.
+
+Restrictions are not collapsible in v1 — they always show inline. Right-click context menu applies to individual restriction lines.
+
 ### Right-Click Context Menu
 
 Right-clicking any statement node shows:
@@ -673,7 +679,8 @@ These affect the frontend but are not yet decided. Do not implement them until t
 3. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 26.
 4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 8.6.
 5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 22.
-6. **Debugging UI** — what the user sees when a native HA script fails mid-run needs a design pass before implementing the log panel in detail.
+6. **Debugging UI detail** — what the user sees when a native HA script fails mid-run. v1 trace is run start + log_message statements + run complete. See DESIGN.md Section 15 for the confirmed v1 trace behavior.
+7. **Global variable management UI** — full create/edit/delete flows now defined in DESIGN.md Section 19. Implement from there.
 
 ---
 

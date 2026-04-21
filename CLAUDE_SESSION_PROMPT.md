@@ -41,7 +41,7 @@ GitHub repo: https://github.com/jercoates/pistoncore
 ### Root files (do not move these):
 - `README.md` — project overview
 - `DESIGN.md` — full design specification **v0.9.1** — **read this first every session**
-- `FRONTEND_SPEC.md` — frontend developer specification **v0.3**
+- `FRONTEND_SPEC.md` — frontend developer specification **v0.4**
 - `WIZARD_SPEC.md` — wizard capability map and behavior **v0.3**
 - `COMPILER_SPEC.md` — compiler specification **v0.1 (updated)** — **read this before any compiler work**
 - `CLAUDE_SESSION_PROMPT.md` — this file
@@ -147,10 +147,13 @@ content or code when a new technical approach is being designed.
 2. **AI Prompt feature redesign** — needs friendly name context without entity IDs (DESIGN.md Section 11)
 3. **Which-interaction step feasibility** — PyScript context tracking, needs sandbox validation (DESIGN.md Section 8.6)
 4. **Timer statement** — evaluate overlap with HA scheduler before including in v1 (DESIGN.md Section 22)
-5. ~~**Devices variable storage format**~~ — **RESOLVED.** Device and Devices globals are compile-time values, resolved from PistonCore's device_map and baked as literal entity ID lists into compiled YAML. No HA helper needed. Stale-tracking handles redeployment when the list changes. See DESIGN.md Sections 4.1 and 19, COMPILER_SPEC.md Section 8.7.
+5. ~~**Devices variable storage format**~~ — **RESOLVED.** Compile-time literal list. See DESIGN.md Sections 4.1, 19, COMPILER_SPEC Section 8.7.
 6. **PyScript compiler** — separate spec needed, not started. Only needed for break/cancel_pending_tasks/on_event.
-7. **make_web_request PyScript-only designation** — validate whether native HA scripts can call rest_command as an alternative before locking this in. May not need to be PyScript-only. (WIZARD_SPEC.md system commands table)
+7. **make_web_request PyScript-only designation** — validate whether native HA `rest_command` covers this before locking it in. May not need to be PyScript-only. (WIZARD_SPEC.md system commands table)
 8. **System variables in native script pistons** — HA trigger variables expose some context (trigger.entity_id, trigger.to_state etc.) in native scripts. Research whether this partially covers the gap before requiring PyScript for all system variable use.
+9. **Device event trigger — device ID resolution** — backend must resolve role → HA device ID before trigger compiler can emit correct YAML. No endpoint or data flow defined yet. (COMPILER_SPEC Section 18 item 3)
+10. ~~**Stage 4 pre-deploy sandbox validation**~~ — **REMOVED.** script.reload cannot target a single file. Native scripts rely on yamllint + HA validation on actual deploy. See DESIGN.md Section 13.
+11. ~~**Trace mode per-step events**~~ — **RESOLVED as v1 compromise.** Trace shows run start, log_message statements, run complete. Per-step is v2. See DESIGN.md Section 15.
 
 ---
 
@@ -207,36 +210,40 @@ Architecture confirmed: Native HA Script primary, PyScript fallback only. Five H
 ---
 
 ## Last Session
-Session 7 — April 2026. All spec files updated. Design claude feedback processed — four fixes applied: FRONTEND_SPEC v0.3 (test button unified to Live Fire ⚠, compile target labels corrected, two-save distinction made explicit, stale mode notice removed), COMPILER_SPEC updated (Section 8.9 scope caveat fully defined with compiler behavior and why namespace pattern doesn't work), DESIGN.md v0.9.1 (helper manifest format and storage location defined, Section 27 expanded). Jeremy's personal notes captured in session prompt as tracked items. AI-REVIEW-PROMPT.md added to repo.
+Session 7 — April 2026. All spec files updated through multiple rounds of feedback. Major fixes from design claude and Grok: Stage 4 validation dropped (script.reload can't target sandbox file), trace mode simplified to v1 compromise (run start/log_message/complete only), stale piston index defined (globals_index.json), only_when rendering defined, global management UI fully specced, editor mock buttons corrected, companion confirmation screen updated. Devices variable compile-time resolution finalized. FRONTEND_SPEC v0.4, DESIGN.md v0.9.1, COMPILER_SPEC updated. Jeremy's personal notes captured as tracked items (debugging UI, two-save distinction). AI-REVIEW-PROMPT.md added to repo.
 
 ## Next Session — Start Here
 
 **Note:** The repo may have stale files. Ask user to paste DESIGN.md, COMPILER_SPEC.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, and this session prompt if repo fetch fails or returns old versions.
 
-1. Read DESIGN.md v0.9 from the repo (or ask user to paste)
-2. Read COMPILER_SPEC.md v0.1 from the repo (or ask user to paste)
-3. Read FRONTEND_SPEC.md v0.2 and WIZARD_SPEC.md v0.2 if working on frontend/wizard
+1. Read DESIGN.md v0.9.1 from the repo (or ask user to paste)
+2. Read COMPILER_SPEC.md from the repo (or ask user to paste)
+3. Read FRONTEND_SPEC.md v0.4 and WIZARD_SPEC.md v0.3 if working on frontend/wizard
 
-**Recommended Session 8 agenda (pick one track):**
+**Validate before starting any new logic — standing rule.**
 
-**Track A — Begin backend scaffolding:**
-- Scaffold FastAPI project structure
-- Implement `compile_piston()` entry point from COMPILER_SPEC.md Section 5
-- Implement `slugify()` and all trigger compilers (Section 6.3)
-- Implement `with_block` and `wait` statement compilers (Section 8.1, 8.2) — enough to compile the driveway lights piston end to end
-- Verify output matches the hand-written example in COMPILER_SPEC.md Section 16
+**Recommended Session 8 agenda:**
 
-**Track B — Begin frontend scaffolding:**
-- Scaffold the three-page SPA structure (List, Status, Editor)
-- Implement the piston list page with static mock data
-- Implement folder section headers and piston rows
+**Option A — Begin backend compiler coding:**
+- Scaffold FastAPI project structure in a new `/backend/` folder
+- Implement `slugify()` and `compile_piston()` entry point (COMPILER_SPEC Section 4, 5)
+- Implement trigger compilers for sun and state triggers (Section 6.3)
+- Implement `with_block` and `wait` statement compilers (Section 8.1, 8.2)
+- Implement `globals_index.json` write on compile (DESIGN.md Section 4.1)
+- Verify the driveway lights piston compiles to output matching COMPILER_SPEC Section 17
+- **Do not start coding until COMPILER_SPEC is re-read fresh this session**
 
-**Track C — Push all spec files to repo then poll other AIs:**
-- Push DESIGN.md v0.9, COMPILER_SPEC.md v0.1, both AI-UPDATE-GUIDE.md files, updated session prompt
-- Poll Grok, Gemini, Perplexity against the updated specs
-- Collect feedback on COMPILER_SPEC.md specifically — are there HA script behaviors we've missed?
+**Option B — Validate two remaining open technical questions before coding:**
+- Item 7: Does `rest_command` make `make_web_request` available in native scripts? (quick web search)
+- Item 8: Which HA trigger variables are available in native script pistons? (quick web search)
+- Update WIZARD_SPEC and session prompt with findings, then move to Option A
 
-**Do not write production code until all spec files are in the repo and the user has confirmed which track to follow.**
+**Option C — Wait for cousin / other AI feedback before coding:**
+- Poll Grok/Gemini with AI-REVIEW-PROMPT.md if not done yet
+- Review any feedback, validate HA-specific claims, update specs
+- Then move to Option A
+
+**The specs are complete enough to start coding. Option A is the right call unless new feedback arrives that would change the compiler.**
 
 ---
 

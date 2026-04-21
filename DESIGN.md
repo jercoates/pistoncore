@@ -133,9 +133,35 @@ PistonCore tracks which pistons reference each Device or Devices global. When th
 *"'Smoke Detectors' was updated — 3 pistons need redeployment to pick up your changes."*
 `[Redeploy All]` `[Review]`
 
-`[Redeploy All]` recompiles and deploys all affected pistons in sequence. `[Review]` opens the list so the user can choose which ones to redeploy individually. This banner persists until all affected pistons are redeployed or the user explicitly dismisses it.
+`[Redeploy All]` recompiles and deploys all affected pistons in sequence. `[Review]` opens the list so the user can choose which ones to redeploy individually. This banner persists until all affected pistons are redeployed or the user explicitly dismisses it. Dismissing hides the banner but stale badges (⚠) remain visible on individual pistons in the list.
 
-The stale state is stored in PistonCore's `config.json` on the Docker volume — not in HA.
+**Stale tracking data source — globals_index.json:**
+
+PistonCore maintains a persistent index at `/pistoncore-userdata/globals_index.json`. This file is written by the backend every time a piston is compiled and maps each global variable ID to the list of piston IDs that reference it.
+
+Format:
+```json
+{
+  "version": "1.0",
+  "index": {
+    "global_uuid_abc123": {
+      "display_name": "Smoke Detectors",
+      "type": "Devices",
+      "referenced_by": ["piston_a3f8c2d1", "piston_b7e2a1f4"]
+    }
+  },
+  "stale_pistons": {
+    "piston_a3f8c2d1": {
+      "reason": "Global 'Smoke Detectors' device list changed",
+      "since": "2026-04-20T14:30:00Z"
+    }
+  }
+}
+```
+
+The index is updated on every successful compile. When a global's device list changes, the backend marks all pistons in `referenced_by` as stale in the `stale_pistons` section. When a piston is successfully deployed, its entry is removed from `stale_pistons`.
+
+This file lives in the Docker volume — not in HA. It is PistonCore's own internal state, not a shared resource.
 
 **Why helpers for non-device types:** Text, Number, Yes/No, and Date/Time globals need to persist between piston runs and be changeable without redeploying every piston. HA helpers are native entities — compiled pistons read them via standard HA template syntax (`states()`, `state_attr()`), no file I/O or Docker dependency. Helper values survive PistonCore uninstall with their current values intact. Changing a helper value takes effect immediately on the next piston run — no redeployment needed.
 
@@ -576,7 +602,8 @@ Both compile targets execute real device actions when tested. There is no previe
 │  + add a new statement                              │
 │  end execute;                                       │
 ├─────────────────────────────────────────────────────┤
-│  [▶ Test]  [💾 Save]  [📷 Snapshot] [📷 Backup]     │
+│  [▶ Test — Live Fire ⚠]  [💾 Save to PistonCore]   │
+│  [🚀 Deploy to HA]  [📷 Snapshot] [📷 Backup]       │
 │  Log Level: [Full ▼]                                │
 └─────────────────────────────────────────────────────┘
 ```
@@ -775,34 +802,45 @@ Results appear as warnings/errors on the status page validation banner immediate
 
 Validation rules live in `/pistoncore-customize/validation-rules/` as JSON files — updateable without code changes. See Section 17.2 for the full folder structure.
 
-### On Deploy (runs after save, before writing to HA)
+### On Deploy (runs as a separate action after save)
 
-Stage 2 — Compile to sandbox (temporary location, not production HA directories)
+Stage 2 — Compile to temporary strings in memory (not written to disk yet)
 
-Stage 3 — Syntax check (Docker):
-* **Native HA Script pistons:** `yamllint` against both the automation and script sandbox files
-* **PyScript pistons:** `py_compile` syntax check against the sandbox
+Stage 3 — Syntax check (Docker, no HA involvement):
+* **Native HA Script pistons:** `yamllint` against both the automation and script compiled strings
+* **PyScript pistons:** `py_compile` syntax check
 
-Stage 4 — HA semantic validation (optional, only if companion installed):
-* **Native HA Script pistons:** companion calls `script.reload` against the sandbox file. HA validates the script on load via its internal config validation layer. If the script is malformed, HA rejects it with a structured error at reload time. This is scoped to just the new file — faster and cleaner than `hass --script check_config` for the full config.
-* **PyScript pistons:** Stage 4 is dropped entirely.
+Stage 4 — **Removed for native HA script pistons.**
+
+`script.reload` reloads ALL scripts in the scripts directory — it cannot be pointed at a single sandbox file. Pre-deploy HA semantic validation is therefore not achievable without writing to production first. Since yamllint (Stage 3) catches all syntax errors, and HA validates semantics on the first real reload, Stage 4 is unnecessary complexity.
+
+**For PyScript pistons:** `py_compile` (Stage 3) is the only pre-deploy check available. Stage 4 does not apply.
+
+Stage 4 (Deploy and validate):
+* Companion writes compiled files to production directories
+* Companion calls `automation.reload` and `script.reload`
+* If HA rejects the file on reload, the error is caught by the companion and returned to PistonCore
+* The old deployed version (if any) remains active — HA does not swap in a broken file
+* PistonCore shows the HA error in the validation banner with a plain English explanation from `error-translations.json`
 
 Stage 5 — Decision:
-* Pass → files move to production, hash written to header, user lands on status page with success
-* Fail → nothing written to production, user sees validation error (raw error shown plus plain English explanation for known errors)
+* Reload succeeded → hash written to header, user sees success on status page
+* Reload failed → HA error shown in validation banner, old version still running, user can fix and redeploy
+
+**Net result for the user:** The safety net is yamllint before deploy + HA's own validation on reload. If a piston has a bad service name or wrong field, HA catches it on first deploy and tells PistonCore. The old piston (if any) keeps running until the new one loads cleanly.
 
 ### Save Pipeline — Confirmed Flow
 
 1. Frontend validates piston has a name — if empty, stop and highlight the field
 2. Frontend sends piston JSON to backend via POST
-3. Save button shows loading state: "Saving..."
+3. Save button shows loading state: "Saving to PistonCore..."
 4. Backend writes piston JSON to Docker volume
 5. Backend runs Stage 1 internal validation
 6. Backend returns success or failure plus any validation warnings
 7. If success — navigate to status page, warnings appear in banner if any
 8. If write fails — stay in editor, show error banner: "Save failed — your work is preserved. Try again."
 
-Save does not touch HA at all. Deploy is a separate action.
+Save does not touch HA at all. Deploy to HA is a separate button action.
 
 ---
 
@@ -838,11 +876,23 @@ A "Log message" statement can be added anywhere in the action tree. Message type
 
 Toggle on status page. Test must be pressed at least once on a new piston before Trace becomes available.
 
-When Trace is on and the piston runs:
-* Trace numbers overlay log entries matching statement numbers in the document (statement numbers, not line numbers)
-* Trace data transmitted via custom PistonCore WebSocket event
-* Trace data never written to the main HA system log
-* When Trace is off, no debug data generated or transmitted at all
+**v1 Trace — what it covers:**
+
+Full per-step tracing (a trace event before every compiled action) would require doubling the number of actions in every compiled script — one real action plus one trace event per statement. This is too costly in compiled output size and is deferred to v2 alongside the PyScript compiler, which handles step-through tracing natively.
+
+**v1 Trace shows:**
+* Run start — which trigger fired, at what time
+* Any explicit `log_message` statements the user added — these already compile to `PISTONCORE_LOG` events and show with their statement number from the piston document
+* Run complete — success, or the last known action before failure
+* If the run completes with no completion event received within 60 seconds, show: *"Run did not complete — the piston may have stopped at a wait or failed mid-run."*
+
+Statement numbers in the status page read-only script view serve as the reference map — the user can see which statement number corresponds to which action in the document and use `log_message` statements strategically to pinpoint problems.
+
+**Trace data is never written to the main HA system log.** It arrives via `PISTONCORE_LOG` and `PISTONCORE_RUN_COMPLETE` WebSocket events relayed by the companion.
+
+**When Trace is off:** No trace events are emitted. The run log still shows start and complete from the completion event — Trace only adds the `log_message` detail entries.
+
+**v2 Trace:** Full per-step coverage via PyScript's native execution model. Not in v1 scope.
 
 ### Test — Behavior
 
@@ -944,6 +994,8 @@ Two top-level folders. Names are self-explanatory without reading documentation.
 ```
 /pistoncore-userdata/               YOUR DATA — pistons, globals, settings
   pistons/                          your piston JSON files
+  globals.json                      your global variable definitions
+  globals_index.json                piston-to-global reference index (auto-maintained)
   device-definitions/               your custom device definitions
   config.json                       your PistonCore settings
   logs/
@@ -1000,7 +1052,8 @@ Before making any changes to HA, the companion presents a plain English summary 
 **Changes made during setup:**
 1. Add `script pistoncore: !include_dir_merge_named scripts/pistoncore/` to configuration.yaml — allows PistonCore scripts to load without conflicting with the user's existing scripts
 2. Create the `scripts/pistoncore/` and `automations/pistoncore/` directories in HA config
-3. Optionally add `pyscript: allow_all_imports: true` if the user enables PyScript support
+3. Create the `pistoncore/` directory in HA config — stores the companion helper manifest (`helper_manifest.json`)
+4. Optionally add `pyscript: allow_all_imports: true` if the user enables PyScript support
 
 PyScript support is opt-in. If the user never builds a PyScript piston, the companion never touches PyScript configuration.
 
@@ -1117,12 +1170,37 @@ Note: `compile_target` updated from `"yaml"` to `"native_script"` to reflect the
 
 ## 19. Global Variables Management
 
-Managed from PistonCore's main settings screen.
+Managed from PistonCore's main settings screen (Settings → Global Variables).
 
-The global variables screen shows:
-* All defined globals with their current values and types
-* Which pistons reference each global
-* Add, edit, and delete globals
+### Global Variables Screen Layout
+
+Each global shows: display name, type, current value (or device count for Devices), and which pistons reference it. `[✎]` edits, `[🗑]` deletes.
+
+### Creating a Global
+
+`[+ Add New]` opens a form: display name, type selector, initial value. On save, companion creates the HA helper (for non-device types). PistonCore writes the definition to `globals.json`. The globals_index.json is updated on the next piston compile.
+
+### Editing a Global
+
+**Rename:** Updates display name only. HA helper entity ID does not change (based on internal UUID). No redeployment needed.
+
+**Change value (non-device types):** Calls HA helper set service immediately. Takes effect on next piston run. No redeployment needed.
+
+**Change device list (Device/Devices):** Updates globals.json, marks referencing pistons stale, stale banner appears on piston list.
+
+**Change type:** Not supported in v1. Delete and recreate with the new type.
+
+### Deleting a Global
+
+**If no pistons reference it:**
+*"Delete 'Away Mode Text'? This will also remove the associated HA helper."*
+`[Delete]` `[Cancel]`
+
+**If pistons reference it:**
+*"'Smoke Detectors' is used by 2 pistons: Smoke Alert, Basement Monitor. Deleting it will break those pistons on their next run."*
+`[Delete anyway]` `[Cancel]`
+
+On delete: companion removes the HA helper. Referenced pistons get a validation error in their banner — they don't stop immediately but will fail on next run when the helper is missing.
 
 ### Non-Device Globals (Text, Number, Yes/No, Date/Time)
 
@@ -1145,7 +1223,50 @@ The stale banner persists until all affected pistons are redeployed or the user 
 
 ### Global Variables Drawer
 
-Accessible from the main piston list page as a read-only slide-out panel. Shows all globals with current values. Device and Devices globals show the current device list with friendly names.
+Accessible from the main piston list page as a read-only slide-out panel. Shows all globals with current values and which pistons use them. Link to Settings → Global Variables for management.
+
+---
+
+## 19a. only_when Rendering in the Editor
+
+`only_when` restrictions appear on with_block, if_block, and loop blocks. They render as an indented sub-section directly below the statement keyword, before the main content of the block.
+
+**Empty (ghost text):**
+```
+with
+  (Driveway Main Light)
+only when
+  + add a new restriction
+do
+  Turn On
+end with;
+```
+
+**Populated (one restriction):**
+```
+with
+  (Driveway Main Light)
+only when
+  Someone is Home
+do
+  Turn On
+end with;
+```
+
+**Populated (multiple restrictions):**
+```
+with
+  (Driveway Main Light)
+only when
+  Someone is Home
+  and
+  Time is after 6:00 PM
+do
+  Turn On
+end with;
+```
+
+Restrictions render as plain English using the same display_value as conditions. They are not collapsible in v1 — they always show inline. Right-click context menu applies to individual restriction lines. In the status page read-only view, only_when renders identically — same position, same plain English text, no ghost text.
 
 ---
 

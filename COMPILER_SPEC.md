@@ -1144,10 +1144,12 @@ pistoncore_driveway_lights_at_sunset:
 These affect the compiler but are not yet resolved. Do not implement them until they are:
 
 1. **settings / end settings block** — contents undefined. Compiler ignores this block for now. See DESIGN.md Section 26.
-2. **PyScript compiler** — separate spec needed. Not started.
-3. **Device event trigger (button/momentary)** — requires HA device ID, not entity ID. Backend device ID resolution flow not yet designed.
-4. **Devices variable storage format** — need to confirm whether Devices globals are stored as a group entity or another format before finalizing for_each compilation.
+2. **PyScript compiler** — separate spec needed. Not started. Needed only for break, cancel_pending_tasks, on_event.
+3. **Device event trigger (button/momentary)** — requires HA device ID, not entity ID. The backend must resolve role → device ID from the HA device registry before the trigger compiler can emit the correct YAML. No endpoint or data flow is defined yet.
+4. ~~**Devices variable storage format**~~ — **RESOLVED.** Devices globals are compile-time literal lists baked from PistonCore's device_map. See Section 8.7 and DESIGN.md Sections 4.1, 19.
 5. **which-interaction step** — physical vs programmatic context filtering. Feasibility not confirmed. Not compiled until validated.
+6. **Stage 4 pre-deploy sandbox validation** — **REMOVED.** `script.reload` cannot target a single sandbox file. Native script pistons rely on yamllint (Stage 3) for pre-deploy syntax checking. HA validates semantics on actual deploy. See DESIGN.md Section 13.
+7. **Trace mode per-step events** — v1 trace does not emit a trace event per compiler action step. The compiler only emits the completion event and relies on user-added log_message statements for mid-run visibility. Full per-step tracing is v2. See DESIGN.md Section 15.
 
 ---
 

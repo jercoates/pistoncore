@@ -1,6 +1,6 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.2
+**Version:** 0.3
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
@@ -93,11 +93,8 @@ Matches the WebCoRE right sidebar behavior.
 
 ### Mode Notice
 
-**PyScript-only mode (subtle, footer):**
+**Standard mode notice (subtle, footer):**
 *"PistonCore manages automations in its own subfolder. Automations created directly in Home Assistant are not visible or managed here."*
-
-**Full Mode (prominent banner at top):**
-*"PistonCore is running in Full Mode (YAML + PyScript). Creating automations directly in the Home Assistant GUI may cause unexpected behavior. Manage all automations through PistonCore."*
 
 ### Buttons
 
@@ -123,12 +120,12 @@ Saving in the editor always returns here.
 │  ⚠ VALIDATION                                       │
 │  (warnings appear here automatically after save)    │
 ├─────────────────────────────────────────────────────┤
-│  [✎ Edit] [▶ Test — Preview Mode] [📷 Snapshot]     │
+│  [✎ Edit] [▶ Test — Live Fire ⚠] [📷 Snapshot]     │
 │  [📷 Backup] [⧉ Duplicate] [🗑 Delete]              │
 │                      [Trace: OFF]  [⚠ Notify: OFF]  │
 ├─────────────────────────────────────────────────────┤
 │  QUICK FACTS                                        │
-│  Compile target: YAML                               │
+│  Compile target: Native HA Script                   │
 │  Last ran: 08:46:25                                 │
 │  Next scheduled: sunset today                       │
 │  Devices used: Driveway Main Light                  │
@@ -170,7 +167,7 @@ This shows the piston in **read-only form** — the same visual document the edi
 with syntax highlighting and statement numbers. This is PistonCore's own visual format, the script
 the user authored. It is NOT compiled output (YAML or PyScript).
 
-**Compiled output (YAML or PyScript) is never shown on this page.**
+**Compiled output is never shown on this page.**
 
 Rendering rules:
 - `execute` and `end execute;` appear as wrapper lines at the top and bottom of the script
@@ -180,19 +177,18 @@ Rendering rules:
 - The saved format is used here: `then / end if;` (not `when true / when false`)
 - The view is read-only — clicking on it opens the editor
 
-### Test Button — Label Differs by Compile Target
+### Test Button — Always Live Fire
 
-The Test button label must indicate what will happen BEFORE the user clicks:
+**Both compile targets (Native HA Script and PyScript) execute real device actions when tested.**
+There is no preview or dry-run mode for either target.
 
-- **YAML piston:** `[▶ Test — Preview Mode]`
-- **PyScript piston:** `[▶ Test — Live Fire ⚠]`
+The Test button always shows: `[▶ Test — Live Fire ⚠]`
 
-This distinction is non-negotiable. The user must know before clicking whether they are getting
-a preview or executing real device actions. The ⚠ warning symbol must be visible on the button itself.
-
-For PyScript test, show a confirmation dialog before firing:
+Before firing, always show a confirmation dialog:
 *"This will execute real actions on your devices. Are you sure?"*
 `[Yes, run it]` `[Cancel]`
+
+The ⚠ warning symbol must be visible on the button itself before the user clicks.
 
 ### Navigation
 
@@ -206,7 +202,7 @@ For PyScript test, show a confirmation dialog before firing:
 All buttons use icon + plain English label. Never icon alone.
 
 - `[✎ Edit]` — opens editor
-- `[▶ Test — Preview Mode]` or `[▶ Test — Live Fire ⚠]` — fires the piston manually, label by compile target
+- `[▶ Test — Live Fire ⚠]` — fires the piston manually, always with confirmation dialog
 - `[📷 Snapshot]` — green label — anonymized export, safe to share
 - `[📷 Backup]` — red label — full export including entity mappings, personal restore only
 - `[⧉ Duplicate]` — creates a copy of the piston, lands in Uncategorized
@@ -243,7 +239,7 @@ If status is unknown (WebSocket drop, missed event), show: *"Status unknown"* �
 │  Folder: [Outdoor Lighting ▼]                       │
 │  Mode: [Single ▼]                                   │
 │  [● Enabled]              [Simple / Advanced]       │
-│  Compile target: [YAML] ← updates live              │
+│  Compile target: [Native HA Script] ← updates live  │
 ├─────────────────────────────────────────────────────┤
 │  ▼ PISTON VARIABLES              [+ Add] (Adv only) │
 ├─────────────────────────────────────────────────────┤
@@ -261,18 +257,36 @@ If status is unknown (WebSocket drop, missed event), show: *"Status unknown"* �
 │  + add a new statement                              │
 │  end execute;                                       │
 ├─────────────────────────────────────────────────────┤
-│  [▶ Test]  [💾 Save]  [📷 Snapshot] [📷 Backup]     │
+│  [▶ Test]  [💾 Save to PistonCore]  [🚀 Deploy to HA]│
+│  [📷 Snapshot] [📷 Backup]                          │
 │  Log Level: [Full ▼]                                │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Save Behavior
+### Two Distinct Save Operations — UI Must Make This Unmistakable
 
-`[💾 Save]` writes the piston JSON to the backend and navigates to the Status Page.
-Save does not stay in the editor.
-If save fails, an error banner appears at the top of the editor. The user stays in the editor with their work intact.
+There are two separate operations and users must never confuse them:
 
-**Save pipeline:**
+**Save to PistonCore** `[💾 Save to PistonCore]`
+- Writes the piston JSON to the Docker volume
+- Runs Stage 1 internal validation
+- Fast — no HA involvement at all
+- Returns to the status page on success
+- This is where your work is preserved
+
+**Deploy to HA** `[🚀 Deploy to HA]`
+- Compiles the piston to native HA files
+- Runs Stages 2–4 validation
+- Writes automation and script files to HA directories
+- Calls automation.reload and script.reload
+- Only available after at least one successful Save to PistonCore
+- A separate button — never combined with Save
+
+The status page shows which version is deployed vs saved. If the saved piston differs from the
+deployed version, the status page shows: *"Unsaved changes — deploy to update HA."*
+
+### Save Pipeline
+
 1. Frontend validates piston has a name — if empty, stop and highlight the field
 2. Frontend sends piston JSON to backend via POST
 3. Save button shows loading state: "Saving..."
@@ -300,16 +314,17 @@ On refresh, restore from local browser storage:
 
 If the WebSocket connection to HA drops:
 - Show a reconnecting banner at the top of the editor
-- Disable the Deploy button
+- Disable the Deploy to HA button
 - Disable wizard capability fetching (wizard can still open but shows an error state)
 - Preserve all unsaved work in local browser storage
 - When connection restores, remove banner and re-enable everything
 
 ### Compile Target Indicator
 
-Shows the current compile target (YAML or PyScript) based on the auto-detection rules.
-Updates live as the user adds statements. If the target changes from YAML to PyScript mid-build,
-show a brief inline notification: *"This piston now requires PyScript compilation."*
+Shows the current compile target (Native HA Script or PyScript) based on auto-detection rules.
+Updates live as the user adds statements. If the target changes from Native HA Script to PyScript
+mid-build, show a brief inline notification:
+*"This piston now requires PyScript compilation."*
 
 ### Simple / Advanced Toggle
 
@@ -358,7 +373,7 @@ is the execute body. The frontend adds the wrapper rendering only.
 ```
 execute
 if
-  Any of (@Smoke_Detectors)'s smoke changes to detected
+  Any of (@Smoke_Detectors)'s smoke changes to Detected
   {
     when true
       + add a new statement
@@ -380,7 +395,7 @@ do
   only when
     + add a new restriction
   if
-    Any of ($device)'s smoke is detected
+    Any of ($device)'s smoke is Detected
     {
       when true
         + add a new statement
@@ -413,7 +428,7 @@ end execute;
 ```
 execute
 1  if
-2    Any of (@Smoke_Detectors)'s smoke changes to detected
+2    Any of (@Smoke_Detectors)'s smoke changes to Detected
 3  then
 4    with
 5      (@Notification_Text)
@@ -424,13 +439,16 @@ execute
 10 for each ($device in {@Smoke_Detectors})
 11 do
 12   if
-13     Any of ($device)'s smoke is detected
+13     Any of ($device)'s smoke is Detected
 14   then
 15     + (empty branch)
 16   end if;
 17 end for each;
 end execute;
 ```
+
+Note: condition values in the document display the friendly label ("Detected") not the compiled
+value ("on"). The document always shows what the user chose, never the HA internal state value.
 
 ### Ghost Text — Primary Insertion Method
 
@@ -470,230 +488,11 @@ No undo for drag operations in v1.
 
 This is the internal JSON structure the editor manipulates in memory.
 This same structure is serialized to the piston JSON file on save.
-The compiler reads this same structure to generate YAML or PyScript.
+The compiler reads this same structure to generate native HA YAML files.
 
 **execute / end execute is a rendering artifact.** It is not represented in the JSON.
 The `actions` array in the piston JSON IS the execute block body. The frontend renders
 `execute` and `end execute;` as wrapper lines when displaying the document.
-
-### Node Types
-
-**if_block**
-```json
-{
-  "id": "stmt_001",
-  "type": "if_block",
-  "condition": { "...condition object..." },
-  "only_when": [ "...array of condition objects..." ],
-  "true_branch": [ "...array of statement nodes..." ],
-  "false_branch": [ "...array of statement nodes..." ]
-}
-```
-`else if` is represented as the first node in `false_branch` being another `if_block`.
-`else` (no condition) is represented as `false_branch` containing non-if_block statements directly.
-
-**with_block**
-```json
-{
-  "id": "stmt_002",
-  "type": "with_block",
-  "target_role": "porch_light",
-  "only_when": [ "...array of condition objects..." ],
-  "tasks": [ "...array of task nodes..." ]
-}
-```
-
-**repeat_block**
-
-The `until` condition is at the bottom of the block in rendering. In JSON it is stored as a `condition` property:
-```json
-{
-  "id": "stmt_003",
-  "type": "repeat_block",
-  "condition": { "...condition object — the until condition..." },
-  "only_when": [ "...array of condition objects..." ],
-  "body": [ "...array of statement nodes..." ]
-}
-```
-Rendered as: `repeat / do / [body] / until / [condition] / end repeat;`
-
-**for_each_block**
-```json
-{
-  "id": "stmt_004",
-  "type": "for_each_block",
-  "variable_name": "$device",
-  "collection_role": "smoke_detectors",
-  "only_when": [ "...array of condition objects..." ],
-  "body": [ "...array of statement nodes..." ]
-}
-```
-
-**while_block**
-```json
-{
-  "id": "stmt_011",
-  "type": "while_block",
-  "condition": { "...condition object..." },
-  "only_when": [ "...array of condition objects..." ],
-  "body": [ "...array of statement nodes..." ]
-}
-```
-
-**for_loop** (count-based)
-```json
-{
-  "id": "stmt_012",
-  "type": "for_loop",
-  "variable_name": "$i",
-  "from": 1,
-  "to_expression": "10",
-  "step": 1,
-  "only_when": [ "...array of condition objects..." ],
-  "body": [ "...array of statement nodes..." ]
-}
-```
-
-**switch_block**
-```json
-{
-  "id": "stmt_013",
-  "type": "switch_block",
-  "subject": { "...condition subject object..." },
-  "cases": [
-    {
-      "value": "on",
-      "body": [ "...array of statement nodes..." ]
-    },
-    {
-      "value": "off",
-      "body": [ "...array of statement nodes..." ]
-    }
-  ],
-  "default_body": [ "...array of statement nodes..." ]
-}
-```
-
-**do_block** (groups statements into a single named block)
-```json
-{
-  "id": "stmt_014",
-  "type": "do_block",
-  "label": "Optional label",
-  "body": [ "...array of statement nodes..." ]
-}
-```
-
-**on_event** (executes only when certain events happen)
-```json
-{
-  "id": "stmt_015",
-  "type": "on_event",
-  "event": { "...event descriptor..." },
-  "body": [ "...array of statement nodes..." ]
-}
-```
-
-**wait**
-```json
-{
-  "id": "stmt_005",
-  "type": "wait",
-  "until": "23:00:00"
-}
-```
-or
-```json
-{
-  "id": "stmt_005",
-  "type": "wait",
-  "duration_seconds": 300
-}
-```
-
-**wait_for_state**
-```json
-{
-  "id": "stmt_006",
-  "type": "wait_for_state",
-  "target_role": "garage_door",
-  "capability": "state",
-  "operator": "is",
-  "value": "closed",
-  "timeout_seconds": 120
-}
-```
-
-**set_variable**
-```json
-{
-  "id": "stmt_007",
-  "type": "set_variable",
-  "variable_name": "$light_was_on",
-  "value_expression": "..."
-}
-```
-
-**log_message**
-```json
-{
-  "id": "stmt_008",
-  "type": "log_message",
-  "level": "info",
-  "message": "Motion detected in hallway"
-}
-```
-Level options: `info` / `warning` / `error` / `debug` / `trace`
-
-**call_piston**
-```json
-{
-  "id": "stmt_009",
-  "type": "call_piston",
-  "target_piston_id": "b7e2a1f4",
-  "wait_for_completion": true
-}
-```
-`wait_for_completion: true` only valid for PyScript pistons.
-YAML pistons always fire-and-forget. If `wait_for_completion` is true on a YAML piston, the UI shows a warning and the compiler ignores the flag.
-
-**control_piston** (start/stop/enable/disable/trigger another piston or HA automation)
-```json
-{
-  "id": "stmt_016",
-  "type": "control_piston",
-  "target_type": "piston",
-  "target_id": "b7e2a1f4",
-  "action": "trigger"
-}
-```
-`target_type`: `piston` or `ha_automation`
-`action`: `start` / `stop` / `enable` / `disable` / `trigger`
-
-**cancel_pending_tasks**
-```json
-{
-  "id": "stmt_017",
-  "type": "cancel_pending_tasks"
-}
-```
-Forces PyScript compilation if used.
-
-**break** (interrupts inner loop)
-```json
-{
-  "id": "stmt_018",
-  "type": "break"
-}
-```
-
-**stop**
-```json
-{
-  "id": "stmt_010",
-  "type": "stop"
-}
-```
 
 ### Condition Object
 
@@ -710,13 +509,18 @@ Used inside `if_block.condition`, `repeat_block.condition`, `while_block.conditi
   },
   "aggregation": "any",
   "operator": "changes to",
-  "value": "detected",
+  "display_value": "Detected",
+  "compiled_value": "on",
   "duration": null,
   "group_operator": "AND"
 }
 ```
 
-`group_operator` is `AND` or `OR` — applies to this condition's relationship with the next condition in the array. Omit on the last condition in the array.
+`display_value` — shown in the editor document and status page read-only view.
+`compiled_value` — used by the compiler when generating HA YAML. For binary sensors this is
+always `"on"` or `"off"`. For all other entity types these are the same string.
+
+The frontend always displays `display_value`. It never shows `compiled_value` to the user.
 
 `aggregation`: `any` / `all` / `none` / `null` (null = single device, no aggregation)
 
@@ -728,6 +532,9 @@ Generated by the editor when a statement is created.
 Format: `stmt_` + incrementing integer padded to 3 digits, e.g. `stmt_001`, `stmt_002`.
 IDs never change after creation — reordering does not reassign IDs.
 IDs are unique within a piston.
+
+Full statement node type definitions are in COMPILER_SPEC.md Section 7 and 8.
+The frontend uses the same JSON structure — do not duplicate the definitions here.
 
 ---
 
@@ -767,7 +574,7 @@ Clicking expands:
 - Execution Method (Synchronous / Asynchronous)
 
 These are always accessible but hidden by default.
-If set on a YAML-bound piston, show a note: *"These options only apply to Complex (PyScript) pistons."*
+If set on a native-script-bound piston, show a note: *"These options only apply to PyScript pistons."*
 
 ### Wizard Steps — Condition / Trigger
 
@@ -777,26 +584,16 @@ If set on a YAML-bound piston, show a note: *"These options only apply to Comple
 3. Pick the capability or attribute — list fetched live from HA for that specific device
 4. Pick the operator — trigger group (⚡) or condition group, appropriate to the selected capability
    (Optional) Which interaction — Any / Physical / Programmatic
-5. Compare to — value input, another device, a variable, or a time
+5. Value input — friendly labels shown to user; compiled_value stored internally
 
-The plain English sentence at the top grows with each step. Example progression:
-- Step 1: "When..."
-- Step 2: "When Porch Motion Sensor..."
-- Step 3: "When Porch Motion Sensor's motion..."
-- Step 4: "When Porch Motion Sensor's motion ⚡ changes to..."
-- Step 5: "When Porch Motion Sensor's motion ⚡ changes to detected"
-
-### Wizard Steps — Action (with block)
-
-1. Pick the device
-2. Pick the capability or service — list fetched live from HA
-3. Configure parameters — fields generated from HA's service schema
+Full wizard capability map and value input types are defined in WIZARD_SPEC.md.
 
 ### Call Another Piston — Warning Before Target Selection
 
-If the piston is YAML-bound and the user initiates a Call Another Piston action, show immediately — **before** the target piston picker:
+If the user initiates a Call Another Piston action with wait-for-completion on a native-script-bound
+piston, show immediately — **before** the target piston picker:
 
-*"Simple pistons trigger the called piston but cannot wait for it to finish. To wait for completion, convert this piston to Complex (PyScript)."*
+*"Waiting for a called piston to finish requires converting this piston to PyScript."*
 `[Convert and continue]` `[Use fire-and-forget]` `[Cancel]`
 
 This must appear BEFORE the user picks the target piston, not after.
@@ -818,21 +615,21 @@ The frontend never calls HA directly. All HA data comes from the FastAPI backend
 The backend provides these endpoints the frontend uses:
 
 - `GET /api/devices` — all devices with friendly names, areas, domains
-- `GET /api/device/{id}/capabilities` — capabilities with attribute_type and native_states
+- `GET /api/device/{id}/capabilities` — capabilities with attribute_type and device_class
 - `GET /api/device/{id}/triggers` — valid triggers for a device
 - `GET /api/device/{id}/conditions` — valid conditions for a device
 - `GET /api/device/{id}/services` — valid services for a device with parameter schema
 - `GET /api/pistons` — all pistons with status
 - `GET /api/piston/{id}` — single piston JSON
-- `POST /api/piston/{id}/save` — save piston JSON
-- `POST /api/piston/{id}/deploy` — deploy to HA
-- `POST /api/piston/{id}/test` — fire piston manually
+- `POST /api/piston/{id}/save` — save piston JSON to Docker volume
+- `POST /api/piston/{id}/deploy` — compile and deploy to HA
+- `POST /api/piston/{id}/test` — fire piston manually (always live fire, always confirms first)
 - `GET /api/globals` — all global variables
 - `WebSocket /ws` — live log updates, trace data, run status events
 
 The capability map (which operators are valid for which attribute types) lives in the frontend.
+Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA.
 The backend provides raw HA data. The frontend applies the map to determine operators and input types.
-Full capability map is defined in WIZARD_SPEC.md.
 
 Exact endpoint signatures to be confirmed with the backend developer.
 
@@ -857,7 +654,7 @@ Match WebCoRE's visual language as closely as possible:
 
 ## What Is Not the Frontend's Responsibility
 
-- Compiling piston JSON to YAML or PyScript — that is the backend
+- Compiling piston JSON to native HA YAML — that is the backend
 - Fetching data from HA directly — always go through the backend
 - Storing piston data permanently — backend writes to Docker volume
 - Validating piston logic deeply — backend runs the validation pipeline
@@ -871,13 +668,12 @@ The frontend's job is: render the tree, let the user edit it, send it to the bac
 
 These affect the frontend but are not yet decided. Do not implement them until they are:
 
-1. **Compiler template system** — must be designed before any backend coding (COMPILER_SPEC.md, Session 7)
-2. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 11.
-3. **Exact backend API signatures** — to be confirmed with backend developer.
-4. **globals.json runtime access method** — affects whether global variable values can be shown live. See DESIGN.md Section 4.1.
-5. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 26.
-6. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 8.6.
-7. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 22.
+1. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 11.
+2. **Exact backend API signatures** — to be confirmed with backend developer.
+3. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 26.
+4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 8.6.
+5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 22.
+6. **Debugging UI** — what the user sees when a native HA script fails mid-run needs a design pass before implementing the log panel in detail.
 
 ---
 

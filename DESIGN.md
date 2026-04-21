@@ -107,11 +107,39 @@ Defined once at the PistonCore level. Available to every piston. Persist permane
 | Date and Time | input_datetime |
 | Date | input_datetime (date only) |
 | Time | input_datetime (time only) |
-| Device / Devices | No helper — resolved to entity references at compile time |
+| Device | No helper — resolved to entity ID at compile time |
+| Devices | No helper — resolved to a literal list of entity IDs at compile time |
 
-**Why helpers instead of a globals.json file:** Helpers are native HA entities. Compiled pistons read them via standard HA template syntax (`states()`, `state_attr()`) — no file I/O, no PyScript dependency, no Docker volume access from HA. Helper values survive PistonCore uninstall with their current values intact.
+**Device and Devices globals are compile-time values, not runtime lookups.**
 
-**Companion global variable management:**
+When a piston is compiled, Device and Devices globals are resolved from PistonCore's device_map and baked directly into the compiled YAML as literal entity references. There is no runtime group lookup, no HA helper, no external dependency. The compiled piston is self-contained.
+
+Example: a Devices global "Smoke Detectors" containing three devices compiles to:
+```yaml
+repeat:
+  for_each:
+    - binary_sensor.smoke_detector_kitchen
+    - binary_sensor.smoke_detector_hallway
+    - binary_sensor.smoke_detector_bedroom
+```
+Not a template that looks up a group at runtime — a literal list baked in at deploy time.
+
+**What this means for users:** If you add a new device to a Devices global, existing deployed pistons do not automatically pick it up. You need to update the global in PistonCore and redeploy the affected pistons. This is intentional and matches how WebCoRE handled device groups — explicit control, no hidden magic.
+
+**Stale piston tracking for Device/Devices globals:**
+
+PistonCore tracks which pistons reference each Device or Devices global. When the device list in a global changes, PistonCore flags all affected pistons as stale and shows a banner on the piston list page:
+
+*"'Smoke Detectors' was updated — 3 pistons need redeployment to pick up your changes."*
+`[Redeploy All]` `[Review]`
+
+`[Redeploy All]` recompiles and deploys all affected pistons in sequence. `[Review]` opens the list so the user can choose which ones to redeploy individually. This banner persists until all affected pistons are redeployed or the user explicitly dismisses it.
+
+The stale state is stored in PistonCore's `config.json` on the Docker volume — not in HA.
+
+**Why helpers for non-device types:** Text, Number, Yes/No, and Date/Time globals need to persist between piston runs and be changeable without redeploying every piston. HA helpers are native entities — compiled pistons read them via standard HA template syntax (`states()`, `state_attr()`), no file I/O or Docker dependency. Helper values survive PistonCore uninstall with their current values intact. Changing a helper value takes effect immediately on the next piston run — no redeployment needed.
+
+**Why compile-time for Device/Devices:** Device references in HA automations are entity IDs in YAML — there is no clean runtime equivalent of "look up this named device group." Baking the list in at compile time is simpler, more reliable, and produces cleaner YAML. The stale-tracking system handles the only real downside.
 * On global create → companion creates the corresponding HA helper via HA API
 * On global rename → companion updates the helper label (entity ID stays stable, based on the internal variable ID)
 * On global value change → companion calls the appropriate helper set service
@@ -121,6 +149,33 @@ Defined once at the PistonCore level. Available to every piston. Persist permane
 *"The following PistonCore-managed helpers appear to have been modified outside of PistonCore. Would you like to restore them?"*
 `[Show diff]` `[Restore]` `[Keep manual changes]`
 Non-blocking — if dismissed, PistonCore continues with current state.
+
+**Companion helper manifest — format and storage:**
+
+The manifest is a JSON file stored at `<ha_config>/pistoncore/helper_manifest.json`. It is written by the companion and lives in HA's config directory (not the Docker volume) so it persists independently of the Docker container.
+
+Format:
+```json
+{
+  "version": "1.0",
+  "managed_helpers": {
+    "pistoncore_uuid_abc123": {
+      "entity_id": "input_text.pistoncore_uuid_abc123",
+      "display_name": "Away Mode Text",
+      "type": "input_text",
+      "created": "2026-04-20T10:30:00Z",
+      "last_verified": "2026-04-20T10:30:00Z"
+    }
+  }
+}
+```
+
+**If the manifest file is missing on startup:** The companion treats all helpers with the `pistoncore_` entity ID prefix as potentially PistonCore-managed. It prompts the user:
+*"PistonCore's helper manifest is missing. Would you like to scan for PistonCore-managed helpers and rebuild it?"*
+`[Scan and rebuild]` `[Skip — I'll manage manually]`
+If skipped, the boot-time integrity check is disabled until the manifest is rebuilt.
+
+**If the manifest exists but a listed helper is absent from HA:** The companion flags this as a missing helper in the integrity check prompt. It does not automatically recreate it — recreating could overwrite a user's intentional deletion.
 
 **Helper naming convention:** All PistonCore-managed helpers use a stable entity ID derived from the variable's internal UUID, not its display name. This means renaming a global in PistonCore does not break existing compiled pistons.
 
@@ -1069,9 +1124,28 @@ The global variables screen shows:
 * Which pistons reference each global
 * Add, edit, and delete globals
 
-Changing a global value calls the appropriate HA helper set service immediately — no redeployment of pistons needed. The compiled pistons read the helper value live at runtime.
+### Non-Device Globals (Text, Number, Yes/No, Date/Time)
 
-A **Global Variables drawer** is accessible from the main piston list page as a read-only reference panel.
+Changing a value calls the appropriate HA helper set service immediately — no redeployment needed. The compiled pistons read the helper value live at runtime via HA template syntax. The change takes effect on the very next piston run.
+
+### Device and Devices Globals
+
+These are compile-time values. Changing which devices are in a Device or Devices global does not automatically update deployed pistons — the entity IDs are baked into the compiled YAML at deploy time.
+
+**When the device list changes:**
+PistonCore flags all affected pistons as stale. A banner appears on the piston list page:
+
+*"'Smoke Detectors' was updated — 3 pistons need redeployment to pick up your changes."*
+`[Redeploy All]` `[Review]`
+
+`[Redeploy All]` — recompiles and deploys all affected pistons in sequence, one at a time, reporting success or failure for each.
+`[Review]` — opens the affected pistons list so the user can choose which ones to redeploy individually. Each piston shows a ⚠ stale badge until redeployed.
+
+The stale banner persists until all affected pistons are redeployed or the user explicitly dismisses it. Dismissing hides the banner but the stale badges on individual pistons remain visible on the list page.
+
+### Global Variables Drawer
+
+Accessible from the main piston list page as a read-only slide-out panel. Shows all globals with current values. Device and Devices globals show the current device list with friendly names.
 
 ---
 

@@ -590,18 +590,34 @@ For non-binary entities, `display_value` and `compiled_value` are the same strin
 }
 ```
 
-**When collection_role resolves to a Devices variable (group entity):**
+**When collection_role resolves to a Devices global variable:**
+
+Devices globals are resolved at compile time. The compiler looks up the device_map entry for the Devices global and emits a literal list of entity IDs — not a runtime group lookup. This produces self-contained compiled YAML with no external dependencies.
+
 ```yaml
 - alias: "stmt_009"
   repeat:
-    for_each: "{{ state_attr('group.smoke_detectors', 'entity_id') }}"
+    for_each:
+      - binary_sensor.smoke_detector_kitchen
+      - binary_sensor.smoke_detector_hallway
+      - binary_sensor.smoke_detector_bedroom
     sequence:
       <compiled body statements, where $device → repeat.item>
 ```
 
+**How the compiler resolves the list:**
+1. Look up `collection_role` in the piston's `device_map` — this gives the variable's internal ID
+2. Look up the Devices global by that ID in PistonCore's globals store
+3. Resolve each device in the global to its entity ID via the device registry
+4. Emit as a YAML list under `for_each:`
+
 **Variable name substitution inside body:** Anywhere the piston JSON references `$device` (the loop variable), the compiler substitutes `{{ repeat.item }}` in the compiled output.
 
-**Jinja2 namespace note:** If any Set Variable statement inside the loop body needs to accumulate a value across iterations (e.g. a counter), the compiler must emit a Jinja2 namespace pattern rather than the HA `variables:` action, because HA's variables action does not propagate changes back out of a loop body. See Section 8.9 for the namespace pattern.
+**When a Devices global changes:** PistonCore flags all pistons that reference it as stale. The user redeployes them to pick up the new list. The stale tracking and redeploy banner are defined in DESIGN.md Section 19.
+
+**When collection_role resolves to a piston-local Devices variable (not a global):** Same behavior — resolve to literal list at compile time from whatever devices the user assigned to that variable within the piston.
+
+**Jinja2 namespace note removed:** The previous note about namespace patterns for loop variable accumulation is superseded by Section 8.9, which documents that the compiler emits a warning and PyScript is the correct solution for cross-loop accumulation.
 
 ### 8.8 while_block
 
@@ -652,7 +668,7 @@ When `from` is not 0 or 1, or `step` is not 1, the compiler emits a `variables:`
       <rest of body>
 ```
 
-### 8.9 set_variable — Scope Caveat
+### 8.9 set_variable — Scope Caveat and Compiler Behavior
 
 **Simple set (outside any loop or if block):**
 ```json
@@ -667,19 +683,27 @@ When `from` is not 0 or 1, or `step` is not 1, the compiler emits a `variables:`
 
 **Set variable inside a loop or if block (scope caveat applies):**
 
-HA's `variables:` action does not reliably propagate a value set inside a loop body back to the outer scope. This is a known HA limitation.
+HA's `variables:` action does not reliably propagate a value set inside a loop body back to the outer scope. This is a known HA limitation as of 2023–2026.
 
-**Compiler behavior:** The compiler tracks whether a variable is being set inside a loop. If it is, and if that variable is later referenced OUTSIDE the loop, the compiler raises a warning:
+**What the compiler does when a variable is set inside a loop and read outside it:**
 
+1. Emits the `variables:` action anyway — it is the closest native equivalent and works correctly within the same scope level
+2. Raises a `CompilerWarning` that appears in the validation banner after save
+3. Does NOT silently rewrite the user's logic
+
+**Warning text emitted:**
 ```
-WARNING: Variable '$count' is set inside a loop (stmt_009) and referenced 
-outside it (stmt_015). Native HA scripts cannot reliably propagate this value.
-Consider restructuring — or this piston may not behave as expected.
+Variable '$count' is set inside a loop (stmt_009) and used outside it (stmt_015).
+Home Assistant cannot reliably carry this value out of the loop. Your piston may
+not behave as expected. Consider restructuring this logic, or convert to PyScript
+which handles cross-loop variable scope natively.
 ```
 
-The compiler still emits the `variables:` action — it does not silently change the logic. The warning appears in the PistonCore validation banner after save. This is the correct tradeoff: warn the user, emit the closest possible native equivalent, let them decide.
+**Why not the Jinja2 namespace pattern:** The `{% set ns = namespace(count=0) %}` pattern works inside a single Jinja2 template expression rendered at once. It does not work across multiple sequential HA `variables:` action steps because each `variables:` action is a separate execution step, not a single template render. There is no compiler-emittable fix for cross-loop-boundary variable accumulation in native HA scripts. PyScript is the correct solution for this pattern.
 
-**Future:** If HA resolves this scope limitation in a future version, the AI-UPDATE-GUIDE.md for the native-script template folder describes the change needed.
+**Set variable inside an if block (reading after the if):** The same limitation applies. A variable set in a `then:` branch may not be visible after the `if:` block in all HA versions. The compiler emits the same warning when it detects this pattern.
+
+**Future:** If HA resolves this scope limitation in a future version, the AI-UPDATE-GUIDE.md for the native-script template folder describes the update needed.
 
 ### 8.10 switch_block
 

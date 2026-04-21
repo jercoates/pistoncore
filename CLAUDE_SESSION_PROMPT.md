@@ -40,10 +40,10 @@ GitHub repo: https://github.com/jercoates/pistoncore
 
 ### Root files (do not move these):
 - `README.md` — project overview
-- `DESIGN.md` — full design specification **v0.9** — **read this first every session**
-- `FRONTEND_SPEC.md` — frontend developer specification **v0.2**
+- `DESIGN.md` — full design specification **v0.9.1** — **read this first every session**
+- `FRONTEND_SPEC.md` — frontend developer specification **v0.3**
 - `WIZARD_SPEC.md` — wizard capability map and behavior **v0.3**
-- `COMPILER_SPEC.md` — compiler specification **v0.1** — **read this before any compiler work**
+- `COMPILER_SPEC.md` — compiler specification **v0.1 (updated)** — **read this before any compiler work**
 - `CLAUDE_SESSION_PROMPT.md` — this file
 - `LICENSE` — MIT
 
@@ -147,8 +147,34 @@ content or code when a new technical approach is being designed.
 2. **AI Prompt feature redesign** — needs friendly name context without entity IDs (DESIGN.md Section 11)
 3. **Which-interaction step feasibility** — PyScript context tracking, needs sandbox validation (DESIGN.md Section 8.6)
 4. **Timer statement** — evaluate overlap with HA scheduler before including in v1 (DESIGN.md Section 22)
-5. **Devices variable storage format** — confirm whether Devices globals are stored as a group entity or another format before finalizing for_each compilation (COMPILER_SPEC.md Section 17)
+5. ~~**Devices variable storage format**~~ — **RESOLVED.** Device and Devices globals are compile-time values, resolved from PistonCore's device_map and baked as literal entity ID lists into compiled YAML. No HA helper needed. Stale-tracking handles redeployment when the list changes. See DESIGN.md Sections 4.1 and 19, COMPILER_SPEC.md Section 8.7.
 6. **PyScript compiler** — separate spec needed, not started. Only needed for break/cancel_pending_tasks/on_event.
+7. **make_web_request PyScript-only designation** — validate whether native HA scripts can call rest_command as an alternative before locking this in. May not need to be PyScript-only. (WIZARD_SPEC.md system commands table)
+8. **System variables in native script pistons** — HA trigger variables expose some context (trigger.entity_id, trigger.to_state etc.) in native scripts. Research whether this partially covers the gap before requiring PyScript for all system variable use.
+
+---
+
+## Jeremy's Notes — Things to Make Sure Don't Get Lost
+
+These are personal reminders that must be addressed before coding gets too far. Raise these
+at the start of any session where they haven't been addressed yet.
+
+**Debugging — what is actually possible:**
+What can a user see when a piston misbehaves? Need to define this clearly before coding:
+- Trace mode and statement numbers — already in design
+- The run log on the status page — already in design
+- HA logbook entries from the completion event — confirm what shows up
+- What a user actually sees when a native HA script fails mid-run (no completion event fired)
+- Whether there's a way to surface HA's own script error messages back to PistonCore UI
+This needs a dedicated design pass before the logging/debugging code is written.
+
+**Save status — two different saves, make sure the UI is crystal clear:**
+There are two distinct save operations in PistonCore and users need to understand both:
+1. Save to Docker volume (piston JSON) — fast, always works, no HA involvement
+2. Deploy to HA (compiled files written, automation/script reload called) — separate action
+The UI language and button labels need to make this distinction unmistakable.
+Currently defined in DESIGN.md Section 13 but worth revisiting when UI coding starts
+to make sure the distinction is obvious to a non-technical user.
 
 ---
 
@@ -181,7 +207,7 @@ Architecture confirmed: Native HA Script primary, PyScript fallback only. Five H
 ---
 
 ## Last Session
-Session 7 — April 2026. DESIGN.md v0.9, COMPILER_SPEC.md v0.1 (updated), WIZARD_SPEC.md v0.3, two AI-UPDATE-GUIDE.md files, updated session prompt produced. No production code written. Architecture fully locked. Binary sensor on/off validation catch documented.
+Session 7 — April 2026. All spec files updated. Design claude feedback processed — four fixes applied: FRONTEND_SPEC v0.3 (test button unified to Live Fire ⚠, compile target labels corrected, two-save distinction made explicit, stale mode notice removed), COMPILER_SPEC updated (Section 8.9 scope caveat fully defined with compiler behavior and why namespace pattern doesn't work), DESIGN.md v0.9.1 (helper manifest format and storage location defined, Section 27 expanded). Jeremy's personal notes captured in session prompt as tracked items. AI-REVIEW-PROMPT.md added to repo.
 
 ## Next Session — Start Here
 

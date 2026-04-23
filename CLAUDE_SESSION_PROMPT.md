@@ -41,9 +41,9 @@ GitHub repo: https://github.com/jercoates/pistoncore
 ### Root files (do not move these):
 - `README.md` — project overview
 - `DESIGN.md` — full design specification **v0.9.1** — **read this first every session**
-- `FRONTEND_SPEC.md` — frontend developer specification **v0.4**
+- `FRONTEND_SPEC.md` — frontend developer specification **v0.5**
 - `WIZARD_SPEC.md` — wizard capability map and behavior **v0.3**
-- `COMPILER_SPEC.md` — compiler specification **v0.1 (updated)** — **read this before any compiler work**
+- `COMPILER_SPEC.md` — compiler specification **v0.2** — **read this before any compiler work**
 - `CLAUDE_SESSION_PROMPT.md` — this file
 - `LICENSE` — MIT
 
@@ -81,6 +81,8 @@ Do not build on top of it directly.
 - HA integration: WebSocket API for capability data, companion for file writes
 - Two Docker volume folders: pistoncore-userdata/ and pistoncore-customize/
 - configuration.yaml addition: `script pistoncore: !include_dir_merge_named scripts/pistoncore/`
+- All service calls in with_block compile with continue_on_error: true (WebCoRE resilience default)
+- Automation id: field uses piston ID (stable); filename and alias use slug (changes on rename)
 
 **File layout in HA:**
 - `<ha_config>/automations/pistoncore/<slug>.yaml` — automation wrapper
@@ -104,8 +106,14 @@ Do not build on top of it directly.
 - execute/end execute is a rendering artifact — not a JSON node
 - Jinja2 templates are snippet-level, not whole-file. Python makes decisions, templates hold HA syntax.
 - wait until time → `wait_for_trigger` with time trigger (not delay math, not wait_template polling)
+- wait until time always emits a CompilerWarning (past-time hang behavior) — see COMPILER_SPEC Section 14
+- wait until time shows a ⓘ tooltip in the editor — see FRONTEND_SPEC wait tooltip section
 - Variable scope caveat: variables set inside loops and read outside emit a warning, not a rewrite
 - Slug format: lowercase, underscores, max 50 chars, collision → append piston ID prefix
+- Automation id: field = piston ID (never changes). Filename and alias = slug (changes on rename).
+- Renaming a piston changes the slug, filename, and alias — HA treats it as a new automation entity
+- continue_on_error: true on all service calls in with_block (matches WebCoRE fire-and-forget behavior)
+- wait_for_state uses continue_on_timeout: true; branch on timeout via {{ not wait.completed }} if block
 
 **Sharing:**
 - Snapshot (green) = anonymized, safe to share
@@ -118,6 +126,11 @@ Do not build on top of it directly.
 - Stage 3: yamllint on sandbox files
 - Stage 4: companion calls script.reload on sandbox (HA validates natively)
 - Stage 5: pass → deploy, fail → nothing written to production
+
+**Run status:**
+- PISTONCORE_RUN_COMPLETE event fires on script completion
+- If not received within 5 minutes (configurable), status shown as "unknown" — never "Running" indefinitely
+- Long-running pistons (wait until a specific time hours away) will trigger this timeout normally
 
 ---
 
@@ -154,6 +167,9 @@ content or code when a new technical approach is being designed.
 9. **Device event trigger — device ID resolution** — backend must resolve role → HA device ID before trigger compiler can emit correct YAML. No endpoint or data flow defined yet. (COMPILER_SPEC Section 18 item 3)
 10. ~~**Stage 4 pre-deploy sandbox validation**~~ — **REMOVED.** script.reload cannot target a single file. Native scripts rely on yamllint + HA validation on actual deploy. See DESIGN.md Section 13.
 11. ~~**Trace mode per-step events**~~ — **RESOLVED as v1 compromise.** Trace shows run start, log_message statements, run complete. Per-step is v2. See DESIGN.md Section 15.
+12. ~~**continue_on_error default on with_block service calls**~~ — **RESOLVED.** Always emit continue_on_error: true. See COMPILER_SPEC Section 8.1.
+13. ~~**Past-time wait hang**~~ — **RESOLVED as documented behavior.** compile_wait() always emits a CompilerWarning for time-based waits. UI shows ⓘ tooltip. See COMPILER_SPEC Section 14, FRONTEND_SPEC wait tooltip section.
+14. ~~**Stale run detection**~~ — **RESOLVED.** 5-minute configurable timeout. Status shows "unknown" after timeout, never "Running" indefinitely. See FRONTEND_SPEC Log Panel.
 
 ---
 
@@ -176,8 +192,11 @@ There are two distinct save operations in PistonCore and users need to understan
 1. Save to Docker volume (piston JSON) — fast, always works, no HA involvement
 2. Deploy to HA (compiled files written, automation/script reload called) — separate action
 The UI language and button labels need to make this distinction unmistakable.
-Currently defined in DESIGN.md Section 13 but worth revisiting when UI coding starts
-to make sure the distinction is obvious to a non-technical user.
+Currently defined in DESIGN.md Section 13 and FRONTEND_SPEC but worth revisiting when UI
+coding starts to make sure the distinction is obvious to a non-technical user.
+
+**Commit messages:**
+Ask Claude for better commit message names when committing to the repo.
 
 ---
 
@@ -207,38 +226,42 @@ Full spec update session. No code written. DESIGN.md v0.8, FRONTEND_SPEC.md v0.2
 ### Session 7 — April 2026
 Architecture confirmed: Native HA Script primary, PyScript fallback only. Five HA capability gaps researched. Perplexity conversation reviewed. DESIGN.md updated to v0.9. COMPILER_SPEC.md v0.1 written — full native script compiler spec. AI-UPDATE-GUIDE.md written for native-script templates and validation-rules folders. Binary sensor state values validated — HA always returns "on"/"off", never friendly labels. WIZARD_SPEC.md updated to v0.3: Binary section rewritten with display_value/compiled_value separation, device_class label table, corrected wizard internal state and condition object examples. COMPILER_SPEC.md updated: Binary State Values section added (Section 11), condition state example corrected. Standing validation rule added to session prompt.
 
+### Session 8 — April 2026
+No code written. Gemini external review processed and validated against HA docs. Four items resolved: (1) continue_on_error: true added as default on all with_block service calls — matches WebCoRE resilience behavior; (2) Past-time wait hang confirmed as real HA behavior — compile_wait() now always emits CompilerWarning for time-based waits, UI tooltip added; (3) Stale run detection added — 5-minute configurable timeout, never show "Running" indefinitely; (4) Automation id: vs slug clarified — id field uses piston ID (stable), filename and alias use slug (changes on rename). Two Gemini items confirmed already handled correctly: wait.completed branching works natively in HA (no compiler change needed), trigger data intentionally not forwarded to native script pistons (by design, PyScript-only). One Gemini item was a misread: piston variables are intentionally temporary (not a bug). Binary sensor null device_class fallback added to COMPILER_SPEC Section 11 and WIZARD_SPEC (defaults to On/Off). COMPILER_SPEC updated to v0.2, FRONTEND_SPEC updated to v0.5. WIZARD_SPEC and DESIGN.md unchanged.
+
 ---
 
 ## Last Session
-Session 7 — April 2026. All spec files updated through multiple rounds of feedback. Major fixes from design claude and Grok: Stage 4 validation dropped (script.reload can't target sandbox file), trace mode simplified to v1 compromise (run start/log_message/complete only), stale piston index defined (globals_index.json), only_when rendering defined, global management UI fully specced, editor mock buttons corrected, companion confirmation screen updated. Devices variable compile-time resolution finalized. FRONTEND_SPEC v0.4, DESIGN.md v0.9.1, COMPILER_SPEC updated. Jeremy's personal notes captured as tracked items (debugging UI, two-save distinction). AI-REVIEW-PROMPT.md added to repo.
+Session 8 — April 2026. Gemini review validated. Four spec additions integrated into COMPILER_SPEC v0.2 and FRONTEND_SPEC v0.5. All changes are non-breaking — no existing compiler output is wrong, only additions and clarifications. The driveway lights verification example in COMPILER_SPEC Section 17 now includes continue_on_error: true on service calls. Specs are ready for coding.
 
 ## Next Session — Start Here
 
 **Note:** The repo may have stale files. Ask user to paste DESIGN.md, COMPILER_SPEC.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, and this session prompt if repo fetch fails or returns old versions.
 
 1. Read DESIGN.md v0.9.1 from the repo (or ask user to paste)
-2. Read COMPILER_SPEC.md from the repo (or ask user to paste)
-3. Read FRONTEND_SPEC.md v0.4 and WIZARD_SPEC.md v0.3 if working on frontend/wizard
+2. Read COMPILER_SPEC.md v0.2 from the repo (or ask user to paste)
+3. Read FRONTEND_SPEC.md v0.5 and WIZARD_SPEC.md v0.3 if working on frontend/wizard
 
 **Validate before starting any new logic — standing rule.**
 
-**Recommended Session 8 agenda:**
+**Recommended Session 9 agenda:**
 
 **Option A — Begin backend compiler coding:**
 - Scaffold FastAPI project structure in a new `/backend/` folder
 - Implement `slugify()` and `compile_piston()` entry point (COMPILER_SPEC Section 4, 5)
 - Implement trigger compilers for sun and state triggers (Section 6.3)
-- Implement `with_block` and `wait` statement compilers (Section 8.1, 8.2)
+- Implement `with_block` compiler including continue_on_error: true (Section 8.1)
+- Implement `wait` compiler including CompilerWarning for time-based waits (Section 8.2, 14)
 - Implement `globals_index.json` write on compile (DESIGN.md Section 4.1)
 - Verify the driveway lights piston compiles to output matching COMPILER_SPEC Section 17
-- **Do not start coding until COMPILER_SPEC is re-read fresh this session**
+- **Do not start coding until COMPILER_SPEC v0.2 is re-read fresh this session**
 
 **Option B — Validate two remaining open technical questions before coding:**
 - Item 7: Does `rest_command` make `make_web_request` available in native scripts? (quick web search)
 - Item 8: Which HA trigger variables are available in native script pistons? (quick web search)
 - Update WIZARD_SPEC and session prompt with findings, then move to Option A
 
-**Option C — Wait for cousin / other AI feedback before coding:**
+**Option C — Wait for more external AI feedback before coding:**
 - Poll Grok/Gemini with AI-REVIEW-PROMPT.md if not done yet
 - Review any feedback, validate HA-specific claims, update specs
 - Then move to Option A
@@ -256,6 +279,26 @@ These were the five gaps researched. Keeping here for reference:
 3. **Script + automation pairing** — two files per piston. Labeled include avoids conflict with user's existing scripts.
 4. **for_each over Devices variable** — works via Jinja2 template. Variable scope caveat documented.
 5. **Minimum HA version** — 2023.1.
+
+---
+
+## Reference — Gemini Review Items (Session 8)
+
+Summary of how each Gemini review item was resolved:
+
+| Item | Verdict | Action taken |
+|---|---|---|
+| Past-time hang in wait_for_trigger | Confirmed real | CompilerWarning always emitted, UI tooltip added |
+| Physical vs programmatic context | Confirmed unreliable | Already open item #3, not changed |
+| Atomic reload kills running scripts | Already documented | No change — warning on deploy already in DESIGN.md |
+| wait_for_state timeout branching | Gemini partially wrong | wait.completed works natively, no compiler change needed |
+| $currentEventDevice in native scripts | Confirmed by design | Intentionally PyScript-only, already documented |
+| Piston variable persistence | Gemini misread | Piston vars are intentionally temporary, no change |
+| Automation id: vs slug | Real gap | Clarified in COMPILER_SPEC Section 6.1 |
+| Binary sensor null device_class | Real gap | Fallback to On/Off added to COMPILER_SPEC Section 11 |
+| continue_on_error on service calls | Good suggestion | Added as default in COMPILER_SPEC Section 8.1 |
+| Stale run detection | Real gap | 5-minute timeout added to FRONTEND_SPEC Log Panel |
+| Script variable scope in loops | Already documented | No change — warning system already in Section 8.9 |
 
 ---
 

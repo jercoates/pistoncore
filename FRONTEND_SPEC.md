@@ -1,6 +1,6 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.4
+**Version:** 0.5
 **Status:** Draft — For Developer Use
 **Last Updated:** April 2026
 
@@ -224,6 +224,24 @@ Log level selector: Full / Minimal / None (mirrors what is set in the editor).
 Timestamps in the log are shown as the time the event was received, not just when the piston ran.
 If status is unknown (WebSocket drop, missed event), show: *"Status unknown"* — never wrong information.
 
+**Stale run detection:**
+
+The companion tracks when a piston automation fires and starts a timeout timer. If
+`PISTONCORE_RUN_COMPLETE` is not received within 5 minutes of the run starting, the log
+entry updates to:
+
+*"Status unknown — piston may still be running, or may have been interrupted before
+completing. Check Home Assistant logs for details."*
+
+The 5-minute default is configurable in PistonCore settings (Settings → Run Timeout). For
+pistons with long waits (e.g. `wait until 11:00 PM` that may be hours away), this timeout
+will fire during normal operation. Users with long-running pistons should increase the
+timeout or understand that "status unknown" during a long wait is expected behavior, not
+an error.
+
+**Never show "Running..." indefinitely.** After the configurable timeout, always resolve to
+the unknown status message above.
+
 ---
 
 ## Page 3 — Piston Editor
@@ -368,6 +386,56 @@ is the execute body. The frontend adds the wrapper rendering only.
 - Statement numbers appear on the left side (used by Trace mode)
 - Line numbers are NOT shown — trace uses statement numbers, not line numbers
 
+### Ghost Text — Primary Insertion Method
+
+At every valid insertion point, ghost text appears inline in a muted color.
+Ghost text is always visible at valid insertion points — not only on hover.
+
+- `+ add a new statement` — at the top level and inside blocks
+- `+ add a new task` — inside a with/do block
+- `+ add a new trigger` — in the triggers section
+- `+ add a new condition` — in the conditions section
+- `+ add a new restriction` — after an `only when` line
+
+Clicking any ghost text opens the wizard modal for that insertion point.
+
+### Wait Until [Time] — Inline Tooltip
+
+When a `wait until [time]` statement is rendered in the editor action tree or in the status
+page read-only view, it shows a ⓘ info icon inline after the time value.
+
+Tooltip text on hover:
+*"If this piston reaches this step after [time] has already passed today, it will wait
+until [time] tomorrow. Make sure this step is always reached before the target time."*
+
+This tooltip appears only on time-based wait statements (wait until a specific time of day).
+It does not appear on fixed-duration wait statements (wait 5 minutes, wait 2 hours, etc.).
+
+### only_when Rendering — Populated State
+
+When restrictions are added, they render as plain English using the display_value from the condition object. The `only when` keyword stays visible. Multiple restrictions show `and` between them at the same indent level. See DESIGN.md Section 19a for full rendering examples with populated restrictions.
+
+Restrictions are not collapsible in v1 — they always show inline. Right-click context menu applies to individual restriction lines.
+
+### Right-Click Context Menu
+
+Right-clicking any statement node shows:
+- Copy selected statement
+- Duplicate selected statement
+- Cut selected statement
+- Delete selected statement
+- Clear clipboard (if clipboard has content)
+
+Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement.
+Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
+
+### Within-Block Drag to Reorder
+
+Statements can be dragged to reorder within their containing block only.
+Dragging across block boundaries is not supported in v1 — use cut and paste for that.
+Valid drop targets highlight on hover.
+No undo for drag operations in v1.
+
 ### Editor Rendering Example
 
 ```
@@ -449,44 +517,6 @@ end execute;
 
 Note: condition values in the document display the friendly label ("Detected") not the compiled
 value ("on"). The document always shows what the user chose, never the HA internal state value.
-
-### Ghost Text — Primary Insertion Method
-
-At every valid insertion point, ghost text appears inline in a muted color.
-Ghost text is always visible at valid insertion points — not only on hover.
-
-- `+ add a new statement` — at the top level and inside blocks
-- `+ add a new task` — inside a with/do block
-- `+ add a new trigger` — in the triggers section
-- `+ add a new condition` — in the conditions section
-- `+ add a new restriction` — after an `only when` line
-
-Clicking any ghost text opens the wizard modal for that insertion point.
-
-### only_when Rendering — Populated State
-
-When restrictions are added, they render as plain English using the display_value from the condition object. The `only when` keyword stays visible. Multiple restrictions show `and` between them at the same indent level. See DESIGN.md Section 19a for full rendering examples with populated restrictions.
-
-Restrictions are not collapsible in v1 — they always show inline. Right-click context menu applies to individual restriction lines.
-
-### Right-Click Context Menu
-
-Right-clicking any statement node shows:
-- Copy selected statement
-- Duplicate selected statement
-- Cut selected statement
-- Delete selected statement
-- Clear clipboard (if clipboard has content)
-
-Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement.
-Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
-
-### Within-Block Drag to Reorder
-
-Statements can be dragged to reorder within their containing block only.
-Dragging across block boundaries is not supported in v1 — use cut and paste for that.
-Valid drop targets highlight on hover.
-No undo for drag operations in v1.
 
 ---
 

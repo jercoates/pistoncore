@@ -1,6 +1,6 @@
 # PistonCore Compiler Specification
 
-**Version:** 0.1
+**Version:** 0.2
 **Status:** Draft — Primary blocker for all backend coding
 **Last Updated:** April 2026
 
@@ -120,6 +120,14 @@ The automation file is always simple — triggers, conditions, and one action.
   actions:
     - action: script.pistoncore_<slug>
 ```
+
+**Two identifiers — do not confuse them:**
+
+- `id: pistoncore_<id>` — uses the **piston ID** (e.g. `pistoncore_a3f8c2d1`). This is HA's internal stable identifier for the automation entity. It must never change across recompiles, even if the piston is renamed. Using the piston ID here (not the slug) ensures HA always links run history, trace data, and the automation entity back to the correct piston regardless of name changes.
+
+- `alias: "<name>"` and the filename `<slug>.yaml` — use the **slug** (derived from the piston name). These are the human-readable references. If a piston is renamed, the slug changes, the filename changes, and the automation alias updates. The old filename is deleted by the companion on redeploy; the new filename is written. HA will show a new automation entity with the new name — the old entity disappears. This is expected behavior and must be documented in the UI: renaming a piston causes HA to treat it as a new automation.
+
+**Summary:** `id:` field = piston ID (stable). Filename and `alias:` = slug (changes on rename).
 
 ### 6.2 Mode Mapping
 
@@ -307,6 +315,12 @@ All compile functions accept `indent` (number of spaces) and return a YAML strin
 
 A `with_block` has a `target_role` and one or more `tasks`. Each task is a HA service call.
 
+**continue_on_error default behavior:**
+
+All service calls inside a `with_block` compile with `continue_on_error: true`. This matches WebCoRE's fire-and-forget resilience — if one entity in a with block is unavailable (dead Zigbee node, disconnected device), the piston continues rather than stopping. This is the correct default for a home automation tool where device availability is unpredictable.
+
+Users who want the piston to stop on a failed service call can add a `wait_for_state` or condition check after the with block to verify the result. There is no UI toggle for this in v1 — `continue_on_error: true` is always emitted on service calls inside with blocks.
+
 **Single task — most common case:**
 ```json
 {
@@ -326,6 +340,7 @@ A `with_block` has a `target_role` and one or more `tasks`. Each task is a HA se
     entity_id: light.driveway_main
   data:
     brightness_pct: 100
+  continue_on_error: true
 ```
 
 **No data** (e.g. light.turn_off):
@@ -334,10 +349,11 @@ A `with_block` has a `target_role` and one or more `tasks`. Each task is a HA se
   action: light.turn_off
   target:
     entity_id: light.driveway_main
+  continue_on_error: true
 ```
-Omit `data:` block entirely when `task.data` is empty or absent.
+Omit `data:` block entirely when `task.data` is empty or absent. Always include `continue_on_error: true`.
 
-**Multiple tasks** in one with_block — compile as a `sequence` parallel block:
+**Multiple tasks** in one with_block — compile as a `parallel` block. Each action inside the parallel block also carries `continue_on_error: true`:
 ```yaml
 - alias: "stmt_004"
   parallel:
@@ -346,9 +362,11 @@ Omit `data:` block entirely when `task.data` is empty or absent.
         entity_id: light.driveway_main
       data:
         brightness_pct: 100
+      continue_on_error: true
     - action: notify.mobile_app
       data:
         message: "Lights on"
+      continue_on_error: true
 ```
 
 **Devices variable as target** (multiple entities):
@@ -359,6 +377,7 @@ Omit `data:` block entirely when `task.data` is empty or absent.
     entity_id: "{{ states.group.all_lights.attributes.entity_id }}"
   data:
     brightness_pct: 50
+  continue_on_error: true
 ```
 When `target_role` resolves to a Devices variable (a group entity), the entity_id uses a Jinja2 template to read the group's member list.
 
@@ -374,7 +393,8 @@ When `target_role` resolves to a Devices variable (a group entity), the entity_i
     - trigger: time
       at: "23:00:00"
 ```
-Note: if the target time has already passed today when this step is reached, HA will wait until that time tomorrow. This is documented behavior — document it in the UI tooltip on the wait statement.
+
+**Important — past-time behavior:** The HA time trigger fires once per day at the specified time. If the piston reaches this step after the target time has already passed today, HA will wait until that time tomorrow. This is documented HA behavior. `compile_wait()` always emits a CompilerWarning when `stmt["until"]` is set — see Section 14. The frontend also shows a tooltip on this statement type — see FRONTEND_SPEC.
 
 **Wait a fixed duration:**
 ```json
@@ -424,7 +444,7 @@ def format_delay(seconds: int) -> str:
     seconds: 120
   continue_on_timeout: true
 ```
-`continue_on_timeout: true` — the script continues after timeout. The compiler always emits this. If the piston author wants to stop on timeout, they add an `if` block after the wait checking `wait.completed`.
+`continue_on_timeout: true` — the script continues after timeout. The compiler always emits this. After this step, HA populates `wait.completed` (true if triggered, false if timed out) and `wait.trigger` (null if timed out). If the piston author wants to branch on timeout, they add an `if` block after the wait checking `{{ not wait.completed }}`. This is standard HA behavior and requires no special compiler handling.
 
 ### 8.4 if_block
 
@@ -613,11 +633,9 @@ Devices globals are resolved at compile time. The compiler looks up the device_m
 
 **Variable name substitution inside body:** Anywhere the piston JSON references `$device` (the loop variable), the compiler substitutes `{{ repeat.item }}` in the compiled output.
 
-**When a Devices global changes:** PistonCore flags all pistons that reference it as stale. The user redeployes them to pick up the new list. The stale tracking and redeploy banner are defined in DESIGN.md Section 19.
+**When a Devices global changes:** PistonCore flags all pistons that reference it as stale. The user redeploys them to pick up the new list. The stale tracking and redeploy banner are defined in DESIGN.md Section 19.
 
 **When collection_role resolves to a piston-local Devices variable (not a global):** Same behavior — resolve to literal list at compile time from whatever devices the user assigned to that variable within the piston.
-
-**Jinja2 namespace note removed:** The previous note about namespace patterns for loop variable accumulation is superseded by Section 8.9, which documents that the compiler emits a warning and PyScript is the correct solution for cross-loop accumulation.
 
 ### 8.8 while_block
 
@@ -944,6 +962,8 @@ Regardless of which friendly labels (Open/Closed, Detected/Clear, etc.) the wiza
 | running | Running | Not running |
 | (none / default) | On | Off |
 
+**Binary sensor with no device_class:** If the backend cannot determine a device_class for a binary sensor, the wizard defaults to showing "On" / "Off" as the friendly labels. The compiled values remain `"on"` and `"off"` as always. The fallback label pair is the `(none / default)` row in the table above.
+
 **Non-binary entities** (media_player, climate, cover, input_select, select, sensor with named states): their state values ARE the real strings HA returns. `display_value` and `compiled_value` are the same. The compiler uses the value directly.
 
 ---
@@ -960,9 +980,9 @@ Always the last action in every compiled script:
     status: "success"
 ```
 
-**On failure:** Native HA scripts do not have a try/catch. If any action fails and `continue_on_error` is not set, HA stops the script at that action. The completion event is never fired. The companion treats a missing completion event as a timeout/failure and updates the run log accordingly after a configurable timeout (default: 60 seconds after the automation fired).
+**On failure:** Native HA scripts do not have a try/catch. If any action fails and `continue_on_error` is not set, HA stops the script at that action. The completion event is never fired. The companion treats a missing completion event as a timeout/failure and updates the run log accordingly after a configurable timeout (default: 5 minutes after the automation fired). See FRONTEND_SPEC for the stale run detection UI behavior.
 
-**Future:** Wrapping individual actions in `continue_on_error: true` with explicit failure events is a v2 feature. For now, failure = no completion event received.
+**Future:** Wrapping individual actions in `continue_on_error: true` with explicit failure events is a v2 feature. For now, failure = no completion event received within the timeout window.
 
 ---
 
@@ -1041,10 +1061,28 @@ CompilerErrors surface in the PistonCore validation banner with the raw message 
 
 Non-fatal. Compilation continues. Warning added to the validation banner after save.
 
-Examples:
-- Variable set inside a loop referenced outside it (Section 8.9)
-- Slug collision resolved by appending piston ID
-- `wait until` time may wait until tomorrow if target time has already passed today
+**Variable scope warning** (emitted by `compile_set_variable()` when cross-scope use is detected):
+```
+Variable '$count' is set inside a loop (stmt_009) and used outside it (stmt_015).
+Home Assistant cannot reliably carry this value out of the loop. Your piston may
+not behave as expected. Consider restructuring this logic, or convert to PyScript
+which handles cross-loop variable scope natively.
+```
+
+**Past-time wait warning** (always emitted by `compile_wait()` when `stmt["until"]` is set):
+```
+'Wait until [time]' will pause until that time today. If this step is reached after
+[time] has already passed, the piston will wait until [time] tomorrow. This is expected
+HA behavior — structure your piston so this step is reached before the target time,
+or use a fixed duration delay instead.
+```
+This warning is always emitted for time-based waits — not conditionally. It is informational, not an error. The compiled output is correct regardless.
+
+**Slug collision warning** (emitted by `slugify()` when a collision is resolved):
+```
+Piston name '[name]' produces the same slug as another piston. Appended piston ID
+prefix to disambiguate: '[new_slug]'.
+```
 
 ---
 
@@ -1057,7 +1095,7 @@ These items are NOT part of the native script compiler. They are handled elsewhe
 - **File writing to HA** — companion responsibility. Compiler only returns YAML strings.
 - **Hash computation** — compiler returns content; the backend computes and inserts the hash.
 - **settings / end settings block** — contents undefined. Not compiled until defined.
-- **Which-interaction (physical vs programmatic)** — feasibility not yet confirmed. Not compiled in v1 until validated.
+- **Which-interaction step** — feasibility not yet confirmed. Not compiled in v1 until validated.
 
 ---
 
@@ -1114,6 +1152,7 @@ pistoncore_driveway_lights_at_sunset:
         entity_id: light.driveway_main
       data:
         brightness_pct: 100
+      continue_on_error: true
 
     # stmt_002 — wait until 23:00:00
     - alias: "stmt_002"
@@ -1126,6 +1165,7 @@ pistoncore_driveway_lights_at_sunset:
       action: light.turn_off
       target:
         entity_id: light.driveway_main
+      continue_on_error: true
 
     # PistonCore run completion event — always last
     - event: PISTONCORE_RUN_COMPLETE
@@ -1135,7 +1175,7 @@ pistoncore_driveway_lights_at_sunset:
         status: "success"
 ```
 
-**Paper verification:** Fed the piston JSON through the compiler logic defined in this document. Output matches the hand-written files above. ✓
+**Paper verification:** Fed the piston JSON through the compiler logic defined in this document. Output matches the hand-written files above. `continue_on_error: true` added to both service calls per Section 8.1. ✓
 
 ---
 
@@ -1148,7 +1188,7 @@ These affect the compiler but are not yet resolved. Do not implement them until 
 3. **Device event trigger (button/momentary)** — requires HA device ID, not entity ID. The backend must resolve role → device ID from the HA device registry before the trigger compiler can emit the correct YAML. No endpoint or data flow is defined yet.
 4. ~~**Devices variable storage format**~~ — **RESOLVED.** Devices globals are compile-time literal lists baked from PistonCore's device_map. See Section 8.7 and DESIGN.md Sections 4.1, 19.
 5. **which-interaction step** — physical vs programmatic context filtering. Feasibility not confirmed. Not compiled until validated.
-6. **Stage 4 pre-deploy sandbox validation** — **REMOVED.** `script.reload` cannot target a single sandbox file. Native script pistons rely on yamllint (Stage 3) for pre-deploy syntax checking. HA validates semantics on actual deploy. See DESIGN.md Section 13.
+6. ~~**Stage 4 pre-deploy sandbox validation**~~ — **REMOVED.** `script.reload` cannot target a single sandbox file. Native script pistons rely on yamllint (Stage 3) for pre-deploy syntax checking. HA validates semantics on actual deploy. See DESIGN.md Section 13.
 7. **Trace mode per-step events** — v1 trace does not emit a trace event per compiler action step. The compiler only emits the completion event and relies on user-added log_message statements for mid-run visibility. Full per-step tracing is v2. See DESIGN.md Section 15.
 
 ---

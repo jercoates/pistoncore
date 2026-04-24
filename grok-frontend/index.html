@@ -6,629 +6,225 @@
     <title>PistonCore</title>
     <style>
         :root {
-            --bg: #1e1e1e;
-            --surface: #2d2d2d;
-            --text: #e0e0e0;
-            --accent: #00b8a9; /* teal - WebCoRE style */
-            --success: #4ade80;
-            --danger: #f87171;
-            --warning: #fbbf24;
+            --bg: #1c1c1c;
+            --surface: #282828;
+            --accent: #00ccaa;
+            --text: #ddd;
+            --muted: #888;
+            --keyword: #00ccaa;
         }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-            overflow: hidden;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        header {
-            background: var(--surface);
-            padding: 12px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #444;
-            flex-shrink: 0;
-        }
-        
-        .logo {
-            font-size: 20px;
-            font-weight: bold;
-            color: var(--accent);
-        }
-        
-        nav button {
-            background: transparent;
-            border: 1px solid var(--accent);
-            color: var(--accent);
-            padding: 6px 12px;
-            margin-left: 8px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        
-        nav button:hover {
-            background: var(--accent);
-            color: white;
-        }
-        
-        .main-content {
-            flex: 1;
-            overflow: auto;
-            padding: 20px;
-            display: none;
-        }
-        
-        .active {
-            display: block;
-        }
-        
-        /* Piston List */
-        #piston-list-page .folder-header {
-            color: var(--accent);
-            font-size: 18px;
-            margin: 24px 0 8px 0;
-            padding-bottom: 4px;
-            border-bottom: 1px solid #444;
-        }
-        
-        .piston-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            background: var(--surface);
-            margin-bottom: 4px;
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        header { background: #222; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--accent); cursor: pointer; }
+
+        .main-content { flex: 1; overflow: auto; padding: 16px; display: none; }
+        .active { display: block; }
+
+        .action-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.6;
+            background: #111;
+            padding: 24px;
             border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        
-        .piston-item:hover {
-            background: #3a3a3a;
-        }
-        
-        .piston-item .status-dot {
-            font-size: 18px;
-            margin-right: 12px;
-            width: 20px;
-        }
-        
-        .piston-name {
-            flex: 1;
-            font-weight: 500;
-        }
-        
-        .piston-result {
-            margin-right: 16px;
-            font-size: 18px;
-        }
-        
-        .piston-time {
-            color: #888;
-            font-size: 14px;
-            white-space: nowrap;
-        }
-        
-        .search-bar {
-            width: 100%;
-            padding: 10px 16px;
-            background: var(--surface);
-            border: 1px solid #555;
-            border-radius: 6px;
-            color: white;
-            margin-bottom: 16px;
-        }
-        
-        /* Status Page */
-        .status-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-        
-        .back-btn {
-            background: none;
-            border: none;
-            color: var(--accent);
-            font-size: 18px;
-            cursor: pointer;
-        }
-        
-        .script-panel {
-            background: #1a1a1a;
-            padding: 16px;
-            border-radius: 6px;
-            font-family: monospace;
+            min-height: 70vh;
             white-space: pre;
-            overflow-x: auto;
-            margin: 16px 0;
-            line-height: 1.4;
+            overflow: auto;
+            color: #ccc;
         }
-        
-        .keyword {
-            color: var(--accent);
-            font-weight: bold;
-        }
-        
-        .log-entry {
-            background: var(--surface);
-            padding: 12px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-        }
-        
-        button {
-            padding: 8px 16px;
-            border-radius: 6px;
-            border: none;
+        .keyword { color: var(--keyword); font-weight: bold; }
+        .ghost {
+            color: #666;
+            font-style: italic;
+            padding: 4px 30px;
+            margin: 3px 0;
+            display: block;
             cursor: pointer;
-            font-weight: 500;
         }
-        
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-        
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-        
-        .btn-success {
-            background: var(--success);
-            color: black;
-        }
-        
+        .ghost:hover { background: #333; color: #bbb; }
+
         .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.9);
             display: none;
             align-items: center;
             justify-content: center;
             z-index: 1000;
         }
-        
         .modal-content {
-            background: var(--surface);
+            background: #282828;
             width: 90%;
-            max-width: 600px;
+            max-width: 900px;
+            max-height: 92vh;
             border-radius: 8px;
-            max-height: 90vh;
-            overflow: auto;
+            overflow: hidden;
         }
+        .modal-header { padding: 16px; background: #1f1f1f; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .statement-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 14px;
+            padding: 20px;
+        }
+        .card {
+            background: #333;
+            padding: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .card:hover { background: #00ccaa; color: black; transform: translateY(-3px); }
     </style>
 </head>
 <body>
-    <!-- HEADER -->
-    <header>
-        <div class="logo">PistonCore</div>
-        <nav>
-            <button onclick="copyAIPrompt()">Copy AI Prompt</button>
-            <button onclick="newPiston()" class="btn-primary">+ New</button>
-        </nav>
-    </header>
 
-    <!-- PISTON LIST PAGE -->
-    <div id="piston-list-page" class="main-content active">
-        <input type="text" id="search-input" class="search-bar" placeholder="Search pistons..." onkeyup="filterPistons()">
-        
-        <div id="piston-list"></div>
-        
-        <div style="margin-top: 30px; text-align: right;">
-            <button onclick="newFolder()">+ New Folder</button>
-            <button onclick="showImportModal()">Import</button>
-        </div>
-        
-        <!-- Global Variables Drawer Button -->
-        <button onclick="toggleGlobalsDrawer()" style="position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--accent);">
-            Globals
-        </button>
+<header>
+    <div onclick="goToList()" class="logo">PistonCore</div>
+    <div>
+        <button onclick="saveToPistonCore()">💾 Save to PistonCore</button>
+        <button onclick="deployToHA()" style="background:#00ccaa;color:black;">🚀 Deploy to HA</button>
+    </div>
+</header>
+
+<!-- EDITOR PAGE -->
+<div id="editor-page" class="main-content active">
+    <div style="background:#222;padding:12px;border-bottom:1px solid #444;">
+        <strong>Piston Name:</strong> 
+        <input id="piston-name" value="Driveway Lights at Sunset" style="width:340px;background:#333;color:white;border:1px solid #555;padding:6px;border-radius:4px;">
+        <button onclick="goToStatus()" style="float:right;margin-left:10px;">← Status</button>
     </div>
 
-    <!-- PISTON STATUS PAGE -->
-    <div id="piston-status-page" class="main-content">
-        <div class="status-header">
-            <button onclick="goBackToList()" class="back-btn">← My Pistons</button>
-            <h2 id="status-piston-name"></h2>
+    <div id="action-tree" class="action-tree" oncontextmenu="showContextMenu(event)"></div>
+
+    <div style="text-align:center; padding:12px; background:#222;">
+        <button onclick="testLive()" style="background:#f59e0b;color:white;">▶ Test — Live Fire ⚠</button>
+        <button onclick="saveToPistonCore()" style="background:#00ccaa;color:black;">💾 Save to PistonCore</button>
+        <button onclick="deployToHA()" style="background:#00ccaa;color:black;">🚀 Deploy to HA</button>
+    </div>
+</div>
+
+<!-- STATEMENT WIZARD -->
+<div id="statement-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Add a new statement</h3>
+            <button onclick="closeModal()" style="background:none;border:none;color:#aaa;font-size:24px;">✕</button>
         </div>
-        
-        <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 16px;">
-            <span>Folder: </span>
-            <select id="folder-select" onchange="changeFolder()"></select>
-            <span id="status-enabled" style="color: var(--success);">● Active</span>
-            <button onclick="togglePause()" id="pause-btn">Pause</button>
+        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;">Basic statements</div>
+        <div class="statement-grid">
+            <div class="card" onclick="addStatement('if')"><strong>If Block</strong><br><small>Execute different actions based on conditions</small></div>
+            <div class="card" onclick="addStatement('action')"><strong>Action</strong><br><small>Control devices and run tasks</small></div>
+            <div class="card" onclick="addStatement('wait')"><strong>Wait</strong><br><small>Pause for a duration or until a time</small></div>
+            <div class="card" onclick="addStatement('setvar')"><strong>Set Variable</strong><br><small>Change a piston or global variable</small></div>
+            <div class="card" onclick="addStatement('log')"><strong>Log Message</strong><br><small>Write to the piston log</small></div>
+            <div class="card" onclick="addStatement('timer')"><strong>Timer</strong><br><small>Trigger at set time intervals</small></div>
         </div>
-        
-        <!-- Validation Banner -->
-        <div id="validation-banner" style="background: #433; padding: 12px; border-radius: 6px; margin-bottom: 16px; display: none;"></div>
-        
-        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;">
-            <button onclick="editPiston()" class="btn-primary">✎ Edit</button>
-            <button onclick="testPiston()" style="background: #f59e0b; color: white;">▶ Test — Live Fire ⚠</button>
-            <button onclick="snapshotPiston()">📷 Snapshot</button>
-            <button onclick="backupPiston()" style="background: #ef4444;">📷 Backup</button>
-            <button onclick="duplicatePiston()">⧉ Duplicate</button>
-            <button onclick="deletePiston()" class="btn-danger">🗑 Delete</button>
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; margin-bottom: 16px;">
-            <div>
-                <label><input type="checkbox" id="trace-toggle" onchange="toggleTrace()"> Trace: OFF</label>
-            </div>
-            <div>
-                <label><input type="checkbox" id="notify-toggle" onchange="toggleNotify()"> ⚠ Notify: OFF</label>
-            </div>
-        </div>
-        
-        <!-- Quick Facts -->
-        <div style="background: var(--surface); padding: 16px; border-radius: 6px; margin-bottom: 20px;">
-            <strong>QUICK FACTS</strong>
-            <div id="quick-facts"></div>
-        </div>
-        
-        <!-- Piston Script (Read-only) -->
-        <div>
-            <strong>PISTON SCRIPT (read-only)</strong>
-            <div id="read-only-script" class="script-panel"></div>
-        </div>
-        
-        <!-- Log -->
-        <div style="margin-top: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <strong>LOG</strong>
-                <div>
-                    <select id="log-level" onchange="changeLogLevel()">
-                        <option value="full">Full</option>
-                        <option value="minimal">Minimal</option>
-                        <option value="none">None</option>
-                    </select>
-                    <button onclick="clearLog()">Clear Log</button>
-                </div>
-            </div>
-            <div id="log-panel" style="max-height: 300px; overflow-y: auto; background: var(--surface); padding: 12px; border-radius: 6px;"></div>
+        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;margin-top:8px;">Advanced statements</div>
+        <div class="statement-grid">
+            <div class="card" onclick="addStatement('repeat')">Repeat Loop</div>
+            <div class="card" onclick="addStatement('foreach')">For Each Loop</div>
+            <div class="card" onclick="addStatement('while')">While Loop</div>
+            <div class="card" onclick="addStatement('switch')">Switch</div>
+            <div class="card" onclick="addStatement('doblock')">Do Block</div>
+            <div class="card" onclick="addStatement('break')">Break</div>
         </div>
     </div>
+</div>
 
-    <!-- IMPORT MODAL -->
-    <div id="import-modal" class="modal">
-        <div class="modal-content">
-            <div style="padding: 20px;">
-                <h3>Import Piston</h3>
-                <textarea id="import-text" placeholder="Paste JSON or URL..." style="width:100%; height:200px; background:#1a1a1a; color:white; border:1px solid #555;"></textarea>
-                <div style="margin-top: 12px;">
-                    <button onclick="performImport()" class="btn-primary">Import</button>
-                    <button onclick="hideImportModal()">Cancel</button>
-                </div>
-            </div>
-        </div>
-    </div>
+<script>
+// Current piston structure
+let currentPiston = {
+    name: "Driveway Lights at Sunset",
+    settings: true,
+    define: [{name: "Light", value: "Dining Light"}],
+    actions: [
+        {
+            id: "s1",
+            type: "if",
+            condition: "Any of (Light)'s switch did not change in the last 1 hour",
+            trueBranch: [
+                {id: "s2", type: "with", target: "Dining Light", tasks: [
+                    {id: "s3", type: "action", text: "Turn on"}
+                ]}
+            ],
+            falseBranch: []
+        }
+    ]
+};
 
-    <!-- GLOBALS DRAWER -->
-    <div id="globals-drawer" style="position: fixed; top: 0; right: -400px; width: 400px; height: 100%; background: var(--surface); transition: right 0.3s; box-shadow: -4px 0 10px rgba(0,0,0,0.5); padding: 20px; overflow-y: auto; z-index: 2000;">
-        <h3>Global Variables</h3>
-        <div id="globals-list"></div>
-        <button onclick="toggleGlobalsDrawer()" style="margin-top:20px;">Close</button>
-    </div>
+function renderActionTree() {
+    const container = document.getElementById('action-tree');
+    let html = `<span class="keyword">settings</span>\n<span class="keyword">end settings;</span>\n\n`;
+    html += `<span class="keyword">define</span>\n`;
+    currentPiston.define.forEach(v => html += `  device ${v.name} = ${v.value};\n`);
+    html += `<span class="keyword">end define;</span>\n\n`;
+    html += `<span class="keyword">execute</span>\n`;
 
-    <script>
-        // ====================== STATE ======================
-        let currentPistons = [];
-        let currentFolders = [];
-        let currentPiston = null;
-        let currentPage = 'list';
-        
-        // Mock data for demo (replace with real API calls)
-        function loadMockData() {
-            currentFolders = ['Outdoor Lighting', 'Security', 'Uncategorized'];
-            currentPistons = [
-                {
-                    id: 'p1',
-                    name: 'Driveway Lights at Sunset',
-                    folder: 'Outdoor Lighting',
-                    enabled: true,
-                    lastResult: 'success',
-                    lastRan: '08:46:25'
-                },
-                {
-                    id: 'p2',
-                    name: 'Side Gate Motion Light',
-                    folder: 'Outdoor Lighting',
-                    enabled: true,
-                    lastResult: 'success',
-                    lastRan: '14:22:01'
-                },
-                {
-                    id: 'p3',
-                    name: 'Holiday Lights',
-                    folder: 'Outdoor Lighting',
-                    enabled: false,
-                    lastResult: 'never',
-                    lastRan: 'Never'
-                },
-                {
-                    id: 'p4',
-                    name: 'Front Door Alert',
-                    folder: 'Security',
-                    enabled: true,
-                    lastResult: 'success',
-                    lastRan: '09:11:44'
-                },
-                {
-                    id: 'p5',
-                    name: 'Garage Monitor',
-                    folder: 'Security',
-                    enabled: true,
-                    lastResult: 'failure',
-                    lastRan: '07:30:12'
-                },
-                {
-                    id: 'p6',
-                    name: 'Test Piston',
-                    folder: 'Uncategorized',
-                    enabled: true,
-                    lastResult: 'never',
-                    lastRan: 'Never'
-                }
-            ];
-        }
-        
-        // ====================== API HELPERS ======================
-        async function apiGet(path) {
-            // TODO: Replace with real fetch to http://localhost:7777/api/...
-            console.log(`GET ${path}`);
-            return new Promise(resolve => setTimeout(() => resolve({}), 300));
-        }
-        
-        async function apiPost(path, body) {
-            console.log(`POST ${path}`, body);
-            return new Promise(resolve => setTimeout(() => resolve({success: true}), 400));
-        }
-        
-        // ====================== PAGE SWITCHING ======================
-        function showPage(page) {
-            document.querySelectorAll('.main-content').forEach(el => el.classList.remove('active'));
-            document.getElementById(page + '-page').classList.add('active');
-            currentPage = page;
-        }
-        
-        function goBackToList() {
-            showPage('piston-list');
-        }
-        
-        // ====================== PISTON LIST ======================
-        function renderPistonList(filteredPistons = null) {
-            const container = document.getElementById('piston-list');
-            container.innerHTML = '';
-            
-            const pistonsToRender = filteredPistons || currentPistons;
-            
-            // Group by folder
-            const grouped = {};
-            pistonsToRender.forEach(p => {
-                const f = p.folder || 'Uncategorized';
-                if (!grouped[f]) grouped[f] = [];
-                grouped[f].push(p);
-            });
-            
-            Object.keys(grouped).sort((a,b) => {
-                if (a === 'Uncategorized') return 1;
-                if (b === 'Uncategorized') return -1;
-                return a.localeCompare(b);
-            }).forEach(folder => {
-                const header = document.createElement('div');
-                header.className = 'folder-header';
-                header.textContent = `${folder} (${grouped[folder].length})`;
-                container.appendChild(header);
-                
-                const hr = document.createElement('hr');
-                hr.style.borderColor = '#444';
-                container.appendChild(hr);
-                
-                grouped[folder].forEach(piston => {
-                    const item = document.createElement('div');
-                    item.className = 'piston-item';
-                    item.innerHTML = `
-                        <span class="status-dot">${piston.enabled ? '●' : '○'}</span>
-                        <div class="piston-name">${piston.name}</div>
-                        <span class="piston-result">${piston.lastResult === 'success' ? '✅' : piston.lastResult === 'failure' ? '❌' : '—'}</span>
-                        <span class="piston-time">${piston.lastRan}</span>
-                    `;
-                    item.onclick = () => openStatusPage(piston);
-                    container.appendChild(item);
-                });
-            });
-        }
-        
-        function filterPistons() {
-            const term = document.getElementById('search-input').value.toLowerCase();
-            const filtered = currentPistons.filter(p => 
-                p.name.toLowerCase().includes(term)
-            );
-            renderPistonList(filtered);
-        }
-        
-        function newPiston() {
-            const newP = {
-                id: 'p' + Date.now(),
-                name: 'New Piston',
-                folder: 'Uncategorized',
-                enabled: true,
-                lastResult: 'never',
-                lastRan: 'Never'
-            };
-            currentPistons.push(newP);
-            renderPistonList();
-            openStatusPage(newP);
-        }
-        
-        function newFolder() {
-            const name = prompt("New folder name:");
-            if (name) {
-                currentFolders.push(name);
-                alert(`Folder "${name}" created.`);
-                renderPistonList();
-            }
-        }
-        
-        // ====================== STATUS PAGE ======================
-        function openStatusPage(piston) {
-            currentPiston = piston;
-            document.getElementById('status-piston-name').textContent = piston.name;
-            
-            // Mock quick facts
-            document.getElementById('quick-facts').innerHTML = `
-                Compile target: Native HA Script<br>
-                Last ran: ${piston.lastRan}<br>
-                Devices used: Driveway Main Light
-            `;
-            
-            // Mock script
-            const scriptEl = document.getElementById('read-only-script');
-            scriptEl.innerHTML = `execute\n  with\n    (Driveway Main Light)\n  do\n    Turn On\n  end with;\nend execute;`;
-            
-            // Mock log
-            const logEl = document.getElementById('log-panel');
-            logEl.innerHTML = `
-                <div class="log-entry">08:46:25 — Triggered by sunset<br>Action 1: Turn On — ✅</div>
-            `;
-            
-            showPage('piston-status');
-        }
-        
-        function editPiston() {
-            if (!currentPiston) return;
-            alert("Opening Editor for " + currentPiston.name + " (Editor page stub - to be implemented next)");
-            // TODO: show editor page
-        }
-        
-        function testPiston() {
-            if (confirm("This will execute real actions on your devices. Are you sure?")) {
-                alert("Test fired (mock)");
-            }
-        }
-        
-        function snapshotPiston() {
-            alert("Snapshot exported (mock)");
-        }
-        
-        function backupPiston() {
-            alert("Full backup exported (mock)");
-        }
-        
-        function duplicatePiston() {
-            if (!currentPiston) return;
-            const dup = JSON.parse(JSON.stringify(currentPiston));
-            dup.id = 'p' + Date.now();
-            dup.name = dup.name + ' (Copy)';
-            dup.folder = 'Uncategorized';
-            currentPistons.push(dup);
-            renderPistonList();
-            alert("Duplicated.");
-        }
-        
-        function deletePiston() {
-            if (!currentPiston || !confirm("Delete this piston?")) return;
-            currentPistons = currentPistons.filter(p => p.id !== currentPiston.id);
-            renderPistonList();
-            goBackToList();
-        }
-        
-        function togglePause() {
-            alert("Pause/Resume toggled (mock)");
-        }
-        
-        function changeFolder() {
-            alert("Folder changed (mock)");
-        }
-        
-        function toggleTrace() {
-            alert("Trace toggled (mock)");
-        }
-        
-        function toggleNotify() {
-            alert("Notify toggled (mock)");
-        }
-        
-        function changeLogLevel() {
-            alert("Log level changed (mock)");
-        }
-        
-        function clearLog() {
-            document.getElementById('log-panel').innerHTML = '';
-        }
-        
-        // ====================== MODALS ======================
-        function showImportModal() {
-            document.getElementById('import-modal').style.display = 'flex';
-        }
-        
-        function hideImportModal() {
-            document.getElementById('import-modal').style.display = 'none';
-        }
-        
-        function performImport() {
-            const text = document.getElementById('import-text').value.trim();
-            if (text) {
-                alert("Import successful (mock)");
-                hideImportModal();
-                // Reload list
-                renderPistonList();
-            }
-        }
-        
-        function toggleGlobalsDrawer() {
-            const drawer = document.getElementById('globals-drawer');
-            if (drawer.style.right === '0px') {
-                drawer.style.right = '-400px';
-            } else {
-                drawer.style.right = '0px';
-                // Mock globals
-                document.getElementById('globals-list').innerHTML = `
-                    <div style="padding:8px; background:#333; margin-bottom:8px;">Away Mode: false</div>
-                    <div style="padding:8px; background:#333; margin-bottom:8px;">Smoke Detectors: 3 devices</div>
-                `;
-            }
-        }
-        
-        function copyAIPrompt() {
-            navigator.clipboard.writeText("PistonCore JSON format specification here...");
-            alert("AI Prompt copied to clipboard");
-        }
-        
-        // ====================== INIT ======================
-        function init() {
-            loadMockData();
-            renderPistonList();
-            
-            // Keyboard shortcuts
-            document.addEventListener('keydown', e => {
-                if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
-                    document.getElementById('search-input').focus();
-                    e.preventDefault();
-                }
-            });
-            
-            console.log('%cPistonCore Frontend initialized (List + Status pages)', 'color:#00b8a9; font-weight:bold');
-        }
-        
-        window.onload = init;
-    </script>
+    currentPiston.actions.forEach(s => html += renderStatement(s, 1));
+
+    html += `<span class="keyword">end execute;</span>\n`;
+    html += `<div class="ghost" onclick="openStatementWizard()">+ add a new statement</div>`;
+    container.innerHTML = html;
+}
+
+function renderStatement(stmt, indent) {
+    const ind = '    '.repeat(indent);
+    let html = '';
+
+    if (stmt.type === "if") {
+        html += `${ind}<span class="keyword">if</span>\n`;
+        html += `${ind}  ${stmt.condition}\n`;
+        html += `${ind}    <span class="keyword">when true</span>\n`;
+        stmt.trueBranch.forEach(t => html += renderStatement(t, indent + 2));
+        html += `${ind}    <div class="ghost" onclick="openStatementWizard('true')">+ add a new statement</div>\n`;
+        html += `${ind}    <span class="keyword">when false</span>\n`;
+        html += `${ind}    <div class="ghost" onclick="openStatementWizard('false')">+ add a new statement</div>\n`;
+        html += `${ind}<span class="keyword">end if;</span>\n`;
+    } else if (stmt.type === "with") {
+        html += `${ind}<span class="keyword">with</span> (${stmt.target})\n`;
+        html += `${ind}  <span class="keyword">do</span>\n`;
+        stmt.tasks.forEach(t => html += `${ind}    ${t.text}\n`);
+        html += `${ind}  <div class="ghost" onclick="openStatementWizard('task')">+ add a new task</div>\n`;
+        html += `${ind}<span class="keyword">end with;</span>\n`;
+    } else {
+        html += `${ind}${stmt.text}\n`;
+    }
+    return html;
+}
+
+function openStatementWizard() {
+    document.getElementById('statement-modal').style.display = 'flex';
+}
+
+function addStatement(type) {
+    closeModal();
+    alert(`Added ${type} statement — full wizard flow will be here next`);
+    // In next version this will open the real multi-step wizard for conditions/actions
+    renderActionTree();
+}
+
+function closeModal() {
+    document.getElementById('statement-modal').style.display = 'none';
+}
+
+// Simple right-click context menu
+function showContextMenu(e) {
+    e.preventDefault();
+    alert("Right-click context menu:\n• Copy statement\n• Duplicate\n• Cut\n• Delete\n• Clear clipboard");
+}
+
+function testLive() { if(confirm("Live Fire?")) alert("Test executed"); }
+function saveToPistonCore() { alert("✅ Saved to PistonCore"); renderActionTree(); }
+function deployToHA() { alert("🚀 Deployed to HA"); }
+function goToStatus() { alert("Back to Status Page"); }
+function goToList() { alert("Back to List"); }
+
+// Init
+window.onload = () => {
+    renderActionTree();
+    console.log("%c✅ Editor updated with your feedback + WebCoRE screenshots applied", "color:#00ccaa;font-weight:bold");
+};
+</script>
 </body>
 </html>

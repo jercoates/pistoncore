@@ -126,6 +126,8 @@ Do not build on top of it directly.
   2. `POST /pistons/{id}/deploy` — compiles + writes to HA via companion (separate action)
 - `POST /pistons/{id}/compile` — preview compiled YAML without writing anything (safe anytime)
 - Deploy endpoint has a clearly labeled companion stub — replace when companion is built
+manualy added:
+ Add GET /api/devices endpoint to api.py — calls HA /api/states using stored token, returns filtered device list. Required for integrated.html to work.
 
 ---
 
@@ -244,6 +246,12 @@ Session 9 — April 2026. First coding session. Compiler updated to v0.2 spec, a
 2. Read COMPILER_SPEC.md v0.2 (ask user to paste if needed)
 
 **Session 10 agenda:**
+manualy added
+Hash computed over wrong content — excludes header, spec says hash covers content below header only
+Global variable writes emit comment stub not real YAML — _compile_set_variable() needs globals_store passed in and real service call output
+_scan_globals() misses globals in expression strings — needs string scanning not just key scanning
+only_when not wired into _compile_sequence() — already on list, now confirmed twice
+for_loop body doesn't substitute loop variable — same pattern as for_each_block substitution
 
 **Option A — Docker setup (recommended):**
 - Write `requirements.txt` (fastapi, uvicorn, jinja2, pyyaml, websockets)

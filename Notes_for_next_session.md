@@ -89,3 +89,5 @@ Global variable writes are comment stubs not real YAML
 _scan_globals() misses globals in expression strings
 only_when not implemented
 for_loop body doesn't substitute loop variable
+
+Fix semicolons on end keywords across all HTML files before cousin picks them up

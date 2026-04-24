@@ -1,7 +1,8 @@
 # pistoncore/backend/compiler.py
 #
 # Matches COMPILER_SPEC.md v0.2 exactly.
-# Started from Grok's skeleton — fixed and completed by Claude (Sessions 8-9).
+# # Started from Grok's skeleton — fixed and completed by Claude (Sessions 8-9).
+# Session 10: five bug fixes — hash, globals writes, _scan_globals, only_when, for_loop substitution.
 #
 # This file is designed to be easy for anyone + Claude to maintain.
 # Each method references the COMPILER_SPEC section it implements.
@@ -169,22 +170,32 @@ class Compiler:
         """
         Walk the entire piston JSON and collect every global variable name
         referenced anywhere (triggers, conditions, actions).
-        Global variables are prefixed with @ in the piston JSON.
+        Global variables appear in two ways:
+          1. As a dict value for known keys like "variable_name" or "target_role" → "@name"
+          2. Embedded in expression strings → any substring matching @word_chars
         Returns a sorted list of names, or ["(none)"] if none found.
         COMPILER_SPEC Section 5.
         """
         found = set()
+        # Matches @identifier anywhere in a string (e.g. in value_expression, conditions)
+        _global_ref_re = re.compile(r"@([A-Za-z_]\w*)")
 
         def walk(obj: Any):
             if isinstance(obj, dict):
+                # Check known structured keys explicitly
                 role = obj.get("target_role", "")
                 if isinstance(role, str) and role.startswith("@"):
                     found.add(role[1:])
                 var = obj.get("variable_name", "")
                 if isinstance(var, str) and var.startswith("@"):
                     found.add(var[1:])
+                # Scan all string values for embedded @references
                 for v in obj.values():
-                    walk(v)
+                    if isinstance(v, str):
+                        for m in _global_ref_re.finditer(v):
+                            found.add(m.group(1))
+                    else:
+                        walk(v)
             elif isinstance(obj, list):
                 for item in obj:
                     walk(item)
@@ -414,6 +425,22 @@ class Compiler:
         for stmt in actions:
             stmt_type = stmt.get("type")
 
+            # only_when — COMPILER_SPEC Section 8.16
+            # If the statement has an only_when condition, emit a HA condition: action
+            # immediately before the statement itself. The statement is skipped at
+            # runtime if the condition is not met.
+            if "only_when" in stmt and stmt["only_when"]:
+                try:
+                    compiled_only_when = self._compile_single_condition(
+                        stmt["only_when"], device_map
+                    )
+                    lines.append(compiled_only_when)
+                except CompilerError as e:
+                    warnings.append(CompilerWarning(
+                        f"Statement {stmt.get('id', '?')} has an only_when condition "
+                        f"that could not be compiled and was skipped: {e}"
+                    ))
+
             if stmt_type == "with_block":
                 lines.append(self._compile_with_block(stmt, device_map, warnings))
 
@@ -454,7 +481,7 @@ class Compiler:
                 ))
 
             elif stmt_type == "set_variable":
-                lines.append(self._compile_set_variable(stmt, warnings))
+                lines.append(self._compile_set_variable(stmt, globals_store, warnings))
 
             elif stmt_type == "log_message":
                 lines.append(self._compile_log_message(stmt, piston["id"]))
@@ -822,6 +849,20 @@ class Compiler:
         )
 
         simple = (from_val in (0, 1)) and (step == 1)
+
+        if simple:
+            # Simple case: use repeat.index (1-based) or repeat.index0 (0-based)
+            # to substitute the loop variable directly in the body.
+            repeat_ref = "repeat.index0" if from_val == 0 else "repeat.index"
+            compiled_body = compiled_body.replace(
+                f"{{{{ {var_name} }}}}", f"{{{{ {repeat_ref} }}}}"
+            )
+        else:
+            # Complex case: the variables: block at the top of the sequence sets
+            # var_name to the computed value. The body already references {{ var_name }}
+            # which HA resolves at runtime from the variables: block — no substitution needed.
+            pass
+
         lines = [
             f"- alias: \"{stmt['id']}\"",
             "  repeat:",
@@ -845,24 +886,92 @@ class Compiler:
     # Section 8.9 — set_variable
     # -----------------------------------------------------------------------
 
-    def _compile_set_variable(self, stmt: dict, warnings: list) -> str:
+    def _compile_set_variable(
+        self, stmt: dict, globals_store: dict, warnings: list
+    ) -> str:
         """
         COMPILER_SPEC Section 8.9.
-        Local variables → HA variables: action.
-        Global variables (@) → HA helper service calls.
+        Local variables  → HA variables: action.
+        Global variables (@) → HA helper service calls (input_text, input_number,
+                               input_boolean, input_datetime depending on type).
+        globals_store maps global variable names to their definitions:
+            { "away_mode": { "display_name": "Away Mode", "type": "Yes/No",
+                             "helper_entity_id": "input_boolean.pistoncore_away_mode" } }
         """
         var_name_raw = stmt.get("variable_name", "")
 
         if var_name_raw.startswith("@"):
-            # Global variable write — compile as service call to HA helper
-            # Full resolution requires globals_store lookup; backend must pre-resolve.
-            # Emit a comment placeholder — the FastAPI layer handles pre-resolution.
             var_name = var_name_raw.lstrip("@")
             value_expr = stmt.get("value_expression", "")
+            global_def = globals_store.get(var_name, {})
+            helper_entity = global_def.get("helper_entity_id", "")
+            global_type = global_def.get("type", "Text")
+
+            if not helper_entity:
+                warnings.append(CompilerWarning(
+                    f"Global variable '{var_name_raw}' is referenced in statement "
+                    f"{stmt.get('id', '?')} but has no helper entity ID in globals_store. "
+                    f"Deploy the companion integration and define this global before deploying."
+                ))
+                # Emit a safe no-op comment so the file is still valid YAML
+                return "\n".join([
+                    f"- alias: \"{stmt['id']}\"",
+                    f"  # UNRESOLVED GLOBAL WRITE: {var_name_raw} = {value_expr}",
+                    f"  # Define this global in PistonCore and redeploy.",
+                ])
+
+            # Choose the correct HA service and field name by helper type
+            type_map = {
+                "Text":      ("input_text.set_value",     "value"),
+                "Number":    ("input_number.set_value",   "value"),
+                "Yes/No":    (None,                       None),    # special — see below
+                "Date/Time": ("input_datetime.set_datetime", "datetime"),
+            }
+            service, field = type_map.get(global_type, ("input_text.set_value", "value"))
+
+            if global_type == "Yes/No":
+                # input_boolean uses turn_on / turn_off — value must be truthy/falsy
+                # We emit a choose: block to handle both cases cleanly.
+                if "{{" in str(value_expr):
+                    val_template = value_expr
+                elif str(value_expr).lower() in ("true", "yes", "on", "1"):
+                    val_template = "true"
+                else:
+                    val_template = value_expr  # let it be evaluated at runtime
+                return "\n".join([
+                    f"- alias: \"{stmt['id']}\"",
+                    "  choose:",
+                    "    - conditions:",
+                    f"        - condition: template",
+                    f"          value_template: \"{{{{ {val_template} | bool }}}}\"",
+                    "      sequence:",
+                    f"        - action: input_boolean.turn_on",
+                    "          target:",
+                    f"            entity_id: {helper_entity}",
+                    "          continue_on_error: true",
+                    "  default:",
+                    f"    - action: input_boolean.turn_off",
+                    "      target:",
+                    f"        entity_id: {helper_entity}",
+                    "      continue_on_error: true",
+                ])
+
+            # Format the value expression
+            if "{{" in str(value_expr):
+                formatted_value = f'"{value_expr}"'
+            elif isinstance(value_expr, str):
+                formatted_value = f'"{value_expr}"'
+            else:
+                formatted_value = value_expr
+
             return "\n".join([
                 f"- alias: \"{stmt['id']}\"",
-                f"  # GLOBAL WRITE: {var_name_raw} = {value_expr}",
-                f"  # Backend must resolve global helper entity before compile",
+                f"  action: {service}",
+                "  target:",
+                f"    entity_id: {helper_entity}",
+                "  data:",
+                f"    {field}: {formatted_value}",
+                "  continue_on_error: true",
             ])
 
         var_name = var_name_raw.lstrip("$")
@@ -1044,6 +1153,28 @@ class Compiler:
     # Section 6 + 7 — Automation and script rendering
     # -----------------------------------------------------------------------
 
+    def _compute_content_hash(self, content: str) -> str:
+        """
+        Hash the content below the header block only.
+        The header ends at the first blank line after the opening comment block.
+        This matches COMPILER_SPEC Section 5 — the hash covers the compiled
+        YAML body, not the comment header that contains the hash itself.
+        """
+        # Split into lines; skip lines that are part of the comment header
+        # (lines starting with '#' or blank lines before real YAML begins).
+        lines = content.splitlines()
+        body_start = 0
+        in_header = True
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if in_header and (stripped.startswith("#") or stripped == ""):
+                body_start = i + 1
+            else:
+                in_header = False
+                break
+        body = "\n".join(lines[body_start:])
+        return hashlib.sha256(body.encode()).hexdigest()
+
     def _render_automation(
         self,
         piston: dict,
@@ -1054,6 +1185,7 @@ class Compiler:
     ) -> str:
         """
         Render the automation wrapper file using automation.yaml.j2.
+        Hash covers only the YAML body below the comment header.
         COMPILER_SPEC Section 6.
         """
         tmpl = self.env.get_template("automation.yaml.j2")
@@ -1065,7 +1197,7 @@ class Compiler:
             app_version=app_version,
             hash="PLACEHOLDER",
         )
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = self._compute_content_hash(content)
         return content.replace("PLACEHOLDER", content_hash)
 
     def _render_script(
@@ -1078,6 +1210,7 @@ class Compiler:
     ) -> str:
         """
         Render the script body file using script.yaml.j2.
+        Hash covers only the YAML body below the comment header.
         COMPILER_SPEC Section 7.
         """
         globals_str = ", ".join(globals_used) if globals_used != ["(none)"] else "(none)"
@@ -1090,7 +1223,7 @@ class Compiler:
             app_version=app_version,
             hash="PLACEHOLDER",
         )
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = self._compute_content_hash(content)
         return content.replace("PLACEHOLDER", content_hash)
 
 

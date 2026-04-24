@@ -80,3 +80,12 @@
 7. If time remains: wire `only_when` into compiler + Jinja2 indent fixes
 
 **Do not start Docker before the API key is in place.**
+
+Notes added after claude design Review
+So the real bug list for Session 10 is items 1, 2, 3, 5, and 7:
+
+Hash computed over wrong content (includes header)
+Global variable writes are comment stubs not real YAML
+_scan_globals() misses globals in expression strings
+only_when not implemented
+for_loop body doesn't substitute loop variable

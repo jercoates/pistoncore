@@ -11,220 +11,180 @@
             --accent: #00ccaa;
             --text: #ddd;
             --muted: #888;
-            --keyword: #00ccaa;
         }
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
         header { background: #222; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
-        .logo { font-size: 22px; font-weight: bold; color: var(--accent); cursor: pointer; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--accent); }
 
         .main-content { flex: 1; overflow: auto; padding: 16px; display: none; }
         .active { display: block; }
 
-        .action-tree {
-            font-family: 'Courier New', monospace;
-            font-size: 15px;
-            line-height: 1.6;
-            background: #111;
-            padding: 24px;
-            border-radius: 6px;
-            min-height: 70vh;
-            white-space: pre;
-            overflow: auto;
-            color: #ccc;
-        }
-        .keyword { color: var(--keyword); font-weight: bold; }
-        .ghost {
-            color: #666;
-            font-style: italic;
-            padding: 4px 30px;
-            margin: 3px 0;
-            display: block;
-            cursor: pointer;
-        }
-        .ghost:hover { background: #333; color: #bbb; }
+        /* LIST PAGE */
+        .folder-header { color: var(--accent); font-size: 17px; margin: 20px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #444; }
+        .piston-item { display: flex; align-items: center; padding: 10px 14px; background: var(--surface); margin-bottom: 3px; border-radius: 4px; cursor: pointer; }
+        .piston-item:hover { background: #353535; }
+        .dot { font-size: 20px; margin-right: 10px; }
+        .name { flex: 1; }
+        .result { margin-right: 12px; font-size: 20px; }
+        .time { color: var(--muted); font-size: 13px; }
 
-        .modal {
-            position: fixed; inset: 0;
-            background: rgba(0,0,0,0.9);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-        .modal-content {
-            background: #282828;
-            width: 90%;
-            max-width: 900px;
-            max-height: 92vh;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        .modal-header { padding: 16px; background: #1f1f1f; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
-        .statement-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 14px;
-            padding: 20px;
-        }
-        .card {
-            background: #333;
-            padding: 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .card:hover { background: #00ccaa; color: black; transform: translateY(-3px); }
+        /* STATUS PAGE */
+        .script-panel { background: #111; padding: 14px; font-family: monospace; font-size: 14px; line-height: 1.45; white-space: pre; overflow-x: auto; border-radius: 4px; margin: 12px 0; }
+        .keyword { color: var(--accent); font-weight: bold; }
+
+        button { padding: 7px 14px; margin: 4px; border-radius: 4px; border: none; cursor: pointer; }
+        .btn-primary { background: var(--accent); color: black; font-weight: 600; }
+        .btn-danger { background: #c33; color: white; }
     </style>
 </head>
 <body>
 
 <header>
-    <div onclick="goToList()" class="logo">PistonCore</div>
+    <div class="logo">PistonCore</div>
     <div>
-        <button onclick="saveToPistonCore()">💾 Save to PistonCore</button>
-        <button onclick="deployToHA()" style="background:#00ccaa;color:black;">🚀 Deploy to HA</button>
+        <button onclick="copyAIPrompt()">Copy AI Prompt</button>
+        <button onclick="newPiston()" class="btn-primary">+ New</button>
     </div>
 </header>
 
-<!-- EDITOR PAGE -->
-<div id="editor-page" class="main-content active">
-    <div style="background:#222;padding:12px;border-bottom:1px solid #444;">
-        <strong>Piston Name:</strong> 
-        <input id="piston-name" value="Driveway Lights at Sunset" style="width:340px;background:#333;color:white;border:1px solid #555;padding:6px;border-radius:4px;">
-        <button onclick="goToStatus()" style="float:right;margin-left:10px;">← Status</button>
-    </div>
-
-    <div id="action-tree" class="action-tree" oncontextmenu="showContextMenu(event)"></div>
-
-    <div style="text-align:center; padding:12px; background:#222;">
-        <button onclick="testLive()" style="background:#f59e0b;color:white;">▶ Test — Live Fire ⚠</button>
-        <button onclick="saveToPistonCore()" style="background:#00ccaa;color:black;">💾 Save to PistonCore</button>
-        <button onclick="deployToHA()" style="background:#00ccaa;color:black;">🚀 Deploy to HA</button>
+<!-- PISTON LIST -->
+<div id="piston-list-page" class="main-content active">
+    <input type="text" id="search" placeholder="Search pistons..." style="width:100%; padding:10px; margin-bottom:16px; background:#282828; border:1px solid #555; color:white; border-radius:4px;" onkeyup="filterList()">
+    <div id="list-content"></div>
+    <div style="text-align:right; margin-top:20px;">
+        <button onclick="newFolder()">+ New Folder</button>
+        <button onclick="showImport()">Import</button>
     </div>
 </div>
 
-<!-- STATEMENT WIZARD -->
-<div id="statement-modal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Add a new statement</h3>
-            <button onclick="closeModal()" style="background:none;border:none;color:#aaa;font-size:24px;">✕</button>
-        </div>
-        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;">Basic statements</div>
-        <div class="statement-grid">
-            <div class="card" onclick="addStatement('if')"><strong>If Block</strong><br><small>Execute different actions based on conditions</small></div>
-            <div class="card" onclick="addStatement('action')"><strong>Action</strong><br><small>Control devices and run tasks</small></div>
-            <div class="card" onclick="addStatement('wait')"><strong>Wait</strong><br><small>Pause for a duration or until a time</small></div>
-            <div class="card" onclick="addStatement('setvar')"><strong>Set Variable</strong><br><small>Change a piston or global variable</small></div>
-            <div class="card" onclick="addStatement('log')"><strong>Log Message</strong><br><small>Write to the piston log</small></div>
-            <div class="card" onclick="addStatement('timer')"><strong>Timer</strong><br><small>Trigger at set time intervals</small></div>
-        </div>
-        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;margin-top:8px;">Advanced statements</div>
-        <div class="statement-grid">
-            <div class="card" onclick="addStatement('repeat')">Repeat Loop</div>
-            <div class="card" onclick="addStatement('foreach')">For Each Loop</div>
-            <div class="card" onclick="addStatement('while')">While Loop</div>
-            <div class="card" onclick="addStatement('switch')">Switch</div>
-            <div class="card" onclick="addStatement('doblock')">Do Block</div>
-            <div class="card" onclick="addStatement('break')">Break</div>
-        </div>
+<!-- STATUS PAGE -->
+<div id="status-page" class="main-content">
+    <button onclick="goBack()" style="margin-bottom:12px; background:none; border:none; color:var(--accent); font-size:18px;">← My Pistons</button>
+
+    <h2 id="status-name" style="margin-bottom:8px;"></h2>
+
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:16px;">
+        <span>Folder:</span>
+        <select id="folder-sel" style="background:#333;color:white;border:1px solid #555;padding:6px;border-radius:4px;"><option>Outdoor Lighting</option></select>
+        <span style="color:#4ade80;">● Active</span>
+    </div>
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:16px 0;">
+        <button onclick="editCurrent()" class="btn-primary">✎ Edit</button>
+        <button onclick="testLive()" style="background:#f59e0b;color:white;">▶ Test — Live Fire ⚠</button>
+        <button onclick="snapshot()">📷 Snapshot</button>
+        <button onclick="backup()" class="btn-danger">📷 Backup</button>
+        <button onclick="duplicateCurrent()">Duplicate</button>
+        <button onclick="deleteCurrent()" class="btn-danger">Delete</button>
+    </div>
+
+    <div style="background:#282828; padding:14px; border-radius:6px; margin:16px 0;">
+        <strong>PISTON SCRIPT (read-only)</strong>
+        <div id="readonly-script" class="script-panel"></div>
+    </div>
+
+    <div style="margin-top:20px;">
+        <strong>LOG</strong>
+        <div id="log-area" style="background:#222; padding:12px; max-height:280px; overflow:auto; border-radius:4px; margin-top:8px;"></div>
     </div>
 </div>
 
 <script>
-// Current piston structure
-let currentPiston = {
-    name: "Driveway Lights at Sunset",
-    settings: true,
-    define: [{name: "Light", value: "Dining Light"}],
-    actions: [
-        {
-            id: "s1",
-            type: "if",
-            condition: "Any of (Light)'s switch did not change in the last 1 hour",
-            trueBranch: [
-                {id: "s2", type: "with", target: "Dining Light", tasks: [
-                    {id: "s3", type: "action", text: "Turn on"}
-                ]}
-            ],
-            falseBranch: []
-        }
-    ]
-};
+let pistons = [
+    {id:"p1", name:"Driveway Lights at Sunset", folder:"Outdoor Lighting", enabled:true, last:"08:46:25", result:"✅"},
+    {id:"p2", name:"Front Door Alert", folder:"Security", enabled:true, last:"09:11:44", result:"✅"},
+    {id:"p3", name:"Test Piston", folder:"Uncategorized", enabled:true, last:"Never", result:"—"}
+];
 
-function renderActionTree() {
-    const container = document.getElementById('action-tree');
-    let html = `<span class="keyword">settings</span>\n<span class="keyword">end settings;</span>\n\n`;
-    html += `<span class="keyword">define</span>\n`;
-    currentPiston.define.forEach(v => html += `  device ${v.name} = ${v.value};\n`);
-    html += `<span class="keyword">end define;</span>\n\n`;
-    html += `<span class="keyword">execute</span>\n`;
+let currentPiston = null;
 
-    currentPiston.actions.forEach(s => html += renderStatement(s, 1));
-
-    html += `<span class="keyword">end execute;</span>\n`;
-    html += `<div class="ghost" onclick="openStatementWizard()">+ add a new statement</div>`;
-    container.innerHTML = html;
+function renderList() {
+    const container = document.getElementById('list-content');
+    container.innerHTML = '';
+    const groups = {};
+    pistons.forEach(p => {
+        const f = p.folder || "Uncategorized";
+        if (!groups[f]) groups[f] = [];
+        groups[f].push(p);
+    });
+    Object.keys(groups).sort().forEach(folder => {
+        const h = document.createElement('div');
+        h.className = 'folder-header';
+        h.textContent = `${folder} (${groups[folder].length})`;
+        container.appendChild(h);
+        groups[folder].forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'piston-item';
+            div.innerHTML = `<span class="dot">${p.enabled ? '●' : '○'}</span><span class="name">${p.name}</span><span class="result">${p.result}</span><span class="time">${p.last}</span>`;
+            div.onclick = () => showStatus(p);
+            container.appendChild(div);
+        });
+    });
 }
 
-function renderStatement(stmt, indent) {
-    const ind = '    '.repeat(indent);
-    let html = '';
+function filterList() {
+    const term = document.getElementById('search').value.toLowerCase();
+    const filtered = pistons.filter(p => p.name.toLowerCase().includes(term));
+    const container = document.getElementById('list-content');
+    container.innerHTML = '';
+    filtered.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'piston-item';
+        div.innerHTML = `<span class="dot">${p.enabled ? '●' : '○'}</span><span class="name">${p.name}</span><span class="result">${p.result}</span><span class="time">${p.last}</span>`;
+        div.onclick = () => showStatus(p);
+        container.appendChild(div);
+    });
+}
 
-    if (stmt.type === "if") {
-        html += `${ind}<span class="keyword">if</span>\n`;
-        html += `${ind}  ${stmt.condition}\n`;
-        html += `${ind}    <span class="keyword">when true</span>\n`;
-        stmt.trueBranch.forEach(t => html += renderStatement(t, indent + 2));
-        html += `${ind}    <div class="ghost" onclick="openStatementWizard('true')">+ add a new statement</div>\n`;
-        html += `${ind}    <span class="keyword">when false</span>\n`;
-        html += `${ind}    <div class="ghost" onclick="openStatementWizard('false')">+ add a new statement</div>\n`;
-        html += `${ind}<span class="keyword">end if;</span>\n`;
-    } else if (stmt.type === "with") {
-        html += `${ind}<span class="keyword">with</span> (${stmt.target})\n`;
-        html += `${ind}  <span class="keyword">do</span>\n`;
-        stmt.tasks.forEach(t => html += `${ind}    ${t.text}\n`);
-        html += `${ind}  <div class="ghost" onclick="openStatementWizard('task')">+ add a new task</div>\n`;
-        html += `${ind}<span class="keyword">end with;</span>\n`;
-    } else {
-        html += `${ind}${stmt.text}\n`;
+function newPiston() {
+    const p = {id:"p"+Date.now(), name:"New Piston", folder:"Uncategorized", enabled:true, last:"Never", result:"—"};
+    pistons.push(p);
+    renderList();
+    showStatus(p);
+}
+
+function showStatus(p) {
+    currentPiston = p;
+    document.getElementById('status-name').textContent = p.name;
+    document.getElementById('readonly-script').textContent = `execute\n  with\n    (Driveway Main Light)\n  do\n    Turn On\n      Brightness: 100%\n  end with\nend execute`;
+    document.getElementById('log-area').innerHTML = `<div style="padding:8px;">08:46:25 — Triggered by sunset<br>✅ Action completed</div>`;
+    document.getElementById('piston-list-page').classList.remove('active');
+    document.getElementById('status-page').classList.add('active');
+}
+
+function goBack() {
+    document.getElementById('status-page').classList.remove('active');
+    document.getElementById('piston-list-page').classList.add('active');
+}
+
+function editCurrent() { alert("Editor — open editor.html"); }
+function testLive() { if(confirm("⚠ This will run real device actions. Continue?")) alert("Test executed live (mock)"); }
+function snapshot() { alert("Snapshot (anonymized) copied"); }
+function backup() { alert("Full backup saved"); }
+function duplicateCurrent() {
+    if (!currentPiston) return;
+    const dup = JSON.parse(JSON.stringify(currentPiston));
+    dup.id = "p"+Date.now(); dup.name += " (Copy)"; dup.folder = "Uncategorized";
+    pistons.push(dup); renderList(); goBack();
+}
+function deleteCurrent() {
+    if (!currentPiston || !confirm("Delete this piston?")) return;
+    pistons = pistons.filter(p => p.id !== currentPiston.id);
+    renderList(); goBack();
+}
+function newFolder() { alert("New folder — full implementation pending"); }
+function showImport() { alert("Import — full implementation pending"); }
+function copyAIPrompt() { alert("AI Prompt copied to clipboard"); }
+
+document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+        document.getElementById('search').focus();
+        e.preventDefault();
     }
-    return html;
-}
+});
 
-function openStatementWizard() {
-    document.getElementById('statement-modal').style.display = 'flex';
-}
-
-function addStatement(type) {
-    closeModal();
-    alert(`Added ${type} statement — full wizard flow will be here next`);
-    // In next version this will open the real multi-step wizard for conditions/actions
-    renderActionTree();
-}
-
-function closeModal() {
-    document.getElementById('statement-modal').style.display = 'none';
-}
-
-// Simple right-click context menu
-function showContextMenu(e) {
-    e.preventDefault();
-    alert("Right-click context menu:\n• Copy statement\n• Duplicate\n• Cut\n• Delete\n• Clear clipboard");
-}
-
-function testLive() { if(confirm("Live Fire?")) alert("Test executed"); }
-function saveToPistonCore() { alert("✅ Saved to PistonCore"); renderActionTree(); }
-function deployToHA() { alert("🚀 Deployed to HA"); }
-function goToStatus() { alert("Back to Status Page"); }
-function goToList() { alert("Back to List"); }
-
-// Init
-window.onload = () => {
-    renderActionTree();
-    console.log("%c✅ Editor updated with your feedback + WebCoRE screenshots applied", "color:#00ccaa;font-weight:bold");
-};
+window.onload = () => { renderList(); };
 </script>
 </body>
 </html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PistonCore — Editor</title>
+    <style>
+        :root {
+            --bg: #1c1c1c;
+            --surface: #282828;
+            --accent: #00ccaa;
+            --text: #ddd;
+            --muted: #888;
+            --keyword: #00ccaa;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        header { background: #222; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--accent); cursor: pointer; }
+
+        .main-content { flex: 1; overflow: auto; padding: 16px; display: none; }
+        .active { display: block; }
+
+        .action-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.6;
+            background: #111;
+            padding: 24px;
+            border-radius: 6px;
+            min-height: 70vh;
+            white-space: pre;
+            overflow: auto;
+            color: #ccc;
+        }
+        .keyword { color: var(--keyword); font-weight: bold; }
+        .ghost {
+            color: #666;
+            font-style: italic;
+            padding: 4px 30px;
+            margin: 3px 0;
+            display: block;
+            cursor: pointer;
+        }
+        .ghost:hover { background: #333; color: #bbb; }
+
+        .modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #282828;
+            width: 90%;
+            max-width: 900px;
+            max-height: 92vh;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .modal-header { padding: 16px; background: #1f1f1f; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .statement-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 14px;
+            padding: 20px;
+        }
+        .card { background: #333; padding: 18px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .card:hover { background: #00ccaa; color: black; transform: translateY(-3px); }
+        button { padding: 7px 14px; margin: 4px; border-radius: 4px; border: 1px solid #555; cursor: pointer; background: #333; color: white; }
+        .btn-primary { background: var(--accent); color: black; border-color: var(--accent); font-weight: 600; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div onclick="goToList()" class="logo">PistonCore</div>
+    <div>
+        <button onclick="saveToPistonCore()">💾 Save to PistonCore</button>
+        <button onclick="deployToHA()" class="btn-primary">🚀 Deploy to HA</button>
+    </div>
+</header>
+
+<!-- EDITOR PAGE -->
+<div id="editor-page" class="main-content active">
+    <div style="background:#222;padding:12px;border-bottom:1px solid #444;">
+        <strong>Piston Name:</strong>
+        <input id="piston-name" value="Driveway Lights at Sunset" style="width:340px;background:#333;color:white;border:1px solid #555;padding:6px;border-radius:4px;">
+        <button onclick="goToStatus()" style="float:right;">← Status</button>
+    </div>
+
+    <div id="action-tree" class="action-tree" oncontextmenu="showContextMenu(event)"></div>
+
+    <div style="text-align:center; padding:12px; background:#222; border-top:1px solid #444;">
+        <button onclick="testLive()" style="background:#f59e0b;color:white;">▶ Test — Live Fire ⚠</button>
+        <button onclick="saveToPistonCore()" class="btn-primary">💾 Save to PistonCore</button>
+        <button onclick="deployToHA()" class="btn-primary">🚀 Deploy to HA</button>
+    </div>
+</div>
+
+<!-- STATEMENT WIZARD MODAL -->
+<div id="statement-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Add a new statement</h3>
+            <button onclick="closeModal()" style="background:none;border:none;color:#aaa;font-size:24px;">✕</button>
+        </div>
+        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;color:#aaa;">Basic statements</div>
+        <div class="statement-grid">
+            <div class="card" onclick="addStatement('if')"><strong>If Block</strong><br><small>Execute different actions based on conditions</small></div>
+            <div class="card" onclick="addStatement('action')"><strong>Action</strong><br><small>Control devices and run tasks</small></div>
+            <div class="card" onclick="addStatement('wait')"><strong>Wait</strong><br><small>Pause for a duration or until a time</small></div>
+            <div class="card" onclick="addStatement('setvar')"><strong>Set Variable</strong><br><small>Change a piston or global variable</small></div>
+            <div class="card" onclick="addStatement('log')"><strong>Log Message</strong><br><small>Write to the piston log</small></div>
+            <div class="card" onclick="addStatement('stop')"><strong>Stop</strong><br><small>Stop the piston immediately</small></div>
+        </div>
+        <div style="padding:12px 20px;background:#1f1f1f;font-size:13px;color:#aaa;margin-top:8px;">Advanced statements</div>
+        <div class="statement-grid">
+            <div class="card" onclick="addStatement('repeat')">Repeat Loop</div>
+            <div class="card" onclick="addStatement('foreach')">For Each Loop</div>
+            <div class="card" onclick="addStatement('while')">While Loop</div>
+            <div class="card" onclick="addStatement('switch')">Switch</div>
+            <div class="card" onclick="addStatement('doblock')">Do Block</div>
+            <div class="card" onclick="addStatement('callpiston')">Call Piston</div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPiston = {
+    name: "Driveway Lights at Sunset",
+    actions: [
+        {
+            id: "s1",
+            type: "if",
+            condition: "Any of (Light)'s switch did not change in the last 1 hour",
+            trueBranch: [
+                {id:"s2", type:"with", target:"Dining Light", tasks:[
+                    {id:"s3", type:"action", text:"Turn on"}
+                ]}
+            ],
+            falseBranch: []
+        }
+    ]
+};
+
+function renderActionTree() {
+    const container = document.getElementById('action-tree');
+    let html = '';
+    html += `<span class="keyword">settings</span>\n<span class="keyword">end settings</span>\n\n`;
+    html += `<span class="keyword">define</span>\n`;
+    html += `  device Light = Dining Light;\n`;
+    html += `<span class="keyword">end define</span>\n\n`;
+    html += `<span class="keyword">execute</span>\n`;
+    currentPiston.actions.forEach(s => html += renderStatement(s, 1));
+    html += `<div class="ghost" onclick="openStatementWizard()">+ add a new statement</div>`;
+    html += `<span class="keyword">end execute</span>`;
+    container.innerHTML = html;
+}
+
+function renderStatement(stmt, indent) {
+    const ind = '    '.repeat(indent);
+    let html = '';
+    if (stmt.type === "if") {
+        html += `${ind}<span class="keyword">if</span>\n`;
+        html += `${ind}  ${stmt.condition}\n`;
+        html += `${ind}    <span class="keyword">when true</span>\n`;
+        stmt.trueBranch.forEach(t => html += renderStatement(t, indent + 2));
+        html += `${ind}    <div class="ghost" onclick="openStatementWizard('true')">+ add a new statement</div>\n`;
+        html += `${ind}    <span class="keyword">when false</span>\n`;
+        html += `${ind}    <div class="ghost" onclick="openStatementWizard('false')">+ add a new statement</div>\n`;
+        html += `${ind}<span class="keyword">end if</span>\n`;
+    } else if (stmt.type === "with") {
+        html += `${ind}<span class="keyword">with</span> (${stmt.target})\n`;
+        html += `${ind}  <span class="keyword">do</span>\n`;
+        stmt.tasks.forEach(t => html += `${ind}    ${t.text}\n`);
+        html += `${ind}  <div class="ghost" onclick="openStatementWizard('task')">+ add a new task</div>\n`;
+        html += `${ind}<span class="keyword">end with</span>\n`;
+    } else {
+        html += `${ind}${stmt.text || stmt.type}\n`;
+    }
+    return html;
+}
+
+function openStatementWizard() {
+    document.getElementById('statement-modal').style.display = 'flex';
+}
+
+function addStatement(type) {
+    closeModal();
+    alert(`Added ${type} — full wizard wiring pending`);
+    renderActionTree();
+}
+
+function closeModal() {
+    document.getElementById('statement-modal').style.display = 'none';
+}
+
+function showContextMenu(e) {
+    e.preventDefault();
+    alert("Right-click context menu:\n• Copy statement\n• Duplicate\n• Cut\n• Delete\n• Clear clipboard");
+}
+
+function testLive() { if(confirm("⚠ This will run real device actions. Continue?")) alert("Test executed (mock)"); }
+function saveToPistonCore() { alert("✅ Saved to PistonCore"); }
+function deployToHA() { alert("🚀 Deployed to HA"); }
+function goToStatus() { alert("Back to Status Page — wire to status page navigation"); }
+function goToList() { alert("Back to List — wire to index.html"); }
+
+window.onload = () => { renderActionTree(); };
+</script>
+</body>
+</html>

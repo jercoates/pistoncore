@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PistonCore — Condition Wizard</title>
+    <style>
+        :root {
+            --bg: #1c1c1c;
+            --surface: #282828;
+            --accent: #00ccaa;
+            --text: #ddd;
+            --muted: #888;
+            --keyword: #00ccaa;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        header { background: #222; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--accent); cursor: pointer; }
+
+        .main-content { flex: 1; overflow: auto; padding: 16px; display: none; }
+        .active { display: block; }
+
+        .action-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.6;
+            background: #111;
+            padding: 24px;
+            border-radius: 6px;
+            min-height: 70vh;
+            white-space: pre;
+            overflow: auto;
+            color: #ccc;
+        }
+        .keyword { color: var(--keyword); font-weight: bold; }
+        .ghost { color: #666; font-style: italic; padding: 4px 30px; margin: 3px 0; display: block; cursor: pointer; }
+        .ghost:hover { background: #333; color: #bbb; }
+
+        /* WIZARD */
+        .modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.92);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #282828;
+            width: 90%;
+            max-width: 720px;
+            border-radius: 8px;
+            max-height: 92vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header { padding: 16px 20px; background: #1f1f1f; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .wizard-sentence { padding: 16px 20px; background: #1a1a1a; font-size: 15px; min-height: 52px; border-bottom: 1px solid #444; color: #aaa; font-style: italic; }
+        .wizard-body { padding: 20px; flex: 1; overflow: auto; }
+        .wizard-step { display: none; }
+        .wizard-step.active { display: block; }
+
+        button { padding: 8px 14px; margin: 4px; border-radius: 4px; border: 1px solid #555; cursor: pointer; background: #333; color: white; }
+        button.primary { background: var(--accent); color: black; border-color: var(--accent); font-weight: bold; }
+        select, input[type=text] { background: #333; color: white; border: 1px solid #555; padding: 8px 12px; border-radius: 4px; margin: 6px 0; }
+
+        .op-btn { display: inline-block; margin: 4px; padding: 8px 14px; background: #333; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+        .op-btn:hover { background: var(--accent); color: black; }
+        .op-section { margin-top: 14px; }
+        .op-section strong { display: block; color: #aaa; margin-bottom: 6px; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div onclick="goToList()" class="logo">PistonCore</div>
+    <div>
+        <button onclick="saveToPistonCore()">💾 Save</button>
+        <button onclick="deployToHA()" class="primary">🚀 Deploy</button>
+    </div>
+</header>
+
+<!-- EDITOR (stub to show wizard in context) -->
+<div id="editor-page" class="main-content active">
+    <div style="background:#222;padding:12px;border-bottom:1px solid #444;">
+        <strong>Piston Name:</strong>
+        <input id="piston-name" value="Driveway Lights at Sunset" style="width:340px;background:#333;color:white;border:1px solid #555;padding:6px;border-radius:4px;">
+    </div>
+    <div id="action-tree" class="action-tree"></div>
+</div>
+
+<!-- CONDITION WIZARD MODAL -->
+<div id="wizard-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="wizard-title">Add Condition</h3>
+            <div>
+                <button onclick="wizardBack()" id="btn-back" style="display:none;">← Back</button>
+                <button onclick="closeWizard()" style="background:none;border:none;color:#aaa;font-size:22px;margin-left:12px;">✕</button>
+            </div>
+        </div>
+
+        <div id="wizard-sentence" class="wizard-sentence">Building condition...</div>
+
+        <div class="wizard-body">
+
+            <!-- STEP 1: Subject type -->
+            <div id="step-1" class="wizard-step active">
+                <h4 style="margin-bottom:16px;">What do you want to evaluate?</h4>
+                <button onclick="selectSubject('device')" class="primary" style="width:100%;padding:14px;margin:8px 0;font-size:15px;">Physical Device or Sensor</button>
+                <button onclick="selectSubject('variable')" style="width:100%;padding:14px;margin:8px 0;font-size:15px;">Piston or Global Variable</button>
+                <button onclick="selectSubject('time')" style="width:100%;padding:14px;margin:8px 0;font-size:15px;">Time / Date / Sun</button>
+            </div>
+
+            <!-- STEP 2: Device picker -->
+            <div id="step-2" class="wizard-step">
+                <h4 style="margin-bottom:12px;">Pick a device</h4>
+                <input type="text" id="device-search" placeholder="Search devices..." style="width:100%" onkeyup="filterDevices()">
+                <select id="device-list" size="8" style="width:100%;height:260px;margin-top:8px;" onchange="selectDevice(this.value)"></select>
+            </div>
+
+            <!-- STEP 3: Capability -->
+            <div id="step-3" class="wizard-step">
+                <h4 style="margin-bottom:12px;">Pick capability / attribute</h4>
+                <select id="capability-list" size="8" style="width:100%;height:240px;" onchange="selectCapability(this.value)"></select>
+            </div>
+
+            <!-- STEP 4: Operator -->
+            <div id="step-4" class="wizard-step">
+                <h4 style="margin-bottom:12px;">Pick operator</h4>
+                <div id="operator-list"></div>
+            </div>
+
+            <!-- STEP 5: Value -->
+            <div id="step-5" class="wizard-step">
+                <h4 id="value-title" style="margin-bottom:12px;">Enter value</h4>
+                <div id="value-input"></div>
+            </div>
+
+        </div>
+
+        <div style="padding:16px;background:#1f1f1f;border-top:1px solid #444;text-align:right;">
+            <button onclick="closeWizard()">Cancel</button>
+            <button onclick="finishWizard()" id="btn-done" class="primary" style="display:none;">Done ✓</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Mock device list — in production this comes from GET /ha/entities
+const mockDevices = [
+    {id:"light.dining", name:"Dining Light", domain:"light"},
+    {id:"light.driveway", name:"Driveway Main Light", domain:"light"},
+    {id:"binary_sensor.front_door", name:"Front Door Contact", domain:"binary_sensor", device_class:"door"},
+    {id:"binary_sensor.kitchen_motion", name:"Kitchen Motion Sensor", domain:"binary_sensor", device_class:"motion"},
+    {id:"binary_sensor.smoke_kitchen", name:"Kitchen Smoke Detector", domain:"binary_sensor", device_class:"smoke"},
+    {id:"sensor.living_temp", name:"Living Room Temperature", domain:"sensor"},
+    {id:"media_player.living_room", name:"Living Room Speaker", domain:"media_player"},
+    {id:"climate.living_room", name:"Living Room Thermostat", domain:"climate"},
+];
+
+// Binary sensor device_class → display labels (COMPILER_SPEC Section 11)
+const binaryLabels = {
+    door:        {on:"Open",       off:"Closed"},
+    window:      {on:"Open",       off:"Closed"},
+    motion:      {on:"Detected",   off:"Clear"},
+    occupancy:   {on:"Detected",   off:"Clear"},
+    smoke:       {on:"Detected",   off:"Clear"},
+    moisture:    {on:"Wet",        off:"Dry"},
+    lock:        {on:"Unlocked",   off:"Locked"},
+    battery:     {on:"Low",        off:"Normal"},
+    connectivity:{on:"Connected",  off:"Disconnected"},
+    default:     {on:"On",         off:"Off"},
+};
+
+let allDevices = [...mockDevices];
+
+let wizardState = {
+    step: 1,
+    subject: null,
+    device: null,
+    capability: null,
+    operator: null,
+    displayValue: null,
+    compiledValue: null,
+    sentence: "",
+};
+
+// ====================== EDITOR STUB ======================
+function renderActionTree() {
+    const container = document.getElementById('action-tree');
+    let html = `<span class="keyword">execute</span>\n`;
+    html += `  <div class="ghost" onclick="openConditionWizard()">+ add a new statement (click to open condition wizard)</div>\n`;
+    html += `<span class="keyword">end execute</span>`;
+    container.innerHTML = html;
+}
+
+// ====================== WIZARD ======================
+function openConditionWizard() {
+    wizardState = {step:1, subject:null, device:null, capability:null, operator:null, displayValue:null, compiledValue:null, sentence:"When..."};
+    updateWizardUI();
+    document.getElementById('wizard-modal').style.display = 'flex';
+}
+
+function updateWizardUI() {
+    document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step-${wizardState.step}`).classList.add('active');
+    document.getElementById('wizard-sentence').textContent = wizardState.sentence;
+    document.getElementById('btn-back').style.display = wizardState.step > 1 ? 'inline' : 'none';
+    document.getElementById('btn-done').style.display = wizardState.step === 5 ? 'inline' : 'none';
+}
+
+function wizardBack() {
+    if (wizardState.step > 1) { wizardState.step--; updateWizardUI(); }
+}
+
+function closeWizard() {
+    document.getElementById('wizard-modal').style.display = 'none';
+}
+
+function selectSubject(type) {
+    wizardState.subject = type;
+    if (type === 'device') {
+        wizardState.sentence = "When [Device]'s...";
+        wizardState.step = 2;
+        populateDeviceList(allDevices);
+    } else if (type === 'variable') {
+        wizardState.sentence = "When variable...";
+        wizardState.step = 2;
+        // Variable picker — stub
+        document.getElementById('device-list').innerHTML = '<option value="$count">$count (local)</option><option value="@away_mode">@away_mode (global)</option>';
+    } else if (type === 'time') {
+        wizardState.sentence = "When time...";
+        // Time wizard — stub, go direct to operator
+        wizardState.step = 4;
+        document.getElementById('operator-list').innerHTML = `
+            <div class="op-section"><strong>TIME CONDITIONS</strong>
+                <span class="op-btn" onclick="selectOperator('is after')">is after</span>
+                <span class="op-btn" onclick="selectOperator('is before')">is before</span>
+                <span class="op-btn" onclick="selectOperator('is between')">is between</span>
+            </div>`;
+    }
+    updateWizardUI();
+}
+
+function populateDeviceList(devices) {
+    const select = document.getElementById('device-list');
+    select.innerHTML = '';
+    devices.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name;
+        select.appendChild(opt);
+    });
+}
+
+function filterDevices() {
+    const term = document.getElementById('device-search').value.toLowerCase();
+    const filtered = allDevices.filter(d => d.name.toLowerCase().includes(term));
+    populateDeviceList(filtered);
+}
+
+function selectDevice(deviceId) {
+    wizardState.device = allDevices.find(d => d.id === deviceId);
+    if (!wizardState.device) return;
+    wizardState.sentence = `When ${wizardState.device.name}'s...`;
+    wizardState.step = 3;
+
+    // Populate capabilities based on domain
+    const cap = document.getElementById('capability-list');
+    cap.innerHTML = '';
+    const capabilities = getCapabilities(wizardState.device.domain);
+    capabilities.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.value;
+        opt.textContent = c.label;
+        cap.appendChild(opt);
+    });
+    updateWizardUI();
+}
+
+function getCapabilities(domain) {
+    const map = {
+        light:        [{value:"state", label:"switch (on/off)"}, {value:"brightness", label:"brightness"}],
+        binary_sensor:[{value:"state", label:"state (open/closed/detected/etc.)"}],
+        sensor:       [{value:"state", label:"value"}],
+        media_player: [{value:"state", label:"state (playing/idle/off)"}, {value:"volume_level", label:"volume"}],
+        climate:      [{value:"hvac_mode", label:"mode (heat/cool/off)"}, {value:"current_temperature", label:"temperature"}],
+    };
+    return map[domain] || [{value:"state", label:"state"}];
+}
+
+function selectCapability(cap) {
+    wizardState.capability = cap;
+    wizardState.sentence = `When ${wizardState.device.name}'s ${cap}...`;
+    wizardState.step = 4;
+
+    const isBinary = wizardState.device.domain === 'binary_sensor';
+    const isNumeric = ['brightness','volume_level','current_temperature'].includes(cap);
+
+    const opDiv = document.getElementById('operator-list');
+    opDiv.innerHTML = '';
+
+    if (isBinary || cap === 'state') {
+        opDiv.innerHTML += `<div class="op-section"><strong>CONDITIONS</strong>
+            <span class="op-btn" onclick="selectOperator('is')">is</span>
+            <span class="op-btn" onclick="selectOperator('is not')">is not</span>
+        </div>`;
+        opDiv.innerHTML += `<div class="op-section"><strong>TRIGGERS</strong>
+            <span class="op-btn" onclick="selectOperator('changes to')">changes to</span>
+            <span class="op-btn" onclick="selectOperator('changes')">changes</span>
+        </div>`;
+    }
+    if (isNumeric) {
+        opDiv.innerHTML += `<div class="op-section"><strong>NUMERIC CONDITIONS</strong>
+            <span class="op-btn" onclick="selectOperator('is greater than')">is greater than</span>
+            <span class="op-btn" onclick="selectOperator('is less than')">is less than</span>
+            <span class="op-btn" onclick="selectOperator('is equal to')">is equal to</span>
+        </div>`;
+    }
+    updateWizardUI();
+}
+
+function selectOperator(op) {
+    wizardState.operator = op;
+    wizardState.sentence = `When ${wizardState.device ? wizardState.device.name + "'s " + wizardState.capability : ''} ${op}...`;
+    wizardState.step = 5;
+
+    const valDiv = document.getElementById('value-input');
+    valDiv.innerHTML = '';
+
+    const isBinary = wizardState.device && wizardState.device.domain === 'binary_sensor';
+
+    if (isBinary && (op === 'is' || op === 'is not' || op === 'changes to')) {
+        // Binary sensor — show display labels, store compiled values
+        const dc = wizardState.device.device_class || 'default';
+        const labels = binaryLabels[dc] || binaryLabels.default;
+
+        valDiv.innerHTML = `
+            <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Select state:</p>
+            <button onclick="selectBinaryValue('${labels.on}', 'on')" style="width:100%;padding:12px;margin:6px 0;font-size:15px;">${labels.on}</button>
+            <button onclick="selectBinaryValue('${labels.off}', 'off')" style="width:100%;padding:12px;margin:6px 0;font-size:15px;">${labels.off}</button>
+        `;
+    } else if (op === 'is greater than' || op === 'is less than' || op === 'is equal to') {
+        valDiv.innerHTML = `
+            <p style="color:#aaa;font-size:13px;margin-bottom:8px;">Enter value:</p>
+            <input type="text" id="numeric-value" placeholder="e.g. 75" style="width:100%;font-size:16px;" oninput="updateNumericSentence()">
+        `;
+    } else {
+        // Generic text value
+        valDiv.innerHTML = `
+            <input type="text" id="generic-value" placeholder="Value..." style="width:100%;font-size:16px;" oninput="updateGenericSentence()">
+        `;
+    }
+
+    updateWizardUI();
+}
+
+function selectBinaryValue(displayValue, compiledValue) {
+    wizardState.displayValue = displayValue;
+    wizardState.compiledValue = compiledValue;
+    wizardState.sentence = `When ${wizardState.device.name}'s ${wizardState.capability} ${wizardState.operator} ${displayValue}`;
+    document.getElementById('wizard-sentence').textContent = wizardState.sentence;
+}
+
+function updateNumericSentence() {
+    const val = document.getElementById('numeric-value').value;
+    wizardState.compiledValue = val;
+    wizardState.displayValue = val;
+    wizardState.sentence = `When ${wizardState.device.name}'s ${wizardState.capability} ${wizardState.operator} ${val}`;
+    document.getElementById('wizard-sentence').textContent = wizardState.sentence;
+}
+
+function updateGenericSentence() {
+    const val = document.getElementById('generic-value').value;
+    wizardState.compiledValue = val;
+    wizardState.displayValue = val;
+    wizardState.sentence = `When ${wizardState.device.name}'s ${wizardState.capability} ${wizardState.operator} ${val}`;
+    document.getElementById('wizard-sentence').textContent = wizardState.sentence;
+}
+
+function finishWizard() {
+    const result = {
+        sentence: wizardState.sentence,
+        compiledValue: wizardState.compiledValue,
+        displayValue: wizardState.displayValue,
+        device: wizardState.device ? wizardState.device.id : null,
+        capability: wizardState.capability,
+        operator: wizardState.operator,
+    };
+    alert(`✅ Condition added!\n\n${wizardState.sentence}\n\ncompiled_value: "${result.compiledValue}"\ndisplay_value: "${result.displayValue}"`);
+    closeWizard();
+    renderActionTree();
+}
+
+function saveToPistonCore() { alert("✅ Saved to PistonCore"); }
+function deployToHA() { alert("🚀 Deployed to HA"); }
+function goToList() { alert("Back to list"); }
+
+window.onload = () => { renderActionTree(); };
+</script>
+</body>
+</html>

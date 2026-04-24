@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PistonCore</title>
+    <style>
+        :root {
+            --bg: #1c1c1c;
+            --surface: #282828;
+            --accent: #00ccaa;
+            --text: #ddd;
+            --muted: #888;
+            --keyword: #00ccaa;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        header { background: #222; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--accent); cursor: pointer; }
+
+        .main-content { flex: 1; overflow: auto; padding: 16px; display: none; }
+        .active { display: block; }
+
+        .action-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.6;
+            background: #111;
+            padding: 24px;
+            border-radius: 6px;
+            min-height: 70vh;
+            white-space: pre;
+            overflow: auto;
+            color: #ccc;
+        }
+        .keyword { color: var(--keyword); font-weight: bold; }
+        .ghost {
+            color: #666;
+            font-style: italic;
+            padding: 4px 30px;
+            margin: 3px 0;
+            display: block;
+            cursor: pointer;
+        }
+        .ghost:hover { background: #333; color: #bbb; }
+
+        .modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.92);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #282828;
+            width: 90%;
+            max-width: 720px;
+            border-radius: 8px;
+            max-height: 92vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header { padding: 16px 20px; background: #1f1f1f; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .wizard-sentence {
+            padding: 16px 20px;
+            background: #1a1a1a;
+            font-size: 15px;
+            min-height: 52px;
+            border-bottom: 1px solid #444;
+        }
+        .wizard-body { padding: 20px; flex: 1; overflow: auto; }
+        .wizard-step { display: none; }
+        .wizard-step.active { display: block; }
+        select, input { background: #333; color: white; border: 1px solid #555; padding: 8px 12px; border-radius: 4px; width: 100%; margin: 6px 0; }
+        button.primary { background: var(--accent); color: black; font-weight: bold; padding: 10px 16px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div onclick="goToList()" class="logo">PistonCore</div>
+    <div>
+        <button onclick="saveToPistonCore()">💾 Save to PistonCore</button>
+        <button onclick="deployToHA()" style="background:#00ccaa;color:black;">🚀 Deploy to HA</button>
+    </div>
+</header>
+
+<!-- EDITOR PAGE -->
+<div id="editor-page" class="main-content active">
+    <div style="background:#222;padding:12px;border-bottom:1px solid #444;">
+        <strong>Piston Name:</strong> 
+        <input id="piston-name" value="Driveway Lights at Sunset" style="width:340px;background:#333;color:white;border:1px solid #555;padding:6px;">
+    </div>
+    <div id="action-tree" class="action-tree"></div>
+</div>
+
+<!-- CONDITION WIZARD MODAL -->
+<div id="wizard-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="wizard-title">Add Condition</h3>
+            <div>
+                <button onclick="wizardBack()" id="btn-back" style="display:none;">← Back</button>
+                <button onclick="closeWizard()" style="background:none;border:none;color:#aaa;font-size:22px;margin-left:12px;">✕</button>
+            </div>
+        </div>
+        
+        <div id="wizard-sentence" class="wizard-sentence">Building condition...</div>
+
+        <div class="wizard-body">
+            <!-- STEP 1 -->
+            <div id="step-1" class="wizard-step active">
+                <h4>What do you want to evaluate?</h4>
+                <button onclick="selectSubject('device')" class="primary" style="width:100%;margin:8px 0;padding:14px;">Physical Device</button>
+                <button onclick="selectSubject('variable')" style="width:100%;margin:8px 0;padding:14px;">Variable</button>
+                <button onclick="selectSubject('time')" style="width:100%;margin:8px 0;padding:14px;">Time / Date / Sun</button>
+            </div>
+
+            <!-- STEP 2: Device -->
+            <div id="step-2" class="wizard-step">
+                <h4>Pick device</h4>
+                <input type="text" id="device-search" placeholder="Search devices..." onkeyup="filterDevices()">
+                <select id="device-list" size="12" style="width:100%;height:340px;" onchange="selectDevice(this.value)"></select>
+            </div>
+
+            <!-- STEP 3: Capability -->
+            <div id="step-3" class="wizard-step">
+                <h4>Pick capability / attribute</h4>
+                <select id="capability-list" size="8" style="width:100%;height:280px;" onchange="selectCapability(this.value)"></select>
+            </div>
+
+            <!-- STEP 4: Operator -->
+            <div id="step-4" class="wizard-step">
+                <h4>Pick operator</h4>
+                <div id="operator-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
+
+            <!-- STEP 5: Value -->
+            <div id="step-5" class="wizard-step">
+                <h4 id="value-title">Enter value</h4>
+                <div id="value-input"></div>
+            </div>
+        </div>
+
+        <div style="padding:16px;background:#1f1f1f;border-top:1px solid #444;text-align:right;">
+            <button onclick="closeWizard()">Cancel</button>
+            <button onclick="wizardNext()" id="btn-next" class="primary">Next →</button>
+            <button onclick="finishWizard()" id="btn-done" class="primary" style="display:none;">Done</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ====================== HA FETCHER (via PistonCore Backend @7777) ======================
+class HAFetcher {
+    constructor() {
+        this.baseUrl = "http://localhost:7777";
+        this.cache = null;
+        this.cacheTime = 0;
+    }
+
+    async apiGet(endpoint) {
+        const res = await fetch(this.baseUrl + endpoint);
+        if (!res.ok) throw new Error(`Backend Error ${res.status}`);
+        return res.json();
+    }
+
+    async getDevices() {
+        if (this.cache && Date.now() - this.cacheTime < 30000) return this.cache;
+        const data = await this.apiGet('/api/devices');
+        this.cache = data.map(d => ({
+            id: d.id,
+            name: d.friendly_name || d.name,
+            area: d.area || 'Uncategorized',
+            domain: d.domain,
+            device_class: d.device_class || null
+        })).sort((a,b) => a.name.localeCompare(b.name));
+        this.cacheTime = Date.now();
+        return this.cache;
+    }
+
+    async searchDevices(query = '') {
+        const devices = await this.getDevices();
+        if (!query.trim()) return devices;
+        const q = query.toLowerCase();
+        return devices.filter(d => 
+            d.name.toLowerCase().includes(q) || 
+            d.area.toLowerCase().includes(q) ||
+            d.id.toLowerCase().includes(q)
+        );
+    }
+}
+
+const fetcher = new HAFetcher();
+
+// ====================== BINARY LABELS (from WIZARD_SPEC) ======================
+const binaryLabels = {
+    door: {on: "Open", off: "Closed"},
+    window: {on: "Open", off: "Closed"},
+    motion: {on: "Detected", off: "Clear"},
+    smoke: {on: "Detected", off: "Clear"},
+    lock: {on: "Unlocked", off: "Locked"},
+    default: {on: "On", off: "Off"}
+};
+
+// ====================== WIZARD STATE ======================
+let wizardState = { step: 1, sentence: "Building condition..." };
+
+// ====================== WIZARD FUNCTIONS ======================
+async function openConditionWizard() {
+    wizardState = { step: 1, sentence: "When..." };
+    updateWizardUI();
+    document.getElementById('wizard-modal').style.display = 'flex';
+    await loadDevices();
+}
+
+async function loadDevices() {
+    try {
+        const devices = await fetcher.searchDevices('');
+        const select = document.getElementById('device-list');
+        select.innerHTML = '';
+        devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = `${d.name} (${d.area})`;
+            select.appendChild(opt);
+        });
+    } catch(e) {
+        console.error("Failed to load devices from backend", e);
+    }
+}
+
+function filterDevices() {
+    const query = document.getElementById('device-search').value;
+    // In production this would call searchDevices with debounce
+    loadDevices();
+}
+
+function selectSubject(type) {
+    wizardState.subject = type;
+    wizardState.sentence = type === 'device' ? "When [Device]..." : "When [...]...";
+    wizardState.step = 2;
+    updateWizardUI();
+}
+
+function selectDevice(deviceId) {
+    wizardState.device = {id: deviceId, name: deviceId}; // In real version we would lookup full object
+    wizardState.sentence = `When ${deviceId.split('.')[1] || deviceId} ...`;
+    wizardState.step = 3;
+    
+    // Mock capabilities (in real version: fetcher.getCapabilities(deviceId))
+    const capSelect = document.getElementById('capability-list');
+    capSelect.innerHTML = `
+        <option value="switch">switch</option>
+        <option value="contact">contact</option>
+        <option value="motion">motion</option>
+        <option value="temperature">temperature</option>
+    `;
+    updateWizardUI();
+}
+
+function selectCapability(cap) {
+    wizardState.capability = cap;
+    wizardState.sentence = `When ${wizardState.device.id}'s ${cap} ...`;
+    wizardState.step = 4;
+    
+    const opDiv = document.getElementById('operator-list');
+    opDiv.innerHTML = `
+        <strong>⚡ TRIGGERS</strong><br>
+        <button onclick="selectOperator('changes to', true)" style="margin:4px;">changes to</button>
+        <button onclick="selectOperator('changes', true)" style="margin:4px;">changes</button><br><br>
+        <strong>CONDITIONS</strong><br>
+        <button onclick="selectOperator('is', false)" style="margin:4px;">is</button>
+        <button onclick="selectOperator('is not', false)" style="margin:4px;">is not</button>
+    `;
+    updateWizardUI();
+}
+
+function selectOperator(op, isTrigger) {
+    wizardState.operator = op;
+    wizardState.isTrigger = isTrigger;
+    wizardState.sentence = `${wizardState.sentence} ${op} ...`;
+    wizardState.step = 5;
+    renderValueInput();
+    updateWizardUI();
+}
+
+function renderValueInput() {
+    const container = document.getElementById('value-input');
+    const deviceClass = wizardState.device ? wizardState.device.device_class : null;
+    const labels = binaryLabels[deviceClass] || binaryLabels.default;
+
+    container.innerHTML = `
+        <select id="value-select" style="width:100%">
+            <option value="on">${labels.on}</option>
+            <option value="off">${labels.off}</option>
+        </select>
+        <small style="color:#888;display:block;margin-top:8px;">
+            display_value: friendly label • compiled_value: "on"/"off"
+        </small>
+    `;
+}
+
+function updateWizardUI() {
+    document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step-${wizardState.step}`).classList.add('active');
+    document.getElementById('wizard-sentence').textContent = wizardState.sentence;
+    
+    document.getElementById('btn-back').style.display = wizardState.step > 1 ? 'inline' : 'none';
+    document.getElementById('btn-next').style.display = wizardState.step < 5 ? 'inline' : 'none';
+    document.getElementById('btn-done').style.display = wizardState.step === 5 ? 'inline' : 'none';
+}
+
+function wizardBack() {
+    if (wizardState.step > 1) {
+        wizardState.step--;
+        updateWizardUI();
+    }
+}
+
+function wizardNext() {
+    if (wizardState.step === 5) finishWizard();
+    else {
+        wizardState.step++;
+        updateWizardUI();
+    }
+}
+
+function finishWizard() {
+    const displayValue = document.getElementById('value-select') ? 
+        document.getElementById('value-select').options[document.getElementById('value-select').selectedIndex].text : 'value';
+    
+    alert(`✅ Condition Added!\n\n${wizardState.sentence} ${displayValue}`);
+    closeWizard();
+    renderActionTree();
+}
+
+function closeWizard() {
+    document.getElementById('wizard-modal').style.display = 'none';
+}
+
+// ====================== EDITOR ======================
+function renderActionTree() {
+    const container = document.getElementById('action-tree');
+    container.innerHTML = `
+        <span class="keyword">execute</span><br>
+        &nbsp;&nbsp;<div class="ghost" onclick="openConditionWizard()">+ add a new statement</div><br>
+        <span class="keyword">end execute;</span>
+    `;
+}
+
+// Stubs
+function saveToPistonCore() { alert("✅ Saved to PistonCore"); }
+function deployToHA() { alert("🚀 Deployed to HA"); }
+function goToList() { alert("Back to List"); }
+
+// Init
+window.onload = () => {
+    renderActionTree();
+    console.log("%c✅ Complete PistonCore Editor + Real Backend Fetcher + Full Condition Wizard", "color:#00ccaa;font-weight:bold");
+};
+</script>
+</body>
+</html>

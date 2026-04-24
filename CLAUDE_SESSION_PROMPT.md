@@ -21,7 +21,7 @@ GitHub repo: https://github.com/jercoates/pistoncore
 
 **The design document is the authoritative source for all decisions.** Before writing any code read DESIGN.md from the repo. Do not rely on memory or assumptions — the design has changed significantly and the code must match the current design.
 
-**Important:** The repo may have a cached/stale version of files. If fetching from the repo fails or returns an old version, ask the user to paste the files directly.
+**Important:** The repo may have a cached/stale version of files. If fetching from the repo fails or returns old versions, ask the user to paste the files directly.
 
 ---
 
@@ -47,15 +47,36 @@ GitHub repo: https://github.com/jercoates/pistoncore
 - `CLAUDE_SESSION_PROMPT.md` — this file
 - `LICENSE` — MIT
 
+### backend/
+All Python backend files. Flat folder — no subfolders.
+- `compiler.py` — native HA script compiler, matches COMPILER_SPEC v0.2 ✓
+- `main.py` — FastAPI app entry point, port 7777 ✓
+- `api.py` — all REST API endpoints ✓
+- `storage.py` — all filesystem I/O (piston JSON, globals, config) ✓
+- `__init__.py` — package marker
+- `README.md` — backend developer notes
+
+### pistoncore-customize/
+User-editable folder, mounted as Docker volume.
+- `compiler-templates/native-script/` — Jinja2 templates ✓
+  - `automation.yaml.j2` ✓
+  - `script.yaml.j2` ✓
+  - `AI-UPDATE-GUIDE.md` ✓
+  - `snippets/` — 18 snippet files, all present ✓
+- `validation-rules/`
+  - `AI-UPDATE-GUIDE.md` ✓
+  - `internal-checks.json` — not yet created
+  - `error-translations.json` — not yet created
+
 ### session2_archive/
 Contains all code from Session 2. Built against an earlier design — kept for reference only.
 Do not build on top of it directly.
 
 ### What does NOT exist yet (needs to be built):
-- Backend FastAPI skeleton
-- Docker container setup
-- Compiler templates (Jinja2 files)
-- Companion integration
+- `Dockerfile` — Docker container setup
+- `docker-compose.yml` — Unraid deployment config
+- `requirements.txt` — Python dependencies
+- Companion HA integration
 - Frontend
 
 ---
@@ -75,18 +96,36 @@ Do not build on top of it directly.
 **Other locked decisions:**
 - Backend: Python FastAPI
 - Frontend: Vanilla JS, HTML, CSS — no framework
-- Piston storage: JSON files in Docker volume
+- Piston storage: JSON files in Docker volume (`pistoncore-userdata/pistons/`)
 - Compiler output: Jinja2 snippet templates assembled by Python compiler
 - Default port: 7777
 - HA integration: WebSocket API for capability data, companion for file writes
-- Two Docker volume folders: pistoncore-userdata/ and pistoncore-customize/
-- configuration.yaml addition: `script pistoncore: !include_dir_merge_named scripts/pistoncore/`
-- All service calls in with_block compile with continue_on_error: true (WebCoRE resilience default)
-- Automation id: field uses piston ID (stable); filename and alias use slug (changes on rename)
+- Two Docker volume folders: `pistoncore-userdata/` and `pistoncore-customize/`
+- `configuration.yaml` addition: `script pistoncore: !include_dir_merge_named scripts/pistoncore/`
+- All service calls in with_block compile with `continue_on_error: true` (WebCoRE resilience default)
+- Automation `id:` field uses piston ID (stable); filename and alias use slug (changes on rename)
 
 **File layout in HA:**
 - `<ha_config>/automations/pistoncore/<slug>.yaml` — automation wrapper
 - `<ha_config>/scripts/pistoncore/<slug>.yaml` — script body
+
+**Docker volumes:**
+- `/pistoncore-userdata/` — piston JSON files, globals store, config. Persists user data.
+- `/pistoncore-customize/` — compiler templates, validation rules. User-editable.
+
+**Storage layer (`storage.py`):**
+- All filesystem I/O goes through `storage.py` — API layer never touches files directly
+- Uses `PISTONCORE_DATA_DIR` env var to override `/pistoncore-userdata/` for local testing
+- Piston files: `/pistoncore-userdata/pistons/<piston_id>.json`
+- Globals: `/pistoncore-userdata/globals.json`
+- Config: `/pistoncore-userdata/config.json`
+
+**API layer (`api.py`):**
+- Two distinct save operations — UI must make this unmistakable to users:
+  1. `PUT /pistons/{id}` — saves JSON to Docker volume (fast, always works, no HA involvement)
+  2. `POST /pistons/{id}/deploy` — compiles + writes to HA via companion (separate action)
+- `POST /pistons/{id}/compile` — preview compiled YAML without writing anything (safe anytime)
+- Deploy endpoint has a clearly labeled companion stub — replace when companion is built
 
 ---
 
@@ -110,10 +149,10 @@ Do not build on top of it directly.
 - wait until time shows a ⓘ tooltip in the editor — see FRONTEND_SPEC wait tooltip section
 - Variable scope caveat: variables set inside loops and read outside emit a warning, not a rewrite
 - Slug format: lowercase, underscores, max 50 chars, collision → append piston ID prefix
-- Automation id: field = piston ID (never changes). Filename and alias = slug (changes on rename).
+- Automation `id:` field = piston ID (never changes). Filename and `alias:` = slug (changes on rename).
 - Renaming a piston changes the slug, filename, and alias — HA treats it as a new automation entity
-- continue_on_error: true on all service calls in with_block (matches WebCoRE fire-and-forget behavior)
-- wait_for_state uses continue_on_timeout: true; branch on timeout via {{ not wait.completed }} if block
+- `continue_on_error: true` on all service calls in with_block (matches WebCoRE fire-and-forget behavior)
+- `wait_for_state` uses `continue_on_timeout: true`; branch on timeout via `{{ not wait.completed }}` if block
 
 **Sharing:**
 - Snapshot (green) = anonymized, safe to share
@@ -124,7 +163,7 @@ Do not build on top of it directly.
 - Stage 1: internal checks in Docker (always runs on save)
 - Stage 2: compile to sandbox
 - Stage 3: yamllint on sandbox files
-- Stage 4: companion calls script.reload on sandbox (HA validates natively)
+- Stage 4: companion calls script.reload on sandbox (HA validates natively) — REMOVED, see COMPILER_SPEC open item 6
 - Stage 5: pass → deploy, fail → nothing written to production
 
 **Run status:**
@@ -136,58 +175,18 @@ Do not build on top of it directly.
 
 ## Standing Rule — Validate Before Documenting or Coding
 
-**Any new logic choice, assumption about how HA works, or technical approach must be validated
-against real HA behavior BEFORE it is written into a spec or implemented in code.**
+Before writing any new compiler logic, API endpoint, or design decision:
+1. State what you are about to implement
+2. Identify the COMPILER_SPEC or DESIGN.md section it comes from
+3. Check for conflicts with existing locked decisions
+4. Only then write code or update documentation
 
-This rule exists because incorrect assumptions propagate through all downstream documents and
-code. It is cheaper to run a search and confirm than to rewrite a spec section later.
-
-**Examples of things that must be validated first:**
-- How HA returns state values for a device type (e.g. binary sensors return "on"/"off" not "open"/"closed")
-- Whether a native HA script feature works the way we think it does
-- Whether a WebSocket API command returns the data we expect
-- Any compiler output that hasn't been hand-verified against real HA YAML examples
-
-**How to validate:** Web search against current HA docs, fetch the HA source or developer docs,
-or check real HA community examples. Claude runs these checks before producing any new spec
-content or code when a new technical approach is being designed.
+This rule exists because several sessions have produced work that had to be revised due to assumptions not matching the spec. The spec is the authority.
 
 ---
 
-## Open Items — Do Not Start These Without Resolving First
+## Two Save Operations — Critical UI Distinction
 
-1. **settings / end settings block contents** — research WebCoRE behavior, define before implementing
-2. **AI Prompt feature redesign** — needs friendly name context without entity IDs (DESIGN.md Section 11)
-3. **Which-interaction step feasibility** — PyScript context tracking, needs sandbox validation (DESIGN.md Section 8.6)
-4. **Timer statement** — evaluate overlap with HA scheduler before including in v1 (DESIGN.md Section 22)
-5. ~~**Devices variable storage format**~~ — **RESOLVED.** Compile-time literal list. See DESIGN.md Sections 4.1, 19, COMPILER_SPEC Section 8.7.
-6. **PyScript compiler** — separate spec needed, not started. Only needed for break/cancel_pending_tasks/on_event.
-7. **make_web_request PyScript-only designation** — validate whether native HA `rest_command` covers this before locking it in. May not need to be PyScript-only. (WIZARD_SPEC.md system commands table)
-8. **System variables in native script pistons** — HA trigger variables expose some context (trigger.entity_id, trigger.to_state etc.) in native scripts. Research whether this partially covers the gap before requiring PyScript for all system variable use.
-9. **Device event trigger — device ID resolution** — backend must resolve role → HA device ID before trigger compiler can emit correct YAML. No endpoint or data flow defined yet. (COMPILER_SPEC Section 18 item 3)
-10. ~~**Stage 4 pre-deploy sandbox validation**~~ — **REMOVED.** script.reload cannot target a single file. Native scripts rely on yamllint + HA validation on actual deploy. See DESIGN.md Section 13.
-11. ~~**Trace mode per-step events**~~ — **RESOLVED as v1 compromise.** Trace shows run start, log_message statements, run complete. Per-step is v2. See DESIGN.md Section 15.
-12. ~~**continue_on_error default on with_block service calls**~~ — **RESOLVED.** Always emit continue_on_error: true. See COMPILER_SPEC Section 8.1.
-13. ~~**Past-time wait hang**~~ — **RESOLVED as documented behavior.** compile_wait() always emits a CompilerWarning for time-based waits. UI shows ⓘ tooltip. See COMPILER_SPEC Section 14, FRONTEND_SPEC wait tooltip section.
-14. ~~**Stale run detection**~~ — **RESOLVED.** 5-minute configurable timeout. Status shows "unknown" after timeout, never "Running" indefinitely. See FRONTEND_SPEC Log Panel.
-
----
-
-## Jeremy's Notes — Things to Make Sure Don't Get Lost
-
-These are personal reminders that must be addressed before coding gets too far. Raise these
-at the start of any session where they haven't been addressed yet.
-
-**Debugging — what is actually possible:**
-What can a user see when a piston misbehaves? Need to define this clearly before coding:
-- Trace mode and statement numbers — already in design
-- The run log on the status page — already in design
-- HA logbook entries from the completion event — confirm what shows up
-- What a user actually sees when a native HA script fails mid-run (no completion event fired)
-- Whether there's a way to surface HA's own script error messages back to PistonCore UI
-This needs a dedicated design pass before the logging/debugging code is written.
-
-**Save status — two different saves, make sure the UI is crystal clear:**
 There are two distinct save operations in PistonCore and users need to understand both:
 1. Save to Docker volume (piston JSON) — fast, always works, no HA involvement
 2. Deploy to HA (compiled files written, automation/script reload called) — separate action
@@ -229,50 +228,40 @@ Architecture confirmed: Native HA Script primary, PyScript fallback only. Five H
 ### Session 8 — April 2026
 No code written. Gemini external review processed and validated against HA docs. Four items resolved: (1) continue_on_error: true added as default on all with_block service calls — matches WebCoRE resilience behavior; (2) Past-time wait hang confirmed as real HA behavior — compile_wait() now always emits CompilerWarning for time-based waits, UI tooltip added; (3) Stale run detection added — 5-minute configurable timeout, never show "Running" indefinitely; (4) Automation id: vs slug clarified — id field uses piston ID (stable), filename and alias use slug (changes on rename). Two Gemini items confirmed already handled correctly: wait.completed branching works natively in HA (no compiler change needed), trigger data intentionally not forwarded to native script pistons (by design, PyScript-only). One Gemini item was a misread: piston variables are intentionally temporary (not a bug). Binary sensor null device_class fallback added to COMPILER_SPEC Section 11 and WIZARD_SPEC (defaults to On/Off). COMPILER_SPEC updated to v0.2, FRONTEND_SPEC updated to v0.5. WIZARD_SPEC and DESIGN.md unchanged.
 
+### Session 9 — April 2026
+First real coding session. compiler.py updated to COMPILER_SPEC v0.2 (merged from Grok skeleton + Claude additions): continue_on_error on all with_block service calls, past-time CompilerWarning on wait until, parallel multi-task with_block, for_loop added, completion event fires only in top-level sequence, called_by_piston omits automation file, AND/OR condition groups, full SHA-256 hash. All 18 Jinja2 snippet templates created and placed in pistoncore-customize/compiler-templates/native-script/snippets/. storage.py written — all filesystem I/O in one place, PISTONCORE_DATA_DIR env var for local testing. api.py written — full REST API with all endpoints. main.py written — FastAPI entry point port 7777. Driveway lights piston verified against COMPILER_SPEC Section 17 — output matches exactly. Repo cleaned up (stray modular compiler files removed). pistoncore-customize/ folder structure created and pushed.
+
 ---
 
 ## Last Session
-Session 8 — April 2026. Gemini review validated. Four spec additions integrated into COMPILER_SPEC v0.2 and FRONTEND_SPEC v0.5. All changes are non-breaking — no existing compiler output is wrong, only additions and clarifications. The driveway lights verification example in COMPILER_SPEC Section 17 now includes continue_on_error: true on service calls. Specs are ready for coding.
+Session 9 — April 2026. First coding session. Compiler updated to v0.2 spec, all 18 Jinja2 templates created, FastAPI skeleton (main.py, api.py, storage.py) built. Repo structure cleaned and organized. Deploy endpoint has companion stub — marked clearly for future implementation.
 
 ## Next Session — Start Here
 
-**Note:** The repo may have stale files. Ask user to paste DESIGN.md, COMPILER_SPEC.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, and this session prompt if repo fetch fails or returns old versions.
+**Note:** The repo may have stale files. Ask user to paste DESIGN.md, COMPILER_SPEC.md, and this session prompt if repo fetch fails or returns old versions.
 
-1. Read DESIGN.md v0.9.1 from the repo (or ask user to paste)
-2. Read COMPILER_SPEC.md v0.2 from the repo (or ask user to paste)
-3. Read FRONTEND_SPEC.md v0.5 and WIZARD_SPEC.md v0.3 if working on frontend/wizard
+1. Read DESIGN.md v0.9.1 (ask user to paste if needed)
+2. Read COMPILER_SPEC.md v0.2 (ask user to paste if needed)
 
-**Validate before starting any new logic — standing rule.**
+**Session 10 agenda:**
 
-**Recommended Session 9 agenda:**
+**Option A — Docker setup (recommended):**
+- Write `requirements.txt` (fastapi, uvicorn, jinja2, pyyaml, websockets)
+- Write `Dockerfile` — Python 3.12 slim, installs requirements, runs uvicorn on port 7777
+- Write `docker-compose.yml` — two volume mounts, port 7777, env vars
+- Test on Unraid test instance — verify container starts, /health returns ok, /pistons returns []
+- Write a simple `docker-compose.unraid.yml` template for users
 
-**Option A — Begin backend compiler coding:**
-- Scaffold FastAPI project structure in a new `/backend/` folder
-- Implement `slugify()` and `compile_piston()` entry point (COMPILER_SPEC Section 4, 5)
-- Implement trigger compilers for sun and state triggers (Section 6.3)
-- Implement `with_block` compiler including continue_on_error: true (Section 8.1)
-- Implement `wait` compiler including CompilerWarning for time-based waits (Section 8.2, 14)
-- Implement `globals_index.json` write on compile (DESIGN.md Section 4.1)
-- Verify the driveway lights piston compiles to output matching COMPILER_SPEC Section 17
-- **Do not start coding until COMPILER_SPEC v0.2 is re-read fresh this session**
+**Option B — Frontend scaffold (if cousin needs unblocked):**
+- Scaffold `frontend/` folder with `index.html`, `styles.css`, `app.js`
+- Implement piston list page against the live API
+- Coordinate with cousin on what he has already built
 
-**Option B — Validate two remaining open technical questions before coding:**
-- Item 7: Does `rest_command` make `make_web_request` available in native scripts? (quick web search)
-- Item 8: Which HA trigger variables are available in native script pistons? (quick web search)
-- Update WIZARD_SPEC and session prompt with findings, then move to Option A
-
-**Option C — Wait for more external AI feedback before coding:**
-- Poll Grok/Gemini with AI-REVIEW-PROMPT.md if not done yet
-- Review any feedback, validate HA-specific claims, update specs
-- Then move to Option A
-
-**The specs are complete enough to start coding. Option A is the right call unless new feedback arrives that would change the compiler.**
+**Option A is the right call** — Docker is the unlock that lets you actually run and test the backend on your Unraid instance. Without it the API exists but can't be used.
 
 ---
 
 ## Reference — HA Script Capability Gaps (Researched Session 7)
-
-These were the five gaps researched. Keeping here for reference:
 
 1. **Custom event on completion** — `event:` action in native scripts. Works cleanly. → `PISTONCORE_RUN_COMPLETE`
 2. **Script entity ID format** — `script.pistoncore_<slug>`. Key names lowercase/underscores only.
@@ -283,8 +272,6 @@ These were the five gaps researched. Keeping here for reference:
 ---
 
 ## Reference — Gemini Review Items (Session 8)
-
-Summary of how each Gemini review item was resolved:
 
 | Item | Verdict | Action taken |
 |---|---|---|
@@ -306,20 +293,32 @@ Summary of how each Gemini review item was resolved:
 
 ```
 /pistoncore-customize/compiler-templates/native-script/
-  automation.yaml.j2
-  script.yaml.j2
-  snippets/                   (one file per statement/trigger/condition type)
-  AI-UPDATE-GUIDE.md          ← written in Session 7
-
-/pistoncore-customize/compiler-templates/pyscript/
-  piston.py.j2                (not yet written — PyScript compiler not yet designed)
-  AI-UPDATE-GUIDE.md          (not yet written)
+  automation.yaml.j2          ✓ in repo
+  script.yaml.j2              ✓ in repo
+  AI-UPDATE-GUIDE.md          ✓ in repo
+  snippets/                   ✓ all 18 files in repo
 
 /pistoncore-customize/validation-rules/
-  internal-checks.json
-  error-translations.json
-  AI-UPDATE-GUIDE.md          ← written in Session 7
+  AI-UPDATE-GUIDE.md          ✓ in repo
+  internal-checks.json        not yet created
+  error-translations.json     not yet created
+
+/pistoncore-customize/compiler-templates/pyscript/
+  piston.py.j2                not yet written — PyScript compiler not yet designed
+  AI-UPDATE-GUIDE.md          not yet written
 ```
+
+---
+
+## Reference — Open Items Compiler Not Yet Complete (COMPILER_SPEC Section 18)
+
+1. **settings / end settings block** — contents undefined. Compiler ignores this block for now.
+2. **PyScript compiler** — separate spec needed. Not started.
+3. **Device event trigger (button/momentary)** — requires HA device ID. Backend must resolve role → device ID from HA device registry. No endpoint or data flow defined yet.
+4. ~~**Devices variable storage format**~~ — RESOLVED.
+5. **which-interaction step** — feasibility not confirmed. Not compiled until validated.
+6. ~~**Stage 4 pre-deploy sandbox validation**~~ — REMOVED.
+7. **Trace mode per-step events** — v1 trace does not emit per-step events. v2 feature.
 
 ---
 

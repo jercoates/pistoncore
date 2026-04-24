@@ -18,14 +18,36 @@
 #   PUT    /config                   — update runtime config
 #   GET    /health                   — health check
 
-from fastapi import APIRouter, HTTPException, Body
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Security, Body
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import Any
 
 import storage
 from compiler import Compiler, CompilerError
 
-router = APIRouter()
+# ---------------------------------------------------------------------------
+# API key authentication
+# Protects all endpoints with a shared secret.
+# Set PISTONCORE_API_KEY in docker-compose.yml before exposing beyond localhost.
+# Send as request header:  X-API-Key: <your-key>
+# If the env var is not set, the check is skipped (dev/test convenience only).
+# ---------------------------------------------------------------------------
+
+_API_KEY = os.environ.get("PISTONCORE_API_KEY", "")
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def _verify_api_key(key: str | None = Security(_api_key_header)) -> None:
+    if not _API_KEY:
+        return  # no key configured -- open access, dev/test only
+    if key != _API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+router = APIRouter(dependencies=[Depends(_verify_api_key)])
 
 
 # ---------------------------------------------------------------------------

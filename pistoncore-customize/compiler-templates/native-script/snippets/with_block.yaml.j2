@@ -1,0 +1,12 @@
+{% if stmt_id %}- alias: "{{ stmt_id }}"
+{% else %}-
+{% endif %}  action: {{ service }}
+  target:
+    entity_id: {{ entity_id }}
+{% if data %}
+  data:
+{% for key, value in data.items() %}
+    {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+  continue_on_error: true

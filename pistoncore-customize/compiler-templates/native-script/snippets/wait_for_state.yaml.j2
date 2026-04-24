@@ -1,0 +1,8 @@
+- alias: "{{ stmt_id }}"
+  wait_for_trigger:
+    - trigger: state
+      entity_id: {{ entity_id }}
+      to: "{{ to_state }}"
+  timeout:
+    seconds: {{ timeout_seconds }}
+  continue_on_timeout: true

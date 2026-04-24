@@ -1,0 +1,13 @@
+- condition: time
+{% if after %}
+  after: "{{ after }}"
+{% endif %}
+{% if before %}
+  before: "{{ before }}"
+{% endif %}
+{% if weekday %}
+  weekday:
+{% for day in weekday %}
+    - {{ day }}
+{% endfor %}
+{% endif %}

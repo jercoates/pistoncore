@@ -1,0 +1,10 @@
+# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
+# pc_piston_id: {{ piston.id }} | pc_version: {{ app_version }} | pc_hash: {{ hash }}
+# pc_globals_used: {{ globals_used }}
+
+pistoncore_{{ slug }}:
+  alias: "{{ piston.name }} (PistonCore)"
+  description: "{{ piston.description }}"
+  mode: {{ piston.mode }}
+  sequence:
+{{ compiled_sequence | indent(4, first=True) }}

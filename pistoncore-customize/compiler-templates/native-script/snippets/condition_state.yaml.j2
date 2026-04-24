@@ -1,0 +1,6 @@
+- condition: state
+  entity_id: {{ entity_id }}
+{% if attribute %}
+  attribute: {{ attribute }}
+{% endif %}
+  state: "{{ state }}"

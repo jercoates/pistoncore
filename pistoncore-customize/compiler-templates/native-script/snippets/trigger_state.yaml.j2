@@ -1,0 +1,12 @@
+- trigger: state
+  entity_id: {{ entity_id }}
+{% if to %}
+  to: "{{ to }}"
+{% endif %}
+{% if from_state %}
+  from: "{{ from_state }}"
+{% endif %}
+{% if for_seconds %}
+  for:
+    seconds: {{ for_seconds }}
+{% endif %}

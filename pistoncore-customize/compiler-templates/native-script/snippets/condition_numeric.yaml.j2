@@ -1,0 +1,8 @@
+- condition: numeric_state
+  entity_id: {{ entity_id }}
+{% if above is not none %}
+  above: {{ above }}
+{% endif %}
+{% if below is not none %}
+  below: {{ below }}
+{% endif %}

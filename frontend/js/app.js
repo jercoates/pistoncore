@@ -3,22 +3,17 @@
 // SPA router and global application state.
 // Handles page transitions (List → Status → Editor) via show/hide.
 // No URL changes — single page app as per FRONTEND_SPEC.
-//
-// Usage:
-//   App.navigate('list')
-//   App.navigate('status', { pistonId: 'abc123' })
-//   App.navigate('editor', { pistonId: 'abc123' })
 
 const App = (() => {
 
   // ── State ────────────────────────────────────────────────
   const state = {
     currentPage: 'list',
-    pistonId: null,          // currently viewed/edited piston
-    pistons: [],             // cached list from backend
-    clipboard: null,         // cut/copied statement node
-    unsavedChanges: false,   // editor has unsaved changes
-    simpleMode: true,        // Simple / Advanced toggle (default Simple)
+    pistonId: null,
+    pistons: [],
+    clipboard: null,
+    unsavedChanges: false,
+    simpleMode: true,
     wsConnected: false,
   };
 
@@ -31,7 +26,6 @@ const App = (() => {
 
   // ── Navigation ───────────────────────────────────────────
   function navigate(page, params = {}) {
-    // Guard unsaved changes when leaving editor
     if (state.currentPage === 'editor' && state.unsavedChanges && page !== 'editor') {
       Dialog.confirm({
         title: 'Unsaved changes',
@@ -49,7 +43,6 @@ const App = (() => {
             state.unsavedChanges = false;
             _doNavigate(page, params);
           }
-          // cancel — do nothing
         },
       });
       return;
@@ -58,29 +51,17 @@ const App = (() => {
   }
 
   function _doNavigate(page, params = {}) {
-    // Hide all pages
     Object.values(pages).forEach(p => p && p.classList.remove('active'));
-
     state.currentPage = page;
     if (params.pistonId !== undefined) state.pistonId = params.pistonId;
-
     const el = pages[page];
     if (el) el.classList.add('active');
-
-    // Persist navigation state for browser refresh
     _saveNavState();
 
-    // Trigger page-specific load
     switch (page) {
-      case 'list':
-        ListPage.load();
-        break;
-      case 'status':
-        StatusPage.load(state.pistonId);
-        break;
-      case 'editor':
-        Editor.load(state.pistonId);
-        break;
+      case 'list':   ListPage.load(); break;
+      case 'status': StatusPage.load(state.pistonId); break;
+      case 'editor': Editor.load(state.pistonId); break;
     }
   }
 
@@ -97,22 +78,33 @@ const App = (() => {
   function _restoreNavState() {
     try {
       const saved = localStorage.getItem('pistoncore_nav');
-      if (!saved) return;
-      const { page, pistonId } = JSON.parse(saved);
-      if (page && pages[page]) {
-        navigate(page, { pistonId });
-        return;
+      if (saved) {
+        const { page, pistonId } = JSON.parse(saved);
+        if (page && pages[page]) {
+          navigate(page, { pistonId });
+          return;
+        }
       }
     } catch {}
     navigate('list');
   }
 
   // ── WebSocket connection ─────────────────────────────────
+  // /ws doesn't exist yet — connects silently, backs off exponentially,
+  // stops retrying after 5 attempts until the user reloads.
   let _ws = null;
   let _wsReconnectTimer = null;
+  let _wsAttempts = 0;
+  const _WS_MAX_ATTEMPTS = 5;
+  const _WS_BACKOFF = [2000, 5000, 10000, 30000, 60000];
 
   function _connectWebSocket() {
-    // /ws endpoint — live log updates, run status events
+    if (_wsAttempts >= _WS_MAX_ATTEMPTS) {
+      // Give up silently — /ws not implemented yet
+      console.info('PistonCore: WebSocket not available (/ws not implemented). Live updates disabled.');
+      return;
+    }
+
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const url = `${proto}://${location.host}/ws`;
 
@@ -125,18 +117,13 @@ const App = (() => {
     }
 
     _ws.onopen = () => {
+      _wsAttempts = 0;
       _setWsStatus(true);
-      if (_wsReconnectTimer) {
-        clearTimeout(_wsReconnectTimer);
-        _wsReconnectTimer = null;
-      }
+      if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
     };
 
     _ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        _handleWsMessage(msg);
-      } catch {}
+      try { _handleWsMessage(JSON.parse(event.data)); } catch {}
     };
 
     _ws.onclose = () => {
@@ -145,27 +132,29 @@ const App = (() => {
     };
 
     _ws.onerror = () => {
-      _setWsStatus(false);
+      // Suppress error — onclose will fire next and schedule reconnect
     };
   }
 
   function _scheduleWsReconnect() {
     if (_wsReconnectTimer) return;
+    _wsAttempts++;
+    if (_wsAttempts >= _WS_MAX_ATTEMPTS) {
+      console.info('PistonCore: WebSocket gave up after', _WS_MAX_ATTEMPTS, 'attempts.');
+      return;
+    }
+    const delay = _WS_BACKOFF[Math.min(_wsAttempts - 1, _WS_BACKOFF.length - 1)];
     _wsReconnectTimer = setTimeout(() => {
       _wsReconnectTimer = null;
       _connectWebSocket();
-    }, 5000);
+    }, delay);
   }
 
   function _setWsStatus(connected) {
     state.wsConnected = connected;
     const banner = document.getElementById('ws-banner');
     const headerStatus = document.getElementById('header-status');
-
-    if (banner) {
-      banner.classList.toggle('visible', !connected);
-    }
-
+    if (banner) banner.classList.toggle('visible', !connected && _wsAttempts < _WS_MAX_ATTEMPTS);
     if (headerStatus) {
       headerStatus.className = 'header-status ' + (connected ? 'connected' : 'disconnected');
       headerStatus.textContent = connected ? 'HA Connected' : 'HA Disconnected';
@@ -173,11 +162,8 @@ const App = (() => {
   }
 
   function _handleWsMessage(msg) {
-    // Route WebSocket messages to the appropriate page handler
     if (msg.type === 'run_complete' || msg.type === 'run_log') {
-      if (state.currentPage === 'status') {
-        StatusPage.onWsMessage(msg);
-      }
+      if (state.currentPage === 'status') StatusPage.onWsMessage(msg);
     }
   }
 
@@ -198,15 +184,9 @@ const App = (() => {
 
   // ── Init ─────────────────────────────────────────────────
   function init() {
-    // Wire header buttons
-    document.getElementById('btn-globals')?.addEventListener('click', () => {
-      GlobalsDrawer.open();
-    });
+    document.getElementById('btn-globals')?.addEventListener('click', () => GlobalsDrawer.open());
 
-    // Set up context menu dismiss
-    document.addEventListener('click', () => {
-      ContextMenu.hide();
-    });
+    document.addEventListener('click', () => ContextMenu.hide());
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         ContextMenu.hide();
@@ -215,20 +195,14 @@ const App = (() => {
       }
     });
 
-    // Start WebSocket (will silently fail if /ws not implemented yet)
-    _connectWebSocket();
+    // Start WebSocket with a short delay so it doesn't block initial render
+    setTimeout(_connectWebSocket, 2000);
 
-    // Restore navigation state from last session
-    _restoreNavState();
+    // Navigate after a tick so all page modules (list.js, status.js etc.) are defined
+    setTimeout(_restoreNavState, 0);
   }
 
-  return {
-    state,
-    navigate,
-    loadPistons,
-    getPistonFromCache,
-    init,
-  };
+  return { state, navigate, loadPistons, getPistonFromCache, init };
 
 })();
 
@@ -240,13 +214,11 @@ const GlobalsDrawer = (() => {
     drawer?.classList.add('open');
     const body = document.getElementById('globals-drawer-body');
     if (!body) return;
-
     body.innerHTML = '<div class="wizard-loading"><div class="spinner"></div> Loading...</div>';
-
     try {
       const globals = await API.getGlobals();
       const entries = Object.values(globals);
-      if (entries.length === 0) {
+      if (!entries.length) {
         body.innerHTML = '<p class="text-muted" style="font-size:12px">No global variables defined.</p>';
         return;
       }
@@ -262,9 +234,7 @@ const GlobalsDrawer = (() => {
     }
   }
 
-  function close() {
-    drawer?.classList.remove('open');
-  }
+  function close() { drawer?.classList.remove('open'); }
 
   document.getElementById('globals-drawer-close')?.addEventListener('click', close);
 
@@ -279,50 +249,30 @@ const Dialog = (() => {
 
   function confirm({ title, message, buttons, onClose }) {
     if (!backdrop || !box) {
-      // Fallback to native confirm for missing DOM
       const ok = window.confirm(`${title}\n\n${message}`);
-      onClose && onClose(ok ? buttons[0]?.value : 'cancel');
+      onClose && onClose(ok ? (buttons?.[0]?.value || 'ok') : 'cancel');
       return;
     }
-
     _onClose = onClose;
-
-    const titleEl = box.querySelector('.dialog-title');
-    const msgEl = box.querySelector('.dialog-message');
+    box.querySelector('.dialog-title').textContent = title;
+    box.querySelector('.dialog-message').textContent = message;
     const actionsEl = box.querySelector('.dialog-actions');
-
-    if (titleEl) titleEl.textContent = title;
-    if (msgEl) msgEl.textContent = message;
-
-    if (actionsEl) {
-      actionsEl.innerHTML = '';
-      (buttons || [{ label: 'OK', value: 'ok', primary: true }, { label: 'Cancel', value: 'cancel' }])
-        .forEach(btn => {
-          const el = document.createElement('button');
-          el.textContent = btn.label;
-          el.className = btn.primary ? 'btn btn-primary' : btn.danger ? 'btn btn-danger' : 'btn';
-          el.addEventListener('click', () => {
-            close();
-            _onClose && _onClose(btn.value);
-          });
-          actionsEl.appendChild(el);
-        });
-    }
-
+    actionsEl.innerHTML = '';
+    (buttons || [{ label: 'OK', value: 'ok', primary: true }, { label: 'Cancel', value: 'cancel' }])
+      .forEach(btn => {
+        const el = document.createElement('button');
+        el.textContent = btn.label;
+        el.className = btn.primary ? 'btn btn-primary' : btn.danger ? 'btn btn-danger' : 'btn';
+        el.addEventListener('click', () => { close(); _onClose && _onClose(btn.value); });
+        actionsEl.appendChild(el);
+      });
     backdrop.classList.add('open');
   }
 
-  function close() {
-    backdrop?.classList.remove('open');
-    _onClose = null;
-  }
+  function close() { backdrop?.classList.remove('open'); _onClose = null; }
 
-  // Backdrop click closes
   backdrop?.addEventListener('click', (e) => {
-    if (e.target === backdrop) {
-      close();
-      _onClose && _onClose('cancel');
-    }
+    if (e.target === backdrop) { close(); _onClose && _onClose('cancel'); }
   });
 
   return { confirm, close };
@@ -337,7 +287,6 @@ const ContextMenu = (() => {
     if (!menu) return;
     _onAction = onAction;
     menu.innerHTML = '';
-
     items.forEach(item => {
       if (item === '---') {
         const d = document.createElement('div');
@@ -348,28 +297,16 @@ const ContextMenu = (() => {
       const el = document.createElement('div');
       el.className = 'context-menu-item' + (item.danger ? ' danger' : '');
       el.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        hide();
-        _onAction && _onAction(item.action);
-      });
+      el.addEventListener('click', (e) => { e.stopPropagation(); hide(); _onAction && _onAction(item.action); });
       menu.appendChild(el);
     });
-
-    // Position — keep on screen
-    menu.style.display = 'block';
     menu.classList.add('visible');
     const rect = menu.getBoundingClientRect();
-    const finalX = Math.min(x, window.innerWidth - rect.width - 8);
-    const finalY = Math.min(y, window.innerHeight - rect.height - 8);
-    menu.style.left = finalX + 'px';
-    menu.style.top = finalY + 'px';
+    menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + 'px';
   }
 
-  function hide() {
-    menu?.classList.remove('visible');
-    _onAction = null;
-  }
+  function hide() { menu?.classList.remove('visible'); _onAction = null; }
 
   return { show, hide };
 })();

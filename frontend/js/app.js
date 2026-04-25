@@ -182,8 +182,54 @@ const App = (() => {
     return state.pistons.find(p => p.id === id) || null;
   }
 
+  // ── Theme ────────────────────────────────────────────────
+  function _initTheme() {
+    const saved = localStorage.getItem('pistoncore_theme') || 'dark';
+    _applyTheme(saved);
+    document.getElementById('btn-theme-toggle')?.addEventListener('click', () => {
+      const next = document.documentElement.classList.contains('light-mode') ? 'dark' : 'light';
+      _applyTheme(next);
+      localStorage.setItem('pistoncore_theme', next);
+    });
+  }
+
+  function _applyTheme(theme) {
+    const btn = document.getElementById('btn-theme-toggle');
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-mode');
+      if (btn) btn.textContent = '🌙 Dark';
+    } else {
+      document.documentElement.classList.remove('light-mode');
+      if (btn) btn.textContent = '☀️ Light';
+    }
+  }
+
+  // ── Confirm helper (used by editor) ─────────────────────
+  function confirm({ title, message, confirmLabel, cancelLabel, danger, onConfirm }) {
+    Dialog.confirm({
+      title,
+      message,
+      buttons: [
+        { label: confirmLabel || 'OK', value: 'ok', ...(danger ? { danger: true } : { primary: true }) },
+        { label: cancelLabel || 'Cancel', value: 'cancel' },
+      ],
+      onClose: (val) => { if (val === 'ok' && onConfirm) onConfirm(); },
+    });
+  }
+
+  // ── Context menu helper (used by editor) ─────────────────
+  function showContextMenu(x, y, items) {
+    const mapped = items.map(item => {
+      if (item.separator) return '---';
+      return { label: item.label, action: item.action, danger: item.danger || false };
+    });
+    ContextMenu.show(x, y, mapped, (action) => { if (action) action(); });
+  }
+
   // ── Init ─────────────────────────────────────────────────
   function init() {
+    _initTheme();
+
     document.getElementById('btn-globals')?.addEventListener('click', () => GlobalsDrawer.open());
 
     document.addEventListener('click', () => ContextMenu.hide());
@@ -192,18 +238,89 @@ const App = (() => {
         ContextMenu.hide();
         Wizard.close();
         Dialog.close();
+        NewPistonModal.close();
       }
     });
 
-    // Start WebSocket with a short delay so it doesn't block initial render
     setTimeout(_connectWebSocket, 2000);
-
-    // Navigate after a tick so all page modules (list.js, status.js etc.) are defined
     setTimeout(_restoreNavState, 0);
   }
 
-  return { state, navigate, loadPistons, getPistonFromCache, init };
+  return { state, navigate, loadPistons, getPistonFromCache, init, confirm, showContextMenu };
 
+})();
+
+// ── New Piston Modal ─────────────────────────────────────
+const NewPistonModal = (() => {
+  const backdrop = document.getElementById('new-piston-backdrop');
+
+  function open() {
+    if (!backdrop) return;
+    backdrop.style.display = 'flex';
+    _wire();
+  }
+
+  function close() {
+    if (backdrop) backdrop.style.display = 'none';
+  }
+
+  function _wire() {
+    // Blank piston
+    document.getElementById('npm-blank')?.addEventListener('click', async () => {
+      close();
+      try {
+        const result = await API.createPiston({ name: 'New Piston', enabled: true });
+        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+      } catch (e) {
+        alert('Could not create piston: ' + e.message);
+      }
+    }, { once: true });
+
+    // Duplicate — show list picker
+    document.getElementById('npm-duplicate')?.addEventListener('click', async () => {
+      close();
+      const pistons = App.state.pistons;
+      if (!pistons.length) { alert('No existing pistons to duplicate.'); open(); return; }
+      const name = prompt('Duplicate which piston? Enter the exact piston name:\n\n' +
+        pistons.map(p => p.name).join('\n'));
+      if (!name) return;
+      const src = pistons.find(p => p.name === name);
+      if (!src) { alert('Piston not found.'); return; }
+      try {
+        const result = await API.duplicatePiston(src.id);
+        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+      } catch (e) {
+        alert('Could not duplicate piston: ' + e.message);
+      }
+    }, { once: true });
+
+    // Import file
+    document.getElementById('npm-import')?.addEventListener('click', () => {
+      document.getElementById('npm-file-input')?.click();
+    }, { once: true });
+
+    document.getElementById('npm-file-input')?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      close();
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const result = await API.importPiston(json);
+        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+      } catch (e) {
+        alert('Import failed: ' + e.message);
+      }
+      e.target.value = '';
+    }, { once: true });
+
+    // Close on backdrop click
+    backdrop?.addEventListener('click', (e) => {
+      if (e.target === backdrop) close();
+    }, { once: true });
+  }
+
+  return { open, close };
 })();
 
 // ── Globals Drawer ───────────────────────────────────────

@@ -1377,3 +1377,232 @@ input::placeholder { color: var(--text-muted); }
 .flex-center { display: flex; align-items: center; }
 .gap-2 { gap: var(--space-2); }
 .gap-3 { gap: var(--space-3); }
+
+/* ════════════════════════════════════════════════════════
+   DARK / LIGHT MODE
+   Dark = default. Light mode overrides applied to html.light-mode
+   ════════════════════════════════════════════════════════ */
+
+html.light-mode {
+  --bg-base:       #f0efea;
+  --bg-surface:    #ffffff;
+  --bg-raised:     #f8f7f2;
+  --bg-hover:      #e8e6e0;
+  --bg-selected:   #cce4f0;
+  --bg-modal:      #ffffff;
+  --border-subtle: #d0cdc5;
+  --border-strong: #b0ada5;
+  --border-focus:  #1a7aaa;
+  --text-primary:  #1a1d23;
+  --text-secondary:#3a3d45;
+  --text-muted:    #787570;
+  --text-disabled: #b0ada5;
+  --teal:          #006868;
+  --teal-dim:      #008888;
+  --teal-bg:       rgba(0,104,104,0.07);
+  --ghost:         #999;
+  --ghost-hover:   #555;
+  --btn-primary-bg:#1a6e8a;
+  --btn-primary-hover:#1d8aaa;
+  --btn-danger-bg: #c62828;
+  --btn-danger-hover:#d32f2f;
+}
+
+/* In light mode, doc area uses cream background (matching WebCoRE screenshots) */
+html.light-mode .editor-doc { background: #f7f5f0; color: #1a1d23; }
+html.light-mode .doc-cmt    { color: #2e7d2e; }
+html.light-mode .kw         { color: #006868; }
+html.light-mode .doc-dev    { color: #b04000; }
+html.light-mode .doc-var    { color: #b04000; }
+html.light-mode .doc-attr   { color: #1a4a8a; }
+
+/* ════════════════════════════════════════════════════════
+   EDITOR PAGE — document layout
+   ════════════════════════════════════════════════════════ */
+
+.editor-loading {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; padding: 60px; color: var(--text-muted); font-size: 14px;
+}
+
+/* ── Toolbar ── */
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.editor-tb-left  { display: flex; align-items: center; gap: 6px; }
+.editor-tb-center { flex: 1; display: flex; align-items: center; gap: 8px; justify-content: center; overflow: hidden; }
+.editor-tb-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.etb-icon {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s, border-color 0.1s;
+}
+.etb-icon:hover { background: var(--bg-hover); border-color: var(--border-subtle); color: var(--text-primary); }
+
+.etb-sep { width: 1px; height: 18px; background: var(--border-subtle); flex-shrink: 0; margin: 0 2px; }
+
+.etb-mode-toggle {
+  display: flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.etb-mode-toggle button {
+  background: transparent; border: none;
+  color: var(--text-muted); padding: 3px 10px; font-size: 12px; cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.etb-mode-toggle button.active { background: var(--bg-hover); color: var(--teal); }
+
+/* Piston name in center of toolbar */
+.editor-piston-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.editor-piston-name:hover { border-color: var(--border-subtle); background: var(--bg-raised); }
+
+.unsaved-dot { color: var(--yellow); font-size: 10px; flex-shrink: 0; }
+
+/* ── PyScript warning bar ── */
+.pyscript-warning {
+  background: rgba(239,83,80,0.1);
+  border-bottom: 1px solid rgba(239,83,80,0.3);
+  color: var(--red);
+  font-size: 12px;
+  padding: 6px 16px;
+  text-align: center;
+}
+
+/* ── Editor notice bar ── */
+.editor-notice-bar { margin: 0; border-radius: 0; border-left: none; border-right: none; }
+
+/* ── Document pane ── */
+--doc-indent: 2rem;
+
+.editor-doc {
+  flex: 1;
+  background: var(--bg-base);
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 1.85;
+  padding: 10px 0 60px;
+  overflow-x: auto;
+  min-height: calc(100vh - 90px);
+}
+
+/* ── Document lines ── */
+.doc-line {
+  display: flex;
+  align-items: baseline;
+  min-height: 24px;
+  position: relative;
+  --doc-indent: 2rem;
+}
+.doc-line:hover { background: rgba(255,255,255,0.025); }
+html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
+
+.doc-stmt   { cursor: pointer; }
+.doc-ghost  { cursor: default; }
+.doc-blank  { min-height: 10px; }
+
+.doc-selected { background: var(--bg-selected) !important; }
+.doc-cut      { opacity: 0.4; }
+
+/* Line number */
+.doc-ln {
+  display: inline-block;
+  width: 44px;
+  text-align: right;
+  padding-right: 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Line content */
+.doc-lc { flex: 1; white-space: pre-wrap; word-break: break-word; padding-right: 12px; }
+
+/* ── Syntax colors ── */
+.kw       { color: var(--teal); }
+.doc-cmt  { color: #4a8a4a; }
+.doc-dev  { color: #bf6000; }          /* orange — {Device} */
+.doc-var  { color: #bf6000; }          /* orange — $var @global */
+.doc-attr { color: #3a7abf; text-decoration: underline; }
+.doc-brace{ color: var(--teal); }
+.doc-bolt { color: var(--yellow); }
+.doc-svc  { color: var(--green); font-size: 10px; }
+.doc-str  { color: var(--text-muted); }
+.doc-params{ color: var(--text-muted); font-size: 12px; }
+.doc-param-k { color: var(--text-secondary); }
+.doc-gop  { font-size: 11px; opacity: 0.8; }
+.doc-ph   { color: var(--text-muted); font-style: italic; }
+
+/* Ghost text */
+.ghost {
+  color: var(--ghost);
+  cursor: pointer;
+  font-style: italic;
+  font-size: 12px;
+  border-radius: 3px;
+  padding: 1px 4px;
+  user-select: none;
+  transition: color 0.1s, background 0.1s;
+}
+.ghost:hover { color: var(--teal); background: var(--teal-bg); }
+
+/* ════════════════════════════════════════════════════════
+   NEW PISTON MODAL — option buttons
+   ════════════════════════════════════════════════════════ */
+
+.npm-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: filter 0.1s, opacity 0.1s;
+}
+.npm-option:hover { filter: brightness(1.08); }
+.npm-icon { font-family: var(--font-code); font-size: 13px; color: var(--text-muted); }
+
+.npm-option-blue { background: #1a7abf; color: #fff; border-color: transparent; }
+.npm-option-blue .npm-icon { color: rgba(255,255,255,0.7); }
+
+.npm-option-green { background: #2e8b2e; color: #fff; border-color: transparent; }
+.npm-option-green .npm-icon { color: rgba(255,255,255,0.7); }
+

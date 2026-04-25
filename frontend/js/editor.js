@@ -1,26 +1,30 @@
 // pistoncore/frontend/js/editor.js
 //
 // Page 3 — Piston Editor
-// Renders the action tree as an editable document.
-// Ghost text at every insertion point opens the Wizard modal.
-// Right-click shows the context menu.
-// Two distinct save operations: Save to PistonCore | Deploy to HA.
+// Continuous document renderer — WebCoRE style.
+// No boxes or section headers. Line numbers, teal keywords,
+// ghost text insertion points, right-click context menu.
+// Save → navigates to status page.
+// Globals accessible via header button (GlobalsDrawer).
 
 const Editor = (() => {
 
   const container = document.getElementById('page-editor');
-  let _piston = null;       // full piston JSON in memory
-  let _stmtCounter = 0;     // for generating unique stmt IDs
+  let _piston = null;
+  let _stmtCounter = 0;
+  let _selectedId = null;
+  let _cutId = null;
 
   // ── Load ─────────────────────────────────────────────────
   async function load(pistonId) {
     if (!container) return;
-    container.innerHTML = `<div class="wizard-loading"><div class="spinner"></div> Loading...</div>`;
-
+    container.innerHTML = `<div class="editor-loading"><div class="spinner"></div> Loading...</div>`;
     try {
       _piston = await API.getPiston(pistonId);
       _stmtCounter = _highestStmtId(_piston);
       App.state.unsavedChanges = false;
+      _selectedId = null;
+      _cutId = null;
       render();
     } catch (e) {
       container.innerHTML = `<div class="banner banner-error">Could not load piston: ${_esc(e.message)}</div>`;
@@ -32,575 +36,541 @@ const Editor = (() => {
     if (!container || !_piston) return;
     const p = _piston;
     const isSimple = App.state.simpleMode;
-    const target = p.compile_target || 'Native HA Script';
-    const isPyScript = target.toLowerCase().includes('pyscript');
+    const isPy = (p.compile_target || '').toLowerCase().includes('pyscript');
 
     container.innerHTML = `
-      <!-- Editor nav -->
-      <div class="editor-nav">
-        <button class="btn btn-ghost btn-sm" id="btn-status-return">← Status</button>
-        <div style="flex:1"></div>
-        <button class="btn btn-ghost btn-sm" id="btn-new-from-editor">+ New Piston</button>
-      </div>
+      <!-- Toolbar — mirrors WebCoRE top bar layout -->
+      <div class="editor-toolbar">
+        <div class="editor-tb-left">
+          <button class="etb-icon" id="btn-editor-cancel" title="Cancel — return to status page">✕</button>
+          <div class="etb-sep"></div>
+          <div class="etb-mode-toggle">
+            <button class="${isSimple ? 'active' : ''}" id="toggle-simple">Simple</button>
+            <button class="${!isSimple ? 'active' : ''}" id="toggle-adv">Advanced</button>
+          </div>
+        </div>
 
-      <!-- Piston name and description -->
-      <div class="editor-title-row">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Piston Name</label>
-          <input type="text" id="piston-name" value="${_esc(p.name || '')}" placeholder="Give this piston a name..." />
+        <div class="editor-tb-center">
+          <span class="editor-piston-name" id="editor-piston-name-display" title="Click to rename">${_esc(p.name || 'Untitled')}</span>
+          <span class="unsaved-dot" id="unsaved-dot" style="display:none" title="Unsaved changes">●</span>
         </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">Description</label>
-          <input type="text" id="piston-desc" value="${_esc(p.description || '')}" placeholder="Optional description..." />
-        </div>
-      </div>
 
-      <!-- Editor meta row: folder, mode, enabled, simple/adv, compile target -->
-      <div class="editor-meta-row">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Folder</label>
-          <select id="editor-folder">
-            ${_folderOptions(p.folder)}
-          </select>
-        </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">Mode</label>
-          <select id="editor-mode">
-            <option value="single" ${p.mode === 'single' || !p.mode ? 'selected' : ''}>Single</option>
-            <option value="queued" ${p.mode === 'queued' ? 'selected' : ''}>Queued</option>
-            <option value="parallel" ${p.mode === 'parallel' ? 'selected' : ''}>Parallel</option>
-          </select>
-        </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">Status</label>
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding-top:4px">
-            <input type="checkbox" id="editor-enabled" ${p.enabled !== false ? 'checked' : ''} />
-            <span style="font-size:13px">Enabled</span>
-          </label>
-        </div>
-        <div class="simple-adv-toggle">
-          <button class="${isSimple ? 'active' : ''}" id="toggle-simple">Simple</button>
-          <button class="${!isSimple ? 'active' : ''}" id="toggle-advanced">Advanced</button>
-        </div>
-        <div class="compile-target-badge ${isPyScript ? 'pyscript' : ''}" id="compile-target-badge" title="Auto-detected compile target">
-          ${_esc(target)}
+        <div class="editor-tb-right">
+          <button class="btn btn-danger btn-sm" id="btn-editor-delete">🗑 Delete</button>
+          <button class="btn btn-primary btn-sm" id="btn-save">💾 Save</button>
+          <button class="btn btn-ghost btn-sm" id="btn-editor-options">Options ▾</button>
+          <span class="etb-sep"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-editor-cancel-text">Cancel</button>
         </div>
       </div>
 
-      <!-- Piston Variables (Advanced only) -->
-      <div class="editor-section" id="section-variables" ${isSimple ? 'style="display:none"' : ''}>
-        <div class="editor-section-header">
-          <span class="section-toggle">▼</span>
-          <span class="section-name">Piston Variables</span>
-          <button class="btn btn-ghost btn-sm section-add-btn" id="btn-add-variable">+ Add</button>
-        </div>
-        <div class="action-tree" id="tree-variables">
-          ${_renderVariablesList(p.variables || [])}
-        </div>
+      <!-- PyScript warning — only shown when piston crosses threshold -->
+      <div class="pyscript-warning" id="pyscript-warning" ${isPy ? '' : 'style="display:none"'}>
+        ⚠ This piston requires PyScript — some features will not work without the companion integration.
       </div>
 
-      <!-- Triggers -->
-      <div class="editor-section">
-        <div class="editor-section-header">
-          <span class="section-toggle">▼</span>
-          <span class="section-name">Triggers</span>
-        </div>
-        <div class="action-tree" id="tree-triggers">
-          ${_renderTriggers(p.triggers || [])}
-          <div class="ghost-text" data-insert="trigger" data-index="${(p.triggers||[]).length}">+ add a new trigger</div>
-        </div>
+      <!-- Editor notice (save errors, warnings) -->
+      <div id="editor-notice"></div>
+
+      <!-- Main document -->
+      <div class="editor-doc" id="editor-doc">
+        ${_renderDocument(p, isSimple)}
       </div>
 
-      <!-- Conditions -->
-      <div class="editor-section">
-        <div class="editor-section-header">
-          <span class="section-toggle">▼</span>
-          <span class="section-name">Conditions</span>
-        </div>
-        <div class="action-tree" id="tree-conditions">
-          ${_renderConditions(p.conditions || [])}
-          <div class="ghost-text" data-insert="condition" data-index="${(p.conditions||[]).length}">+ add a new condition</div>
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="editor-section">
-        <div class="editor-section-header">
-          <span class="section-toggle">▼</span>
-          <span class="section-name">Actions</span>
-        </div>
-        <div class="action-tree" id="tree-actions">
-          <div><span class="kw">execute</span></div>
-          ${_renderActionNodes(p.actions || [], 1)}
-          <div class="ghost-text" data-insert="action" data-index="${(p.actions||[]).length}">+ add a new statement</div>
-          <div><span class="kw">end execute;</span></div>
-        </div>
-      </div>
-
-      <!-- Bottom bar -->
-      <div class="editor-bottom-bar">
-        <button class="btn btn-danger" id="btn-test-editor">▶ Test — Live Fire ⚠</button>
-        <div class="editor-bottom-bar-spacer"></div>
-        <div class="log-level-selector">
-          Log Level:
-          <select id="editor-log-level">
-            <option value="full" ${p.log_level === 'full' || !p.log_level ? 'selected' : ''}>Full</option>
-            <option value="minimal" ${p.log_level === 'minimal' ? 'selected' : ''}>Minimal</option>
-            <option value="none" ${p.log_level === 'none' ? 'selected' : ''}>None</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" id="btn-save" title="Save piston JSON to PistonCore storage">💾 Save to PistonCore</button>
-        <button class="btn btn-teal" id="btn-deploy" title="Compile and deploy to Home Assistant" ${!p.id ? 'disabled' : ''}>🚀 Deploy to HA</button>
-      </div>
+      <!-- Context menu anchor -->
     `;
 
-    _wireEditorEvents();
+    _wireEvents();
     _markUnsaved(false);
   }
 
-  // ── Tree rendering ───────────────────────────────────────
-  function _renderTriggers(triggers) {
-    if (!triggers.length) return '';
-    return triggers.map((t, i) => {
-      const icon = '⚡ ';
-      const text = _conditionText(t);
-      return `<div class="stmt-node" data-type="trigger" data-index="${i}" data-id="${_esc(t.id || '')}">
-        <span class="stmt-num">${i+1}</span>
-        <span class="trigger-icon">${icon}</span>${_esc(text)}
-      </div>`;
-    }).join('');
+  // ── Document renderer ────────────────────────────────────
+  function _renderDocument(p, isSimple) {
+    const lines = [];
+    const num = { n: 1 };
+
+    // ln() — numbered line
+    const ln = (html, indent, opts = {}) => {
+      const { id, type } = opts;
+      const sel = id && id === _selectedId;
+      const cut = id && id === _cutId;
+      const cls = ['doc-line',
+        id ? 'doc-stmt' : '',
+        sel ? 'doc-selected' : '',
+        cut ? 'doc-cut' : '',
+      ].filter(Boolean).join(' ');
+      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
+      const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
+      lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
+    };
+
+    // gh() — ghost text line (no line number)
+    const gh = (text, ctx, indent, extra = {}) => {
+      const attrs = Object.entries(extra).map(([k,v]) => `data-${k}="${_esc(String(v))}"`).join(' ');
+      const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
+      lines.push(`<div class="doc-line doc-ghost" ${ind}><span class="doc-ln"></span><span class="doc-lc"><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
+    };
+
+    // ── Comment header ──
+    ln(_cm(`************************************************************`), 0);
+    ln(_cm(`* ${p.name || 'Untitled'}`), 0);
+    ln(_cm(`************************************************************`), 0);
+    if (p.author) ln(_cm(`* Author    : ${p.author}`), 0);
+    ln(_cm(`* Created   : ${_fmtDate(p.created_at)}`), 0);
+    ln(_cm(`* Modified  : ${_fmtDate(p.updated_at)}`), 0);
+    ln(_cm(`************************************************************`), 0);
+
+    // ── settings block ──
+    ln(`<span class="kw">settings</span>`, 0);
+    ln(`<span class="kw">end settings;</span>`, 0);
+
+    // blank line
+    lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
+
+    // ── define block ──
+    ln(`<span class="kw">define</span>`, 0);
+    if (!isSimple) {
+      (p.variables || []).forEach(v => {
+        const init = v.initial_value !== undefined ? ` ${_cm(`/* ${v.initial_value} */`)}` : '';
+        ln(`${_kw(_typeLabel(v.var_type))} ${_dv('$', v.name)};${init}`, 1, { id: v.id, type: 'variable' });
+      });
+      gh('+ add a new variable', 'variable', 1);
+    }
+    ln(`<span class="kw">end define;</span>`, 0);
+
+    // blank line
+    lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
+
+    // ── top-level only when (restrictions) ──
+    const restrictions = p.restrictions || [];
+    if (restrictions.length || !isSimple) {
+      ln(`<span class="kw">only when</span>`, 0);
+      restrictions.forEach(r => ln(_condLine(r), 1, { id: r.id, type: 'restriction' }));
+      gh('· add a new restriction', 'restriction', 1);
+      lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
+    }
+
+    // ── execute block ──
+    ln(`<span class="kw">execute</span>`, 0);
+
+    // only when inside execute — triggers + conditions
+    ln(`<span class="kw">only when</span>`, 1);
+    (p.triggers || []).forEach(t => {
+      ln(`<span class="doc-bolt">⚡</span> ${_condLine(t)}`, 2, { id: t.id, type: 'trigger' });
+    });
+    (p.conditions || []).forEach(c => {
+      ln(_condLine(c), 2, { id: c.id, type: 'condition' });
+    });
+    gh('· add a new trigger or condition', 'trigger_or_condition', 2);
+
+    // action nodes
+    _actionLines(p.actions || [], 1, lines, num, gh);
+
+    gh('· add a new statement', 'action', 1);
+    ln(`<span class="kw">end execute;</span>`, 0);
+
+    return lines.join('\n');
   }
 
-  function _renderConditions(conditions) {
-    if (!conditions.length) return '';
-    return conditions.map((c, i) => {
-      return `<div class="stmt-node" data-type="condition" data-index="${i}" data-id="${_esc(c.id || '')}">
-        <span class="stmt-num">${i+1}</span>${_esc(_conditionText(c))}
-      </div>`;
-    }).join('');
-  }
+  // ── Recursive action renderer ────────────────────────────
+  function _actionLines(nodes, depth, lines, num, gh) {
+    const pad = Math.min(depth, 7);
 
-  let _stmtNum = 1;  // reset each full render
+    const ln = (html, indent, opts = {}) => {
+      const { id, type } = opts;
+      const sel = id && id === _selectedId;
+      const cut = id && id === _cutId;
+      const cls = ['doc-line', id ? 'doc-stmt' : '', sel ? 'doc-selected' : '', cut ? 'doc-cut' : ''].filter(Boolean).join(' ');
+      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
+      const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
+      lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
+    };
 
-  function _renderActionNodes(nodes, depth) {
-    const pad = `indent-${Math.min(depth, 5)}`;
-    let html = '';
-
-    nodes.forEach((node, i) => {
-      const type = node.type;
+    nodes.forEach(node => {
       const id = node.id || '';
-      const num = _stmtNum++;
+      const t = node.type;
 
-      if (type === 'if_block') {
-        html += `<div class="stmt-node ${pad}" data-type="if_block" data-id="${_esc(id)}">
-          <span class="stmt-num">${num}</span><span class="kw">if</span>
-        </div>`;
-        (node.conditions || []).forEach(c => {
-          html += `<div class="indent-${Math.min(depth+1,5)}">${_esc(_conditionText(c))}</div>`;
+      if (t === 'if_block') {
+        ln(`<span class="kw">if</span>`, pad, { id, type: t });
+        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
+        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        ln(`<span class="doc-brace">{</span>`, pad);
+        ln(`<span class="kw">when true</span>`, pad + 1);
+        _actionLines(node.then_actions || [], depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
+        (node.else_if_blocks || []).forEach(eib => {
+          ln(`<span class="kw">else if</span>`, pad);
+          (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
+          ln(`<span class="kw">when true</span>`, pad + 1);
+          _actionLines(eib.actions || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
-        html += `<div class="${pad}"><span class="kw-brace">{</span></div>`;
-        html += `<div class="indent-${Math.min(depth+1,5)}"><span class="kw">when true</span></div>`;
-        html += _renderActionNodes(node.then_actions || [], depth + 2);
-        html += `<div class="ghost-text indent-${Math.min(depth+2,5)}" data-insert="action" data-parent="${id}" data-branch="then">+ add a new statement</div>`;
         if (node.else_actions !== undefined) {
-          html += `<div class="indent-${Math.min(depth+1,5)}"><span class="kw">when false</span></div>`;
-          html += _renderActionNodes(node.else_actions || [], depth + 2);
-          html += `<div class="ghost-text indent-${Math.min(depth+2,5)}" data-insert="action" data-parent="${id}" data-branch="else">+ add a new statement</div>`;
+          ln(`<span class="kw">else</span>`, pad);
+          _actionLines(node.else_actions || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
         }
-        html += `<div class="${pad}"><span class="kw-brace">}</span></div>`;
-        html += `<div class="${pad}"><span class="kw">end if;</span></div>`;
+        ln(`<span class="doc-brace">}</span>`, pad);
+        ln(`<span class="kw">end if;</span>`, pad);
 
-      } else if (type === 'with_block') {
-        html += `<div class="stmt-node ${pad}" data-type="with_block" data-id="${_esc(id)}">
-          <span class="stmt-num">${num}</span><span class="kw">with</span>
-        </div>`;
-        (node.devices || []).forEach(d => {
-          html += `<div class="indent-${Math.min(depth+1,5)}">(${_esc(d)})</div>`;
-        });
-        html += `<div class="${pad}"><span class="kw">do</span></div>`;
-        html += _renderActionNodes(node.actions || [], depth + 1);
-        html += `<div class="ghost-text indent-${Math.min(depth+1,5)}" data-insert="task" data-parent="${id}">+ add a new task</div>`;
-        html += `<div class="${pad}"><span class="kw">end with;</span></div>`;
+      } else if (t === 'with_block') {
+        ln(`<span class="kw">with</span>`, pad, { id, type: t });
+        (node.devices || []).forEach(d => ln(`    ${_dr(d.label || d.role || d)}`, pad + 1));
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.tasks || [], depth + 2, lines, num, gh);
+        gh('· add a new task', 'task', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end with;</span>`, pad);
 
-      } else if (type === 'repeat_block') {
-        html += `<div class="stmt-node ${pad}" data-type="repeat_block" data-id="${_esc(id)}">
-          <span class="stmt-num">${num}</span><span class="kw">repeat</span>
-        </div>`;
-        html += `<div class="${pad}"><span class="kw">do</span></div>`;
-        html += _renderActionNodes(node.actions || [], depth + 1);
-        html += `<div class="ghost-text indent-${Math.min(depth+1,5)}" data-insert="action" data-parent="${id}">+ add a new statement</div>`;
-        html += `<div class="${pad}"><span class="kw">until</span></div>`;
-        html += `<div class="${pad}"><span class="kw">end repeat;</span></div>`;
+      } else if (t === 'for_each') {
+        const dv = node.device_var ? _dv('$', node.device_var) : _dr(node.device_list || '');
+        const lv = node.list_var ? _dv('@', node.list_var) : _dr(node.device_list || '');
+        ln(`<span class="kw">for each</span> (${dv} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end for each;</span>`, pad);
 
-      } else if (type === 'wait') {
-        const waitText = _waitText(node);
-        const tooltip = node.wait_type === 'time'
-          ? `<span class="wait-tooltip-trigger">
-              <span class="wait-info-icon">ⓘ</span>
-              <span class="wait-tooltip">If this piston reaches this step after the target time has already passed today, it will wait until tomorrow. Make sure this step is always reached before the target time.</span>
-             </span>` : '';
-        html += `<div class="stmt-node ${pad}" data-type="wait" data-id="${_esc(id)}">
-          <span class="stmt-num">${num}</span>${_esc(waitText)}${tooltip};
-        </div>`;
+      } else if (t === 'while_loop') {
+        ln(`<span class="kw">while</span>`, pad, { id, type: t });
+        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end while;</span>`, pad);
+
+      } else if (t === 'repeat_loop') {
+        ln(`<span class="kw">repeat</span> ${_esc(String(node.times ?? '?'))} <span class="kw">times</span>`, pad, { id, type: t });
+        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end repeat;</span>`, pad);
+
+      } else if (t === 'wait') {
+        const w = node.wait_type === 'duration'
+          ? `<span class="kw">wait</span> ${_esc(node.duration||'')} ${_esc(node.unit||'')};`
+          : node.wait_type === 'time'
+          ? `<span class="kw">wait until</span> ${_esc(node.time||'')};`
+          : `<span class="kw">wait</span>;`;
+        ln(w, pad, { id, type: t });
+
+      } else if (t === 'set_variable') {
+        ln(`<span class="kw">set variable</span> ${_dv('$', node.variable)} = ${_val(node.value)};`, pad, { id, type: t });
+
+      } else if (t === 'service_call') {
+        const params = node.parameters
+          ? Object.entries(node.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
+          : '';
+        ln(`<span class="doc-svc">●</span> <span class="kw">do</span> ${_esc(node.service||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
+
+      } else if (t === 'log') {
+        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message||'')}"</span>;`, pad, { id, type: t });
+
+      } else if (t === 'stop') {
+        ln(`<span class="kw">stop</span>${node.reason ? ' — ' + _esc(node.reason) : ''};`, pad, { id, type: t });
+
+      } else if (t === 'call_piston') {
+        ln(`<span class="kw">execute piston</span> ${_esc(node.target_name||node.target||'')};`, pad, { id, type: t });
 
       } else {
-        // Generic statement (service_call, set_variable, log, stop, etc.)
-        const label = _nodeLabel(node);
-        html += `<div class="stmt-node ${pad}" data-type="${_esc(type)}" data-id="${_esc(id)}">
-          <span class="stmt-num">${num}</span>${_esc(label)}
-        </div>`;
+        ln(_esc(node.description || node.label || node.type || '[statement]') + ';', pad, { id, type: t });
       }
-
-      // Insertion point between statements at this level
-      html += `<div class="ghost-text ${pad}" data-insert="action" data-index="${i+1}">+ add a new statement</div>`;
     });
-
-    return html;
   }
 
-  // ── Variable list rendering ──────────────────────────────
-  function _renderVariablesList(vars) {
-    if (!vars || !vars.length) {
-      return '<div class="ghost-text" data-insert="variable">+ add a new variable</div>';
-    }
-    return vars.map((v, i) =>
-      `<div class="stmt-node" data-type="variable" data-index="${i}">
-        $${_esc(v.name)} = ${_esc(String(v.default ?? ''))}
-      </div>`
-    ).join('') + '<div class="ghost-text" data-insert="variable">+ add a new variable</div>';
+  // ── Inline helpers ───────────────────────────────────────
+  function _condLine(c) {
+    if (!c) return '<span class="doc-ph">[condition]</span>';
+    const agg = c.aggregation && c.aggregation !== 'null'
+      ? `<span class="kw">${_esc({any:'Any of',all:'All of',none:'None of'}[c.aggregation]||c.aggregation)}</span> `
+      : '';
+    const subj = _subj(c.subject);
+    const attr = c.subject?.capability ? ` <span class="doc-attr">${_esc(c.subject.capability)}</span>` : '';
+    const op   = c.operator ? ` <span class="kw">${_esc(c.operator)}</span>` : '';
+    const val  = c.display_value !== undefined ? ` ${_esc(String(c.display_value))}` : '';
+    const dur  = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))}` : '';
+    const gop  = c.group_operator ? ` <span class="kw doc-gop">${_esc(c.group_operator)}</span>` : '';
+    return `${agg}${subj}${attr}${op}${val}${dur}${gop}`;
   }
+
+  function _subj(s) {
+    if (!s) return '';
+    if (s.type === 'device')   return _dr(s.role || s.entity_id || 'device');
+    if (s.type === 'variable') return _dv('$', s.name || '');
+    if (s.type === 'global')   return _dv('@', s.name || '');
+    return `<span class="kw">${_esc(s.type || '')}</span>`;
+  }
+
+  function _val(v) {
+    if (v === null || v === undefined) return '<span class="doc-ph">?</span>';
+    if (typeof v === 'object' && v.__type === 'variable') return _dv('$', v.name || '');
+    if (typeof v === 'object' && v.__type === 'global')   return _dv('@', v.name || '');
+    return _esc(String(v));
+  }
+
+  function _typeLabel(t) {
+    return { string:'string', boolean:'boolean', integer:'number (integer)', decimal:'number (decimal)', long:'large number', datetime:'date and time', date:'date', time:'time', device:'device', dynamic:'dynamic' }[t] || t || 'dynamic';
+  }
+
+  function _dr(label) { return `<span class="doc-dev">{${_esc(label)}}</span>`; }
+  function _dv(sig, name) { return `<span class="doc-var">${_esc(sig)}${_esc(name)}</span>`; }
+  function _kw(text) { return `<span class="kw">${_esc(text)}</span>`; }
+  function _cm(text) { return `<span class="doc-cmt">${_esc(text)}</span>`; }
 
   // ── Event wiring ─────────────────────────────────────────
-  function _wireEditorEvents() {
-    // Nav
-    document.getElementById('btn-status-return')?.addEventListener('click', () => {
-      App.navigate('status', { pistonId: _piston.id });
-    });
-
-    document.getElementById('btn-new-from-editor')?.addEventListener('click', () => {
-      App.navigate('list');
-      setTimeout(() => ListPage.createNewPiston(), 50);
-    });
-
-    // Simple/Advanced toggle
-    document.getElementById('toggle-simple')?.addEventListener('click', () => {
-      App.state.simpleMode = true;
-      render();
-    });
-    document.getElementById('toggle-advanced')?.addEventListener('click', () => {
-      App.state.simpleMode = false;
-      render();
-    });
-
-    // Section collapse
-    container.querySelectorAll('.editor-section-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        if (e.target.closest('button')) return;
-        const section = header.closest('.editor-section');
-        const body = section.querySelector('.action-tree');
-        if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
-        const toggle = header.querySelector('.section-toggle');
-        if (toggle) toggle.textContent = body.style.display === 'none' ? '▶' : '▼';
-      });
-    });
-
-    // Ghost text — open wizard
-    container.querySelectorAll('.ghost-text').forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const context = el.dataset.insert || 'action';
-        Wizard.open({
-          context,
-          parentId: el.dataset.parent || null,
-          branch: el.dataset.branch || null,
-          index: parseInt(el.dataset.index ?? '0'),
-          onDone: (node) => _insertNode(node, el),
-        });
-      });
-    });
-
-    // Statement right-click
-    container.querySelectorAll('.stmt-node').forEach(el => {
-      el.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        const id = el.dataset.id;
-        const items = [
-          { label: 'Edit',      action: 'edit',      icon: '✎' },
-          { label: 'Duplicate', action: 'duplicate',  icon: '⧉' },
-          { label: 'Copy',      action: 'copy',       icon: '📋' },
-          { label: 'Cut',       action: 'cut',        icon: '✂' },
-          '---',
-          { label: 'Delete',    action: 'delete',     icon: '🗑', danger: true },
-        ];
-        if (App.state.clipboard) {
-          items.splice(5, 0, { label: 'Clear clipboard', action: 'clear_clipboard', icon: '✕' });
-        }
-        ContextMenu.show(e.clientX, e.clientY, items, (action) => {
-          _handleStmtAction(action, id, el);
-        });
-      });
-
-      // Click to select
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        container.querySelectorAll('.stmt-node').forEach(n => n.classList.remove('selected'));
-        el.classList.add('selected');
-      });
-    });
-
-    // Field changes → mark unsaved
-    ['piston-name', 'piston-desc', 'editor-folder', 'editor-mode', 'editor-log-level'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => _markUnsaved(true));
-      document.getElementById(id)?.addEventListener('change', () => _markUnsaved(true));
-    });
-    document.getElementById('editor-enabled')?.addEventListener('change', () => _markUnsaved(true));
-
-    // Save and Deploy
+  function _wireEvents() {
+    document.getElementById('btn-editor-cancel')?.addEventListener('click', _handleCancel);
+    document.getElementById('btn-editor-cancel-text')?.addEventListener('click', _handleCancel);
     document.getElementById('btn-save')?.addEventListener('click', () => save());
-    document.getElementById('btn-deploy')?.addEventListener('click', () => deploy());
+    document.getElementById('btn-editor-delete')?.addEventListener('click', _handleDelete);
+    document.getElementById('toggle-simple')?.addEventListener('click', () => { App.state.simpleMode = true; render(); });
+    document.getElementById('toggle-adv')?.addEventListener('click', () => { App.state.simpleMode = false; render(); });
 
-    // Test
-    document.getElementById('btn-test-editor')?.addEventListener('click', () => {
-      Dialog.confirm({
-        title: 'Live Fire ⚠',
-        message: 'This will execute real actions on your devices. Are you sure?',
-        buttons: [
-          { label: 'Yes, run it', value: 'yes', primary: true },
-          { label: 'Cancel', value: 'cancel' },
-        ],
-        onClose: async (choice) => {
-          if (choice === 'yes') {
-            _showEditorNotice('Piston fired. Check Home Assistant for results.', 'info');
-          }
-        },
-      });
+    // Inline name rename on click
+    document.getElementById('editor-piston-name-display')?.addEventListener('click', () => {
+      const name = prompt('Rename piston:', _piston.name || '');
+      if (name !== null && name.trim()) {
+        _piston.name = name.trim();
+        const el = document.getElementById('editor-piston-name-display');
+        if (el) el.textContent = _piston.name;
+        _markUnsaved(true);
+      }
+    });
+
+    const doc = document.getElementById('editor-doc');
+    if (doc) {
+      doc.addEventListener('click', _handleDocClick);
+      doc.addEventListener('contextmenu', _handleContextMenu);
+    }
+  }
+
+  function _handleDocClick(e) {
+    const ghost = e.target.closest('.ghost');
+    if (ghost) {
+      const ctx = ghost.dataset.insert;
+      const extra = {};
+      for (const k of Object.keys(ghost.dataset)) { if (k !== 'insert') extra[k] = ghost.dataset[k]; }
+      Wizard.open(ctx, null, extra);
+      return;
+    }
+    const stmt = e.target.closest('.doc-stmt');
+    if (stmt) { _selectStmt(stmt.dataset.id); return; }
+  }
+
+  function _handleContextMenu(e) {
+    const stmt = e.target.closest('.doc-stmt');
+    if (!stmt) return;
+    e.preventDefault();
+    _selectStmt(stmt.dataset.id);
+    App.showContextMenu(e.clientX, e.clientY, [
+      { label: 'Edit statement',               action: () => _editSelected() },
+      { label: 'Copy selected statement',      action: () => _copySelected() },
+      { label: 'Duplicate selected statement', action: () => _duplicateSelected() },
+      { separator: true },
+      { label: 'Cut selected statement',       action: () => _cutSelected() },
+      { label: 'Paste after selected',         action: () => _pasteSelected(), disabled: !App.state.clipboard },
+      { separator: true },
+      { label: 'Delete selected statement',    action: () => _deleteSelected(), danger: true },
+      { separator: true },
+      { label: 'Clear clipboard',              action: () => { App.state.clipboard = null; } },
+    ]);
+  }
+
+  function _selectStmt(id) {
+    _selectedId = id;
+    document.querySelectorAll('.doc-stmt').forEach(el => {
+      el.classList.toggle('doc-selected', el.dataset.id === id);
     });
   }
 
-  // ── Statement actions ────────────────────────────────────
-  function _handleStmtAction(action, stmtId, el) {
-    const node = _findNode(_piston.actions, stmtId);
-    if (!node && action !== 'clear_clipboard') return;
-
-    switch (action) {
-      case 'edit':
-        // Open wizard in edit mode with existing node populated
-        Wizard.open({
-          context: 'action',
-          editNode: node,
-          onDone: (updated) => {
-            _updateNode(_piston.actions, stmtId, updated);
-            _markUnsaved(true);
-            render();
-          },
-        });
-        break;
-
-      case 'copy':
-        App.state.clipboard = JSON.parse(JSON.stringify(node));
-        App.state.clipboard._cut = false;
-        break;
-
-      case 'cut':
-        App.state.clipboard = JSON.parse(JSON.stringify(node));
-        App.state.clipboard._cut = true;
-        el.classList.add('cut');
-        break;
-
-      case 'duplicate': {
-        const copy = JSON.parse(JSON.stringify(node));
-        copy.id = _nextStmtId();
-        _insertAfter(_piston.actions, stmtId, copy);
-        _markUnsaved(true);
-        render();
-        break;
-      }
-
-      case 'delete':
-        Dialog.confirm({
-          title: 'Delete statement?',
-          message: 'This statement will be removed from the piston.',
-          buttons: [
-            { label: 'Delete', value: 'delete', danger: true },
-            { label: 'Cancel', value: 'cancel' },
-          ],
-          onClose: (choice) => {
-            if (choice === 'delete') {
-              _removeNode(_piston.actions, stmtId);
-              _markUnsaved(true);
-              render();
-            }
-          },
-        });
-        break;
-
-      case 'clear_clipboard':
-        App.state.clipboard = null;
-        container.querySelectorAll('.stmt-node.cut').forEach(n => n.classList.remove('cut'));
-        break;
-    }
+  function _editSelected() {
+    if (!_selectedId) return;
+    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];
+    const node = _findNode(all, _selectedId);
+    if (node) Wizard.open(node.type, node, {});
   }
 
-  // ── Node insertion ───────────────────────────────────────
-  function _insertNode(node, ghostEl) {
-    const context = ghostEl.dataset.insert;
-    const index = parseInt(ghostEl.dataset.index ?? '0');
-    const parentId = ghostEl.dataset.parent;
-    const branch = ghostEl.dataset.branch;
+  function _copySelected() {
+    if (!_selectedId) return;
+    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];
+    const node = _findNode(all, _selectedId);
+    if (node) App.state.clipboard = JSON.parse(JSON.stringify(node));
+  }
 
-    node.id = node.id || _nextStmtId();
+  function _duplicateSelected() { _copySelected(); _pasteSelected(); }
 
-    if (context === 'trigger') {
-      _piston.triggers = _piston.triggers || [];
-      _piston.triggers.splice(index, 0, node);
-    } else if (context === 'condition') {
-      _piston.conditions = _piston.conditions || [];
-      _piston.conditions.splice(index, 0, node);
-    } else if (parentId) {
-      const parent = _findNode(_piston.actions, parentId);
-      if (parent) {
-        const arr = branch === 'else' ? (parent.else_actions || []) : (parent.then_actions || parent.actions || []);
-        arr.splice(index, 0, node);
-        if (branch === 'else') parent.else_actions = arr;
-        else if (parent.then_actions !== undefined) parent.then_actions = arr;
-        else parent.actions = arr;
-      }
-    } else {
-      _piston.actions = _piston.actions || [];
-      _piston.actions.splice(index, 0, node);
-    }
+  function _cutSelected() {
+    _copySelected();
+    _cutId = _selectedId;
+    document.querySelectorAll('.doc-stmt').forEach(el => {
+      el.classList.toggle('doc-cut', el.dataset.id === _cutId);
+    });
+  }
 
+  function _pasteSelected() {
+    if (!App.state.clipboard) return;
+    const clone = JSON.parse(JSON.stringify(App.state.clipboard));
+    clone.id = _nextStmtId();
+    if (_selectedId) { if (!_insertAfter(_piston.actions, _selectedId, clone)) _piston.actions.push(clone); }
+    else _piston.actions.push(clone);
+    _cutId = null;
     _markUnsaved(true);
     render();
   }
 
-  // ── Save / Deploy ────────────────────────────────────────
-  async function save() {
-    // Collect field values back into piston
-    _piston.name = document.getElementById('piston-name')?.value.trim() || 'Untitled';
-    _piston.description = document.getElementById('piston-desc')?.value.trim() || '';
-    _piston.folder = document.getElementById('editor-folder')?.value || '';
-    _piston.mode = document.getElementById('editor-mode')?.value || 'single';
-    _piston.enabled = document.getElementById('editor-enabled')?.checked !== false;
-    _piston.log_level = document.getElementById('editor-log-level')?.value || 'full';
+  function _deleteSelected() {
+    if (!_selectedId) return;
+    _removeNode(_piston.triggers, _selectedId) ||
+    _removeNode(_piston.conditions, _selectedId) ||
+    _removeNode(_piston.actions, _selectedId);
+    _selectedId = null;
+    _markUnsaved(true);
+    render();
+  }
 
-    if (!_piston.name) {
-      _showEditorNotice('Piston name is required.', 'error');
-      document.getElementById('piston-name')?.focus();
-      return false;
+  function _handleCancel() {
+    if (App.state.unsavedChanges) {
+      App.confirm({
+        title: 'Unsaved changes',
+        message: 'Leave without saving?',
+        confirmLabel: 'Leave',
+        cancelLabel: 'Stay',
+        danger: true,
+        onConfirm: () => App.navigate('status', { pistonId: _piston.id }),
+      });
+    } else {
+      App.navigate('status', { pistonId: _piston.id });
+    }
+  }
+
+  function _handleDelete() {
+    App.confirm({
+      title: 'Delete piston',
+      message: `Delete "${_piston.name || 'this piston'}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        try { await API.deletePiston(_piston.id); App.navigate('list'); }
+        catch(e) { _showNotice(`Delete failed: ${e.message}`, 'error'); }
+      },
+    });
+  }
+
+  // ── Save ─────────────────────────────────────────────────
+  async function save() {
+    if (!_piston.name?.trim()) {
+      const name = prompt('Piston name is required. Enter a name:');
+      if (!name?.trim()) return false;
+      _piston.name = name.trim();
     }
 
     const btn = document.getElementById('btn-save');
-    if (btn) btn.textContent = '💾 Saving...';
+    if (btn) { btn.textContent = '💾 Saving...'; btn.disabled = true; }
 
     try {
       const result = await API.savePiston(_piston.id, _piston);
       _piston = result.piston || _piston;
       _markUnsaved(false);
 
-      // Show validation warnings from compile check
       const warnings = result.compile_check?.warnings || [];
-      const errors = result.compile_check?.errors || [];
-      const allMsgs = [
-        ...errors.map(e => `⚠ ${e}`),
-        ...warnings.map(w => `⚠ ${w}`),
-      ];
+      const errors   = result.compile_check?.errors   || [];
 
-      if (allMsgs.length) {
-        _showEditorNotice(allMsgs.join(' | '), 'warn');
+      // Check if piston now requires PyScript and show/hide warning bar
+      const needsPy = (result.piston?.compile_target || '').toLowerCase().includes('pyscript');
+      const warn = document.getElementById('pyscript-warning');
+      if (warn) warn.style.display = needsPy ? '' : 'none';
+
+      if (errors.length || warnings.length) {
+        _showNotice([...errors.map(e=>`⚠ ${e}`),...warnings.map(w=>`⚠ ${w}`)].join(' | '), 'warn');
+        // Stay in editor so user can address warnings
+        return true;
       }
 
+      // Navigate to status page on clean save
       App.navigate('status', { pistonId: _piston.id });
       return true;
 
-    } catch (e) {
-      _showEditorNotice(`Save failed — your work is preserved. ${e.message}`, 'error');
+    } catch(e) {
+      _showNotice(`Save failed — your work is preserved. ${e.message}`, 'error');
       return false;
     } finally {
-      if (btn) btn.textContent = '💾 Save to PistonCore';
+      if (btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
     }
   }
 
-  async function deploy() {
-    const btn = document.getElementById('btn-deploy');
-    if (btn) btn.textContent = '🚀 Deploying...';
-
-    try {
-      const result = await API.deployPiston(_piston.id);
-      if (result.deployed) {
-        _showEditorNotice('Deployed to Home Assistant successfully.', 'info');
-      } else {
-        const reason = result.reason || result.compile_result?.errors?.join(', ') || 'Deploy failed.';
-        _showEditorNotice(`Deploy failed: ${reason}`, 'error');
-      }
-    } catch (e) {
-      _showEditorNotice(`Deploy failed: ${e.message}`, 'error');
-    } finally {
-      if (btn) btn.textContent = '🚀 Deploy to HA';
+  // Called by wizard when it completes building a statement
+  function insertStatement(context, statementData) {
+    if (context === 'trigger' || statementData.type === 'trigger') {
+      _piston.triggers = _piston.triggers || [];
+      const i = _piston.triggers.findIndex(t => t.id === statementData.id);
+      if (i >= 0) _piston.triggers[i] = statementData; else _piston.triggers.push(statementData);
+    } else if (context === 'condition' || statementData.type === 'condition') {
+      _piston.conditions = _piston.conditions || [];
+      const i = _piston.conditions.findIndex(c => c.id === statementData.id);
+      if (i >= 0) _piston.conditions[i] = statementData; else _piston.conditions.push(statementData);
+    } else if (context === 'variable') {
+      _piston.variables = _piston.variables || [];
+      const i = _piston.variables.findIndex(v => v.id === statementData.id);
+      if (i >= 0) _piston.variables[i] = statementData; else _piston.variables.push(statementData);
+    } else {
+      if (!statementData.id) statementData.id = _nextStmtId();
+      if (_selectedId) { if (!_insertAfter(_piston.actions, _selectedId, statementData)) _piston.actions.push(statementData); }
+      else _piston.actions.push(statementData);
     }
+    _markUnsaved(true);
+    render();
   }
 
-  // ── Unsaved state ────────────────────────────────────────
-  function _markUnsaved(hasChanges) {
-    App.state.unsavedChanges = hasChanges;
-    const nameInput = document.getElementById('piston-name');
-    if (!nameInput) return;
-    const dot = nameInput.parentElement.querySelector('.unsaved-dot');
-    if (hasChanges && !dot) {
-      const d = document.createElement('span');
-      d.className = 'unsaved-dot';
-      nameInput.parentElement.appendChild(d);
-    } else if (!hasChanges && dot) {
-      dot.remove();
-    }
+  // ── Helpers ──────────────────────────────────────────────
+  function _markUnsaved(has) {
+    App.state.unsavedChanges = has;
+    const dot = document.getElementById('unsaved-dot');
+    if (dot) dot.style.display = has ? 'inline' : 'none';
   }
 
-  // ── Helpers — node tree operations ──────────────────────
+  function _showNotice(msg, type) {
+    const el = document.getElementById('editor-notice');
+    if (!el) return;
+    el.innerHTML = `<div class="banner banner-${type === 'error' ? 'error' : type === 'warn' ? 'warn' : 'info'} editor-notice-bar">${_esc(msg)}</div>`;
+    if (type === 'info') setTimeout(() => { if (el) el.innerHTML = ''; }, 4000);
+  }
+
+  function _fmtDate(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleString(); } catch { return String(ts); }
+  }
+
+  function _esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function _findNode(nodes, id) {
     if (!nodes) return null;
     for (const n of nodes) {
       if (n.id === id) return n;
-      const inThen = _findNode(n.then_actions, id);
-      if (inThen) return inThen;
-      const inElse = _findNode(n.else_actions, id);
-      if (inElse) return inElse;
-      const inActions = _findNode(n.actions, id);
-      if (inActions) return inActions;
+      const f = _findNode(n.then_actions,id)||_findNode(n.else_actions,id)||
+                _findNode(n.actions,id)||_findNode(n.tasks,id)||_findNode(n.conditions,id);
+      if (f) return f;
     }
     return null;
   }
 
   function _removeNode(nodes, id) {
     if (!nodes) return false;
-    const idx = nodes.findIndex(n => n.id === id);
-    if (idx !== -1) { nodes.splice(idx, 1); return true; }
+    const i = nodes.findIndex(n => n.id === id);
+    if (i !== -1) { nodes.splice(i, 1); return true; }
     for (const n of nodes) {
-      if (_removeNode(n.then_actions, id)) return true;
-      if (_removeNode(n.else_actions, id)) return true;
-      if (_removeNode(n.actions, id)) return true;
-    }
-    return false;
-  }
-
-  function _updateNode(nodes, id, updated) {
-    if (!nodes) return false;
-    for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i].id === id) { nodes[i] = updated; return true; }
-      if (_updateNode(nodes[i].then_actions, id, updated)) return true;
-      if (_updateNode(nodes[i].else_actions, id, updated)) return true;
-      if (_updateNode(nodes[i].actions, id, updated)) return true;
+      if (_removeNode(n.then_actions,id)||_removeNode(n.else_actions,id)||
+          _removeNode(n.actions,id)||_removeNode(n.tasks,id)) return true;
     }
     return false;
   }
 
   function _insertAfter(nodes, id, newNode) {
     if (!nodes) return false;
-    const idx = nodes.findIndex(n => n.id === id);
-    if (idx !== -1) { nodes.splice(idx + 1, 0, newNode); return true; }
+    const i = nodes.findIndex(n => n.id === id);
+    if (i !== -1) { nodes.splice(i+1, 0, newNode); return true; }
     for (const n of nodes) {
-      if (_insertAfter(n.then_actions, id, newNode)) return true;
-      if (_insertAfter(n.else_actions, id, newNode)) return true;
-      if (_insertAfter(n.actions, id, newNode)) return true;
+      if (_insertAfter(n.then_actions,id,newNode)||_insertAfter(n.else_actions,id,newNode)||
+          _insertAfter(n.actions,id,newNode)||_insertAfter(n.tasks,id,newNode)) return true;
     }
     return false;
   }
@@ -608,74 +578,21 @@ const Editor = (() => {
   function _highestStmtId(piston) {
     let max = 0;
     function walk(nodes) {
-      (nodes || []).forEach(n => {
-        const m = parseInt((n.id || '').replace('stmt_', '')) || 0;
+      (nodes||[]).forEach(n => {
+        const m = parseInt((n.id||'').replace(/\D/g,''))||0;
         if (m > max) max = m;
-        walk(n.then_actions); walk(n.else_actions); walk(n.actions);
+        walk(n.then_actions); walk(n.else_actions); walk(n.actions); walk(n.tasks);
       });
     }
-    walk(piston.triggers); walk(piston.conditions); walk(piston.actions);
+    walk(piston.triggers); walk(piston.conditions); walk(piston.actions); walk(piston.variables);
     return max;
   }
 
   function _nextStmtId() {
     _stmtCounter++;
-    return 'stmt_' + String(_stmtCounter).padStart(3, '0');
+    return 'stmt_' + String(_stmtCounter).padStart(3,'0');
   }
 
-  // ── Display helpers ──────────────────────────────────────
-  function _conditionText(c) {
-    if (!c) return '[condition]';
-    const subject = c.subject?.role || c.subject?.type || '';
-    const op = c.operator || '';
-    const val = c.display_value || '';
-    return `${subject} ${op} ${val}`.trim() || '[condition]';
-  }
-
-  function _waitText(node) {
-    if (node.wait_type === 'duration') return `wait ${node.duration || ''}`;
-    if (node.wait_type === 'time') return `wait until ${node.time || ''}`;
-    return 'wait';
-  }
-
-  function _nodeLabel(node) {
-    if (node.description) return node.description;
-    if (node.type === 'service_call') return node.service || 'Call service';
-    if (node.type === 'set_variable') return `Set ${node.variable || ''} = ${node.value ?? ''}`;
-    if (node.type === 'log') return `Log: ${node.message || ''}`;
-    if (node.type === 'stop') return `stop${node.reason ? ' — ' + node.reason : ''}`;
-    if (node.type === 'call_piston') return `Call piston: ${node.target_name || ''}`;
-    if (node.type === 'fire_event') return `Fire event: ${node.event || ''}`;
-    return node.type || '[unknown]';
-  }
-
-  function _folderOptions(current) {
-    const folders = ['', ...new Set(
-      (App.state.pistons || []).map(p => p.folder).filter(f => f && f.trim())
-    )].sort();
-    return folders.map(f => {
-      const label = f || 'Uncategorized';
-      const selected = f === (current || '') ? 'selected' : '';
-      return `<option value="${_esc(f)}" ${selected}>${_esc(label)}</option>`;
-    }).join('');
-  }
-
-  function _esc(str) {
-    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function _showEditorNotice(msg, type) {
-    // Inject a banner above the bottom bar
-    let notice = container.querySelector('.editor-notice');
-    if (!notice) {
-      notice = document.createElement('div');
-      notice.className = 'editor-notice';
-      container.querySelector('.editor-bottom-bar')?.before(notice);
-    }
-    notice.innerHTML = `<div class="banner banner-${type === 'error' ? 'error' : type === 'warn' ? 'warn' : 'info'}">${_esc(msg)}</div>`;
-    if (type === 'info') setTimeout(() => { notice.innerHTML = ''; }, 6000);
-  }
-
-  return { load, save, deploy };
+  return { load, save, insertStatement };
 
 })();

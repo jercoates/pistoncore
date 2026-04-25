@@ -167,21 +167,7 @@ const ListPage = (() => {
 
   // ── Actions ──────────────────────────────────────────────
   async function createNewPiston() {
-    try {
-      const piston = await API.createPiston({
-        name: 'New Piston',
-        folder: '',
-        enabled: true,
-        mode: 'single',
-        triggers: [],
-        conditions: [],
-        actions: [],
-      });
-      _allPistons.push(piston);
-      App.navigate('status', { pistonId: piston.id });
-    } catch (e) {
-      showBanner('error', `Could not create piston: ${e.message}`);
-    }
+    NewPistonModal.open();
   }
 
   async function togglePause(pistonId) {

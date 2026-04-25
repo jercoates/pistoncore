@@ -15,7 +15,8 @@
     <div class="header-logo">Piston<span>Core</span></div>
     <div class="header-spacer"></div>
     <div class="header-status disconnected" id="header-status">HA Disconnected</div>
-    <button class="btn btn-ghost btn-sm" id="btn-globals">Globals</button>
+    <button class="btn btn-ghost btn-sm" id="btn-globals" title="Global variables">⊞ Globals</button>
+    <button class="btn btn-ghost btn-sm" id="btn-theme-toggle" title="Toggle light / dark mode">☀️ Light</button>
   </header>
 
   <!-- WebSocket reconnecting banner -->
@@ -51,6 +52,24 @@
     <div class="wizard-loading"><div class="spinner"></div> Loading...</div>
   </div>
 </aside>
+
+<!-- ════════════════════════════════════════════════════
+     NEW PISTON MODAL
+     ════════════════════════════════════════════════════ -->
+<div id="new-piston-backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:900; align-items:center; justify-content:center;">
+  <div id="new-piston-modal" style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:8px; width:520px; max-width:calc(100vw - 32px); overflow:hidden;">
+    <div style="padding:20px 24px 12px;">
+      <div style="font-size:16px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">Create a new piston</div>
+      <div style="font-size:13px; color:var(--text-muted);">Please select one of the methods below</div>
+    </div>
+    <div style="padding:0 24px 24px; display:flex; flex-direction:column; gap:10px;">
+      <button class="npm-option" id="npm-blank"><span class="npm-icon">&lt;/&gt;</span> Create a blank piston</button>
+      <button class="npm-option npm-option-blue" id="npm-duplicate"><span class="npm-icon">&lt;/&gt;</span> Create a duplicate of an existing piston</button>
+      <button class="npm-option npm-option-green" id="npm-import"><span class="npm-icon">&lt;/&gt;</span> Import from a .piston file</button>
+    </div>
+    <input type="file" id="npm-file-input" accept=".piston,.json" style="display:none" />
+  </div>
+</div>
 
 <!-- ════════════════════════════════════════════════════
      WIZARD MODAL

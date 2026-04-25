@@ -1,0 +1,27 @@
+# PistonCore — docker-compose.yml
+#
+# Quick start:
+#   1. Set PISTONCORE_API_KEY to a strong secret before exposing beyond localhost
+#   2. docker-compose up -d
+#   3. Verify: curl http://localhost:7777/health -H "X-API-Key: your-key"
+#
+# Two volume folders:
+#   pistoncore-userdata   -- piston JSON files, globals, config. Your data lives here.
+#   pistoncore-customize  -- Jinja2 compiler templates. Edit these to customize output.
+#
+# On first run, pistoncore-customize is automatically seeded with default templates.
+
+services:
+  pistoncore:
+    build: .
+    container_name: pistoncore
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    volumes:
+      - /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata
+      - /mnt/user/appdata/pistoncore/customize:/pistoncore-customize
+    environment:
+      # CHANGE THIS before exposing PistonCore beyond localhost.
+      # All API requests must include the header:  X-API-Key: <your-key>
+      - PISTONCORE_API_KEY=change-me

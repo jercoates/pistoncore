@@ -51,8 +51,8 @@ app.include_router(router)
 # Served at /frontend/* so index.html can reference /frontend/css/style.css
 # and /frontend/js/*.js with absolute paths.
 
-_HERE = Path(__file__).parent                   # backend/
-_FRONTEND = _HERE.parent / "frontend"           # frontend/
+_HERE = Path(__file__).parent                   # /app (backend/ files land here)
+_FRONTEND = _HERE / "frontend"                  # /app/frontend/
 
 if _FRONTEND.exists():
     app.mount("/frontend", StaticFiles(directory=str(_FRONTEND)), name="frontend")

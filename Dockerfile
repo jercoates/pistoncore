@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend source
 COPY backend/ .
 
+# Copy frontend static files
+COPY frontend/ ./frontend/
+
 # Bundle the default customize files into the image
 # The entrypoint copies these into the volume on first run if it is empty
 COPY pistoncore-customize/ /app/defaults/pistoncore-customize/

@@ -4,19 +4,23 @@
 # All routes are collected in a single router included by main.py.
 #
 # Endpoint summary:
-#   GET    /pistons                  — list all pistons
-#   GET    /pistons/{id}             — get one piston
-#   POST   /pistons                  — create piston
-#   PUT    /pistons/{id}             — update piston
-#   DELETE /pistons/{id}             — delete piston
-#   POST   /pistons/{id}/compile     — compile piston, return YAML strings
-#   POST   /pistons/{id}/deploy      — compile + send to companion for HA write
-#   GET    /globals                  — list global variables
-#   POST   /globals                  — create global variable
-#   DELETE /globals/{id}             — delete global variable
-#   GET    /config                   — get runtime config
-#   PUT    /config                   — update runtime config
-#   GET    /health                   — health check
+#   GET    /pistons                        — list all pistons
+#   GET    /pistons/{id}                   — get one piston
+#   POST   /pistons                        — create piston
+#   PUT    /pistons/{id}                   — update piston
+#   DELETE /pistons/{id}                   — delete piston
+#   POST   /pistons/{id}/compile           — compile piston, return YAML strings
+#   POST   /pistons/{id}/deploy            — compile + send to companion for HA write
+#   GET    /globals                        — list global variables
+#   POST   /globals                        — create global variable
+#   DELETE /globals/{id}                   — delete global variable
+#   GET    /config                         — get runtime config
+#   PUT    /config                         — update runtime config (clears HA cache)
+#   GET    /health                         — health check
+#   GET    /devices                        — all HA entities (cached 60s)
+#   GET    /devices/refresh                — force cache refresh
+#   GET    /device/{entity_id}/capabilities — capabilities with attribute_type detection
+#   GET    /device/{entity_id}/services    — domain services with field schema
 
 import os
 
@@ -27,6 +31,8 @@ from typing import Any
 
 import storage
 from compiler import Compiler, CompilerError
+import ha_client
+from ha_client import HAClientError
 
 # ---------------------------------------------------------------------------
 # API key authentication
@@ -338,7 +344,82 @@ def update_config(body: dict = Body(...)):
     config = storage.load_config()
     config.update(body)
     storage.save_config(config)
+    # Invalidate HA cache — ha_url or ha_token may have changed
+    ha_client.invalidate_cache()
     return {"saved": True}
+
+
+# ---------------------------------------------------------------------------
+# HA device endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/devices")
+def list_devices():
+    """
+    Return all HA entities with friendly name, area, and domain.
+    Result is cached for 60 seconds.
+
+    Response: list of {
+      entity_id, friendly_name, domain, area (nullable), device_id (nullable)
+    }
+
+    Raises 503 if HA is unreachable or token is not configured.
+    """
+    try:
+        return ha_client.get_devices()
+    except HAClientError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/devices/refresh")
+def refresh_device_cache():
+    """
+    Invalidate the HA device/capability cache and force a fresh fetch.
+    Call this after pairing new devices in HA or changing ha_url/ha_token.
+    """
+    ha_client.invalidate_cache()
+    try:
+        devices = ha_client.get_devices()
+        return {"refreshed": True, "device_count": len(devices)}
+    except HAClientError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/device/{entity_id:path}/capabilities")
+def get_device_capabilities(entity_id: str):
+    """
+    Return capabilities for a single entity, with attribute_type detection
+    per WIZARD_SPEC priority order.
+
+    entity_id must be the full HA entity ID, e.g. "binary_sensor.front_door".
+    Use entity_id:path to allow dots and slashes in the path segment.
+
+    Response: {
+      entity_id, state, domain, device_class,
+      capabilities: [{ name, attribute_type, device_class, unit, options }]
+    }
+    """
+    try:
+        return ha_client.get_capabilities(entity_id)
+    except HAClientError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/device/{entity_id:path}/services")
+def get_device_services(entity_id: str):
+    """
+    Return all services available for a device's domain, with parameter schema.
+    Used by the wizard action step to populate the service picker.
+
+    Response: list of {
+      service, label, description,
+      fields: [{ name, label, description, type, required, min?, max?, unit?, options? }]
+    }
+    """
+    try:
+        return ha_client.get_services(entity_id)
+    except HAClientError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

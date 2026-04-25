@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PistonCore</title>
+  <link rel="stylesheet" href="/frontend/css/style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Global Header -->
+  <header id="global-header">
+    <div class="header-logo">Piston<span>Core</span></div>
+    <div class="header-spacer"></div>
+    <div class="header-status disconnected" id="header-status">HA Disconnected</div>
+    <button class="btn btn-ghost btn-sm" id="btn-globals">Globals</button>
+  </header>
+
+  <!-- WebSocket reconnecting banner -->
+  <div id="ws-banner">
+    ⚠ Lost connection to Home Assistant — reconnecting... Deploy and wizard capability fetching are disabled.
+  </div>
+
+  <!-- Page Container -->
+  <main id="page-container">
+
+    <!-- Page 1: Piston List -->
+    <div id="page-list" class="page active"></div>
+
+    <!-- Page 2: Piston Status -->
+    <div id="page-status" class="page"></div>
+
+    <!-- Page 3: Piston Editor -->
+    <div id="page-editor" class="page"></div>
+
+  </main>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     GLOBALS DRAWER (slide-out panel)
+     ════════════════════════════════════════════════════ -->
+<aside id="globals-drawer">
+  <div class="drawer-header">
+    Global Variables
+    <button class="drawer-close" id="globals-drawer-close">✕</button>
+  </div>
+  <div class="drawer-body" id="globals-drawer-body">
+    <div class="wizard-loading"><div class="spinner"></div> Loading...</div>
+  </div>
+</aside>
+
+<!-- ════════════════════════════════════════════════════
+     WIZARD MODAL
+     ════════════════════════════════════════════════════ -->
+<div id="wizard-backdrop">
+  <div id="wizard-modal">
+    <!-- Populated dynamically by wizard.js -->
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     CONFIRM DIALOG
+     ════════════════════════════════════════════════════ -->
+<div id="dialog-backdrop">
+  <div id="dialog-box">
+    <div class="dialog-title"></div>
+    <div class="dialog-message"></div>
+    <div class="dialog-actions"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     RIGHT-CLICK CONTEXT MENU
+     ════════════════════════════════════════════════════ -->
+<div id="context-menu"></div>
+
+<!-- ════════════════════════════════════════════════════
+     JS — load order matters
+     ════════════════════════════════════════════════════ -->
+<script src="/frontend/js/api.js"></script>
+<script src="/frontend/js/app.js"></script>
+<script src="/frontend/js/list.js"></script>
+<script src="/frontend/js/status.js"></script>
+<script src="/frontend/js/editor.js"></script>
+<script src="/frontend/js/wizard.js"></script>
+<script>
+  // Boot
+  document.addEventListener('DOMContentLoaded', () => App.init());
+</script>
+
+</body>
+</html>

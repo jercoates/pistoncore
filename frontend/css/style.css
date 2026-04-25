@@ -203,6 +203,21 @@ input::placeholder { color: var(--text-muted); }
   display: block;
 }
 
+/* Editor page overrides — full width, no centering, no padding */
+#page-editor {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  display: none;
+  height: calc(100vh - var(--header-height));
+  overflow: hidden;
+  flex-direction: column;
+}
+
+#page-editor.active {
+  display: flex;
+}
+
 /* ── Buttons ────────────────────────────────────────────── */
 .btn {
   background: var(--bg-raised);
@@ -1513,8 +1528,9 @@ html.light-mode .doc-attr   { color: #1a4a8a; }
   font-size: 13px;
   line-height: 1.85;
   padding: 10px 0 60px;
+  overflow-y: auto;
   overflow-x: auto;
-  min-height: calc(100vh - 90px);
+  min-height: 0;
 }
 
 /* ── Document lines ── */
@@ -1606,3 +1622,25 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 .npm-option-green { background: #2e8b2e; color: #fff; border-color: transparent; }
 .npm-option-green .npm-icon { color: rgba(255,255,255,0.7); }
 
+
+/* ── Editor name input in toolbar ── */
+.editor-name-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 500px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 3px 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.editor-name-input:hover  { border-color: var(--border-subtle); }
+.editor-name-input:focus  { border-color: var(--border-focus); background: var(--bg-raised); outline: none; }
+.editor-name-input::placeholder { color: var(--text-muted); font-weight: 400; }
+
+/* Also remove the old .editor-piston-name span style if present */
+.editor-piston-name { display: none; }

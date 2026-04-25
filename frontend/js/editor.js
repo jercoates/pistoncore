@@ -14,10 +14,12 @@ const Editor = (() => {
   let _stmtCounter = 0;
   let _selectedId = null;
   let _cutId = null;
+  let _isNew = false;  // true when piston was just created and never saved
 
   // ── Load ─────────────────────────────────────────────────
-  async function load(pistonId) {
+  async function load(pistonId, opts = {}) {
     if (!container) return;
+    _isNew = opts.isNew || false;
     container.innerHTML = `<div class="editor-loading"><div class="spinner"></div> Loading...</div>`;
     try {
       _piston = await API.getPiston(pistonId);
@@ -51,7 +53,7 @@ const Editor = (() => {
         </div>
 
         <div class="editor-tb-center">
-          <span class="editor-piston-name" id="editor-piston-name-display" title="Click to rename">${_esc(p.name || 'Untitled')}</span>
+          <input type="text" id="editor-piston-name" class="editor-name-input" value="${_esc(p.name || '')}" placeholder="Piston name..." />
           <span class="unsaved-dot" id="unsaved-dot" style="display:none" title="Unsaved changes">●</span>
         </div>
 
@@ -324,16 +326,8 @@ const Editor = (() => {
     document.getElementById('toggle-simple')?.addEventListener('click', () => { App.state.simpleMode = true; render(); });
     document.getElementById('toggle-adv')?.addEventListener('click', () => { App.state.simpleMode = false; render(); });
 
-    // Inline name rename on click
-    document.getElementById('editor-piston-name-display')?.addEventListener('click', () => {
-      const name = prompt('Rename piston:', _piston.name || '');
-      if (name !== null && name.trim()) {
-        _piston.name = name.trim();
-        const el = document.getElementById('editor-piston-name-display');
-        if (el) el.textContent = _piston.name;
-        _markUnsaved(true);
-      }
-    });
+    // Name input — mark unsaved on change
+    document.getElementById('editor-piston-name')?.addEventListener('input', () => _markUnsaved(true));
 
     const doc = document.getElementById('editor-doc');
     if (doc) {
@@ -427,7 +421,20 @@ const Editor = (() => {
   }
 
   function _handleCancel() {
-    if (App.state.unsavedChanges) {
+    if (_isNew) {
+      // Brand new piston — offer to discard entirely
+      App.confirm({
+        title: 'Discard new piston?',
+        message: 'This piston has never been saved. Discard it and go back to the list?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true,
+        onConfirm: async () => {
+          try { await API.deletePiston(_piston.id); } catch {}
+          App.navigate('list');
+        },
+      });
+    } else if (App.state.unsavedChanges) {
       App.confirm({
         title: 'Unsaved changes',
         message: 'Leave without saving?',
@@ -456,10 +463,14 @@ const Editor = (() => {
 
   // ── Save ─────────────────────────────────────────────────
   async function save() {
-    if (!_piston.name?.trim()) {
-      const name = prompt('Piston name is required. Enter a name:');
-      if (!name?.trim()) return false;
-      _piston.name = name.trim();
+    // Read name from toolbar input
+    const nameInput = document.getElementById('editor-piston-name');
+    if (nameInput) _piston.name = nameInput.value.trim();
+
+    if (!_piston.name) {
+      if (nameInput) { nameInput.focus(); nameInput.style.borderColor = 'var(--red)'; }
+      _showNotice('Piston name is required.', 'error');
+      return false;
     }
 
     const btn = document.getElementById('btn-save');
@@ -468,6 +479,7 @@ const Editor = (() => {
     try {
       const result = await API.savePiston(_piston.id, _piston);
       _piston = result.piston || _piston;
+      _isNew = false;
       _markUnsaved(false);
 
       const warnings = result.compile_check?.warnings || [];

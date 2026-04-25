@@ -61,7 +61,7 @@ const App = (() => {
     switch (page) {
       case 'list':   ListPage.load(); break;
       case 'status': StatusPage.load(state.pistonId); break;
-      case 'editor': Editor.load(state.pistonId); break;
+      case 'editor': Editor.load(state.pistonId, { isNew: params.isNew || false }); break;
     }
   }
 
@@ -270,7 +270,7 @@ const NewPistonModal = (() => {
       close();
       try {
         const result = await API.createPiston({ name: 'New Piston', enabled: true });
-        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+        App.navigate('editor', { pistonId: result.id || result.piston?.id, isNew: true });
       } catch (e) {
         alert('Could not create piston: ' + e.message);
       }
@@ -288,7 +288,7 @@ const NewPistonModal = (() => {
       if (!src) { alert('Piston not found.'); return; }
       try {
         const result = await API.duplicatePiston(src.id);
-        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+        App.navigate('editor', { pistonId: result.id || result.piston?.id, isNew: true });
       } catch (e) {
         alert('Could not duplicate piston: ' + e.message);
       }
@@ -307,7 +307,7 @@ const NewPistonModal = (() => {
         const text = await file.text();
         const json = JSON.parse(text);
         const result = await API.importPiston(json);
-        App.navigate('editor', { pistonId: result.id || result.piston?.id });
+        App.navigate('editor', { pistonId: result.id || result.piston?.id, isNew: true });
       } catch (e) {
         alert('Import failed: ' + e.message);
       }

@@ -773,3 +773,148 @@ $currentEventDevice, $previousEventDevice, $devices, $location, $now, $hour, $mi
 String: concat, contains, lower, upper, replace, trim, etc.
 Numeric: abs, max, min, round, sqrt, etc.
 Date/Time: addDays, formatDateTime, etc. → Jinja2 filters + now() + as_timestamp
+
+
+
+For referance only needs claude review:
+# PistonCore Wizard Specification
+
+**Version:** 0.4  
+**Status:** Living Document — Maximum Detail + HA Realism Filter  
+**Last Updated:** April 24, 2026
+
+This document is the **single source of truth** for the wizard.  
+Read `DESIGN.md` and `FRONTEND_SPEC.md` first.
+
+**Golden Rule (for any AI or developer):**  
+For every feature, step, operator, or option:  
+1. Show the **full webCoRE behavior** first.  
+2. Then document the **HA adaptation / limitation**.  
+3. Prefer native HA (services, templates, `choose`, input helpers). Use PyScript only as fallback.
+
+---
+
+## 1. HA Adaptation & Limitations (Apply to Everything)
+
+| webCoRE Feature                    | HA Equivalent / Limitation                              | PistonCore Decision |
+|------------------------------------|---------------------------------------------------------|---------------------|
+| With/Do/End With block             | No direct equivalent                                    | Support in JSON, compile to repeated service calls or nested choose |
+| Physical vs Programmatic interaction | Limited context tracking (requires PyScript)         | Keep wizard step but default to "Any" |
+| Modes / "Only during these modes"  | No native modes                                         | Map to template conditions or input_select |
+| Full expression language           | Jinja2 (`{{ }}`)                                        | Translate `{expr}` → Jinja2 |
+| Advanced loops                     | `repeat` native; complex → PyScript                     | Simple native, complex fallback |
+| Global Variables                   | HA Helpers (`input_*`)                                  | Full support + stale piston tracking |
+
+---
+
+## 2. Core Wizard Behaviors (Unchanged — Excellent)
+
+(Keep your existing "Core Wizard Behaviors" section as-is — it's perfect.)
+
+---
+
+## 3. First Step — Condition or Group
+
+(Keep your current section exactly — it matches screenshots perfectly.)
+
+---
+
+## 4. Triggers vs Conditions — Lightning Bolt Distinction
+
+(Keep your current section — very well written.)
+
+---
+
+## 5. Which Interaction Step
+
+(Keep your current section, but add note:)
+> Default to "Any" for v1. Only enable Physical/Programmatic for PyScript pistons once context tracking is proven reliable.
+
+---
+
+## 6. Capability Map & Full Operator Tables
+
+(Your existing tables are great. Expanded versions below for completeness.)
+
+### Binary Sensors (Most Important HA Nuance)
+(Keep your excellent table with device_class → friendly labels.)
+
+### Numeric, Enum, Numeric with Position, etc.
+(Your tables are solid — no major changes needed, but ensure every type from webCoRE is listed.)
+
+### System Variables (Must Appear in Pickers)
+- `$currentEventDevice`
+- `$previousEventDevice`
+- `$device`
+- `$devices`
+- `$triggerValue`
+- `$previousValue`
+- `$now`, `$hour`, `$minute`, `$second`, `$locationMode`, etc.
+
+---
+
+## 7. Action Wizard — Device Commands
+
+(Your current section is excellent. Only minor tweak:)
+
+**System Commands** (PistonCore-defined, not from HA services):
+- Wait
+- Wait for state
+- Wait randomly (PyScript only)
+- Set variable
+- Cancel all pending tasks (PyScript only)
+- Execute piston
+- Control piston
+- Log to console
+- No operation
+- Make a web request (PyScript only)
+- Wake LAN device (WOL)
+
+All other commands come live from HA service registry.
+
+---
+
+## 8. Wizard Internal State & Output Objects
+
+(Your JSON examples are very good — keep them.)
+
+---
+
+## 9. Simple vs Advanced Mode Differences
+
+(Your current section is perfect — keep it.)
+
+---
+
+## 10. Backend API Requirements for Wizard
+
+(Your list is solid. Add one more if missing:)
+- `GET /api/zones` for location operators
+- `GET /api/globals` for global variables
+
+---
+
+## 11. Open Items / Future Work
+
+- Interaction step feasibility (PyScript context tracking)
+- Full expression editor (v2)
+- Simulator / step-through debugging (v2)
+- "Followed by" sequence operator (excluded from v1)
+
+---
+
+**This is now the authoritative spec.**  
+When giving instructions to Claude, tell it:
+
+> "Follow WIZARD_SPEC.md v0.4 exactly. Use maximum detail. Always apply the HA realism filter."
+
+---
+
+**What would you like next?**
+
+1. I review the next code Claude produces for `wizard.js`
+2. I generate sample piston JSON files that test all major wizard paths
+3. I create a short checklist for `Notes_for_next_session.md`
+4. Something else
+
+Just say the word and we’ll keep rolling. You're in a really good place now. 🚀

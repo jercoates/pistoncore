@@ -917,4 +917,10 @@ When giving instructions to Claude, tell it:
 3. I create a short checklist for `Notes_for_next_session.md`
 4. Something else
 
-Just say the word and we’ll keep rolling. You're in a really good place now. 🚀
+My notes after looking at ui:
+get rid of live fire.
+we need cancle button to go back
+what is naive ha script button
+ok changes from webcore globals edit from every menue, the piston folder available and the name is eisier to change
+remove the deploy to ha i do not want to deploy until in the review / debugg screen
+there is no way to create global variables this should bring up the wizzard to be able to add and pick the type of variable (devices ect)

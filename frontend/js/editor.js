@@ -346,8 +346,7 @@ const Editor = (() => {
       return;
     }
     const stmt = e.target.closest('.doc-stmt');
-    if (stmt) { _selectStmt(stmt.dataset.id); return; }
-  }
+    if (stmt) { _selectStmt(stmt.dataset.id); return; }  }
 
   function _handleContextMenu(e) {
     const stmt = e.target.closest('.doc-stmt');
@@ -381,7 +380,6 @@ const Editor = (() => {
     const node = _findNode(all, _selectedId);
     if (node) Wizard.open(node.type, node, {});
   }
-
   function _copySelected() {
     if (!_selectedId) return;
     const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];

@@ -1,1116 +1,1384 @@
 // pistoncore/frontend/js/wizard.js
 //
-// The Wizard Modal — multi-step statement builder.
-// Opens when the user clicks any ghost text insertion point or edits an existing statement.
-// Same modal for triggers, conditions, and actions — steps change based on context.
+// The Wizard Modal — WebCoRE-style statement builder.
+// Centered modal ~580px wide. NOT full-screen. NOT card grids (except statement type picker).
+// Opens when user clicks any ghost text insertion point or edits an existing statement.
 //
-// WIZARD_SPEC v0.3 is the authoritative reference for all behavior here.
+// FLOWS:
+//   Condition/Trigger: Condition-vs-Group → What-to-compare (all on one screen) → done
+//   Action: Statement type picker (cards) → Device picker → Command picker → done
+//   Variable: Type + name on one screen → done
 
 const Wizard = (() => {
 
-  // ── State ────────────────────────────────────────────────
-  let _state = null;   // wizard internal state object
-  let _callbacks = {}; // { onDone }
+  // ── State ─────────────────────────────────────────────────
+  let _context = null;   // 'trigger_or_condition' | 'condition' | 'action' | 'variable' | 'global' | etc.
+  let _editNode = null;  // existing node being edited, or null for new
+  let _extra = {};       // extra data from ghost text (block-id, branch, etc.)
+  let _step = null;      // current step name
+  let _sel = {};         // user selections built up through wizard steps
+  let _deviceCache = null;
+  let _globalsCache = null;
 
-  // ── Capability map ───────────────────────────────────────
-  // Per WIZARD_SPEC — lives in the frontend, not the backend.
-  // Given attribute_type, defines valid trigger operators and condition operators.
-
-  const CAPABILITY_MAP = {
-    binary: {
-      triggers: ['changes to', 'changes (any)'],
-      conditions: ['is', 'was for at least'],
-    },
-    numeric: {
-      triggers: ['changes to', 'drops below', 'rises above', 'changes (any)'],
-      conditions: ['equals', 'is less than', 'is greater than', 'is between', 'was for at least'],
-    },
-    numeric_position: {
-      triggers: ['changes to', 'drops below', 'rises above', 'changes (any)'],
-      conditions: ['equals', 'is less than', 'is greater than', 'is between'],
-    },
-    enum: {
-      triggers: ['changes to', 'changes (any)'],
-      conditions: ['is', 'is not'],
-    },
-    ha_boolean: {
-      triggers: ['changes to true', 'changes to false', 'changes (any)'],
-      conditions: ['is true', 'is false'],
-    },
-    location: {
-      triggers: ['enters zone', 'leaves zone', 'changes (any)'],
-      conditions: ['is in zone', 'is not in zone', 'is home', 'is away'],
-    },
-    unknown: {
-      triggers: ['changes (any)'],
-      conditions: ['is', 'is not'],
-    },
-  };
-
-  // Binary sensor friendly label pairs per WIZARD_SPEC device_class table
-  const BINARY_LABELS = {
-    door:             { on: 'Open',     off: 'Closed'    },
-    window:           { on: 'Open',     off: 'Closed'    },
-    garage_door:      { on: 'Open',     off: 'Closed'    },
-    opening:          { on: 'Open',     off: 'Closed'    },
-    lock:             { on: 'Unlocked', off: 'Locked'    },
-    motion:           { on: 'Detected', off: 'Clear'     },
-    occupancy:        { on: 'Occupied', off: 'Clear'     },
-    presence:         { on: 'Home',     off: 'Away'      },
-    smoke:            { on: 'Detected', off: 'Clear'     },
-    carbon_monoxide:  { on: 'Detected', off: 'Clear'     },
-    moisture:         { on: 'Wet',      off: 'Dry'       },
-    gas:              { on: 'Detected', off: 'Clear'     },
-    safety:           { on: 'Unsafe',   off: 'Safe'      },
-    vibration:        { on: 'Detected', off: 'Clear'     },
-    sound:            { on: 'Detected', off: 'Clear'     },
-    light:            { on: 'Light',    off: 'Dark'      },
-    problem:          { on: 'Problem',  off: 'OK'        },
-    tamper:           { on: 'Tampered', off: 'Clear'     },
-    connectivity:     { on: 'Connected',off: 'Disconnected'},
-    plug:             { on: 'On',       off: 'Off'       },
-    outlet:           { on: 'On',       off: 'Off'       },
-    battery:          { on: 'Low',      off: 'Normal'    },
-    cold:             { on: 'Cold',     off: 'Normal'    },
-    heat:             { on: 'Hot',      off: 'Normal'    },
-    moving:           { on: 'Moving',   off: 'Stopped'   },
-    running:          { on: 'Running',  off: 'Not Running'},
-    update:           { on: 'Update Available', off: 'Up to Date' },
-  };
-
-  // Action statement types available in the wizard
-  // Simple mode hides entries with simple: false
-  const ACTION_TYPES = [
-    { type: 'service_call',   label: 'Control a Device',       icon: '💡', simple: true  },
-    { type: 'wait',           label: 'Wait',                    icon: '⏱', simple: true  },
-    { type: 'if_block',       label: 'If / Then / Else',        icon: '🔀', simple: true  },
-    { type: 'with_block',     label: 'With / Do',               icon: '📦', simple: true  },
-    { type: 'set_variable',   label: 'Set Variable',            icon: '📝', simple: false },
-    { type: 'log',            label: 'Log Message',             icon: '📋', simple: true  },
-    { type: 'stop',           label: 'Stop',                    icon: '🛑', simple: true  },
-    { type: 'call_piston',    label: 'Call Another Piston',     icon: '🔗', simple: false },
-    { type: 'fire_event',     label: 'Fire Event',              icon: '📡', simple: false },
-    { type: 'repeat_block',   label: 'Repeat',                  icon: '🔄', simple: false },
-    { type: 'for_each_block', label: 'For Each',                icon: '🔁', simple: false },
-    { type: 'while_block',    label: 'While',                   icon: '↩', simple: false },
-    { type: 'parallel',       label: 'Execute in Parallel',     icon: '⚡', simple: false },
+  // ── Operators ─────────────────────────────────────────────
+  const CONDITIONS = [
+    'is', 'is any of', 'is not', 'is not any of',
+    'is between', 'is not between',
+    'is even', 'is odd',
+    'was', 'was any of', 'was not', 'was not any of',
+    'changed', 'did not change',
+    'is equal to', 'is not equal to',
+    'is less than', 'is less than or equal to',
+    'is greater than', 'is greater than or equal to',
   ];
 
-  // ── Open / Close ─────────────────────────────────────────
-  function open({ context, parentId, branch, index, editNode, onDone }) {
-    _callbacks = { onDone };
-    _state = {
-      context: context || 'action',   // 'trigger' | 'condition' | 'action'
-      step: 0,
-      parentId,
-      branch,
-      index: index ?? 0,
-      editNode: editNode || null,
-      selections: {},
-      sentence: '',
-    };
+  const TRIGGERS = [
+    'changes', 'changes to', 'changes to any of',
+    'changes away from', 'changes away from any of',
+    'drops', 'drops below', 'drops to or below',
+    'rises', 'rises above', 'rises to or above',
+    'stays', 'stays equal to', 'stays any of',
+    'stays away from', 'stays away from any of', 'stays unchanged',
+    'gets', 'gets any', 'receives',
+    'happens daily at',
+    'event occurs',
+    'is any and stays any of', 'is away and stays away from',
+  ];
 
-    _showModal();
+  // Operators that need a value input
+  const NEEDS_VALUE = new Set([
+    'is','is any of','is not','is not any of',
+    'is between','is not between',
+    'was','was any of','was not','was not any of',
+    'is equal to','is not equal to',
+    'is less than','is less than or equal to',
+    'is greater than','is greater than or equal to',
+    'changes to','changes to any of',
+    'changes away from','changes away from any of',
+    'drops below','drops to or below','rises above','rises to or above',
+    'stays','stays equal to','stays any of',
+    'stays away from','stays away from any of',
+    'gets','receives',
+    'happens daily at',
+    'is any and stays any of','is away and stays away from',
+  ]);
 
-    if (context === 'action') {
-      _renderActionTypeStep();
-    } else if (context === 'condition' || context === 'trigger') {
-      _renderConditionOrGroupStep();
+  // Operators that need a duration input (in the last / for the next)
+  const NEEDS_DURATION = new Set([
+    'changed','did not change',
+    'was','was any of','was not','was not any of',
+    'stays','stays equal to','stays any of',
+    'stays away from','stays away from any of','stays unchanged',
+    'is any and stays any of','is away and stays away from',
+  ]);
+
+  // Operators that need TWO values (between)
+  const NEEDS_TWO_VALUES = new Set(['is between','is not between']);
+
+  // Duration label: stays = "for the next", was/changed = "in the last"
+  const durationLabel = (op) =>
+    op && op.startsWith('stays') ? 'For the next...' : 'In the last...';
+
+  // Is this operator a trigger?
+  const isTrigger = (op) => TRIGGERS.includes(op);
+
+  // ── Binary device class labels ────────────────────────────
+  const BINARY_LABELS = {
+    door:           { on:'Open',      off:'Closed'       },
+    window:         { on:'Open',      off:'Closed'       },
+    garage_door:    { on:'Open',      off:'Closed'       },
+    motion:         { on:'Active',    off:'Inactive'     },
+    occupancy:      { on:'Occupied',  off:'Clear'        },
+    presence:       { on:'Present',   off:'Not Present'  },
+    smoke:          { on:'Detected',  off:'Clear'        },
+    moisture:       { on:'Wet',       off:'Dry'          },
+    lock:           { on:'Unlocked',  off:'Locked'       },
+    contact:        { on:'Open',      off:'Closed'       },
+    battery:        { on:'Low',       off:'Normal'       },
+    connectivity:   { on:'Connected', off:'Disconnected' },
+    plug:           { on:'On',        off:'Off'          },
+    light:          { on:'Light',     off:'Dark'         },
+    problem:        { on:'Problem',   off:'OK'           },
+    tamper:         { on:'Tampered',  off:'Clear'        },
+    moving:         { on:'Moving',    off:'Stopped'      },
+    running:        { on:'Running',   off:'Not Running'  },
+  };
+
+  // Virtual devices always shown at top of device picker
+  const VIRTUAL_DEVICES = [
+    { entity_id: '__location__', friendly_name: 'Location', group: 'Virtual devices' },
+    { entity_id: '__time__',     friendly_name: 'Time',     group: 'Virtual devices' },
+    { entity_id: '__date__',     friendly_name: 'Date',     group: 'Virtual devices' },
+    { entity_id: '__mode__',     friendly_name: 'Mode',     group: 'Virtual devices' },
+    { entity_id: '__system__',   friendly_name: 'System Start', group: 'Virtual devices' },
+  ];
+
+  // System variables shown at bottom of device picker
+  const SYSTEM_VARS = [
+    { name: '$currentEventDevice', label: '$currentEventDevice' },
+    { name: '$previousEventDevice', label: '$previousEventDevice' },
+    { name: '$device',  label: '$device' },
+    { name: '$devices', label: '$devices' },
+    { name: '$location',label: '$location' },
+  ];
+
+  // Location commands
+  const LOCATION_COMMANDS = [
+    { id: 'set_variable',      label: 'Set variable...' },
+    { id: 'execute_piston',    label: 'Execute piston...' },
+    { id: 'wait',              label: 'Wait...' },
+    { id: 'send_notification', label: 'Send push notification...' },
+    { id: 'log',               label: 'Log to console...' },
+    { id: 'http_request',      label: 'Make an HTTP request...' },
+    { id: 'set_mode',          label: 'Set HA mode...' },
+    { id: 'raise_event',       label: 'Raise an event...' },
+    { id: 'send_email',        label: 'Send email...' },
+  ];
+
+  // Statement type cards for action picker
+  const STATEMENT_TYPES = {
+    basic: [
+      { type: 'if_block',    label: 'If Block',    icon: '⟨/⟩', desc: 'Execute different actions depending on conditions',    btn: 'Add an if',         btnClass: 'btn-primary' },
+      { type: 'action',      label: 'Action',      icon: '⟨/⟩', desc: 'Control devices and execute tasks',                    btn: 'Add an action',     btnClass: 'btn-green' },
+      { type: 'timer',       label: 'Timer',       icon: '⟨/⟩', desc: 'Trigger execution at set time intervals',              btn: 'Add a timer',       btnClass: 'btn-orange' },
+    ],
+    advanced: [
+      { type: 'switch',      label: 'Switch',      icon: '⟨/⟩', desc: 'Compare an operand against a set of values',           btn: 'Add a switch',      btnClass: 'btn-primary' },
+      { type: 'do_block',    label: 'Do Block',    icon: '⟨/⟩', desc: 'Organize several statements into a single block',      btn: 'Add a do block',    btnClass: 'btn-green' },
+      { type: 'on_event',    label: 'On Event',    icon: '⟨/⟩', desc: 'Execute statements only when certain events happen',   btn: 'Add an on event',   btnClass: 'btn-orange' },
+    ],
+    loops: [
+      { type: 'for_loop',    label: 'For Loop',    icon: '⟨/⟩', desc: 'Execute the same statements for a set number of cycles', btn: 'Add a for loop',    btnClass: 'btn-orange' },
+      { type: 'for_each',    label: 'For Each Loop',icon:'⟨/⟩', desc: 'Execute the same statements for each device in a list', btn: 'Add a for each loop',btnClass:'btn-orange' },
+      { type: 'while_loop',  label: 'While Loop',  icon: '⟨/⟩', desc: 'Execute statements as long as a condition is met',     btn: 'Add a while loop',  btnClass: 'btn-orange' },
+      { type: 'repeat_loop', label: 'Repeat Loop', icon: '⟨/⟩', desc: 'Execute the same statements until a condition is met', btn: 'Add a repeat loop', btnClass: 'btn-orange' },
+      { type: 'break',       label: 'Break',       icon: '⟨/⟩', desc: 'Interrupt the inner most loop',                        btn: 'Add a break',       btnClass: 'btn-red' },
+      { type: 'exit',        label: 'Exit',        icon: '⟨/⟩', desc: 'Interrupt piston execution and exit immediately',      btn: 'Add an exit',       btnClass: 'btn-red' },
+    ],
+  };
+
+  // ── Open ──────────────────────────────────────────────────
+  function open(context, editNode, extra) {
+    _context = context;
+    _editNode = editNode || null;
+    _extra = extra || {};
+    _step = null;
+    _sel = {};
+
+    // Pre-populate from editNode if editing
+    if (_editNode) {
+      _sel = { ..._editNode };
     }
+
+    _showBackdrop();
+    _routeToFirstStep();
   }
 
   function close() {
-    const backdrop = document.getElementById('wizard-backdrop');
-    backdrop?.classList.remove('open');
-    _state = null;
-    _callbacks = {};
+    const bd = document.getElementById('wizard-backdrop');
+    if (bd) bd.style.display = 'none';
+    _context = null;
+    _editNode = null;
+    _sel = {};
   }
 
-  function _showModal() {
-    const backdrop = document.getElementById('wizard-backdrop');
-    const modal = document.getElementById('wizard-modal');
-    if (!backdrop || !modal) return;
+  // ── Routing ───────────────────────────────────────────────
+  function _routeToFirstStep() {
+    const ctx = _context;
 
-    const contextLabel = {
-      trigger: 'Add Trigger',
-      condition: 'Add Condition',
-      action: 'Add Statement',
-    }[_state.context] || 'Wizard';
+    if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
+      _stepConditionOrGroup();
+    } else if (ctx === 'action' || ctx === 'if_condition') {
+      _stepStatementTypePicker();
+    } else if (ctx === 'variable') {
+      _stepVariablePicker();
+    } else if (ctx === 'global') {
+      _stepGlobalPicker();
+    } else if (ctx === 'task') {
+      // Adding a task inside a with block — go straight to device picker
+      _stepDevicePicker('task');
+    } else {
+      _stepStatementTypePicker();
+    }
+  }
+
+  // ── Backdrop / Modal shell ────────────────────────────────
+  function _showBackdrop() {
+    const bd = document.getElementById('wizard-backdrop');
+    if (bd) bd.style.display = 'flex';
+  }
+
+  function _renderModal(title, bodyHtml, footerHtml) {
+    const modal = document.getElementById('wizard-modal');
+    if (!modal) return;
 
     modal.innerHTML = `
-      <div class="wizard-header">
-        <span class="wizard-context-label">${_esc(contextLabel)}</span>
-        <div class="wizard-sentence" id="wizard-sentence"></div>
+      <div class="wiz-header">
+        <div class="wiz-title">${_esc(title)}</div>
+        <button class="wiz-x" id="wiz-close">✕</button>
       </div>
-      <div class="wizard-body" id="wizard-body"></div>
-      <div class="advanced-options" id="wizard-advanced">
-        <div class="advanced-options-title">Advanced Options</div>
-        <p class="advanced-options-note">TEP, TCP, and Execution Method options only apply to PyScript pistons.</p>
-        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:12px">
-          <div class="editor-field-group">
-            <label class="editor-field-label">Task Execution Policy (TEP)</label>
-            <select id="adv-tep">
-              <option value="default">Default</option>
-              <option value="no_wait">No wait</option>
-              <option value="wait">Wait for completion</option>
-            </select>
-          </div>
-          <div class="editor-field-group">
-            <label class="editor-field-label">Task Cancellation Policy (TCP)</label>
-            <select id="adv-tcp">
-              <option value="default">Default</option>
-              <option value="cancel">Cancel pending</option>
-            </select>
-          </div>
-          <div class="editor-field-group">
-            <label class="editor-field-label">Execution Method</label>
-            <select id="adv-exec">
-              <option value="sync">Synchronous</option>
-              <option value="async">Asynchronous</option>
-            </select>
-          </div>
-        </div>
+      <div class="wiz-body" id="wiz-body">
+        ${bodyHtml}
       </div>
-      <div class="wizard-footer">
-        <button class="cog-btn" id="wizard-cog" title="Show/Hide advanced options">⚙</button>
-        <div class="wizard-footer-actions">
-          <button class="btn" id="wizard-back" style="display:none">← Back</button>
-          <button class="btn" id="wizard-cancel">Cancel</button>
-          <button class="btn btn-primary" id="wizard-done" style="display:none">Done</button>
-        </div>
+      <div class="wiz-footer" id="wiz-footer">
+        ${footerHtml}
       </div>
     `;
 
-    document.getElementById('wizard-cog')?.addEventListener('click', () => {
-      const adv = document.getElementById('wizard-advanced');
-      adv?.classList.toggle('visible');
-    });
+    document.getElementById('wiz-close')?.addEventListener('click', close);
 
-    document.getElementById('wizard-cancel')?.addEventListener('click', close);
-    document.getElementById('wizard-back')?.addEventListener('click', _goBack);
-    document.getElementById('wizard-done')?.addEventListener('click', _done);
-
-    backdrop.classList.add('open');
-  }
-
-  // ── Step rendering helpers ───────────────────────────────
-  function _setBody(html) {
-    const el = document.getElementById('wizard-body');
-    if (el) el.innerHTML = html;
-  }
-
-  function _setSentence(text) {
-    _state.sentence = text;
-    const el = document.getElementById('wizard-sentence');
-    if (el) el.textContent = text || '';
-  }
-
-  function _showBack(show) {
-    const el = document.getElementById('wizard-back');
-    if (el) el.style.display = show ? '' : 'none';
-  }
-
-  function _showDone(show) {
-    const el = document.getElementById('wizard-done');
-    if (el) el.style.display = show ? '' : 'none';
-  }
-
-  function _loading() {
-    _setBody(`<div class="wizard-loading"><div class="spinner"></div> Loading...</div>`);
-  }
-
-  function _error(msg) {
-    _setBody(`
-      <div class="wizard-error">
-        <div>${_esc(msg)}</div>
-        <button class="btn btn-sm" id="wizard-retry">Retry</button>
-      </div>
-    `);
-  }
-
-  // ── Step 0a — Action type picker ─────────────────────────
-  function _renderActionTypeStep() {
-    _state.step = 0;
-    _showBack(false);
-    _showDone(false);
-
-    const isSimple = App.state.simpleMode;
-    const types = ACTION_TYPES.filter(t => !isSimple || t.simple);
-
-    _setBody(`
-      <div class="wizard-step-title">What kind of statement?</div>
-      <div class="wizard-card-grid" style="grid-template-columns: repeat(3, 1fr)">
-        ${types.map(t => `
-          <div class="wizard-card" data-action-type="${_esc(t.type)}">
-            <div class="wizard-card-title">${t.icon} ${_esc(t.label)}</div>
-          </div>
-        `).join('')}
-      </div>
-    `);
-
-    document.querySelectorAll('[data-action-type]').forEach(card => {
-      card.addEventListener('click', () => {
-        const type = card.dataset.actionType;
-        _state.selections.action_type = type;
-        _handleActionTypeSelected(type);
-      });
-    });
-  }
-
-  function _handleActionTypeSelected(type) {
-    switch (type) {
-      case 'service_call':
-        _renderDevicePickerStep('action');
-        break;
-      case 'wait':
-        _renderWaitStep();
-        break;
-      case 'if_block':
-        _finishWithNode({ type: 'if_block', conditions: [], then_actions: [], else_actions: [] });
-        break;
-      case 'with_block':
-        _finishWithNode({ type: 'with_block', devices: [], actions: [] });
-        break;
-      case 'set_variable':
-        _renderSetVariableStep();
-        break;
-      case 'log':
-        _renderLogStep();
-        break;
-      case 'stop':
-        _renderStopStep();
-        break;
-      case 'repeat_block':
-        _finishWithNode({ type: 'repeat_block', actions: [], condition: null });
-        break;
-      case 'for_each_block':
-        _renderForEachStep();
-        break;
-      case 'call_piston':
-        _renderCallPistonStep();
-        break;
-      case 'fire_event':
-        _renderFireEventStep();
-        break;
-      default:
-        _finishWithNode({ type });
+    // Backdrop click closes
+    const bd = document.getElementById('wizard-backdrop');
+    if (bd) {
+      bd.onclick = (e) => { if (e.target === bd) close(); };
     }
   }
 
-  // ── Step 0b — Condition or Group ─────────────────────────
-  function _renderConditionOrGroupStep() {
-    _state.step = 0;
-    _showBack(false);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">What would you like to add?</div>
-      <div class="wizard-card-grid">
-        <div class="wizard-card" id="card-condition">
-          <div class="wizard-card-title">Condition</div>
-          <div class="wizard-card-desc">A single comparison between two or more operands — the basic building block of a decisional statement.</div>
-          <div style="margin-top:12px"><button class="btn btn-sm btn-primary">Add a condition</button></div>
-        </div>
-        <div class="wizard-card" id="card-group">
-          <div class="wizard-card-title">Group</div>
-          <div class="wizard-card-desc">A collection of conditions with a logical operator between them, allowing for complex AND/OR logic.</div>
-          <div style="margin-top:12px"><button class="btn btn-sm">Add a group</button></div>
-        </div>
+  // ── Standard footer builders ─────────────────────────────
+  function _conditionFooter(backFn, addMoreFn, addFn, addEnabled = true) {
+    return `
+      <button class="btn btn-ghost btn-sm" id="wiz-back">${backFn ? '← Back' : 'Cancel'}</button>
+      <div class="wiz-footer-right">
+        <button class="btn btn-ghost btn-sm" id="wiz-cog" title="Advanced options">⚙</button>
+        <button class="btn btn-primary btn-sm" id="wiz-add-more" ${addEnabled ? '' : 'disabled'}>Add more</button>
+        <button class="btn btn-primary btn-sm" id="wiz-add" ${addEnabled ? '' : 'disabled'}>Add</button>
       </div>
-    `);
+    `;
+  }
 
-    document.getElementById('card-condition')?.addEventListener('click', () => {
-      _state.selections.statement_class = 'condition';
-      _renderSubjectTypeStep();
+  function _taskFooter(showDelete = false) {
+    return `
+      <div class="wiz-footer-left">
+        <button class="btn btn-ghost btn-sm" id="wiz-cancel-task">Cancel</button>
+        ${showDelete ? `<button class="btn btn-danger btn-sm" id="wiz-delete">Delete</button>` : ''}
+      </div>
+      <div class="wiz-footer-right">
+        <button class="btn btn-ghost btn-sm" id="wiz-cog" title="Advanced options">⚙</button>
+        <button class="btn btn-primary btn-sm" id="wiz-save" disabled id="wiz-save">Save</button>
+      </div>
+    `;
+  }
+
+  function _wireConditionFooter(backFn, addMoreFn, addFn) {
+    document.getElementById('wiz-back')?.addEventListener('click', backFn || close);
+    document.getElementById('wiz-add-more')?.addEventListener('click', () => {
+      if (addMoreFn) addMoreFn();
     });
-
-    document.getElementById('card-group')?.addEventListener('click', () => {
-      _state.selections.statement_class = 'group';
-      _finishWithNode({
-        type: 'group',
-        group_operator: 'AND',
-        conditions: [],
-      });
+    document.getElementById('wiz-add')?.addEventListener('click', () => {
+      if (addFn) addFn();
     });
   }
 
-  // ── Step 1 — Subject type ────────────────────────────────
-  function _renderSubjectTypeStep() {
-    _state.step = 1;
-    _showBack(true);
-    _showDone(false);
+  function _wireTaskFooter(cancelFn, saveFn, deleteFn) {
+    document.getElementById('wiz-cancel-task')?.addEventListener('click', cancelFn || close);
+    document.getElementById('wiz-save')?.addEventListener('click', () => { if (saveFn) saveFn(); });
+    document.getElementById('wiz-delete')?.addEventListener('click', () => { if (deleteFn) deleteFn(); });
+  }
 
-    _setBody(`
-      <div class="wizard-step-title">What do you want to evaluate?</div>
-      <div class="wizard-card-grid" style="grid-template-columns: repeat(3, 1fr)">
-        ${[
-          { type: 'device',    label: 'Physical Device', icon: '💡' },
-          { type: 'variable',  label: 'Variable',         icon: '📝' },
-          { type: 'time',      label: 'Time',             icon: '🕐' },
-          { type: 'date',      label: 'Date',             icon: '📅' },
-          { type: 'sun',       label: 'Sunrise / Sunset', icon: '🌅' },
-          { type: 'ha_system', label: 'HA System',        icon: '🏠' },
-        ].map(s => `
-          <div class="wizard-card" data-subject-type="${_esc(s.type)}">
-            <div class="wizard-card-title">${s.icon} ${_esc(s.label)}</div>
+  // ── STEP: Condition vs Group ──────────────────────────────
+  function _stepConditionOrGroup() {
+    _step = 'condition_or_group';
+    _renderModal(
+      'Add a new condition',
+      `
+        <div class="wiz-desc">An IF block is the simplest decisional block available. It allows you to execute different actions depending on conditions you set.</div>
+        <div class="wiz-two-cards">
+          <div class="wiz-card-option" id="wiz-pick-condition">
+            <div class="wiz-card-option-title" style="color:var(--teal)">Condition</div>
+            <div class="wiz-card-option-desc">A condition is a single comparison between two or more operands, the basic building block of a decisional statement</div>
+            <button class="btn btn-primary btn-sm wiz-card-btn">Add a condition</button>
           </div>
-        `).join('')}
-      </div>
-    `);
+          <div class="wiz-card-option" id="wiz-pick-group">
+            <div class="wiz-card-option-title" style="color:var(--orange)">Group</div>
+            <div class="wiz-card-option-desc">A group is a collection of conditions, with a logical operator between them, allowing for complex decisional statements</div>
+            <button class="btn btn-orange btn-sm wiz-card-btn">Add a group</button>
+          </div>
+        </div>
+      `,
+      `<button class="btn btn-ghost btn-sm" id="wiz-cancel-cg">Cancel</button>`
+    );
 
-    document.querySelectorAll('[data-subject-type]').forEach(card => {
-      card.addEventListener('click', () => {
-        _state.selections.subject_type = card.dataset.subjectType;
-        if (_state.selections.subject_type === 'device') {
-          _renderDevicePickerStep(_state.context);
-        } else {
-          _renderNonDeviceStep(_state.selections.subject_type);
-        }
-      });
+    document.getElementById('wiz-cancel-cg')?.addEventListener('click', close);
+    document.getElementById('wiz-pick-condition')?.addEventListener('click', () => {
+      _sel.statement_class = 'condition';
+      _stepConditionBuilder();
+    });
+    document.getElementById('wiz-pick-group')?.addEventListener('click', () => {
+      _sel.statement_class = 'group';
+      _stepGroupBuilder();
     });
   }
 
-  // ── Step 2 — Device picker ───────────────────────────────
-  function _renderDevicePickerStep(context) {
-    _state.step = 2;
-    _showBack(true);
-    _showDone(false);
+  // ── STEP: Condition Builder (the main condition screen) ───
+  // All on ONE screen: aggregation + device + attribute + operator + value + duration
+  function _stepConditionBuilder() {
+    _step = 'condition_builder';
 
-    _setBody(`
-      <div class="wizard-step-title">Pick the device</div>
-      <div class="device-search">
-        <input type="text" id="device-filter" placeholder="Search by name or area..." autocomplete="off" />
-      </div>
-      <div class="device-list" id="device-list">
-        <div class="wizard-loading"><div class="spinner"></div> Fetching devices from HA...</div>
-      </div>
-    `);
+    const aggValue = _sel.aggregation || 'any';
+    const deviceLabel = _sel.device_label || '';
+    const deviceId = _sel.device_id || '';
+    const attribute = _sel.attribute || '';
+    const operator = _sel.operator || '';
+    const hasDevice = !!deviceId;
+    const hasOperator = !!operator;
+    const needsVal = hasOperator && NEEDS_VALUE.has(operator);
+    const needsDur = hasOperator && NEEDS_DURATION.has(operator);
+    const needsTwo = hasOperator && NEEDS_TWO_VALUES.has(operator);
+    const isMultiDevice = (_sel.devices || []).length > 1;
 
-    _loadDevices();
+    _renderModal(
+      'Add a new condition',
+      `
+        <div class="wiz-desc">A condition allows for a single comparison to be made between two expressions.</div>
 
-    // Debounced filter
-    let _filterTimer = null;
-    document.getElementById('device-filter')?.addEventListener('input', (e) => {
-      clearTimeout(_filterTimer);
-      _filterTimer = setTimeout(() => _filterDevices(e.target.value.trim()), 250);
+        <!-- Aggregation bar — only shown when multiple devices selected -->
+        <div class="wiz-agg-bar ${isMultiDevice ? '' : 'hidden'}" id="wiz-agg-bar">
+          <select id="wiz-agg" class="wiz-agg-select">
+            <option value="any" ${aggValue==='any'?'selected':''}>Any of the selected devices</option>
+            <option value="all" ${aggValue==='all'?'selected':''}>All of the selected devices</option>
+            <option value="none" ${aggValue==='none'?'selected':''}>None of the selected devices</option>
+          </select>
+        </div>
+
+        <!-- What to compare row -->
+        <div class="wiz-row-label">What to compare <span class="wiz-required" id="wiz-compare-warn">⚠</span></div>
+        <div class="wiz-compare-row">
+          <div class="wiz-subject-type-wrap">
+            <select id="wiz-subject-type" class="wiz-select-blue">
+              <option value="device" ${(_sel.subject_type||'device')==='device'?'selected':''}>Physical device(s)</option>
+              <option value="variable" ${_sel.subject_type==='variable'?'selected':''}>Variable</option>
+              <option value="time" ${_sel.subject_type==='time'?'selected':''}>Time</option>
+              <option value="date" ${_sel.subject_type==='date'?'selected':''}>Date</option>
+              <option value="mode" ${_sel.subject_type==='mode'?'selected':''}>Mode</option>
+            </select>
+          </div>
+          <button class="wiz-device-pick-btn ${deviceLabel ? 'has-value' : ''}" id="wiz-pick-device">
+            ${deviceLabel ? `<span class="wiz-device-tag">device</span> ${_esc(deviceLabel)}` : 'Nothing selected'}
+          </button>
+          <button class="wiz-attr-pick-btn ${attribute ? 'has-value' : ''}" id="wiz-pick-attr">
+            ${attribute ? _esc(attribute) : 'Nothing selected'}
+          </button>
+        </div>
+
+        <!-- Which interaction row — shown for device subjects -->
+        <div class="wiz-interaction-row ${hasDevice ? '' : 'hidden'}" id="wiz-interaction-row">
+          <div class="wiz-row-label-inline">Which interaction</div>
+          <select id="wiz-interaction" class="wiz-select-blue-sm">
+            <option value="any">Any interaction</option>
+            <option value="physical">Physical</option>
+            <option value="programmatic">Programmatic</option>
+          </select>
+        </div>
+
+        <!-- Operator row -->
+        <div class="wiz-row-label">What kind of comparison?</div>
+        <div class="wiz-operator-wrap">
+          <select id="wiz-operator" class="wiz-select-blue wiz-select-full ${hasOperator ? 'has-value' : ''}">
+            <option value="">Select a comparison...</option>
+            <optgroup label="Conditions">
+              ${CONDITIONS.map(op => `<option value="${_esc(op)}" ${operator===op?'selected':''}>${_esc(op)}</option>`).join('')}
+            </optgroup>
+            <optgroup label="Triggers">
+              ${TRIGGERS.map(op => `<option value="${_esc(op)}" ${operator===op?'selected':''}>${_esc(op)}</option>`).join('')}
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- Value row — shown when operator needs a value -->
+        <div class="wiz-value-row ${needsVal ? '' : 'hidden'}" id="wiz-value-row">
+          <div class="wiz-row-label">Value</div>
+          <div class="wiz-value-inputs">
+            <select id="wiz-value-type" class="wiz-select-blue-sm">
+              <option value="value">Value</option>
+              <option value="variable">Variable</option>
+              <option value="expression">Expression</option>
+            </select>
+            <input type="text" id="wiz-value-1" class="wiz-value-input" placeholder="Value..." value="${_esc(_sel.value || '')}" />
+            ${needsTwo ? `<span class="wiz-between-and">and</span><input type="text" id="wiz-value-2" class="wiz-value-input" placeholder="Value..." value="${_esc(_sel.value2 || '')}" />` : ''}
+          </div>
+        </div>
+
+        <!-- Duration row — shown for stays/was/changed operators -->
+        <div class="wiz-duration-row ${needsDur ? '' : 'hidden'}" id="wiz-duration-row">
+          <div class="wiz-row-label" id="wiz-duration-label">${durationLabel(operator)}</div>
+          <div class="wiz-duration-inputs">
+            <select id="wiz-dur-type" class="wiz-select-blue-sm">
+              <option value="value">Value</option>
+              <option value="variable">Variable</option>
+            </select>
+            <input type="number" id="wiz-dur-amount" class="wiz-dur-number" value="${_esc(String(_sel.duration_amount || 1))}" min="1" />
+            <select id="wiz-dur-unit" class="wiz-select-blue-sm">
+              <option value="seconds" ${(_sel.duration_unit||'minutes')==='seconds'?'selected':''}>seconds</option>
+              <option value="minutes" ${(_sel.duration_unit||'minutes')==='minutes'?'selected':''}>minutes</option>
+              <option value="hours" ${(_sel.duration_unit||'minutes')==='hours'?'selected':''}>hours</option>
+              <option value="days" ${(_sel.duration_unit||'minutes')==='days'?'selected':''}>days</option>
+            </select>
+          </div>
+        </div>
+      `,
+      _conditionFooter(
+        () => _stepConditionOrGroup(),
+        () => _addConditionAndMore(),
+        () => _addCondition(),
+        hasDevice && hasOperator
+      )
+    );
+
+    // Wire operator change → show/hide value/duration rows
+    document.getElementById('wiz-operator')?.addEventListener('change', (e) => {
+      _sel.operator = e.target.value;
+      _updateConditionRows();
     });
+
+    document.getElementById('wiz-pick-device')?.addEventListener('click', () => {
+      _sel._returnStep = 'condition_builder';
+      _stepDevicePicker('condition');
+    });
+
+    document.getElementById('wiz-pick-attr')?.addEventListener('click', () => {
+      if (_sel.device_id) _stepAttributePicker();
+    });
+
+    document.getElementById('wiz-subject-type')?.addEventListener('change', (e) => {
+      _sel.subject_type = e.target.value;
+      _stepConditionBuilder(); // re-render
+    });
+
+    document.getElementById('wiz-agg')?.addEventListener('change', (e) => {
+      _sel.aggregation = e.target.value;
+    });
+
+    _wireConditionFooter(
+      () => _stepConditionOrGroup(),
+      () => _addConditionAndMore(),
+      () => _addCondition()
+    );
   }
 
-  let _deviceCache = null;
+  function _updateConditionRows() {
+    const op = _sel.operator || '';
+    const needsVal = NEEDS_VALUE.has(op);
+    const needsDur = NEEDS_DURATION.has(op);
+    const needsTwo = NEEDS_TWO_VALUES.has(op);
 
-  async function _loadDevices() {
-    try {
-      if (!_deviceCache) {
-        _deviceCache = await API.getDevices();
+    document.getElementById('wiz-value-row')?.classList.toggle('hidden', !needsVal);
+    document.getElementById('wiz-duration-row')?.classList.toggle('hidden', !needsDur);
+    if (needsDur) {
+      const lbl = document.getElementById('wiz-duration-label');
+      if (lbl) lbl.textContent = durationLabel(op);
+    }
+
+    // Show/hide second value for between
+    const v2 = document.getElementById('wiz-value-2');
+    const andSpan = document.querySelector('.wiz-between-and');
+    if (v2) v2.style.display = needsTwo ? '' : 'none';
+    if (andSpan) andSpan.style.display = needsTwo ? '' : 'none';
+
+    // Enable/disable Add buttons
+    const hasDevice = !!_sel.device_id;
+    const hasOp = !!op;
+    const enabled = hasDevice && hasOp;
+    document.getElementById('wiz-add')?.toggleAttribute('disabled', !enabled);
+    document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !enabled);
+
+    // Trigger indicator
+    if (isTrigger(op)) {
+      document.getElementById('wiz-operator')?.classList.add('is-trigger');
+    } else {
+      document.getElementById('wiz-operator')?.classList.remove('is-trigger');
+    }
+  }
+
+  function _readConditionFromDOM() {
+    return {
+      statement_class: _sel.statement_class || 'condition',
+      aggregation: document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
+      subject: {
+        type: _sel.subject_type || 'device',
+        entity_id: _sel.device_id || '',
+        role: _sel.device_label || '',
+        capability: _sel.attribute || '',
+      },
+      operator: document.getElementById('wiz-operator')?.value || '',
+      value: document.getElementById('wiz-value-1')?.value || '',
+      value2: document.getElementById('wiz-value-2')?.value || '',
+      duration_amount: parseInt(document.getElementById('wiz-dur-amount')?.value || '1'),
+      duration_unit: document.getElementById('wiz-dur-unit')?.value || 'minutes',
+      interaction: document.getElementById('wiz-interaction')?.value || 'any',
+      display_value: document.getElementById('wiz-value-1')?.value || '',
+      is_trigger: isTrigger(document.getElementById('wiz-operator')?.value || ''),
+    };
+  }
+
+  function _addCondition() {
+    const node = _readConditionFromDOM();
+    if (!node.subject.entity_id || !node.operator) return;
+    node.type = node.is_trigger ? 'trigger' : 'condition';
+    node.id = _editNode?.id || _newId();
+    Editor.insertStatement(_context, node);
+    close();
+  }
+
+  function _addConditionAndMore() {
+    const node = _readConditionFromDOM();
+    if (!node.subject.entity_id || !node.operator) return;
+    node.type = node.is_trigger ? 'trigger' : 'condition';
+    node.id = _editNode?.id || _newId();
+    Editor.insertStatement(_context, node);
+    // Reset for next condition — keep device selection
+    const prevDevice = { device_id: _sel.device_id, device_label: _sel.device_label, subject_type: _sel.subject_type };
+    _sel = { statement_class: 'condition', ...prevDevice };
+    _editNode = null;
+    _stepConditionBuilder();
+  }
+
+  // ── STEP: Group Builder ───────────────────────────────────
+  function _stepGroupBuilder() {
+    _step = 'group_builder';
+    _renderModal(
+      'Add a new condition group',
+      `
+        <div class="wiz-desc">A group is a collection of conditions joined by a logical operator.</div>
+        <div class="wiz-row-label">Group operator</div>
+        <select id="wiz-group-op" class="wiz-select-blue wiz-select-full">
+          <option value="AND">AND — all conditions must be true</option>
+          <option value="OR">OR — any condition must be true</option>
+        </select>
+      `,
+      _conditionFooter(() => _stepConditionOrGroup(), null, () => {
+        const node = {
+          type: 'group',
+          id: _newId(),
+          group_operator: document.getElementById('wiz-group-op')?.value || 'AND',
+          conditions: [],
+        };
+        Editor.insertStatement(_context, node);
+        close();
+      }, true)
+    );
+    _wireConditionFooter(
+      () => _stepConditionOrGroup(),
+      null,
+      () => {
+        const node = {
+          type: 'group',
+          id: _newId(),
+          group_operator: document.getElementById('wiz-group-op')?.value || 'AND',
+          conditions: [],
+        };
+        Editor.insertStatement(_context, node);
+        close();
       }
-      _renderDeviceList(_deviceCache, '');
-    } catch (e) {
-      _error(`Could not load device capabilities. Check your Home Assistant connection.\n${e.message}`);
-      document.getElementById('wizard-retry')?.addEventListener('click', async () => {
-        _deviceCache = null;
-        _loading();
-        await _loadDevices();
+    );
+  }
+
+  // ── STEP: Statement Type Picker (card grid) ───────────────
+  function _stepStatementTypePicker() {
+    _step = 'statement_type';
+
+    const section = (title, types) => `
+      <div class="wiz-section-label">${_esc(title)}</div>
+      <div class="wiz-card-grid">
+        ${types.map(t => `
+          <div class="wiz-stmt-card" data-stmt-type="${_esc(t.type)}">
+            <div class="wiz-stmt-icon">${t.icon}</div>
+            <div class="wiz-stmt-name">${_esc(t.label)}</div>
+            <div class="wiz-stmt-desc">${_esc(t.desc)}</div>
+            <button class="btn ${t.btnClass} btn-sm wiz-stmt-btn">${_esc(t.btn)}</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    _renderModal(
+      '',
+      `
+        ${section('Basic statements', STATEMENT_TYPES.basic)}
+        ${section('Advanced statements', STATEMENT_TYPES.advanced)}
+        <div class="wiz-card-grid">
+          ${STATEMENT_TYPES.loops.map(t => `
+            <div class="wiz-stmt-card" data-stmt-type="${_esc(t.type)}">
+              <div class="wiz-stmt-icon">${t.icon}</div>
+              <div class="wiz-stmt-name">${_esc(t.label)}</div>
+              <div class="wiz-stmt-desc">${_esc(t.desc)}</div>
+              <button class="btn ${t.btnClass} btn-sm wiz-stmt-btn">${_esc(t.btn)}</button>
+            </div>
+          `).join('')}
+        </div>
+      `,
+      `<button class="btn btn-ghost btn-sm" id="wiz-cancel-stmt">Cancel</button>`
+    );
+
+    document.getElementById('wiz-cancel-stmt')?.addEventListener('click', close);
+
+    document.querySelectorAll('[data-stmt-type]').forEach(card => {
+      card.addEventListener('click', () => {
+        const type = card.dataset.stmtType;
+        _sel.statement_type = type;
+        _handleStatementType(type);
       });
+    });
+  }
+
+  function _handleStatementType(type) {
+    if (type === 'action') {
+      _stepDevicePicker('action');
+    } else if (type === 'if_block') {
+      Editor.insertStatement(_context, { type: 'if_block', id: _newId(), conditions: [], then_actions: [], else_actions: [] });
+      close();
+    } else if (type === 'for_each') {
+      _stepForEachPicker();
+    } else if (type === 'while_loop') {
+      Editor.insertStatement(_context, { type: 'while_loop', id: _newId(), conditions: [], actions: [] });
+      close();
+    } else if (type === 'repeat_loop') {
+      _stepRepeatPicker();
+    } else if (type === 'timer') {
+      _stepTimerPicker();
+    } else {
+      // for break, exit, switch, do_block, on_event, for_loop — insert skeleton
+      Editor.insertStatement(_context, { type, id: _newId() });
+      close();
     }
   }
 
-  function _filterDevices(query) {
-    if (!_deviceCache) return;
-    _renderDeviceList(_deviceCache, query);
+  // ── STEP: Device Picker ───────────────────────────────────
+  function _stepDevicePicker(mode) {
+    // mode: 'condition' | 'action' | 'task'
+    _sel._devicePickerMode = mode;
+    _step = 'device_picker';
+
+    _renderModal(
+      mode === 'action' ? 'Add a new action' : 'Select device(s)',
+      `
+        ${mode === 'action' ? `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The Location virtual device provides a way to execute some non-device-specific tasks.</div>` : ''}
+
+        <!-- Selected devices bar -->
+        <div class="wiz-selected-bar" id="wiz-selected-bar" style="display:none">
+          <span id="wiz-selected-label">Nothing selected</span>
+        </div>
+
+        <!-- Search box -->
+        <div class="wiz-device-search-wrap">
+          <div class="wiz-desc" style="font-size:11px;margin-bottom:4px">Use the input box below to quickly search for devices</div>
+          <div class="wiz-search-row">
+            <input type="text" id="wiz-device-search" placeholder="" autocomplete="off" />
+            <button id="wiz-search-clear" style="display:none">✕</button>
+          </div>
+        </div>
+        <div class="wiz-sel-all-row">
+          <button class="btn btn-ghost btn-xs" id="wiz-sel-all">Select All</button>
+          <button class="btn btn-ghost btn-xs" id="wiz-desel-all">Deselect All</button>
+        </div>
+
+        <!-- Device list -->
+        <div class="wiz-device-list" id="wiz-device-list">
+          <div class="wiz-loading"><div class="spinner"></div></div>
+        </div>
+      `,
+      mode === 'condition'
+        ? _conditionFooter(() => _stepConditionBuilder(), null, null, false)
+        : `<button class="btn btn-ghost btn-sm" id="wiz-dp-cancel">Cancel</button>`
+    );
+
+    document.getElementById('wiz-dp-cancel')?.addEventListener('click', close);
+
+    // Search wiring
+    let _ft = null;
+    document.getElementById('wiz-device-search')?.addEventListener('input', (e) => {
+      clearTimeout(_ft);
+      const clr = document.getElementById('wiz-search-clear');
+      if (clr) clr.style.display = e.target.value ? '' : 'none';
+      _ft = setTimeout(() => _renderDeviceList(e.target.value.trim()), 200);
+    });
+    document.getElementById('wiz-search-clear')?.addEventListener('click', () => {
+      const inp = document.getElementById('wiz-device-search');
+      if (inp) { inp.value = ''; inp.dispatchEvent(new Event('input')); }
+    });
+    document.getElementById('wiz-sel-all')?.addEventListener('click', () => _selectAllDevices(true));
+    document.getElementById('wiz-desel-all')?.addEventListener('click', () => _selectAllDevices(false));
+
+    _loadDevicesForPicker();
   }
 
-  function _renderDeviceList(devices, query) {
-    const el = document.getElementById('device-list');
+  let _deviceData = null;
+
+  async function _loadDevicesForPicker() {
+    try {
+      if (!_deviceData) {
+        const raw = await API.getDevices();
+        _deviceData = raw;
+      }
+      _renderDeviceList('');
+    } catch(e) {
+      const el = document.getElementById('wiz-device-list');
+      if (el) el.innerHTML = `<div class="wiz-error">Could not load devices from HA.<br><small>${_esc(e.message)}</small></div>`;
+    }
+  }
+
+  function _renderDeviceList(query) {
+    const el = document.getElementById('wiz-device-list');
     if (!el) return;
 
-    let filtered = devices;
-    if (query) {
-      const q = query.toLowerCase();
-      filtered = devices.filter(d =>
-        d.friendly_name.toLowerCase().includes(q) ||
-        d.entity_id.toLowerCase().includes(q) ||
-        (d.area || '').toLowerCase().includes(q)
-      );
+    const q = (query || '').toLowerCase();
+    const physical = (_deviceData || []).filter(d =>
+      !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
+    );
+
+    // Load globals for the list
+    const globals = (_globalsCache || []).filter(g => g.type === 'device' || g.var_type === 'device')
+      .filter(g => !q || g.name.toLowerCase().includes(q));
+
+    const selected = new Set(_sel.devices || []);
+
+    let html = '';
+
+    // Virtual devices
+    if (!q) {
+      html += `<div class="wiz-device-group-header">Virtual devices</div>`;
+      html += VIRTUAL_DEVICES.map(v => _deviceRow(v.entity_id, v.friendly_name, selected.has(v.entity_id), 'virtual')).join('');
     }
 
-    if (!filtered.length) {
-      el.innerHTML = `<div style="padding:12px; color:var(--text-muted); font-size:12px">No devices match your search.</div>`;
-      return;
+    // Physical devices
+    if (physical.length) {
+      html += `<div class="wiz-device-group-header">Physical devices</div>`;
+      html += physical.slice(0, 100).map(d => _deviceRow(d.entity_id, d.friendly_name, selected.has(d.entity_id), 'physical')).join('');
     }
 
-    el.innerHTML = filtered.slice(0, 80).map(d => `
-      <div class="device-list-item" data-entity-id="${_esc(d.entity_id)}" data-friendly-name="${_esc(d.friendly_name)}">
-        <div class="device-friendly-name">${_esc(d.friendly_name)}</div>
-        <div style="display:flex; gap:8px">
-          <span class="device-entity-id">${_esc(d.entity_id)}</span>
-          ${d.area ? `<span class="device-area">${_esc(d.area)}</span>` : ''}
-        </div>
-      </div>
-    `).join('');
+    // Global device variables
+    if (globals.length) {
+      globals.forEach(g => {
+        const id = `@${g.name}`;
+        html += _deviceRow(id, `@${g.name}`, selected.has(id), 'global');
+      });
+    }
 
-    el.querySelectorAll('.device-list-item').forEach(item => {
-      item.addEventListener('click', () => {
-        el.querySelectorAll('.device-list-item').forEach(i => i.classList.remove('selected'));
-        item.classList.add('selected');
-        _state.selections.device_id = item.dataset.entityId;
-        _state.selections.device_label = item.dataset.friendlyName;
+    // System variables
+    if (!q) {
+      html += `<div class="wiz-device-group-header">System variables</div>`;
+      html += SYSTEM_VARS.map(sv => _deviceRow(sv.name, sv.label, selected.has(sv.name), 'sysvar')).join('');
+    }
 
-        const context = _state.context;
-        if (context === 'action') {
-          _renderServicePickerStep(item.dataset.entityId);
+    el.innerHTML = html || `<div class="wiz-empty">No devices found.</div>`;
+
+    // Wire clicks
+    el.querySelectorAll('.wiz-device-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.id;
+        const mode = _sel._devicePickerMode;
+
+        if (mode === 'condition') {
+          // Single select for conditions
+          el.querySelectorAll('.wiz-device-row').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+          _sel.device_id = id;
+          _sel.device_label = row.dataset.label;
+          _sel.devices = [id];
+          _updateSelectedBar([row.dataset.label]);
+          // Auto-advance to attribute picker for physical devices
+          if (!id.startsWith('__') && !id.startsWith('@') && !id.startsWith('$')) {
+            setTimeout(() => _stepAttributePicker(), 150);
+          } else {
+            _stepConditionBuilder();
+          }
         } else {
-          _renderCapabilityStep(item.dataset.entityId);
+          // Multi-select for actions
+          row.classList.toggle('selected');
+          const newSelected = new Set(_sel.devices || []);
+          if (row.classList.contains('selected')) {
+            newSelected.add(id);
+          } else {
+            newSelected.delete(id);
+          }
+          _sel.devices = [...newSelected];
+          _sel.device_id = _sel.devices[0] || '';
+          _sel.device_label = _sel.devices.length === 1 ? row.dataset.label : `${_sel.devices.length} devices`;
+          _updateSelectedBar(_sel.devices.map(d => {
+            const r = el.querySelector(`[data-id="${CSS.escape(d)}"]`);
+            return r?.dataset.label || d;
+          }));
+          // Show a "Done" button once at least one device is selected
+          _updateDevicePickerFooter(_sel.devices.length > 0);
         }
       });
     });
+
+    // Re-apply selected state
+    selected.forEach(id => {
+      el.querySelector(`[data-id="${CSS.escape(id)}"]`)?.classList.add('selected');
+    });
   }
 
-  // ── Step 3a — Capability picker (condition/trigger) ──────
-  async function _renderCapabilityStep(entityId) {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
+  function _deviceRow(id, label, selected, type) {
+    const prefix = type === 'global' ? `<span class="wiz-dev-prefix">device</span>` : '';
+    return `<div class="wiz-device-row ${selected ? 'selected' : ''}" data-id="${_esc(id)}" data-label="${_esc(label)}" data-type="${type}">
+      ${prefix}<span class="wiz-dev-label">${_esc(label)}</span>
+    </div>`;
+  }
 
-    _setSentence(`Evaluating ${_state.selections.device_label || entityId}...`);
-    _loading();
+  function _updateSelectedBar(labels) {
+    const bar = document.getElementById('wiz-selected-bar');
+    const lbl = document.getElementById('wiz-selected-label');
+    if (!bar || !lbl) return;
+    if (labels.length) {
+      bar.style.display = '';
+      lbl.textContent = labels.join(', ');
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+
+  function _updateDevicePickerFooter(hasSelection) {
+    const footer = document.getElementById('wiz-footer');
+    if (!footer) return;
+    footer.innerHTML = `
+      <button class="btn btn-ghost btn-sm" id="wiz-dp-cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="wiz-dp-next" ${hasSelection ? '' : 'disabled'}>Next →</button>
+    `;
+    document.getElementById('wiz-dp-cancel')?.addEventListener('click', close);
+    document.getElementById('wiz-dp-next')?.addEventListener('click', () => {
+      if (_sel.device_id === '__location__') {
+        _stepLocationCommandPicker();
+      } else {
+        _stepCommandPicker();
+      }
+    });
+  }
+
+  function _selectAllDevices(selectAll) {
+    const rows = document.querySelectorAll('.wiz-device-row');
+    const ids = [];
+    const labels = [];
+    rows.forEach(r => {
+      if (selectAll) {
+        r.classList.add('selected');
+        ids.push(r.dataset.id);
+        labels.push(r.dataset.label);
+      } else {
+        r.classList.remove('selected');
+      }
+    });
+    _sel.devices = selectAll ? ids : [];
+    _sel.device_id = ids[0] || '';
+    _updateSelectedBar(selectAll ? labels : []);
+    _updateDevicePickerFooter(selectAll && ids.length > 0);
+  }
+
+  // ── STEP: Attribute Picker (condition flow) ───────────────
+  async function _stepAttributePicker() {
+    _step = 'attribute_picker';
+    const entityId = _sel.device_id;
+
+    // Show loading state in the compare row
+    _stepConditionBuilder(); // re-render with loading attr button
 
     try {
       const data = await API.getCapabilities(entityId);
-      _state.selections.capabilities_data = data;
-
-      _setBody(`
-        <div class="wizard-step-title">Pick the capability or attribute</div>
-        <div style="display:flex; flex-direction:column; gap:4px">
-          ${data.capabilities.map(cap => `
-            <button class="operator-btn" data-cap-name="${_esc(cap.name)}" data-attr-type="${_esc(cap.attribute_type)}" data-device-class="${_esc(cap.device_class || '')}">
-              ${_esc(_capLabel(cap))}
-            </button>
-          `).join('')}
-        </div>
-      `);
-
-      document.querySelectorAll('[data-cap-name]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('[data-cap-name]').forEach(b => b.classList.remove('selected'));
-          btn.classList.add('selected');
-
-          _state.selections.capability = btn.dataset.capName;
-          _state.selections.attribute_type = btn.dataset.attrType;
-          _state.selections.device_class = btn.dataset.deviceClass;
-
-          // Look up binary label pairs
-          if (_state.selections.attribute_type === 'binary') {
-            const dc = _state.selections.device_class;
-            _state.selections.display_states = [
-              BINARY_LABELS[dc]?.on || 'On',
-              BINARY_LABELS[dc]?.off || 'Off',
-            ];
-            _state.selections.compiled_states = ['on', 'off'];
-          }
-
-          _renderOperatorStep();
-        });
-      });
-
-    } catch (e) {
-      _error(`Could not load device capabilities. Check your Home Assistant connection.`);
-      document.getElementById('wizard-retry')?.addEventListener('click', () => {
-        _renderCapabilityStep(entityId);
-      });
+      _sel._capabilities = data.capabilities || [];
+      if (_sel._capabilities.length === 1) {
+        // Auto-select if only one capability
+        _sel.attribute = _sel._capabilities[0].name;
+        _sel.attribute_type = _sel._capabilities[0].attribute_type;
+        _stepConditionBuilder();
+      } else {
+        _showAttributeDropdown(data.capabilities || []);
+      }
+    } catch(e) {
+      _stepConditionBuilder();
     }
   }
 
-  function _capLabel(cap) {
-    if (cap.name === 'state') {
-      const dc = cap.device_class;
-      return dc ? `State (${dc})` : 'State';
-    }
-    return cap.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
+  function _showAttributeDropdown(capabilities) {
+    // Replace the attr button with a small dropdown inline
+    const btn = document.getElementById('wiz-pick-attr');
+    if (!btn) { _stepConditionBuilder(); return; }
 
-  // ── Step 4 — Operator picker ─────────────────────────────
-  function _renderOperatorStep() {
-    _state.step = 4;
-    _showBack(true);
-    _showDone(false);
+    const sel = document.createElement('select');
+    sel.className = 'wiz-attr-pick-btn has-value';
+    sel.innerHTML = capabilities.map(c =>
+      `<option value="${_esc(c.name)}" data-attr-type="${_esc(c.attribute_type||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`
+    ).join('');
+    btn.replaceWith(sel);
+    sel.value = _sel.attribute || capabilities[0]?.name || '';
+    _sel.attribute = sel.value;
 
-    const attrType = _state.selections.attribute_type || 'unknown';
-    const map = CAPABILITY_MAP[attrType] || CAPABILITY_MAP.unknown;
-    const isTriggerContext = _state.context === 'trigger';
-
-    const deviceLabel = _state.selections.device_label || '';
-    const cap = _state.selections.capability || 'state';
-    _setSentence(`${deviceLabel} ${cap}`);
-
-    _setBody(`
-      <div class="wizard-step-title">Pick the operator</div>
-
-      <div class="operator-group">
-        <div class="operator-group-label"><span class="trigger-icon">⚡</span> Triggers — fire when this happens</div>
-        ${map.triggers.map(op => `
-          <button class="operator-btn" data-op="${_esc(op)}" data-op-type="trigger">
-            <span class="trigger-icon">⚡</span> ${_esc(op)}
-          </button>
-        `).join('')}
-      </div>
-
-      <div class="operator-group">
-        <div class="operator-group-label">Conditions — check current state</div>
-        ${map.conditions.map(op => `
-          <button class="operator-btn" data-op="${_esc(op)}" data-op-type="condition">
-            ${_esc(op)}
-          </button>
-        `).join('')}
-      </div>
-    `);
-
-    // Pre-select the appropriate group based on context
-    if (isTriggerContext) {
-      document.querySelector('[data-op-type="trigger"]')?.classList.add('selected');
-    }
-
-    document.querySelectorAll('[data-op]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-op]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-
-        _state.selections.operator = btn.dataset.op;
-        _state.selections.operator_group = btn.dataset.opType;
-        _state.type = btn.dataset.opType; // 'trigger' or 'condition'
-
-        const opText = btn.dataset.op;
-        const sentBase = `${_state.selections.device_label || ''} ${_esc(opText)}`;
-        _setSentence(sentBase);
-
-        // For operators needing a value, go to value step
-        // For binary "changes (any)" — done immediately
-        if (opText === 'changes (any)') {
-          _state.selections.display_value = null;
-          _state.selections.compiled_value = null;
-          _buildConditionAndFinish();
-        } else {
-          _renderValueStep();
-        }
-      });
+    sel.addEventListener('change', () => {
+      const opt = sel.options[sel.selectedIndex];
+      _sel.attribute = opt.value;
+      _sel.attribute_type = opt.dataset.attrType;
     });
   }
 
-  // ── Step 5 — Value input ─────────────────────────────────
-  function _renderValueStep() {
-    _state.step = 5;
-    _showBack(true);
-    _showDone(false);
+  // ── STEP: Location Command Picker ─────────────────────────
+  function _stepLocationCommandPicker() {
+    _step = 'location_command';
+    _sel._withDevice = 'Location';
 
-    const attrType = _state.selections.attribute_type || 'unknown';
-    const op = _state.selections.operator || '';
+    _renderModal(
+      'Add a new task',
+      `
+        <div class="wiz-with-row">
+          <span class="wiz-with-label">With...</span>
+          <span class="wiz-with-device">Location</span>
+        </div>
+        <div class="wiz-do-label">Do...</div>
+        <select id="wiz-location-cmd" class="wiz-select-blue wiz-select-full">
+          <option value="">Please select a command</option>
+          ${LOCATION_COMMANDS.map(c => `<option value="${_esc(c.id)}" ${_sel.location_cmd===c.id?'selected':''}>${_esc(c.label)}</option>`).join('')}
+        </select>
+        <div id="wiz-location-params"></div>
+      `,
+      _taskFooter(!!_editNode)
+    );
 
-    let html = `<div class="wizard-step-title">Choose the value</div>`;
+    document.getElementById('wiz-location-cmd')?.addEventListener('change', (e) => {
+      _sel.location_cmd = e.target.value;
+      _renderLocationParams(e.target.value);
+      document.getElementById('wiz-save')?.removeAttribute('disabled');
+    });
 
-    if (attrType === 'binary') {
-      const labels = _state.selections.display_states || ['On', 'Off'];
-      const compiled = _state.selections.compiled_states || ['on', 'off'];
-      const isTrigger = _state.selections.operator_group === 'trigger';
-      const baseText = op.includes('changes to') ? 'changes to' : 'is';
+    if (_sel.location_cmd) {
+      _renderLocationParams(_sel.location_cmd);
+      document.getElementById('wiz-save')?.removeAttribute('disabled');
+    }
 
-      html += `<div style="display:flex; flex-direction:column; gap:6px">`;
-      labels.forEach((label, i) => {
-        html += `
-          <button class="operator-btn" data-display="${_esc(label)}" data-compiled="${_esc(compiled[i])}">
-            ${_esc(isTrigger ? 'changes to ' + label : 'is ' + label)}
-          </button>`;
-      });
-      html += `</div>`;
+    _wireTaskFooter(close, _saveLocationTask, _editNode ? _deleteNode : null);
+  }
 
-    } else if (attrType === 'enum') {
-      // Enum — use reported HA states or known options
-      const data = _state.selections.capabilities_data;
-      const options = data?.capabilities?.find(c => c.name === _state.selections.capability)?.options;
-      if (options?.length) {
-        html += `<div style="display:flex; flex-direction:column; gap:6px">`;
-        options.forEach(opt => {
-          html += `<button class="operator-btn" data-display="${_esc(opt)}" data-compiled="${_esc(opt)}">${_esc(opt)}</button>`;
-        });
-        html += `</div>`;
-      } else {
-        html += `
-          <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">Enter the state value:</div>
-          <input type="text" id="value-input" style="width:100%" placeholder="e.g. playing, paused, idle..." />
-          <button class="btn btn-primary btn-sm mt-3" id="value-confirm">Confirm</button>
-        `;
-      }
+  function _renderLocationParams(cmd) {
+    const el = document.getElementById('wiz-location-params');
+    if (!el) return;
 
-    } else if (attrType === 'numeric' || attrType === 'numeric_position') {
-      html += `
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">Enter the value:</div>
-        <input type="number" id="value-input" style="width:200px" placeholder="0" />
-        <button class="btn btn-primary btn-sm mt-3" id="value-confirm">Confirm</button>
+    if (cmd === 'set_variable') {
+      el.innerHTML = `
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Variable</div>
+          <div class="wiz-value-inputs">
+            <select id="wiz-var-scope" class="wiz-select-blue-sm">
+              <option value="local">Variable</option>
+              <option value="global">Global</option>
+            </select>
+            <select id="wiz-var-name" class="wiz-select-gray">
+              <option value="">Select variable...</option>
+            </select>
+          </div>
+        </div>
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Value</div>
+          <select id="wiz-val-type" class="wiz-select-blue-sm">
+            <option value="expression">Expression</option>
+            <option value="value">Value</option>
+            <option value="variable">Variable</option>
+          </select>
+          <textarea id="wiz-val-expr" class="wiz-expr-area" placeholder="">${_esc(_sel.value || '')}</textarea>
+        </div>
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Only during these modes</div>
+          <select id="wiz-modes" class="wiz-select-orange wiz-select-full">
+            <option value="">Nothing selected</option>
+          </select>
+        </div>
+      `;
+      _loadVariableOptions();
+
+    } else if (cmd === 'wait') {
+      el.innerHTML = `
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Duration</div>
+          <div class="wiz-duration-inputs">
+            <input type="number" id="wiz-wait-amount" value="${_esc(String(_sel.duration_amount||1))}" min="1" class="wiz-dur-number" />
+            <select id="wiz-wait-unit" class="wiz-select-blue-sm">
+              <option value="milliseconds">milliseconds</option>
+              <option value="seconds">seconds</option>
+              <option value="minutes" selected>minutes</option>
+              <option value="hours">hours</option>
+            </select>
+          </div>
+        </div>
       `;
 
-    } else if (attrType === 'ha_boolean') {
-      html += `<div style="display:flex; flex-direction:column; gap:6px">
-        <button class="operator-btn" data-display="True" data-compiled="true">True (on)</button>
-        <button class="operator-btn" data-display="False" data-compiled="false">False (off)</button>
-      </div>`;
+    } else if (cmd === 'log') {
+      el.innerHTML = `
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Message</div>
+          <textarea id="wiz-log-msg" class="wiz-expr-area" placeholder="Log message...">${_esc(_sel.message||'')}</textarea>
+          <select id="wiz-log-level" class="wiz-select-blue-sm" style="margin-top:6px">
+            <option value="info">info</option>
+            <option value="warn">warn</option>
+            <option value="error">error</option>
+          </select>
+        </div>
+      `;
 
-    } else if (attrType === 'location') {
-      // Location — would load zones from /api/zones (not yet implemented)
-      html += `
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">Enter zone name or "home":</div>
-        <input type="text" id="value-input" style="width:100%" placeholder="home" />
-        <button class="btn btn-primary btn-sm mt-3" id="value-confirm">Confirm</button>
+    } else if (cmd === 'execute_piston') {
+      el.innerHTML = `
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Piston to execute</div>
+          <select id="wiz-target-piston" class="wiz-select-blue wiz-select-full">
+            <option value="">Select piston...</option>
+            ${(App.state.pistons||[]).map(p => `<option value="${_esc(p.id)}">${_esc(p.name)}</option>`).join('')}
+          </select>
+        </div>
+      `;
+
+    } else if (cmd === 'send_notification') {
+      el.innerHTML = `
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Message</div>
+          <textarea id="wiz-notif-msg" class="wiz-expr-area" placeholder="Notification message...">${_esc(_sel.message||'')}</textarea>
+        </div>
+        <div class="wiz-param-section">
+          <div class="wiz-row-label">Title (optional)</div>
+          <input type="text" id="wiz-notif-title" class="wiz-value-input" value="${_esc(_sel.title||'')}" placeholder="Title..." />
+        </div>
       `;
 
     } else {
-      // Fallback text input
-      html += `
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">Enter the value:</div>
-        <input type="text" id="value-input" style="width:100%" />
-        <button class="btn btn-primary btn-sm mt-3" id="value-confirm">Confirm</button>
-      `;
+      el.innerHTML = `<div class="wiz-desc" style="margin-top:8px">Parameters for <strong>${_esc(cmd)}</strong> coming soon.</div>`;
     }
-
-    _setBody(html);
-
-    // Option button selection
-    document.querySelectorAll('[data-display]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-display]').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        _state.selections.display_value = btn.dataset.display;
-        _state.selections.compiled_value = btn.dataset.compiled;
-        _setSentence(`${_state.sentence} ${btn.dataset.display}`);
-        _buildConditionAndFinish();
-      });
-    });
-
-    // Free text confirm
-    document.getElementById('value-confirm')?.addEventListener('click', () => {
-      const val = document.getElementById('value-input')?.value.trim();
-      if (!val) return;
-      _state.selections.display_value = val;
-      _state.selections.compiled_value = val;
-      _setSentence(`${_state.sentence} ${val}`);
-      _buildConditionAndFinish();
-    });
-
-    // Enter key on text input
-    document.getElementById('value-input')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('value-confirm')?.click();
-    });
   }
 
-  // ── Step 3b — Service picker (action) ───────────────────
-  async function _renderServicePickerStep(entityId) {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setSentence(`${_state.selections.device_label || entityId}...`);
-    _loading();
-
+  async function _loadVariableOptions() {
+    // Load piston variables into the variable name dropdown
+    const sel = document.getElementById('wiz-var-name');
+    if (!sel) return;
     try {
-      const services = await API.getServices(entityId);
-
-      _setBody(`
-        <div class="wizard-step-title">What do you want to do?</div>
-        <div style="display:flex; flex-direction:column; gap:4px">
-          ${services.length
-            ? services.map(svc => `
-                <button class="operator-btn" data-service="${_esc(svc.service)}" data-label="${_esc(svc.label)}">
-                  ${_esc(svc.label)}
-                </button>
-              `).join('')
-            : '<div style="color:var(--text-muted); font-size:13px">No services available for this device.</div>'
-          }
-        </div>
-      `);
-
-      document.querySelectorAll('[data-service]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('[data-service]').forEach(b => b.classList.remove('selected'));
-          btn.classList.add('selected');
-          _state.selections.service = btn.dataset.service;
-          _state.selections.service_label = btn.dataset.label;
-          _setSentence(`${_state.selections.device_label} → ${btn.dataset.label}`);
-          // For now, go directly to done — parameter editor is a v2 feature
-          _finishWithNode({
-            type: 'service_call',
-            entity_id: _state.selections.device_id,
-            service: `${entityId.split('.')[0]}.${_state.selections.service}`,
-            description: `${_state.selections.service_label} ${_state.selections.device_label}`,
-            service_data: {},
-          });
-        });
-      });
-
-    } catch (e) {
-      _error(`Could not load services. Check your Home Assistant connection.`);
-      document.getElementById('wizard-retry')?.addEventListener('click', () => {
-        _renderServicePickerStep(entityId);
-      });
+      const piston = await API.getPiston(App.state.currentPistonId);
+      const vars = piston.variables || [];
+      sel.innerHTML = `<option value="">Select variable...</option>` +
+        vars.map(v => `<option value="${_esc(v.name)}" data-type="${_esc(v.var_type||'')}">
+          ${_esc(v.var_type||'dynamic')} ${_esc(v.name)}
+        </option>`).join('');
+      if (_sel.variable) sel.value = _sel.variable;
+    } catch(e) {
+      sel.innerHTML = `<option value="">Could not load variables</option>`;
     }
   }
 
-  // ── Simple action steps ──────────────────────────────────
-  function _renderWaitStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-    _setSentence('Wait...');
+  function _saveLocationTask() {
+    const cmd = _sel.location_cmd;
+    if (!cmd) return;
 
-    _setBody(`
-      <div class="wizard-step-title">How long to wait?</div>
-      <div class="wizard-card-grid">
-        <div class="wizard-card" id="wait-duration">
-          <div class="wizard-card-title">⏱ Fixed Duration</div>
-          <div class="wizard-card-desc">Wait for a specific amount of time (e.g. 5 minutes).</div>
+    let node = { type: 'service_call', id: _editNode?.id || _newId(), service: `location.${cmd}` };
+
+    if (cmd === 'set_variable') {
+      node = {
+        type: 'set_variable',
+        id: node.id,
+        variable: document.getElementById('wiz-var-name')?.value || '',
+        value: document.getElementById('wiz-val-expr')?.value || '',
+      };
+    } else if (cmd === 'wait') {
+      node = {
+        type: 'wait',
+        id: node.id,
+        wait_type: 'duration',
+        duration: document.getElementById('wiz-wait-amount')?.value || '1',
+        unit: document.getElementById('wiz-wait-unit')?.value || 'minutes',
+      };
+    } else if (cmd === 'log') {
+      node = {
+        type: 'log',
+        id: node.id,
+        message: document.getElementById('wiz-log-msg')?.value || '',
+        level: document.getElementById('wiz-log-level')?.value || 'info',
+      };
+    } else if (cmd === 'execute_piston') {
+      node = {
+        type: 'call_piston',
+        id: node.id,
+        target: document.getElementById('wiz-target-piston')?.value || '',
+      };
+    } else if (cmd === 'send_notification') {
+      node.parameters = {
+        message: document.getElementById('wiz-notif-msg')?.value || '',
+        title: document.getElementById('wiz-notif-title')?.value || '',
+      };
+    }
+
+    Editor.insertStatement(_context, node);
+    close();
+  }
+
+  // ── STEP: Physical Device Command Picker ──────────────────
+  async function _stepCommandPicker() {
+    _step = 'command_picker';
+    const deviceIds = _sel.devices || [_sel.device_id];
+    const label = _sel.device_label || deviceIds[0] || 'device';
+
+    _renderModal(
+      'Add a new task',
+      `
+        <div class="wiz-with-row">
+          <span class="wiz-with-label">With...</span>
+          <span class="wiz-with-device">{${_esc(label)}}</span>
         </div>
-        <div class="wizard-card" id="wait-time">
-          <div class="wizard-card-title">🕐 Until a Time</div>
-          <div class="wizard-card-desc">Wait until a specific time of day (e.g. 11:00 PM).</div>
+        <div class="wiz-do-label">Do...</div>
+        <div id="wiz-cmd-area">
+          <select id="wiz-command" class="wiz-select-blue wiz-select-full">
+            <option value="">Please select a command</option>
+          </select>
+          <div id="wiz-cmd-params"></div>
         </div>
+      `,
+      _taskFooter(!!_editNode)
+    );
+
+    _wireTaskFooter(close, _saveDeviceTask, _editNode ? _deleteNode : null);
+
+    // Load services from HA for this device
+    try {
+      const entityId = deviceIds[0];
+      const data = await API.getServices(entityId);
+      const services = data.services || [];
+      const sel = document.getElementById('wiz-command');
+      if (sel && services.length) {
+        sel.innerHTML = `<option value="">Please select a command</option>` +
+          services.map(s => `<option value="${_esc(s.service)}">${_esc(s.label || s.service)}</option>`).join('');
+        if (_sel.command) sel.value = _sel.command;
+      }
+      sel?.addEventListener('change', (e) => {
+        _sel.command = e.target.value;
+        _renderCommandParams(e.target.value, data.services || []);
+        document.getElementById('wiz-save')?.removeAttribute('disabled');
+      });
+      if (_sel.command) {
+        _renderCommandParams(_sel.command, services);
+        document.getElementById('wiz-save')?.removeAttribute('disabled');
+      }
+    } catch(e) {
+      document.getElementById('wiz-cmd-area').innerHTML =
+        `<div class="wiz-error">Could not load device commands.<br><small>${_esc(e.message)}</small></div>`;
+    }
+  }
+
+  function _renderCommandParams(service, services) {
+    const el = document.getElementById('wiz-cmd-params');
+    if (!el) return;
+
+    const svc = services.find(s => s.service === service);
+    if (!svc || !svc.fields || !Object.keys(svc.fields).length) {
+      el.innerHTML = '';
+      return;
+    }
+
+    el.innerHTML = Object.entries(svc.fields).map(([key, field]) => `
+      <div class="wiz-param-section">
+        <div class="wiz-row-label">${_esc(field.name || key)}</div>
+        ${field.selector?.number
+          ? `<input type="number" class="wiz-value-input" data-param="${_esc(key)}"
+               min="${field.selector.number.min ?? ''}" max="${field.selector.number.max ?? ''}"
+               value="${_esc(String(_sel.parameters?.[key] ?? (field.selector.number.min ?? 0)))}" />`
+          : field.selector?.select
+          ? `<select class="wiz-select-blue-sm" data-param="${_esc(key)}">
+               ${field.selector.select.options.map(o =>
+                 `<option value="${_esc(o.value)}" ${(_sel.parameters?.[key]===o.value)?'selected':''}>${_esc(o.label)}</option>`
+               ).join('')}
+             </select>`
+          : `<input type="text" class="wiz-value-input" data-param="${_esc(key)}"
+               value="${_esc(String(_sel.parameters?.[key] ?? ''))}" placeholder="${_esc(field.description||'')}" />`
+        }
       </div>
-      <div id="wait-input-area" style="margin-top:16px"></div>
-    `);
+    `).join('');
+  }
 
-    document.getElementById('wait-duration')?.addEventListener('click', () => {
-      document.getElementById('wait-duration')?.classList.add('selected');
-      document.getElementById('wait-time')?.classList.remove('selected');
-      document.getElementById('wait-input-area').innerHTML = `
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <input type="number" id="wait-amount" value="5" min="1" style="width:80px" />
-          <select id="wait-unit">
+  function _saveDeviceTask() {
+    const command = document.getElementById('wiz-command')?.value;
+    if (!command) return;
+
+    const params = {};
+    document.querySelectorAll('[data-param]').forEach(el => {
+      params[el.dataset.param] = el.value;
+    });
+
+    const node = {
+      type: 'service_call',
+      id: _editNode?.id || _newId(),
+      service: command,
+      devices: _sel.devices || [_sel.device_id],
+      device_label: _sel.device_label,
+      parameters: params,
+    };
+
+    Editor.insertStatement(_context, node);
+    close();
+  }
+
+  // ── STEP: Variable Picker ─────────────────────────────────
+  function _stepVariablePicker() {
+    _step = 'variable_picker';
+
+    const VAR_TYPES_BASIC = [
+      'Dynamic','String (text)','Boolean (true/false)',
+      'Number (integer)','Number (decimal)','Large number (long)',
+      'Date and Time','Date (date only)','Time (time only)','Device',
+    ];
+    const VAR_TYPES_ADV = [
+      'Dynamic list','String list (text)','Boolean list (true/false)',
+      'Number list (integer)','Number list (decimal)','Large number list (long)',
+      'Date and Time list','Date list (date only)','Time list (time only)',
+    ];
+
+    _renderModal(
+      'Add a new variable',
+      `
+        <div class="wiz-compare-row">
+          <select id="wiz-var-type" class="wiz-select-blue">
+            <optgroup label="Basic">
+              ${VAR_TYPES_BASIC.map(t => `<option value="${_esc(t)}" ${(_sel.var_type===t)?'selected':''}>${_esc(t)}</option>`).join('')}
+            </optgroup>
+            <optgroup label="Advanced lists">
+              ${VAR_TYPES_ADV.map(t => `<option value="${_esc(t)}" ${(_sel.var_type===t)?'selected':''}>${_esc(t)}</option>`).join('')}
+            </optgroup>
+          </select>
+          <input type="text" id="wiz-var-name-input" class="wiz-value-input" placeholder="Variable name..." value="${_esc(_sel.name||'')}" />
+        </div>
+        <div class="wiz-param-section" style="margin-top:12px">
+          <div class="wiz-row-label">Initial value (optional)</div>
+          <input type="text" id="wiz-var-initial" class="wiz-value-input" value="${_esc(String(_sel.initial_value||''))}" placeholder="Leave blank for default" />
+        </div>
+      `,
+      _conditionFooter(null, null, () => {
+        const name = document.getElementById('wiz-var-name-input')?.value.trim();
+        if (!name) return;
+        const node = {
+          type: 'variable',
+          id: _editNode?.id || _newId(),
+          name,
+          var_type: document.getElementById('wiz-var-type')?.value || 'Dynamic',
+          initial_value: document.getElementById('wiz-var-initial')?.value || undefined,
+        };
+        Editor.insertStatement('variable', node);
+        close();
+      }, true)
+    );
+
+    _wireConditionFooter(null, null, () => {
+      const name = document.getElementById('wiz-var-name-input')?.value.trim();
+      if (!name) return;
+      const node = {
+        type: 'variable',
+        id: _editNode?.id || _newId(),
+        name,
+        var_type: document.getElementById('wiz-var-type')?.value || 'Dynamic',
+        initial_value: document.getElementById('wiz-var-initial')?.value || undefined,
+      };
+      Editor.insertStatement('variable', node);
+      close();
+    });
+  }
+
+  // ── STEP: Timer ───────────────────────────────────────────
+  function _stepTimerPicker() {
+    _step = 'timer';
+    _renderModal(
+      'Add a timer',
+      `
+        <div class="wiz-desc">A timer will trigger execution of the piston at set time intervals.</div>
+        <div class="wiz-row-label">Every...</div>
+        <div class="wiz-duration-inputs">
+          <input type="number" id="wiz-timer-amount" value="${_esc(String(_sel.interval||5))}" min="1" class="wiz-dur-number" />
+          <select id="wiz-timer-unit" class="wiz-select-blue-sm">
             <option value="seconds">seconds</option>
             <option value="minutes" selected>minutes</option>
             <option value="hours">hours</option>
           </select>
-          <button class="btn btn-primary btn-sm" id="wait-confirm">Confirm</button>
         </div>
-      `;
-      _state.selections.wait_type = 'duration';
-      _setupWaitConfirm('duration');
-    });
-
-    document.getElementById('wait-time')?.addEventListener('click', () => {
-      document.getElementById('wait-time')?.classList.add('selected');
-      document.getElementById('wait-duration')?.classList.remove('selected');
-      document.getElementById('wait-input-area').innerHTML = `
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <input type="time" id="wait-time-input" value="23:00" />
-          <button class="btn btn-primary btn-sm" id="wait-confirm">Confirm</button>
-        </div>
-        <div class="banner banner-warn mt-3" style="font-size:12px">
-          ⓘ If this piston runs after the target time has already passed today, it will wait until tomorrow.
-        </div>
-      `;
-      _state.selections.wait_type = 'time';
-      _setupWaitConfirm('time');
-    });
-  }
-
-  function _setupWaitConfirm(waitType) {
-    document.getElementById('wait-confirm')?.addEventListener('click', () => {
-      if (waitType === 'duration') {
-        const amount = document.getElementById('wait-amount')?.value || '5';
-        const unit = document.getElementById('wait-unit')?.value || 'minutes';
-        _finishWithNode({
-          type: 'wait',
-          wait_type: 'duration',
-          duration: `${amount} ${unit}`,
-          description: `wait ${amount} ${unit}`,
-        });
-      } else {
-        const time = document.getElementById('wait-time-input')?.value || '00:00';
-        _finishWithNode({
-          type: 'wait',
-          wait_type: 'time',
-          time,
-          description: `wait until ${time}`,
-        });
-      }
-    });
-  }
-
-  function _renderSetVariableStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">Set a variable</div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Variable name (without $)</label>
-          <input type="text" id="var-name" placeholder="my_variable" style="width:100%" />
-        </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">Value</label>
-          <input type="text" id="var-value" placeholder="value or expression" style="width:100%" />
-        </div>
-        <button class="btn btn-primary btn-sm" id="var-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('var-confirm')?.addEventListener('click', () => {
-      const name = document.getElementById('var-name')?.value.trim();
-      const value = document.getElementById('var-value')?.value.trim();
-      if (!name) return;
-      _finishWithNode({
-        type: 'set_variable',
-        variable: `$${name}`,
-        value,
-        description: `Set $${name} = ${value}`,
+      `,
+      _taskFooter(!!_editNode)
+    );
+    _wireTaskFooter(close, () => {
+      Editor.insertStatement(_context, {
+        type: 'timer',
+        id: _editNode?.id || _newId(),
+        interval: parseInt(document.getElementById('wiz-timer-amount')?.value||'5'),
+        unit: document.getElementById('wiz-timer-unit')?.value || 'minutes',
       });
+      close();
     });
   }
 
-  function _renderLogStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">Log a message</div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Message</label>
-          <input type="text" id="log-message" placeholder="Piston started..." style="width:100%" />
+  // ── STEP: Repeat picker ───────────────────────────────────
+  function _stepRepeatPicker() {
+    _step = 'repeat';
+    _renderModal(
+      'Add a repeat loop',
+      `
+        <div class="wiz-desc">A repeat loop executes the same statements until a condition is met.</div>
+        <div class="wiz-row-label">Repeat</div>
+        <div class="wiz-duration-inputs">
+          <input type="number" id="wiz-repeat-times" value="${_esc(String(_sel.times||1))}" min="1" class="wiz-dur-number" />
+          <span style="padding:0 8px; color:var(--text-muted); font-size:13px">times</span>
         </div>
-        <button class="btn btn-primary btn-sm" id="log-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('log-confirm')?.addEventListener('click', () => {
-      const msg = document.getElementById('log-message')?.value.trim() || '';
-      _finishWithNode({ type: 'log', message: msg, description: `Log: ${msg}` });
-    });
-  }
-
-  function _renderStopStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">Stop the piston</div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Reason (optional)</label>
-          <input type="text" id="stop-reason" placeholder="Condition not met" style="width:100%" />
-        </div>
-        <button class="btn btn-primary btn-sm" id="stop-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('stop-confirm')?.addEventListener('click', () => {
-      const reason = document.getElementById('stop-reason')?.value.trim() || '';
-      _finishWithNode({ type: 'stop', reason, description: `stop${reason ? ' — ' + reason : ''}` });
-    });
-  }
-
-  function _renderForEachStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">For Each loop</div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Loop variable name (without $)</label>
-          <input type="text" id="fe-var" value="device" style="width:100%" />
-        </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">List to iterate (global variable name without @)</label>
-          <input type="text" id="fe-list" placeholder="My_Devices" style="width:100%" />
-        </div>
-        <button class="btn btn-primary btn-sm" id="fe-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('fe-confirm')?.addEventListener('click', () => {
-      const varName = '$' + (document.getElementById('fe-var')?.value.trim() || 'device');
-      const list = '@' + (document.getElementById('fe-list')?.value.trim() || 'List');
-      _finishWithNode({ type: 'for_each_block', variable: varName, list, actions: [] });
-    });
-  }
-
-  function _renderCallPistonStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    // Check if current piston is native-script-bound
-    const pistons = App.state.pistons || [];
-
-    _setBody(`
-      <div class="wizard-step-title">Call another piston</div>
-      <div class="banner banner-warn" style="margin-bottom:12px; font-size:12px">
-        Waiting for a called piston to finish requires converting this piston to PyScript.
-      </div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Target piston</label>
-          <select id="call-target" style="width:100%">
-            ${pistons.map(p => `<option value="${_esc(p.id)}" data-name="${_esc(p.name)}">${_esc(p.name || p.id)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="editor-field-group">
-          <label class="editor-field-label">Wait for completion?</label>
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:4px">
-            <input type="checkbox" id="call-wait" />
-            <span style="font-size:13px">Wait for this piston to finish before continuing</span>
-          </label>
-        </div>
-        <button class="btn btn-primary btn-sm" id="call-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('call-confirm')?.addEventListener('click', () => {
-      const sel = document.getElementById('call-target');
-      const targetId = sel?.value;
-      const targetName = sel?.selectedOptions[0]?.dataset.name || targetId;
-      const wait = document.getElementById('call-wait')?.checked || false;
-      _finishWithNode({
-        type: 'call_piston',
-        target_id: targetId,
-        target_name: targetName,
-        wait_for_completion: wait,
-        description: `Call piston: ${targetName}`,
+      `,
+      _taskFooter(!!_editNode)
+    );
+    _wireTaskFooter(close, () => {
+      Editor.insertStatement(_context, {
+        type: 'repeat_loop',
+        id: _editNode?.id || _newId(),
+        times: parseInt(document.getElementById('wiz-repeat-times')?.value||'1'),
+        actions: [],
       });
+      close();
     });
   }
 
-  function _renderFireEventStep() {
-    _state.step = 3;
-    _showBack(true);
-    _showDone(false);
-
-    _setBody(`
-      <div class="wizard-step-title">Fire a custom event</div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="editor-field-group">
-          <label class="editor-field-label">Event name</label>
-          <input type="text" id="event-name" placeholder="my_custom_event" style="width:100%" />
-        </div>
-        <button class="btn btn-primary btn-sm" id="event-confirm">Confirm</button>
-      </div>
-    `);
-
-    document.getElementById('event-confirm')?.addEventListener('click', () => {
-      const name = document.getElementById('event-name')?.value.trim() || '';
-      _finishWithNode({ type: 'fire_event', event: name, description: `Fire event: ${name}` });
-    });
-  }
-
-  function _renderNonDeviceStep(subjectType) {
-    _state.step = 2;
-    _showBack(true);
-    _showDone(false);
-
-    const labels = {
-      variable: 'Variable condition',
-      time:     'Time condition',
-      date:     'Date condition',
-      sun:      'Sunrise / Sunset condition',
-      ha_system: 'HA System condition',
-    };
-
-    // Simplified — these get proper implementation when wizard is expanded
-    _setBody(`
-      <div class="wizard-step-title">${_esc(labels[subjectType] || subjectType)}</div>
-      <div class="banner banner-info" style="font-size:13px">
-        ${_esc(labels[subjectType] || subjectType)} wizard steps are coming in a future session.
-        For now this will insert a placeholder condition.
-      </div>
-      <button class="btn btn-primary btn-sm mt-3" id="nondevice-confirm">Insert placeholder</button>
-    `);
-
-    document.getElementById('nondevice-confirm')?.addEventListener('click', () => {
-      _finishWithNode({
-        type: _state.context,
-        subject: { type: subjectType },
-        operator: 'is',
-        display_value: '',
-        compiled_value: '',
+  // ── STEP: For Each ────────────────────────────────────────
+  function _stepForEachPicker() {
+    _step = 'for_each';
+    _renderModal(
+      'Add a for each loop',
+      `
+        <div class="wiz-desc">A for each loop executes the same statements for each device in a device list.</div>
+        <div class="wiz-row-label">For each device in</div>
+        <select id="wiz-foreach-list" class="wiz-select-blue wiz-select-full">
+          <option value="">Select a device list variable...</option>
+        </select>
+        <div class="wiz-row-label" style="margin-top:12px">Store current device in variable</div>
+        <input type="text" id="wiz-foreach-var" class="wiz-value-input" placeholder="$device" value="${_esc(_sel.device_var||'$device')}" />
+      `,
+      _taskFooter(!!_editNode)
+    );
+    _wireTaskFooter(close, () => {
+      Editor.insertStatement(_context, {
+        type: 'for_each',
+        id: _editNode?.id || _newId(),
+        device_list: document.getElementById('wiz-foreach-list')?.value || '',
+        device_var: document.getElementById('wiz-foreach-var')?.value || '$device',
+        actions: [],
       });
+      close();
     });
   }
 
-  // ── Back navigation ──────────────────────────────────────
-  function _goBack() {
-    const step = _state.step;
-    const context = _state.context;
-
-    if (step <= 1 && context !== 'action') {
-      _renderConditionOrGroupStep();
-    } else if (step <= 1 && context === 'action') {
-      _renderActionTypeStep();
-    } else if (step === 2) {
-      if (context === 'action') {
-        _renderActionTypeStep();
-      } else {
-        _renderSubjectTypeStep();
-      }
-    } else if (step === 3) {
-      if (context === 'action') {
-        _renderDevicePickerStep(context);
-      } else {
-        _renderDevicePickerStep(context);
-      }
-    } else if (step === 4) {
-      _renderCapabilityStep(_state.selections.device_id);
-    } else if (step === 5) {
-      _renderOperatorStep();
-    }
-  }
-
-  // ── Finish condition ─────────────────────────────────────
-  function _buildConditionAndFinish() {
-    const s = _state.selections;
-    const node = {
-      type: _state.type || _state.selections.operator_group || _state.context,
-      subject: {
-        type: s.subject_type || 'device',
-        role: s.device_id || '',
-        capability: s.capability || 'state',
-        attribute_type: s.attribute_type || 'unknown',
+  // ── Delete node ───────────────────────────────────────────
+  function _deleteNode() {
+    if (!_editNode?.id) return;
+    App.confirm({
+      title: 'Delete statement',
+      message: 'Delete this statement? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: () => {
+        Editor.deleteStatement(_editNode.id);
+        close();
       },
-      aggregation: s.aggregation || null,
-      operator: s.operator || '',
-      display_value: s.display_value || null,
-      compiled_value: s.compiled_value || s.display_value || null,
-      duration: null,
-      group_operator: 'AND',
-    };
-    _finishWithNode(node);
+    });
   }
 
-  function _finishWithNode(node) {
-    if (!node.id) {
-      // IDs for conditions use cond_ prefix, actions use stmt_
-      const prefix = (node.type === 'condition' || node.type === 'trigger' || node.type === 'group') ? 'cond_' : 'stmt_';
-      node.id = prefix + Math.random().toString(36).slice(2, 8);
-    }
-
-    close();
-    _callbacks.onDone && _callbacks.onDone(node);
+  // ── Helpers ───────────────────────────────────────────────
+  function _newId() {
+    return 'stmt_' + Math.random().toString(36).slice(2, 8);
   }
 
-  // ── Done button ──────────────────────────────────────────
-  function _done() {
-    // Done is shown when the wizard has a complete node ready — currently
-    // most steps auto-finish. This handles edge cases where Done is explicit.
-    if (_state?.selections?.display_value !== undefined) {
-      _buildConditionAndFinish();
-    }
+  function _esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Helpers ──────────────────────────────────────────────
-  function _esc(str) {
-    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
+  // Public API — called by editor ghost text clicks
+  // Context string maps: 'trigger_or_condition', 'condition', 'restriction',
+  //   'action', 'variable', 'global', 'task', 'if_condition'
   return { open, close };
 
 })();

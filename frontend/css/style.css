@@ -2074,3 +2074,29 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 .btn-orange:hover { filter: brightness(1.1); }
 .btn-red:hover    { filter: brightness(1.1); }
 
+
+/* ── Inline device/attribute picker header ── */
+.wiz-inline-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+}
+
+/* ── Demo device badge ── */
+.wiz-demo-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--orange);
+  border: 1px solid var(--orange);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.wiz-demo-row { opacity: 0.85; }
+.wiz-demo-row:hover { opacity: 1; }

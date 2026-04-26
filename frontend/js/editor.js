@@ -603,6 +603,6 @@ const Editor = (() => {
     return 'stmt_' + String(_stmtCounter).padStart(3,'0');
   }
 
-  return { load, save, insertStatement };
+  return { load, save, insertStatement, deleteStatement: _deleteSelected };
 
 })();

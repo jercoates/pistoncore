@@ -79,3 +79,74 @@ Paste Grok's answer to Claude. Claude should not grade its own work.
 - .piston files ARE the JSON files
 - Bulk export = zip of all JSONs (not built yet)
 - Grok WIZARD_SPEC v0.4 = reference only, not authoritative
+
+---
+
+## Feature Idea — Virtual Test Devices in Companion HA App
+
+**The problem:** When building a piston that triggers on smoke detected, motion, contact open, etc. 
+you need a way to manually fire that trigger for testing — just like Hubitat lets you go to a 
+virtual device page and press "smoke detected" to trigger pistons.
+
+**HA does not have this natively.** Helpers are variables not devices. Template entities require 
+config.yaml edits. Neither is the same as a Hubitat virtual device.
+
+**The solution — add to the companion HA integration:**
+- Register virtual devices of any type through HA's entity registry
+- Types needed: virtual switch, virtual smoke detector, virtual motion sensor, 
+  virtual contact sensor, virtual presence sensor, virtual lux sensor
+- Each virtual device appears in HA as a real entity — automations, pistons, 
+  and HA itself treat it exactly like a physical device
+- PistonCore UI gets a "Trigger" button next to each virtual device — pressing it 
+  fires the device state change (smoke detected, motion active, contact open, etc.)
+- This lets users test pistons without owning the physical hardware
+
+**Why this approach is correct:**
+- Registers through HA's entity registry — does NOT touch config.yaml or internal HA structure
+- Companion app owns and manages these entities — clean removal when companion is uninstalled
+- Fills a real gap that HA is missing — useful to ALL HA users not just PistonCore users
+- Matches Jeremy's goal: enhance HA without touching its internals
+
+**Priority:** Add to companion app spec when we get there. Not blocking current work.
+
+---
+
+## Future Distribution Directions — Windows App + Cloud Hosting
+
+### Windows App (post-launch)
+Many people who want WebCoRE-style automation for HA don't know Docker and don't want to learn.
+A Windows app version removes that barrier entirely.
+
+**Approach:** PyInstaller bundles the Python backend + frontend into a single .exe or installer.
+- User double-clicks, local web server starts, browser opens automatically
+- Files save to C:\Users\<username>\Documents\PistonCore\ (pistons, globals, config)
+- Upgrading is clean — new app version, same Documents folder, all pistons preserved
+- Bulk export zip makes moving to a new PC easy
+- storage.py already uses a single path config variable — changing to Windows path is one line
+- Inno Setup or NSIS wraps it into a proper installer with Start Menu shortcut + uninstaller
+- Estimated work: 2-3 days once main project is done
+
+**Note:** App still needs to connect to HA over the network — this only removes the Docker
+barrier for running PistonCore itself, not HA.
+
+### Cloud Hosting / Web-Facing (post-login feature)
+The goal: host PistonCore in the cloud so people can use it like webCoRE was hosted —
+no local server needed at all, just a browser and a HA instance.
+
+**Requirements before this is possible:**
+- Login system (already planned as post-v1 feature)
+- Multi-user data isolation (each user's pistons are private)
+- HA connection from cloud → user's local HA instance (reverse tunnel or HA Cloud API)
+
+**The login system is already in the design docs as planned.** Once login exists,
+cloud hosting is a natural next step. This would make PistonCore accessible to the
+widest possible audience — the same people who loved webCoRE on SmartThings.
+
+**Priority order:**
+1. Get core working (current focus)
+2. Windows app (removes Docker barrier)
+3. Login system (already planned)
+4. Cloud hosting option (enables webCoRE-style hosted service)
+
+All of these are the same codebase — Docker, Windows app, and cloud hosted are just
+different deployment targets for the same Python + vanilla JS project.

@@ -121,7 +121,6 @@ const Editor = (() => {
     ln(_cm(`* Created   : ${_fmtDate(p.created_at)}`), 0);
     ln(_cm(`* Modified  : ${_fmtDate(p.updated_at)}`), 0);
     ln(_cm(`************************************************************`), 0);
-
     // ── settings block ──
     ln(`<span class="kw">settings</span>`, 0);
     ln(`<span class="kw">end settings;</span>`, 0);
@@ -143,7 +142,7 @@ const Editor = (() => {
     // blank line
     lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
 
-    // ── top-level only when (restrictions) ──
+    // ── top-level only when (restrictions) — advanced mode only or when populated ──
     const restrictions = p.restrictions || [];
     if (restrictions.length || !isSimple) {
       ln(`<span class="kw">only when</span>`, 0);
@@ -155,15 +154,22 @@ const Editor = (() => {
     // ── execute block ──
     ln(`<span class="kw">execute</span>`, 0);
 
-    // only when inside execute — triggers + conditions
-    ln(`<span class="kw">only when</span>`, 1);
-    (p.triggers || []).forEach(t => {
-      ln(`<span class="doc-bolt">⚡</span> ${_condLine(t)}`, 2, { id: t.id, type: 'trigger' });
-    });
-    (p.conditions || []).forEach(c => {
-      ln(_condLine(c), 2, { id: c.id, type: 'condition' });
-    });
-    gh('· add a new trigger or condition', 'trigger_or_condition', 2);
+    // only when inside execute — only render if triggers/conditions exist OR advanced mode
+    const triggers = p.triggers || [];
+    const conditions = p.conditions || [];
+    if (triggers.length || conditions.length || !isSimple) {
+      ln(`<span class="kw">only when</span>`, 1);
+      triggers.forEach(t => {
+        ln(`<span class="doc-bolt">⚡</span> ${_condLine(t)}`, 2, { id: t.id, type: 'trigger' });
+      });
+      conditions.forEach(c => {
+        ln(_condLine(c), 2, { id: c.id, type: 'condition' });
+      });
+      gh('· add a new trigger or condition', 'trigger_or_condition', 2);
+    } else {
+      // Simple mode, no triggers/conditions yet — show ghost inline
+      gh('· add a new trigger or condition', 'trigger_or_condition', 1);
+    }
 
     // action nodes
     _actionLines(p.actions || [], 1, lines, num, gh);
@@ -196,14 +202,13 @@ const Editor = (() => {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
-        ln(`<span class="doc-brace">{</span>`, pad);
-        ln(`<span class="kw">when true</span>`, pad + 1);
+        ln(`<span class="kw">then</span>`, pad);
         _actionLines(node.then_actions || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
         (node.else_if_blocks || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
           (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
-          ln(`<span class="kw">when true</span>`, pad + 1);
+          ln(`<span class="kw">then</span>`, pad);
           _actionLines(eib.actions || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
@@ -212,7 +217,6 @@ const Editor = (() => {
           _actionLines(node.else_actions || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
         }
-        ln(`<span class="doc-brace">}</span>`, pad);
         ln(`<span class="kw">end if;</span>`, pad);
 
       } else if (t === 'with_block') {
@@ -315,7 +319,7 @@ const Editor = (() => {
   function _dr(label) { return `<span class="doc-dev">{${_esc(label)}}</span>`; }
   function _dv(sig, name) { return `<span class="doc-var">${_esc(sig)}${_esc(name)}</span>`; }
   function _kw(text) { return `<span class="kw">${_esc(text)}</span>`; }
-  function _cm(text) { return `<span class="doc-cmt">${_esc(text)}</span>`; }
+  function _cm(text) { return `<span class="doc-cmt">/* ${_esc(text)} */</span>`; }
 
   // ── Event wiring ─────────────────────────────────────────
   function _wireEvents() {

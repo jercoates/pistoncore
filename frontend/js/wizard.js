@@ -484,14 +484,17 @@ const Wizard = (() => {
   }
 
   async function _loadAndRenderDevices() {
+    // Always render virtual + demo devices immediately — no HA needed
+    _renderInlineDeviceList('');
+    // Then try to load real HA devices in background
     try {
       if (!_deviceData) {
         _deviceData = await API.getDevices();
       }
-      _renderInlineDeviceList('');
+      _renderInlineDeviceList(document.getElementById('wiz-dev-search')?.value || '');
     } catch(e) {
-      const el = document.getElementById('wiz-dev-list');
-      if (el) el.innerHTML = `<div class="wiz-error">Could not load devices.<br><small>${_esc(e.message)}</small></div>`;
+      // HA not connected — demo devices still visible, just no physical devices
+      // No error shown since demo devices are available
     }
   }
 
@@ -788,12 +791,14 @@ const Wizard = (() => {
   }
 
   async function _loadActDevices() {
+    // Always render virtual + demo devices immediately
+    _renderActDevList('');
+    // Then try to load real HA devices in background
     try {
       if (!_deviceData) _deviceData = await API.getDevices();
-      _renderActDevList('');
+      _renderActDevList(document.getElementById('wiz-act-search')?.value || '');
     } catch(e) {
-      const el = document.getElementById('wiz-act-devlist');
-      if (el) el.innerHTML = `<div class="wiz-error">Could not load devices.<br><small>${_esc(e.message)}</small></div>`;
+      // HA not connected — demo devices still visible
     }
   }
 

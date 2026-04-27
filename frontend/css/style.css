@@ -1006,8 +1006,9 @@ input::placeholder { color: var(--text-muted); }
 
 #wizard-modal {
   position: fixed;
-  top: 60px;
-  right: 20px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   background: var(--bg-modal);
   border: 1px solid var(--border-strong);
   border-radius: 8px;

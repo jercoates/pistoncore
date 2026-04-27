@@ -541,9 +541,19 @@ const Wizard = (() => {
     if (localDeviceVars.length) {
       html += `<div class="wiz-device-group-header">Local variables</div>`;
       html += localDeviceVars.map(v =>
-        `<div class="wiz-device-row ${_sel.device_id===v.name?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+        `<div class="wiz-device-row ${_sel.device_id===v.name?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}" data-is-local="true">
           <span class="wiz-dev-prefix">device</span>
           <span class="wiz-dev-label">${_esc(v.name)}</span>
+        </div>`
+      ).join('');
+    }
+
+    if (!q) {
+      html += `<div class="wiz-device-group-header">Demo devices</div>`;
+      html += DEMO_DEVICES.map(d =>
+        `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
+          <span class="wiz-demo-badge">demo</span>
         </div>`
       ).join('');
     }
@@ -587,6 +597,15 @@ const Wizard = (() => {
     const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
     if (demo) {
       _renderAttrList(demo.capabilities);
+      return;
+    }
+
+    // Check if this is a local device variable
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
+    if (localVar) {
+      // Local device variables use switch as their capability (they represent a device)
+      _renderAttrList([{ name: 'switch', attribute_type: 'binary', values: ['on', 'off'] }]);
       return;
     }
 

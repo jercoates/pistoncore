@@ -350,7 +350,47 @@ const Editor = (() => {
       return;
     }
     const stmt = e.target.closest('.doc-stmt');
-    if (stmt) { _selectStmt(stmt.dataset.id); return; }  }
+    if (stmt) {
+      _selectStmt(stmt.dataset.id);
+      // Single click opens wizard for editing
+      const all = [
+        ...(_piston.triggers||[]),
+        ...(_piston.conditions||[]),
+        ...(_piston.variables||[]),
+        ..._flattenActions(_piston.actions||[]),
+      ];
+      const node = _findNode(all, stmt.dataset.id);
+      if (node) _openWizardForEdit(node);
+    }
+  }
+
+  function _openWizardForEdit(node) {
+    const t = node.type;
+    if (t === 'trigger' || t === 'condition' || t === 'restriction') {
+      Wizard.open('edit_condition', node, {});
+    } else if (t === 'variable') {
+      Wizard.open('variable', node, {});
+    } else if (t === 'set_variable' || t === 'wait' || t === 'log' || t === 'service_call' || t === 'call_piston') {
+      Wizard.open('task', node, {});
+    } else if (t === 'if_block') {
+      // Click on if block — open condition wizard to add/edit its first condition
+      Wizard.open('if_condition', node.conditions?.[0] || null, { 'block-id': node.id });
+    } else {
+      Wizard.open(t, node, {});
+    }
+  }
+
+  function _flattenActions(nodes) {
+    const result = [];
+    (nodes||[]).forEach(n => {
+      result.push(n);
+      if (n.then_actions) result.push(..._flattenActions(n.then_actions));
+      if (n.else_actions) result.push(..._flattenActions(n.else_actions));
+      if (n.actions) result.push(..._flattenActions(n.actions));
+      if (n.conditions) result.push(..._flattenActions(n.conditions));
+    });
+    return result;
+  }
 
   function _handleContextMenu(e) {
     const stmt = e.target.closest('.doc-stmt');
@@ -380,9 +420,14 @@ const Editor = (() => {
 
   function _editSelected() {
     if (!_selectedId) return;
-    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];
+    const all = [
+      ...(_piston.triggers||[]),
+      ...(_piston.conditions||[]),
+      ...(_piston.variables||[]),
+      ..._flattenActions(_piston.actions||[]),
+    ];
     const node = _findNode(all, _selectedId);
-    if (node) Wizard.open(node.type, node, {});
+    if (node) _openWizardForEdit(node);
   }
   function _copySelected() {
     if (!_selectedId) return;

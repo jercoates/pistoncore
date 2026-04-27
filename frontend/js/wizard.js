@@ -213,9 +213,26 @@ const Wizard = (() => {
   function _route() {
     const ctx = _context;
 
-    // If editing an existing condition/trigger — go straight to builder
-    if (_editNode && (_editNode.type === 'trigger' || _editNode.type === 'condition' || _editNode.type === 'restriction')) {
+    // If editing an existing condition/trigger — pre-populate _sel and go straight to builder
+    if (_editNode && (_editNode.type === 'trigger' || _editNode.type === 'condition' || _editNode.type === 'restriction') ||
+        ctx === 'edit_condition' && _editNode) {
       _sel.statement_class = 'condition';
+      // Pre-populate _sel from the existing node
+      if (_editNode.subject) {
+        _sel.subject_type  = _editNode.subject.type || 'device';
+        _sel.device_id     = _editNode.subject.entity_id || '';
+        _sel.device_label  = _editNode.subject.role || _editNode.subject.entity_id || '';
+        _sel.devices       = [_sel.device_id];
+        _sel.attribute     = _editNode.subject.capability || '';
+        _sel.attribute_type = _editNode.subject.attribute_type || '';
+      }
+      _sel.operator        = _editNode.operator || '';
+      _sel.aggregation     = _editNode.aggregation || 'any';
+      _sel.value           = _editNode.value || '';
+      _sel.value2          = _editNode.value2 || '';
+      _sel.duration_amount = _editNode.duration_amount || 1;
+      _sel.duration_unit   = _editNode.duration_unit || 'minutes';
+      _sel.interaction     = _editNode.interaction || 'any';
       _goConditionBuilder();
       return;
     }
@@ -519,15 +536,7 @@ const Wizard = (() => {
 
     let html = '';
 
-    if (!q) {
-      html += `<div class="wiz-device-group-header">Virtual devices</div>`;
-      html += VIRTUAL_DEVICES.map(v =>
-        `<div class="wiz-device-row ${_sel.device_id===v.entity_id?'selected':''}" data-id="${_esc(v.entity_id)}" data-label="${_esc(v.friendly_name)}">
-          <span class="wiz-dev-label">${_esc(v.friendly_name)}</span>
-        </div>`
-      ).join('');
-    }
-
+    // Physical devices (shown always, filtered by query)
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0,150).map(d =>

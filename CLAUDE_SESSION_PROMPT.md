@@ -1,338 +1,140 @@
 # PistonCore — Claude Session Starter Prompt
-
-Paste this at the start of every new Claude session to restore context.
-Update the "Last session" and "Next session" sections each time.
+# Session 13 — Updated end of Session 12
 
 ---
 
-## How to use this prompt
+## CRITICAL RULES FOR CLAUDE
 
-1. Paste this entire file at the start of a new Claude session
-2. Tell Claude what you want to work on today
-3. At the end of the session update "Last session" and "Next session" before saving
+1. **WebCoRE screenshots = REFERENCE** for how PistonCore SHOULD look
+2. **PistonCore screenshots = showing what is WRONG** and needs fixing
+3. **Never confuse the two** — always ask "is this WebCoRE or PistonCore?" before acting
+4. **Do not code without permission** — present the fix list, wait for "go"
+5. **Do not update specs mid-session** — code first, specs after it works in browser
+6. **One problem at a time** — confirm the full list before writing any code
 
 ---
 
 ## Project Overview
 
-I am building an open source project called PistonCore — a WebCoRE-style visual automation builder for Home Assistant.
+Building PistonCore — a WebCoRE-style visual automation builder for Home Assistant.
+GitHub: https://github.com/jercoates/pistoncore
 
-GitHub repo: https://github.com/jercoates/pistoncore
-
-**The design document is the authoritative source for all decisions.** Before writing any code read DESIGN.md from the repo. Do not rely on memory or assumptions — the design has changed significantly and the code must match the current design.
-
-**Important:** The repo may have a cached/stale version of files. If fetching from the repo fails or returns old versions, ask the user to paste the files directly.
-
----
-
-## Key Facts
-
-- I have almost no programming background. I am directing the vision, you are writing the code.
-- This is built in limited sessions. The session prompt and DESIGN.md are your memory between sessions.
-- I run Unraid as my primary server. The app will run as a Docker container on Unraid.
-- I have a dedicated test Unraid instance with a clean Home Assistant VM for testing.
-- My cousin is an occasional technical advisor — he has coding knowledge but limited home automation knowledge. He builds the frontend using vanilla JS, HTML, and CSS. He uses GitHub Copilot against the repo to generate code. DESIGN.md, FRONTEND_SPEC.md, and WIZARD_SPEC.md are the authoritative documents Copilot reads.
-- Traffic is already coming to the GitHub repo. Real users are watching.
+Jeremy has almost no programming background. He directs vision, Claude writes code.
+Sessions are limited. This prompt is Claude's memory between sessions.
+Real users are watching the GitHub repo.
 
 ---
 
-## Current State of the Repo
+## Infrastructure
 
-### Root files (do not move these):
-- `README.md` — project overview
-- `DESIGN.md` — full design specification **v0.9.1** — **read this first every session**
-- `FRONTEND_SPEC.md` — frontend developer specification **v0.5**
-- `WIZARD_SPEC.md` — wizard capability map and behavior **v0.3**
-- `COMPILER_SPEC.md` — compiler specification **v0.2** — **read this before any compiler work**
-- `CLAUDE_SESSION_PROMPT.md` — this file
-- `LICENSE` — MIT
-- `requirements.txt` — Python dependencies (fastapi, uvicorn, jinja2, pyyaml, websockets)
-- `Dockerfile` — Python 3.12 slim, installs requirements, seeds customize volume on first run, copies frontend/
-- `docker-entrypoint.sh` — seeds pistoncore-customize on first run if empty, then starts uvicorn
-- `docker-compose.yml` — two bind-mount volumes, port 7777, API key env var
-
-### backend/
-All Python backend files. Flat folder — no subfolders.
-- `compiler.py` — native HA script compiler, matches COMPILER_SPEC v0.2 ✓
-- `main.py` — FastAPI app entry point, port 7777, serves frontend/ as static files ✓
-- `api.py` — all REST API endpoints, API key auth on all routes ✓
-- `ha_client.py` — HA WebSocket client, device list/capabilities/services, 60s cache ✓
-- `storage.py` — all filesystem I/O (piston JSON, globals, config) ✓
-- `__init__.py` — package marker
-- `README.md` — backend developer notes
-
-### frontend/
-Vanilla JS/HTML/CSS frontend. Served by FastAPI at port 7777.
-- `index.html` — SPA shell, all DOM anchors, dark mode toggle, new piston modal ✓
-- `css/style.css` — WebCoRE dark theme + light mode toggle, editor layout ✓
-- `js/api.js` — all backend API calls centralized ✓
-- `js/app.js` — SPA router, dark/light theme toggle, new piston modal logic, App.confirm(), App.showContextMenu() ✓
-- `js/list.js` — piston list page, new button opens modal ✓
-- `js/status.js` — status page, plain Test button (no Live Fire label) ✓
-- `js/editor.js` — editor page — **REWRITTEN Session 12 — working, needs testing** ✓
-- `js/wizard.js` — wizard modal — **NEEDS FULL REWRITE** — priority for next session
-
-### pistoncore-customize/
-User-editable folder, mounted as Docker volume.
-- `compiler-templates/native-script/` — Jinja2 templates ✓
-  - `automation.yaml.j2` ✓
-  - `script.yaml.j2` ✓
-  - `AI-UPDATE-GUIDE.md` ✓
-  - `snippets/` — 18 snippet files, all present ✓
-- `validation-rules/`
-  - `AI-UPDATE-GUIDE.md` ✓
-  - `internal-checks.json` — not yet created
-  - `error-translations.json` — not yet created
-
-### grok-frontend/
-Frontend code generated by Grok during a Super Grok trial session.
-Reference/steal material only — do not treat as authoritative.
-Grok notes reviewed Session 12 — most already in our spec. No changes applied from Grok without discussion.
-
-### session2_archive/
-Contains all code from Session 2. Built against an earlier design — kept for reference only.
-
-### What does NOT exist yet (needs to be built):
-- **Wizard rewrite** — THE PRIORITY. Current wizard.js is wrong pattern. See Session 12 notes.
-- Companion HA integration
-- `validation-rules/internal-checks.json`
-- `validation-rules/error-translations.json`
-- `/ws` WebSocket endpoint in backend (for live log streaming)
-- Global variable create/edit flow (currently read-only)
-- Home page layout improvements (not centered, bulk export zip)
+- Unraid server at 192.168.1.226, port 7777
+- Docker rebuild command:
+  ```
+  cd /mnt/user/appdata/pistoncore-dev && git pull && docker build -t pistoncore . && docker stop pistoncore && docker rm pistoncore && docker run -d --name pistoncore --restart unless-stopped -p 7777:7777 -v /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize pistoncore
+  ```
+- Frontend: vanilla JS/HTML/CSS, no framework
 
 ---
 
-## Docker — Running on Unraid
+## Three Pages — Confirmed Layout
 
-**The full stack (backend + frontend) is containerized and verified working on the test Unraid instance.**
+1. **List page** — home screen, OK as-is
+2. **Status/Debug page** — land here after saving or clicking a piston
+3. **Editor page** — full width, no centering, fills viewport, continuous document renderer
 
+---
+
+## Editor Document — Confirmed Rendering Rules
+
+### Blank new piston in SIMPLE mode shows ONLY:
 ```
-cd /mnt/user/appdata/pistoncore-dev
-git pull
-docker build -t pistoncore .
-docker stop pistoncore && docker rm pistoncore
-docker run -d \
-  --name pistoncore \
-  --restart unless-stopped \
-  -p 7777:7777 \
-  -v /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata \
-  -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize \
-  pistoncore
+/* **** */
+/* * New Piston */
+/* **** */
+/* * Created : date */
+/* * Modified : date */
+/* **** */
+settings
+end settings;
+
+define
+  · + add a new variable
+end define;
+
+execute
+  · + add a new statement
+end execute;
 ```
+NO "only when" on a blank simple piston.
+"only when" only appears when content exists OR in Advanced mode.
 
-Verify: `curl http://localhost:7777/health`
-UI loads at: `http://192.168.1.226:7777`
+### If block — correct keywords:
+```
+if
+  · add a new condition
+then
+  · add a new statement
+else
+  · add a new statement
+end if;
+```
+NO curly braces. Keywords: if / then / else / end if; NOT "when true"/"when false"
 
-**No API key needed for local testing** — PISTONCORE_API_KEY env var not set means open access.
-
----
-
-## Architecture — Locked In (do not re-litigate)
-
-**Compile targets:**
-- **Native HA Script (primary)** — every piston compiles to two files: an automation wrapper (triggers + conditions) and a script body (all action logic). Covers ~95% of real pistons. Zero external dependencies. Truly permanent after PistonCore uninstall.
-- **PyScript (fallback)** — only for pistons that use `break`, `cancel_pending_tasks`, or `on_event`. Rare edge cases. Clearly labeled as a dependency.
-
-**Global variables:** Stored as native HA helpers managed by the companion. Input_text for Text, input_number for Number, input_boolean for Yes/No, input_datetime for Date/Time. No globals.json file. Compiled pistons read helpers via standard HA template syntax.
-
-**Minimum HA version:** 2023.1
-
-**Other locked decisions:**
-- Backend: Python FastAPI
-- Frontend: Vanilla JS, HTML, CSS — no framework
-- Three pages: List → Status → Editor (SPA, no URL changes)
-- Wizard is a modal, not a page
+### Comment format: `/* text */` — correct spacing, no extra spaces
 
 ---
 
-## UI Decisions — Locked In (Session 12)
+## Wizard — Confirmed Rules
 
-### Three pages — confirmed layout:
-1. **List page** — home screen. User is OK with current layout. Minor tweaks later.
-2. **Status/Debug page** — hub for each piston. Land here after saving or clicking a piston.
-   Pause, folder change, Test, Trace, Snapshot, Backup, Duplicate, Delete all here.
-   Deploy to HA is NOT here — Deploy only available in trace/debug screen (not yet built).
-3. **Editor page** — full width, no centering, fills viewport. Continuous document renderer.
-   WebCoRE style — line numbers, teal keywords, orange device refs, ghost text.
+### NEVER two modals open at once
+Statement picker closes on selection. Condition wizard only opens from ghost text clicks.
 
-### Editor confirmed behaviors:
-- **Full width** — editor overrides `.page` max-width. No centering.
-- **Piston name** — editable input in toolbar center. Not a click-to-prompt span.
-- **Save → Status page** — clean save navigates to status page. Warnings keep you in editor.
-- **Cancel on new piston** — asks to discard, deletes piston, goes to List.
-- **Cancel on existing piston** — goes to Status page (with unsaved-changes prompt if dirty).
-- **Compile target badge** — REMOVED. Instead: red warning bar at bottom of editor only when piston requires PyScript.
-- **Globals** — button in header on every screen (not WebCoRE behavior but Jeremy likes it). Opens GlobalsDrawer slide-out.
-- **Simple/Advanced toggle** — in editor toolbar.
-- **Folder field** — in editor (WebCoRE didn't have it there but OK to keep).
+### Variable wizard initial value — matches WebCoRE:
+Dropdown options: Nothing selected / Physical device(s) / Value / Variable / Expression / Argument
+- Physical device(s) → device picker
+- Value → text input
+- Variable → Local / Global / System variable picker
+- Expression → textarea
+- Argument → text input
 
-### New piston flow (confirmed):
-1. Click "+ New" on list page
-2. Modal appears: Create blank / Duplicate existing / Import from .piston file
-   (No "restore from backup code" — not using codes)
-3. **New blank piston goes directly to EDITOR** (skips status page)
-4. Save → goes to Status page
-5. Cancel on unsaved new piston → delete it → back to List
-
-### File format (confirmed):
-- Piston files are JSON saved as `.piston` extension
-- Export single piston = download its JSON as `.piston` file
-- Import = upload `.piston` file
-- **Bulk export** = zip of all piston JSONs — one button on list page (not yet built)
-
-### Dark/Light mode (confirmed):
-- Toggle button in global header on every screen
-- Dark mode = default (existing token system)
-- Light mode = WebCoRE cream style (#f7f5f0 document background), matching screenshots
-- Persisted to localStorage
-
-### What was NOT changed from Grok notes:
-All Grok suggestions were reviewed in Session 12. Most were already in our spec.
-No Grok suggestions were applied without discussion. Do not apply Grok material without talking through each item first.
+### Demo devices — always visible without HA
+Virtual + Demo devices render immediately. HA devices load in background.
 
 ---
 
-## ⚠ CRITICAL — Wizard Rewrite (Next Session Priority)
+## Known Bugs — Fix List for Session 13
 
-**The current wizard.js is completely wrong pattern and must be rewritten.**
+Upload `variable_wizard_screenshots.zip` — read ANNOTATIONS.md inside first.
 
-### What the wizard IS (confirmed from screenshots):
-- A **centered modal ~580px wide**, white background, editor dimmed behind
-- NOT full-screen. NOT a stepped card-grid modal (except the statement type picker — that one IS cards)
-- Opens when user clicks any ghost text insertion point
-- Closes on Done/Add/Save → inserts statement into document
-- Closes on Cancel → no changes
+1. **editor.js** — "only when" showing twice on blank simple piston
+2. **wizard.js** — two modals open at once (statement picker + condition wizard)
+3. **wizard.js** — variable initial value is plain text, needs full dropdown matching WebCoRE
+4. **editor.js** — comment format wrong (extra spaces in /* */)
 
-### Wizard flows confirmed from screenshots:
-
-**Condition flow:**
-- Step 0 (conditions only, not triggers): Condition vs Group — two side-by-side cards
-- Step 1: "What to compare" — device type dropdown + device picker + attribute — ALL ONE SCREEN
-  - Orange aggregation bar appears when multiple devices selected
-  - "Which interaction" row appears for trigger-type operators
-- Step 2: Operator dropdown opens showing two sections: "Conditions" / "Triggers"
-  (no lightning bolt icons — just section headers)
-- Step 3: Value input appears inline
-- Buttons: Back | ⚙ | Add more | Add
-
-**Action flow:**
-- Step 1: Statement type picker (card grid — this IS the one place for cards)
-  Sections: Basic (If Block, Action, Timer) / Advanced (Switch, Do Block, On event) /
-  Loops (For Loop, For Each Loop, While Loop, Repeat Loop, Break, Exit)
-- Step 2 (if Action): Device picker — search box + Virtual devices + Physical devices
-  (alphabetical) + Global device variables (@Name) + System variables ($name)
-- Step 3: "Add a new task" modal — With... {Device} / Do... [command dropdown]
-- Buttons: Cancel | Delete | ⚙ | Save  (NOTE: task wizard uses Save not Add)
-
-**Variable flow:**
-- "Add a new variable" modal
-- Left: type dropdown (Basic types + Advanced lists sections)
-- Right: name text input
-- Buttons: Back | ⚙ | Add more | Add
-
-### Reference screenshots for wizard:
-The file `wizard_reference_screenshots.zip` contains 14 annotated screenshots.
-Upload this zip at the start of the wizard session. Read WIZARD_SCREENSHOTS_NOTES.md inside it first.
+**DO NOT start coding until Jeremy confirms the full fix list.**
 
 ---
 
-## Two Save Operations — Critical UI Distinction
+## Future Plans (noted, not blocking)
 
-1. **Save to PistonCore** (💾) — fast, saves JSON to Docker volume, no HA involvement
-   - In editor toolbar
-   - On clean save: navigates to status page
-   - On save with warnings: stays in editor, shows warning bar
-2. **Deploy to HA** (🚀) — compile + write files + reload HA automations
-   - NOT on status page
-   - Only available in the trace/debug screen (not yet built)
+- Virtual test devices in companion HA app
+- Windows app via PyInstaller
+- Login system (post-v1)
+- Cloud hosting (after login)
 
 ---
 
-## Session Log
+## Session Log Summary
 
-### Session 1 — April 2026
-Project conceived, design document written, GitHub repo created with docs.
-
-### Session 2 — April 2026
-FastAPI backend scaffolded, React frontend scaffolded, companion integration skeleton built, 19 API endpoints verified, compiler verified against example piston. All code now in session2_archive.
-
-### Session 2 Strategy Review — April 2026
-Extensive WebCoRE screenshot review. Design doc rewritten as v0.5 — major changes to UI model, architecture, and scope. Frontend decoupled from React. Condition wizard redesigned as dynamic multi-step. Status page established as piston hub. Compiler template system designed. V1 scope tightened.
-
-### Session 3 — April 2026
-Design refinement session. No code written. DESIGN.md updated to v0.5.
-
-### Session 4 — April 2026
-Full design review session. No code written. All six open questions resolved. DESIGN.md updated to v0.6.
-
-### Session 5 — April 2026
-Full design and correction session. No code written. DESIGN.md v0.7, FRONTEND_SPEC.md v0.1, WIZARD_SPEC.md v0.1 produced and pushed to repo.
-
-### Session 6 — April 2026
-Full spec update session. No code written. DESIGN.md v0.8, FRONTEND_SPEC.md v0.2, WIZARD_SPEC.md v0.2 produced incorporating all 32 Session 5 notes items.
-
-### Session 7 — April 2026
-Architecture confirmed: Native HA Script primary, PyScript fallback only. Five HA capability gaps researched. Perplexity conversation reviewed. DESIGN.md updated to v0.9. COMPILER_SPEC.md v0.1 written. Binary sensor state values validated.
-
-### Session 8 — April 2026
-No code written. Gemini external review processed and validated against HA docs. COMPILER_SPEC updated to v0.2, FRONTEND_SPEC updated to v0.5.
-
-### Session 9 — April 2026
-First real coding session. compiler.py, storage.py, api.py, main.py written and verified.
-
-### Session 10 — April 2026
-Five compiler bugs fixed. API key auth added. Docker setup completed and verified on Unraid.
-
-### Session 11 — April 2026
-Frontend scaffold built and deployed. List page and status page confirmed working. Editor confirmed wrong (boxed layout). Wizard confirmed wrong (stepped full-screen modal). ha_client.py written. WebSocket reconnect fixed.
-
-### Session 12 — April 2026
-Major UI decisions session. Reviewed 37 WebCoRE screenshots + 2 new ones. Reviewed Grok notes (discussed, not blindly applied). Full editor.js rewrite — continuous document, WebCoRE style. Dark/light mode toggle. New piston modal (blank/duplicate/import). Confirmed three-page structure. Confirmed all navigation flows. Live Fire label removed. Compile badge removed, PyScript warning bar added. Editor full-width fixed. Name input fixed. Cancel-on-new-piston fixed.
-
----
-
-## Last Session
-Session 12 — April 2026. Editor rewritten. Dark mode added. New piston modal added. Multiple UI fixes. Wizard still needs rewrite.
+Sessions 1-11: Design, backend, Docker, frontend scaffold.
+Session 12: Editor + wizard rewrites. Demo devices. Multiple bugs found, partially fixed.
 
 ## Next Session — Start Here
 
-**THE ONLY PRIORITY: Wizard rewrite.**
-
-1. Upload `wizard_reference_screenshots.zip` at the start of the session
-2. Claude reads `WIZARD_SCREENSHOTS_NOTES.md` from inside the zip first
-3. Pull current `wizard.js` from the repo — read it to understand what exists
-4. Rewrite `wizard.js` from scratch matching confirmed patterns from screenshots
-5. Do NOT touch any other files until wizard feels right in the browser
-
-**Do not update FRONTEND_SPEC.md or WIZARD_SPEC.md until wizard works correctly in browser. Code first, spec update after.**
-
-**Secondary items (after wizard):**
-- Home page layout: not centered, left-aligned, add bulk export (zip all pistons) button
-- Global variable create/edit flow (currently read-only in drawer)
-- Semicolons on `end` keywords — verify they are correct in editor.js output
-- Status page minor tweaks (discussed but not yet defined)
-
----
-
-## Reference — HA Script Capability Gaps (Researched Session 7)
-
-1. **Custom event on completion** — `event:` action in native scripts. → `PISTONCORE_RUN_COMPLETE`
-2. **Script entity ID format** — `script.pistoncore_<slug>`.
-3. **Script + automation pairing** — two files per piston.
-4. **for_each over Devices variable** — works via Jinja2 template.
-5. **Minimum HA version** — 2023.1.
-
----
-
-## Reference — Open Items Compiler Not Yet Complete (COMPILER_SPEC Section 18)
-
-1. **settings / end settings block** — contents undefined. Compiler ignores for now.
-2. **PyScript compiler** — separate spec needed. Not started.
-3. **Device event trigger (button/momentary)** — backend must resolve role → device ID.
-4. **which-interaction step** — feasibility not confirmed.
-5. **Trace mode per-step events** — v1 trace does not emit per-step events. v2 feature.
-
----
-
-*PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*
+1. Upload `variable_wizard_screenshots.zip`
+2. Read ANNOTATIONS.md from the zip
+3. Confirm fix list with Jeremy
+4. Fix bugs in order
+5. Run visual checklist after each fix
+6. Update README.md (stale)
+7. Review DESIGN.md for discrepancies

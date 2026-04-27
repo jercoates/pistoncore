@@ -1628,8 +1628,8 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   flex: 1;
   min-width: 0;
   max-width: 500px;
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   font-family: var(--font-ui);
   font-size: 15px;

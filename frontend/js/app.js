@@ -13,7 +13,7 @@ const App = (() => {
     pistons: [],
     clipboard: null,
     unsavedChanges: false,
-    simpleMode: true,
+    simpleMode: localStorage.getItem('pc_simpleMode') === 'true' ? true : false,
     wsConnected: false,
   };
 

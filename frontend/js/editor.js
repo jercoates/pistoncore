@@ -128,40 +128,36 @@ const Editor = (() => {
     // blank line
     lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
 
-    // ── define block ──
+    // ── define block — always shown in both modes ──
     ln(`<span class="kw">define</span>`, 0);
-    if (!isSimple) {
-      (p.variables || []).forEach(v => {
-        const typeKw = _kw(_typeLabel(v.var_type));
-        const varName = _esc(v.name || '');
-        let valueStr = '';
-        if (v.initial_value !== undefined && v.initial_value !== '') {
-          // Device variables: show "= DeviceLabel" like WebCoRE
-          // Other types: show "= value"
-          valueStr = ` = <span class="doc-dev-inline">${_esc(String(v.initial_value))}</span>`;
-        }
-        ln(`${typeKw} ${varName}${valueStr} ;`, 1, { id: v.id, type: 'variable' });
-      });
-      gh('+ add a new variable', 'variable', 1);
-    }
+    (p.variables || []).forEach(v => {
+      const typeKw = _kw(_typeLabel(v.var_type));
+      const varName = _esc(v.name || '');
+      let valueStr = '';
+      if (v.initial_value !== undefined && v.initial_value !== '') {
+        valueStr = ` = <span class="doc-dev-inline">${_esc(String(v.initial_value))}</span>`;
+      }
+      ln(`${typeKw} ${varName}${valueStr} ;`, 1, { id: v.id, type: 'variable' });
+    });
+    gh('+ add a new variable', 'variable', 1);
     ln(`<span class="kw">end define;</span>`, 0);
 
     // blank line
     lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
 
-    // ── top-level only when (restrictions) — advanced mode only or when populated ──
+    // ── top-level only when (restrictions) — hidden in simple mode unless populated ──
     const restrictions = p.restrictions || [];
     if (restrictions.length || !isSimple) {
       ln(`<span class="kw">only when</span>`, 0);
       restrictions.forEach(r => ln(_condLine(r), 1, { id: r.id, type: 'restriction' }));
-      gh('· add a new restriction', 'restriction', 1);
+      if (!isSimple) gh('· add a new restriction', 'restriction', 1);
       lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
     }
 
     // ── execute block ──
     ln(`<span class="kw">execute</span>`, 0);
 
-    // only when inside execute — only render if triggers/conditions exist OR advanced mode
+    // only when inside execute — hidden in simple mode unless populated
     const triggers = p.triggers || [];
     const conditions = p.conditions || [];
     if (triggers.length || conditions.length || !isSimple) {
@@ -172,9 +168,8 @@ const Editor = (() => {
       conditions.forEach(c => {
         ln(_condLine(c), 2, { id: c.id, type: 'condition' });
       });
-      gh('· add a new trigger or condition', 'trigger_or_condition', 2);
+      if (!isSimple) gh('· add a new trigger or condition', 'trigger_or_condition', 2);
     }
-    // Simple mode with no triggers/conditions: skip the only when block entirely.
 
     // action nodes
     _actionLines(p.actions || [], 1, lines, num, gh);
@@ -332,8 +327,8 @@ const Editor = (() => {
     document.getElementById('btn-editor-cancel-text')?.addEventListener('click', _handleCancel);
     document.getElementById('btn-save')?.addEventListener('click', () => save());
     document.getElementById('btn-editor-delete')?.addEventListener('click', _handleDelete);
-    document.getElementById('toggle-simple')?.addEventListener('click', () => { App.state.simpleMode = true; render(); });
-    document.getElementById('toggle-adv')?.addEventListener('click', () => { App.state.simpleMode = false; render(); });
+    document.getElementById('toggle-simple')?.addEventListener('click', () => { App.state.simpleMode = true; localStorage.setItem('pc_simpleMode','true'); render(); });
+    document.getElementById('toggle-adv')?.addEventListener('click', () => { App.state.simpleMode = false; localStorage.setItem('pc_simpleMode','false'); render(); });
 
     // Name input — mark unsaved on change
     document.getElementById('editor-piston-name')?.addEventListener('input', () => _markUnsaved(true));

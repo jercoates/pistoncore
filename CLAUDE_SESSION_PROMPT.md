@@ -176,10 +176,27 @@ NO curly braces. Keywords: if / then / else / end if;
 2. **wizard.js** — Demo devices disappear when search query is typed
    - Fix: filter demo devices by query instead of hiding all when q is non-empty
 
-3. **wizard.js / editor.js** — Clicking a condition line to edit does not always pre-populate correctly
-   - Needs more testing after Session 13 fixes deploy
+3. **wizard.js** — Value input for conditions is always a free text field
+   - Should be context-aware: binary device = show on/off dropdown, enum = show options list, numeric = show number input
+   - For demo devices: read values from the DEMO_DEVICES capabilities array in wizard.js — already defined, just not wired to the value input
+   - For HA devices: use capability data returned from HA API
+   - WebCoRE populates the value choices from the device's actual states
 
-4. **README.md** — Still stale, needs update to reflect current state
+4. **wizard.js** — "Argument" option missing from condition value type dropdown
+   - Current options: Physical device(s), Value, Variable, Expression
+   - Missing: Argument
+
+7. **wizard.js** — "Add more" carries over previous condition's device/attribute/operator instead of resetting
+   - Should start fresh except maybe keeping the device if it makes sense
+   - Currently pre-populates everything from the last condition
+
+8. **wizard.js** — No AND/OR prompt between conditions when using "Add more"
+   - WebCoRE asks how the new condition relates to the previous one (AND/OR)
+   - Currently just stacks conditions with no group operator
+
+9. **editor.js** — "Any of" showing for single device conditions
+   - "Any of {light}" should just be "{light}" when only one device selected
+   - Aggregation label should only show when multiple devices are selected
 
 ---
 

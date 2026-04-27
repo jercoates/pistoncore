@@ -654,16 +654,49 @@ const Wizard = (() => {
   function _commitCondition() {
     const node = _buildConditionNode();
     if (!node) return;
-    Editor.insertStatement(_context, node);
-    close();
+    if (_sel.pending_if_id) {
+      // User picked if_block from statement picker — wrap condition in if_block
+      const ifNode = {
+        type: 'if_block',
+        id: _sel.pending_if_id,
+        conditions: [node],
+        then_actions: [],
+        else_actions: [],
+      };
+      const ctx = _context;
+      close();
+      Editor.insertStatement(ctx, ifNode);
+    } else {
+      Editor.insertStatement(_context, node);
+      close();
+    }
   }
 
   function _commitConditionAndMore() {
     const node = _buildConditionNode();
     if (!node) return;
-    Editor.insertStatement(_context, node);
-    const kept = { device_id:_sel.device_id, device_label:_sel.device_label, subject_type:_sel.subject_type, statement_class:'condition' };
-    _sel = kept;
+    if (_sel.pending_if_id) {
+      // First condition for a new if_block — insert the if_block now with this condition
+      // then switch to adding more conditions directly to the if_block
+      const ifId = _sel.pending_if_id;
+      const ifNode = {
+        type: 'if_block',
+        id: ifId,
+        conditions: [node],
+        then_actions: [],
+        else_actions: [],
+      };
+      Editor.insertStatement(_context, ifNode);
+      // Now continue adding conditions to this if_block
+      const kept = { device_id:_sel.device_id, device_label:_sel.device_label, subject_type:_sel.subject_type, statement_class:'condition', pending_if_id: ifId };
+      _sel = kept;
+      _context = 'if_condition';
+      _extra = { 'block-id': ifId };
+    } else {
+      Editor.insertStatement(_context, node);
+      const kept = { device_id:_sel.device_id, device_label:_sel.device_label, subject_type:_sel.subject_type, statement_class:'condition' };
+      _sel = kept;
+    }
     _editNode = null;
     _stepStack = [];
     _goConditionBuilder();
@@ -735,10 +768,17 @@ const Wizard = (() => {
     if (type === 'timer')        { _goTimerPicker(); return; }
     if (type === 'for_each')     { _goForEachPicker(); return; }
     if (type === 'repeat_loop')  { _goRepeatPicker(); return; }
-    // Structural blocks — close wizard FIRST, then insert skeleton
-    // (close before insertStatement so render() runs with backdrop hidden)
+
+    // if_block — walk through condition builder first, then insert
+    if (type === 'if_block') {
+      _sel.pending_if_id = _newId(); // reserve the id now
+      _sel.statement_class = 'condition';
+      _goConditionOrGroup();
+      return;
+    }
+
+    // Other structural blocks — close wizard FIRST, then insert skeleton
     const skeletons = {
-      if_block:   { type:'if_block',   id:_newId(), conditions:[], then_actions:[], else_actions:[] },
       switch:     { type:'switch',     id:_newId() },
       do_block:   { type:'do_block',   id:_newId(), actions:[] },
       on_event:   { type:'on_event',   id:_newId() },
@@ -750,7 +790,7 @@ const Wizard = (() => {
     if (skeletons[type]) {
       const node = skeletons[type];
       const ctx = _context;
-      close(); // hide backdrop BEFORE editor re-renders
+      close();
       Editor.insertStatement(ctx, node);
     }
   }

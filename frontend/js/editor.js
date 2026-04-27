@@ -132,8 +132,15 @@ const Editor = (() => {
     ln(`<span class="kw">define</span>`, 0);
     if (!isSimple) {
       (p.variables || []).forEach(v => {
-        const init = v.initial_value !== undefined ? ` ${_cm(String(v.initial_value))}` : '';
-        ln(`${_kw(_typeLabel(v.var_type))} ${_dv('$', v.name)};${init}`, 1, { id: v.id, type: 'variable' });
+        const typeKw = _kw(_typeLabel(v.var_type));
+        const varName = _esc(v.name || '');
+        let valueStr = '';
+        if (v.initial_value !== undefined && v.initial_value !== '') {
+          // Device variables: show "= DeviceLabel" like WebCoRE
+          // Other types: show "= value"
+          valueStr = ` = <span class="doc-dev-inline">${_esc(String(v.initial_value))}</span>`;
+        }
+        ln(`${typeKw} ${varName}${valueStr} ;`, 1, { id: v.id, type: 'variable' });
       });
       gh('+ add a new variable', 'variable', 1);
     }

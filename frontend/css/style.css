@@ -2168,3 +2168,8 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   margin-top: 8px;
 }
 .wiz-var-initval-note em { font-style: italic; }
+
+/* ── Define block: inline device/value label ── */
+.doc-dev-inline {
+  color: var(--text-primary);
+}

@@ -1208,6 +1208,15 @@ const Wizard = (() => {
     });
     _wireVarInitSub(initType);
 
+    const VAR_TYPE_MAP = {
+      'Dynamic':'dynamic','String (text)':'string','Boolean (true/false)':'boolean',
+      'Number (integer)':'integer','Number (decimal)':'decimal','Large number (long)':'long',
+      'Date and Time':'datetime','Date (date only)':'date','Time (time only)':'time','Device':'device',
+      'Dynamic list':'dynamic_list','String list (text)':'string_list','Boolean list (true/false)':'boolean_list',
+      'Number list (integer)':'integer_list','Number list (decimal)':'decimal_list',
+      'Large number list (long)':'long_list','Date and Time list':'datetime_list',
+      'Date list (date only)':'date_list','Time list (time only)':'time_list',
+    };
     const save = () => {
       const name = document.getElementById('wiz-vname')?.value.trim();
       if (!name) { document.getElementById('wiz-vname')?.focus(); return null; }
@@ -1222,8 +1231,9 @@ const Wizard = (() => {
       } else {
         initial_value = document.getElementById('wiz-vinit-val')?.value || '';
       }
+      const rawType = document.getElementById('wiz-vt')?.value || 'Dynamic';
       return { type:'variable', id:_editNode?.id||_newId(), name,
-        var_type: document.getElementById('wiz-vt')?.value || 'Dynamic',
+        var_type: VAR_TYPE_MAP[rawType] || rawType.toLowerCase(),
         initial_value_type: ivType === 'nothing' ? undefined : ivType,
         initial_value };
     };

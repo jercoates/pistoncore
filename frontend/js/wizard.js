@@ -1189,6 +1189,9 @@ const Wizard = (() => {
     document.getElementById('wiz-vinit-type')?.addEventListener('change', e => {
       _sel.initial_value_type = e.target.value;
       _sel.initial_value = '';
+      // Snapshot name and var_type so they survive re-render
+      _sel.var_type = document.getElementById('wiz-vt')?.value || _sel.var_type;
+      _sel.name     = document.getElementById('wiz-vname')?.value || _sel.name;
       const sub = document.getElementById('wiz-vinit-sub');
       if (sub) sub.innerHTML = _varInitSubHtml(e.target.value);
       _wireVarInitSub(e.target.value);
@@ -1276,8 +1279,11 @@ const Wizard = (() => {
   function _wireVarInitSub(type) {
     if (type === 'device') {
       document.getElementById('wiz-vinit-devbtn')?.addEventListener('click', () => {
-        // Reuse inline device picker — on select, stash into _sel.initial_device_*
-        // and come back to variable picker
+        // Snapshot current form values into _sel before leaving so they survive the round trip
+        _sel.var_type = document.getElementById('wiz-vt')?.value || _sel.var_type;
+        _sel.name     = document.getElementById('wiz-vname')?.value || _sel.name;
+        _sel.initial_value_type = 'device';
+
         const origCtx = _context;
         _context = '__varinit__';
         _goInlineDevicePicker();
@@ -1299,7 +1305,6 @@ const Wizard = (() => {
       document.getElementById('wiz-vinit-varlist')?.querySelectorAll('.wiz-vinit-var-row').forEach(row => {
         row.addEventListener('click', () => {
           _sel.initial_variable = row.dataset.var;
-          // Highlight selected
           document.querySelectorAll('.wiz-vinit-var-row').forEach(r => r.classList.remove('selected'));
           row.classList.add('selected');
         });

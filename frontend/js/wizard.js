@@ -185,11 +185,15 @@ const Wizard = (() => {
     _stepStack = [];
     _sel      = editNode ? { ...editNode } : {};
 
-    document.getElementById('wizard-backdrop').style.display = 'flex';
+    const modal = document.getElementById('wizard-modal');
+    if (modal) modal.style.display = 'flex';
+    document.getElementById('wizard-backdrop').style.display = 'block';
     _route();
   }
 
   function close() {
+    const modal = document.getElementById('wizard-modal');
+    if (modal) modal.style.display = 'none';
     document.getElementById('wizard-backdrop').style.display = 'none';
     _context = null; _editNode = null; _sel = {}; _stepStack = [];
   }
@@ -458,8 +462,8 @@ const Wizard = (() => {
         <button class="btn btn-ghost btn-sm" id="wiz-devpick-back">← Back</button>
         <span style="font-size:13px;color:var(--text-secondary)">Select a device</span>
       </div>
-      <div class="wiz-search-row" style="margin:8px 0 4px">
-        <input type="text" id="wiz-dev-search" placeholder="Search devices..." autocomplete="off" style="flex:1;background:transparent;border:none;color:var(--text-primary);font-size:13px;padding:4px;outline:none" />
+      <div class="wiz-search-row">
+        <input type="text" id="wiz-dev-search" placeholder="Search devices..." autocomplete="off" />
       </div>
       <div class="wiz-device-list" id="wiz-dev-list">
         <div class="wiz-loading"><div class="spinner"></div></div>
@@ -507,6 +511,12 @@ const Wizard = (() => {
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
 
+    // Local device variables from current piston
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const localDeviceVars = allLocals.filter(v => v.var_type === 'device' &&
+      (!q || v.name.toLowerCase().includes(q))
+    );
+
     let html = '';
 
     if (!q) {
@@ -528,20 +538,12 @@ const Wizard = (() => {
       ).join('');
     }
 
-    if (!q) {
-      html += `<div class="wiz-device-group-header">System variables</div>`;
-      html += SYSTEM_VARS.map(sv =>
-        `<div class="wiz-device-row ${_sel.device_id===sv?'selected':''}" data-id="${_esc(sv)}" data-label="${_esc(sv)}">
+    if (localDeviceVars.length) {
+      html += `<div class="wiz-device-group-header">Local variables</div>`;
+      html += localDeviceVars.map(v =>
+        `<div class="wiz-device-row ${_sel.device_id===v.name?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
           <span class="wiz-dev-prefix">device</span>
-          <span class="wiz-dev-label">${_esc(sv)}</span>
-        </div>`
-      ).join('');
-
-      html += `<div class="wiz-device-group-header">Demo devices</div>`;
-      html += DEMO_DEVICES.map(d =>
-        `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
-          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-          <span class="wiz-demo-badge">demo</span>
+          <span class="wiz-dev-label">${_esc(v.name)}</span>
         </div>`
       ).join('');
     }

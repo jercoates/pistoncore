@@ -995,26 +995,31 @@ input::placeholder { color: var(--text-muted); }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.65);
+  background: transparent;
   z-index: 800;
-  align-items: center;
-  justify-content: center;
+  pointer-events: none;
 }
-
-#wizard-backdrop.open {
-  display: flex;
+#wizard-backdrop[style*="flex"] {
+  display: block !important;
+  pointer-events: none;
 }
 
 #wizard-modal {
+  position: fixed;
+  top: 60px;
+  right: 20px;
   background: var(--bg-modal);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  width: var(--modal-width);
+  width: var(--modal-width, 580px);
   max-width: calc(100vw - 40px);
-  max-height: 85vh;
+  max-height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  z-index: 900;
+  pointer-events: all;
+  overflow: hidden;
 }
 
 .wizard-header {
@@ -1650,14 +1655,8 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
    Centered ~580px wide. NOT full screen.
    ════════════════════════════════════════════════════════ */
 
-#wizard-backdrop {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 200;
-  align-items: center;
-  justify-content: center;
+#wizard-backdrop-float {
+  /* placeholder — backdrop is now transparent, modal floats */
 }
 
 #wizard-modal {

@@ -1148,6 +1148,7 @@ const Wizard = (() => {
     const ADV   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
     const initType = _sel.initial_value_type || 'nothing';
 
+    const warnIcon = initType !== 'nothing' ? '<span class="wiz-initval-warn">&#9650;</span>' : '';
     _render(
       'Add a new variable',
       `<div class="wiz-compare-row">
@@ -1158,19 +1159,21 @@ const Wizard = (() => {
          <input type="text" id="wiz-vname" class="wiz-value-input" placeholder="Variable name..." value="${_esc(_sel.name||'')}" />
        </div>
 
-       <div class="wiz-row-label" style="margin-top:14px">Initial value</div>
-       <div class="wiz-var-initval-note">Setting an initial value will cause the variable to be set to that value when the piston is first loaded. Leave as "Nothing selected" to start with the default for the chosen type.</div>
+       <div class="wiz-row-label" style="margin-top:14px">Initial value (optional) ${warnIcon}</div>
 
-       <select id="wiz-vinit-type" class="wiz-select-blue wiz-select-full" style="margin-top:6px">
-         <option value="nothing"    ${initType==='nothing'   ?'selected':''}>Nothing selected</option>
-         <option value="device"     ${initType==='device'    ?'selected':''}>Physical device(s)</option>
-         <option value="value"      ${initType==='value'     ?'selected':''}>Value</option>
-         <option value="variable"   ${initType==='variable'  ?'selected':''}>Variable</option>
-         <option value="expression" ${initType==='expression'?'selected':''}>Expression</option>
-         <option value="argument"   ${initType==='argument'  ?'selected':''}>Argument</option>
-       </select>
+       <div class="wiz-initval-combined-row">
+         <select id="wiz-vinit-type" class="wiz-select-blue wiz-initval-type-sel">
+           <option value="nothing"    ${initType==='nothing'   ?'selected':''}>Nothing selected</option>
+           <option value="device"     ${initType==='device'    ?'selected':''}>Physical device(s)</option>
+           <option value="value"      ${initType==='value'     ?'selected':''}>Value</option>
+           <option value="variable"   ${initType==='variable'  ?'selected':''}>Variable</option>
+           <option value="expression" ${initType==='expression'?'selected':''}>Expression</option>
+           <option value="argument"   ${initType==='argument'  ?'selected':''}>Argument</option>
+         </select>
+         <div class="wiz-initval-right" id="wiz-vinit-sub">${_varInitSubHtml(initType)}</div>
+       </div>
 
-       <div id="wiz-vinit-sub" style="margin-top:8px">${_varInitSubHtml(initType)}</div>`,
+       <div class="wiz-var-initval-note">NOTE: By assigning an initial value to the variable, you are instructing the piston to initialize the variable on every run to that initial value. While you can change the value of the variable during a piston run, the variable will revert to its initial value on subsequent piston runs. If you plan on storing data in this variable that needs to persist between piston runs, leave the value as <em>Nothing Selected</em>.</div>`,
 
       `<button class="btn btn-ghost btn-sm" id="wiz-var-cancel">Cancel</button>
        <div class="wiz-footer-right">
@@ -1189,6 +1192,16 @@ const Wizard = (() => {
       const sub = document.getElementById('wiz-vinit-sub');
       if (sub) sub.innerHTML = _varInitSubHtml(e.target.value);
       _wireVarInitSub(e.target.value);
+      // Update warning icon
+      const lbl = document.querySelector('.wiz-row-label .wiz-initval-warn');
+      if (e.target.value !== 'nothing') {
+        if (!lbl) {
+          const rowLbl = document.querySelector('.wiz-row-label');
+          if (rowLbl) rowLbl.innerHTML = 'Initial value (optional) <span class="wiz-initval-warn">&#9650;</span>';
+        }
+      } else {
+        if (lbl) lbl.remove();
+      }
     });
     _wireVarInitSub(initType);
 
@@ -1226,11 +1239,13 @@ const Wizard = (() => {
   }
 
   function _varInitSubHtml(type) {
-    if (type === 'nothing') return '';
+    if (type === 'nothing') {
+      return `<span class="wiz-initval-placeholder">(no value set)</span>`;
+    }
     if (type === 'device') {
       const label = _sel.initial_device_label || '';
-      return `<button class="wiz-device-pick-btn ${label?'has-value':''}" id="wiz-vinit-devbtn">
-        ${label ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : 'Nothing selected — click to pick a device'}
+      return `<button class="wiz-device-pick-btn wiz-initval-devbtn ${label?'has-value':''}" id="wiz-vinit-devbtn">
+        ${label ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : 'Nothing selected'}
       </button>`;
     }
     if (type === 'variable') {

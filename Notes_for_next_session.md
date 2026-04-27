@@ -148,5 +148,48 @@ widest possible audience — the same people who loved webCoRE on SmartThings.
 3. Login system (already planned)
 4. Cloud hosting option (enables webCoRE-style hosted service)
 
+5. PistonCore Virtual Devices — Feature Notes expanded
+What it is:
+A toggle in the PistonCore companion that creates virtual devices in HA the same way a real integration does. HA sees them as legitimate devices — they appear in the device registry, show up in PistonCore's device picker, and populate automatically on the HA dashboard via the "Test" room assignment. Toggle off removes them cleanly.
+Why it exists:
+HA has no native way to create virtual devices for testing automations. Users currently have to trip real hardware or manually wrestle with Developer Tools. This fills that gap without any custom state engine or sandbox complexity — just standard HA device registration.
+Key design principles:
+
+Non-invasive — registers devices the same way any integration does, nothing bolted on
+HA sees them as real devices so PistonCore gets them for free via its live pull
+"Test" room assignment means HA auto-generates the dashboard for you — no manual setup
+Toggle OFF removes them cleanly with no residue
+Does not interfere with any existing virtual or puppet devices the user already has
+Useful to all HA users, not just PistonCore users — standalone value-add in the companion
+
+V1 scope:
+One of each common device type, hardcoded list, assigned to a room called "Test." Simple and fast. No user configuration in v1.
+Device list (V1):
+
+Motion sensor
+Contact/door sensor
+Smoke detector
+Water/leak sensor
+CO detector
+Lock
+Temperature sensor
+Humidity sensor
+Lux sensor
+Switch
+Dimmable light
+Media player (evaluate what registers cleanly)
+
+Where this lives:
+Companion feature. The Docker editor is unaware of it. PistonCore simply sees these as available devices because HA does.
+Future possibilities (not v1):
+
+User selects which device types to generate
+Clone real devices into the Test room for parallel testing
+Compiler test mode that routes a piston's entity references to their Test room counterparts before deploy
+
 All of these are the same codebase — Docker, Windows app, and cloud hosted are just
 different deployment targets for the same Python + vanilla JS project.
+
+technical note Compiler template — service: vs action: key
+HA renamed service: to action: in the 2024.8 release. Your current Jinja2 templates already use action: which is correct for modern HA. Worth adding a note to the AI-UPDATE-GUIDE.md in the native-script compiler templates folder so anyone updating the templates knows that pre-2024.8 instances would need service: instead. Low priority since 2024.8 is old at this point, but worth documenting.
+That was the only thing from the Gemini conversation that wasn't already captured in your design doc or confirmed as a decision you'd already made. Everything else was either Gemini catching up to choices you'd already locked in, or suggestions you correctly rejected (storing entity data locally, React frontend, webCoRE direct import, etc.).

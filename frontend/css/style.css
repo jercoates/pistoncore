@@ -2100,3 +2100,15 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 }
 .wiz-demo-row { opacity: 0.85; }
 .wiz-demo-row:hover { opacity: 1; }
+
+/* ── Variable wizard: initial value note ── */
+.wiz-var-initval-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 4px 0 2px;
+  padding: 4px 6px;
+  background: var(--bg-sunken, var(--bg-raised));
+  border-radius: 4px;
+  border-left: 2px solid var(--border-subtle);
+}

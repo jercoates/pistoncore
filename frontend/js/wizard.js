@@ -735,7 +735,8 @@ const Wizard = (() => {
     if (type === 'timer')        { _goTimerPicker(); return; }
     if (type === 'for_each')     { _goForEachPicker(); return; }
     if (type === 'repeat_loop')  { _goRepeatPicker(); return; }
-    // Structural blocks — insert skeleton and close
+    // Structural blocks — close wizard FIRST, then insert skeleton
+    // (close before insertStatement so render() runs with backdrop hidden)
     const skeletons = {
       if_block:   { type:'if_block',   id:_newId(), conditions:[], then_actions:[], else_actions:[] },
       switch:     { type:'switch',     id:_newId() },
@@ -746,7 +747,12 @@ const Wizard = (() => {
       break:      { type:'break',      id:_newId() },
       exit:       { type:'exit',       id:_newId() },
     };
-    if (skeletons[type]) { Editor.insertStatement(_context, skeletons[type]); close(); }
+    if (skeletons[type]) {
+      const node = skeletons[type];
+      const ctx = _context;
+      close(); // hide backdrop BEFORE editor re-renders
+      Editor.insertStatement(ctx, node);
+    }
   }
 
   // ── ACTION DEVICE PICKER (full modal step for actions) ────
@@ -1140,6 +1146,8 @@ const Wizard = (() => {
     _pushStep(_goVariablePicker);
     const BASIC = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
     const ADV   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
+    const initType = _sel.initial_value_type || 'nothing';
+
     _render(
       'Add a new variable',
       `<div class="wiz-compare-row">
@@ -1149,25 +1157,65 @@ const Wizard = (() => {
          </select>
          <input type="text" id="wiz-vname" class="wiz-value-input" placeholder="Variable name..." value="${_esc(_sel.name||'')}" />
        </div>
-       <div class="wiz-row-label" style="margin-top:12px">Initial value (optional)</div>
-       <input type="text" id="wiz-vinit" class="wiz-value-input" value="${_esc(String(_sel.initial_value||''))}" placeholder="Leave blank for default" />`,
+
+       <div class="wiz-row-label" style="margin-top:14px">Initial value</div>
+       <div class="wiz-var-initval-note">Setting an initial value will cause the variable to be set to that value when the piston is first loaded. Leave as "Nothing selected" to start with the default for the chosen type.</div>
+
+       <select id="wiz-vinit-type" class="wiz-select-blue wiz-select-full" style="margin-top:6px">
+         <option value="nothing"    ${initType==='nothing'   ?'selected':''}>Nothing selected</option>
+         <option value="device"     ${initType==='device'    ?'selected':''}>Physical device(s)</option>
+         <option value="value"      ${initType==='value'     ?'selected':''}>Value</option>
+         <option value="variable"   ${initType==='variable'  ?'selected':''}>Variable</option>
+         <option value="expression" ${initType==='expression'?'selected':''}>Expression</option>
+         <option value="argument"   ${initType==='argument'  ?'selected':''}>Argument</option>
+       </select>
+
+       <div id="wiz-vinit-sub" style="margin-top:8px">${_varInitSubHtml(initType)}</div>`,
+
       `<button class="btn btn-ghost btn-sm" id="wiz-var-cancel">Cancel</button>
        <div class="wiz-footer-right">
+         <button class="btn btn-ghost btn-sm" id="wiz-var-cog">⚙</button>
          <button class="btn btn-primary btn-sm" id="wiz-var-add">Add more</button>
          <button class="btn btn-primary btn-sm" id="wiz-var-done">Add</button>
        </div>`
     );
+
     document.getElementById('wiz-var-cancel')?.addEventListener('click', close);
+
+    // Wire initial value type dropdown — swap sub-panel on change
+    document.getElementById('wiz-vinit-type')?.addEventListener('change', e => {
+      _sel.initial_value_type = e.target.value;
+      _sel.initial_value = '';
+      const sub = document.getElementById('wiz-vinit-sub');
+      if (sub) sub.innerHTML = _varInitSubHtml(e.target.value);
+      _wireVarInitSub(e.target.value);
+    });
+    _wireVarInitSub(initType);
+
     const save = () => {
       const name = document.getElementById('wiz-vname')?.value.trim();
       if (!name) { document.getElementById('wiz-vname')?.focus(); return null; }
+      const ivType = document.getElementById('wiz-vinit-type')?.value || 'nothing';
+      let initial_value;
+      if (ivType === 'nothing') {
+        initial_value = undefined;
+      } else if (ivType === 'device') {
+        initial_value = _sel.initial_device_label || _sel.initial_device_id || '';
+      } else if (ivType === 'variable') {
+        initial_value = _sel.initial_variable || '';
+      } else {
+        initial_value = document.getElementById('wiz-vinit-val')?.value || '';
+      }
       return { type:'variable', id:_editNode?.id||_newId(), name,
-        var_type: document.getElementById('wiz-vt')?.value||'Dynamic',
-        initial_value: document.getElementById('wiz-vinit')?.value||undefined };
+        var_type: document.getElementById('wiz-vt')?.value || 'Dynamic',
+        initial_value_type: ivType === 'nothing' ? undefined : ivType,
+        initial_value };
     };
+
     document.getElementById('wiz-var-done')?.addEventListener('click', () => {
       const n = save(); if (!n) return;
-      Editor.insertStatement('variable', n); close();
+      close();
+      Editor.insertStatement('variable', n);
     });
     document.getElementById('wiz-var-add')?.addEventListener('click', () => {
       const n = save(); if (!n) return;
@@ -1175,6 +1223,73 @@ const Wizard = (() => {
       _sel = {}; _editNode = null;
       _goVariablePicker();
     });
+  }
+
+  function _varInitSubHtml(type) {
+    if (type === 'nothing') return '';
+    if (type === 'device') {
+      const label = _sel.initial_device_label || '';
+      return `<button class="wiz-device-pick-btn ${label?'has-value':''}" id="wiz-vinit-devbtn">
+        ${label ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : 'Nothing selected — click to pick a device'}
+      </button>`;
+    }
+    if (type === 'variable') {
+      const locals  = (Editor.getPistonVariables ? Editor.getPistonVariables() : []);
+      const globals = []; // future: load from API
+      const sysvars = SYSTEM_VARS;
+      const makeSect = (title, items) => items.length
+        ? `<div class="wiz-device-group-header">${_esc(title)}</div>` +
+          items.map(v => `<div class="wiz-device-row wiz-vinit-var-row" data-var="${_esc(typeof v==='string'?v:v.name)}" data-label="${_esc(typeof v==='string'?v:v.name)}">
+            <span class="wiz-dev-prefix">${_esc(typeof v==='string'?'system':v.var_type||'dynamic')}</span>
+            <span class="wiz-dev-label">${_esc(typeof v==='string'?v:v.name)}</span>
+          </div>`).join('')
+        : '';
+      return `<div class="wiz-device-list" style="max-height:180px;overflow-y:auto" id="wiz-vinit-varlist">
+        ${makeSect('Local variables', locals)}
+        ${makeSect('Global variables', globals)}
+        ${makeSect('System variables', sysvars)}
+        ${(!locals.length && !globals.length) ? '<div class="wiz-empty" style="padding:8px">No variables defined yet.</div>' : ''}
+      </div>`;
+    }
+    if (type === 'expression') {
+      return `<textarea id="wiz-vinit-val" class="wiz-expr-area" placeholder="Expression...">${_esc(_sel.initial_value||'')}</textarea>`;
+    }
+    // value or argument — plain text input
+    return `<input type="text" id="wiz-vinit-val" class="wiz-value-input" value="${_esc(_sel.initial_value||'')}" placeholder="${type==='argument'?'Argument name...':'Value...'}" />`;
+  }
+
+  function _wireVarInitSub(type) {
+    if (type === 'device') {
+      document.getElementById('wiz-vinit-devbtn')?.addEventListener('click', () => {
+        // Reuse inline device picker — on select, stash into _sel.initial_device_*
+        // and come back to variable picker
+        const origCtx = _context;
+        _context = '__varinit__';
+        _goInlineDevicePicker();
+        // Patch the device row click to return to variable picker
+        setTimeout(() => {
+          document.getElementById('wiz-dev-list')?.querySelectorAll('.wiz-device-row').forEach(row => {
+            row.addEventListener('click', () => {
+              _sel.initial_device_id    = row.dataset.id;
+              _sel.initial_device_label = row.dataset.label;
+              _sel.initial_value_type   = 'device';
+              _context = origCtx;
+              _goVariablePicker();
+            }, { once: true });
+          });
+        }, 50);
+      });
+    }
+    if (type === 'variable') {
+      document.getElementById('wiz-vinit-varlist')?.querySelectorAll('.wiz-vinit-var-row').forEach(row => {
+        row.addEventListener('click', () => {
+          _sel.initial_variable = row.dataset.var;
+          // Highlight selected
+          document.querySelectorAll('.wiz-vinit-var-row').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+        });
+      });
+    }
   }
 
   // ── TIMER PICKER ──────────────────────────────────────────

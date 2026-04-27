@@ -132,7 +132,7 @@ const Editor = (() => {
     ln(`<span class="kw">define</span>`, 0);
     if (!isSimple) {
       (p.variables || []).forEach(v => {
-        const init = v.initial_value !== undefined ? ` ${_cm(`/* ${v.initial_value} */`)}` : '';
+        const init = v.initial_value !== undefined ? ` ${_cm(String(v.initial_value))}` : '';
         ln(`${_kw(_typeLabel(v.var_type))} ${_dv('$', v.name)};${init}`, 1, { id: v.id, type: 'variable' });
       });
       gh('+ add a new variable', 'variable', 1);
@@ -166,10 +166,8 @@ const Editor = (() => {
         ln(_condLine(c), 2, { id: c.id, type: 'condition' });
       });
       gh('· add a new trigger or condition', 'trigger_or_condition', 2);
-    } else {
-      // Simple mode, no triggers/conditions yet — show ghost inline
-      gh('· add a new trigger or condition', 'trigger_or_condition', 1);
     }
+    // Simple mode with no triggers/conditions: skip the only when block entirely.
 
     // action nodes
     _actionLines(p.actions || [], 1, lines, num, gh);
@@ -607,6 +605,6 @@ const Editor = (() => {
     return 'stmt_' + String(_stmtCounter).padStart(3,'0');
   }
 
-  return { load, save, insertStatement, deleteStatement: _deleteSelected };
+  return { load, save, insertStatement, deleteStatement: _deleteSelected, getPistonVariables: () => (_piston?.variables || []) };
 
 })();

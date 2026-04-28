@@ -1191,6 +1191,8 @@ These affect the compiler but are not yet resolved. Do not implement them until 
 6. ~~**Stage 4 pre-deploy sandbox validation**~~ — **REMOVED.** `script.reload` cannot target a single sandbox file. Native script pistons rely on yamllint (Stage 3) for pre-deploy syntax checking. HA validates semantics on actual deploy. See DESIGN.md Section 13.
 7. **Trace mode per-step events** — v1 trace does not emit a trace event per compiler action step. The compiler only emits the completion event and relies on user-added log_message statements for mid-run visibility. Full per-step tracing is v2. See DESIGN.md Section 15.
 
+8. **Local device variable attribute resolution** — When a condition or action references an attribute on a local device variable that contains multiple HA entities, HA naming is inconsistent across device types (e.g. `switch` on one device may be a different service on another). The compiler should iterate over each entity in the local variable group, look up capabilities from the HA API at compile time, and map the wizard-selected attribute to the correct HA service or state check for each device individually — emitting device-specific calls rather than one generic attribute reference. This is the same pattern used for Devices globals (Section 8.7) and the globals workaround. Emit a CompilerWarning (not error) for any entity where the attribute cannot be matched. Not implemented in v1.
+
 ---
 
 *PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

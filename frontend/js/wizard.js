@@ -1,4 +1,10 @@
-// pistoncore/frontend/js/wizard.js — Session 12 rewrite v2
+// pistoncore/frontend/js/wizard.js — Session 14
+//
+// CSS TO ADD for inline attribute dropdown (add to wizard.css or main CSS):
+// .wiz-attr-dropdown { border:1px solid var(--border-subtle); border-radius:4px; margin-top:4px; background:var(--bg-raised); max-height:180px; overflow-y:auto; }
+// .wiz-attr-option { display:flex; align-items:center; padding:7px 12px; cursor:pointer; font-size:13px; gap:8px; }
+// .wiz-attr-option:hover, .wiz-attr-option.selected { background:var(--bg-hover); }
+// .wiz-attr-pick-btn:disabled { opacity:0.4; cursor:default; }
 // WebCoRE-style modal wizard. ~580px wide, NOT full screen.
 //
 // KEY DESIGN RULES:
@@ -352,10 +358,11 @@ const Wizard = (() => {
         <button class="wiz-device-pick-btn ${devLabel?'has-value':''}" id="wiz-open-devpicker">
           ${devLabel ? `<span class="wiz-device-tag">device</span> ${_esc(devLabel)}` : 'Nothing selected'}
         </button>
-        <button class="wiz-attr-pick-btn ${attr?'has-value':''}" id="wiz-open-attrpicker">
-          ${attr ? _esc(attr) : 'Nothing selected'}
+        <button class="wiz-attr-pick-btn ${attr?'has-value':''}" id="wiz-open-attrpicker" ${!_sel.device_id?'disabled':''}>
+          ${attr ? _esc(attr) : 'attribute'}
         </button>
       </div>
+      <div id="wiz-attr-dropdown" class="wiz-attr-dropdown" style="display:none"></div>
 
       ${hasDevice ? `
       <div class="wiz-interaction-row" id="wiz-int-row">
@@ -385,6 +392,7 @@ const Wizard = (() => {
             <option value="value">Value</option>
             <option value="variable">Variable</option>
             <option value="expression">Expression</option>
+            <option value="argument">Argument</option>
           </select>
           <input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="Value..." />
           ${needsTwo ? `<span class="wiz-between-and">and</span><input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />` : ''}
@@ -428,9 +436,9 @@ const Wizard = (() => {
       _goInlineDevicePicker();
     });
 
-    // Wire attribute picker
+    // Wire attribute picker — toggles inline dropdown below compare row
     document.getElementById('wiz-open-attrpicker')?.addEventListener('click', () => {
-      if (_sel.device_id) _goInlineAttrPicker();
+      if (_sel.device_id) _toggleAttrDropdown();
     });
 
     // Wire operator change
@@ -557,9 +565,12 @@ const Wizard = (() => {
       ).join('');
     }
 
-    if (!q) {
+    const filteredDemos = DEMO_DEVICES.filter(d =>
+      !q || d.friendly_name.toLowerCase().includes(q)
+    );
+    if (filteredDemos.length) {
       html += `<div class="wiz-device-group-header">Demo devices</div>`;
-      html += DEMO_DEVICES.map(d =>
+      html += filteredDemos.map(d =>
         `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-demo-badge">demo</span>
@@ -581,75 +592,62 @@ const Wizard = (() => {
     });
   }
 
-  // ── INLINE ATTRIBUTE PICKER ───────────────────────────────
-  function _goInlineAttrPicker() {
-    const body = document.getElementById('wiz-body');
-    if (!body) return;
+  // ── INLINE ATTRIBUTE DROPDOWN (expands below compare row, no navigation) ──
+  function _toggleAttrDropdown() {
+    const dd = document.getElementById('wiz-attr-dropdown');
+    if (!dd) return;
 
-    body.innerHTML = `
-      <div class="wiz-inline-picker-header">
-        <button class="btn btn-ghost btn-sm" id="wiz-attrpick-back">← Back</button>
-        <span style="font-size:13px;color:var(--text-secondary)">Select attribute</span>
-      </div>
-      <div class="wiz-device-list" id="wiz-attr-list">
-        <div class="wiz-loading"><div class="spinner"></div></div>
-      </div>
-    `;
-
-    const footer = document.getElementById('wiz-footer');
-    if (footer) footer.innerHTML = `<button class="btn btn-ghost btn-sm" id="wiz-attrpick-cancel">Cancel</button>`;
-
-    document.getElementById('wiz-attrpick-back')?.addEventListener('click', _goConditionBuilder);
-    document.getElementById('wiz-attrpick-cancel')?.addEventListener('click', close);
-
-    // Check if this is a demo device first
-    const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
-    if (demo) {
-      _renderAttrList(demo.capabilities);
+    // If already open, close it
+    if (dd.style.display !== 'none') {
+      dd.style.display = 'none';
       return;
     }
 
-    // Check if this is a local device variable
-    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
-    if (localVar) {
-      // Local device variables use switch as their capability (they represent a device)
-      _renderAttrList([{ name: 'switch', attribute_type: 'binary', values: ['on', 'off'] }]);
-      return;
-    }
+    dd.style.display = 'block';
+    dd.innerHTML = `<div class="wiz-loading"><div class="spinner"></div></div>`;
 
-    // Otherwise call HA API
-    API.getCapabilities(_sel.device_id).then(data => {
-      _renderAttrList(data.capabilities || []);
+    // Get capabilities then render
+    _getCapabilities(_sel.device_id).then(caps => {
+      if (!caps.length) {
+        dd.innerHTML = `<div class="wiz-empty" style="padding:8px 12px">No attributes found.</div>`;
+        return;
+      }
+      dd.innerHTML = caps.map(c =>
+        `<div class="wiz-attr-option ${_sel.attribute===c.name?'selected':''}"
+          data-name="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}">
+          <span class="wiz-dev-label">${_esc(c.name)}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(c.attribute_type||'')}</span>
+        </div>`
+      ).join('');
+
+      dd.querySelectorAll('.wiz-attr-option').forEach(row => {
+        row.addEventListener('click', () => {
+          _sel.attribute      = row.dataset.name;
+          _sel.attribute_type = row.dataset.type;
+          // Update the button label without re-rendering whole screen
+          const btn = document.getElementById('wiz-open-attrpicker');
+          if (btn) { btn.textContent = _sel.attribute; btn.classList.add('has-value'); }
+          dd.style.display = 'none';
+        });
+      });
     }).catch(() => {
-      const el = document.getElementById('wiz-attr-list');
-      if (el) el.innerHTML = `<div class="wiz-error">Could not load attributes.</div>`;
+      dd.innerHTML = `<div class="wiz-error" style="padding:8px 12px">Could not load attributes.</div>`;
     });
   }
 
-  function _renderAttrList(caps) {
-    const el = document.getElementById('wiz-attr-list');
-    if (!el) return;
+  async function _getCapabilities(deviceId) {
+    // Demo device
+    const demo = DEMO_DEVICES.find(d => d.entity_id === deviceId);
+    if (demo) return demo.capabilities;
 
-    if (!caps.length) {
-      el.innerHTML = `<div class="wiz-empty">No attributes found for this device.</div>`;
-      return;
-    }
+    // Local device variable
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const localVar = allLocals.find(v => v.var_type === 'device' && v.name === deviceId);
+    if (localVar) return [{ name: 'switch', attribute_type: 'binary', values: ['on','off'] }];
 
-    el.innerHTML = caps.map(c =>
-      `<div class="wiz-device-row ${_sel.attribute===c.name?'selected':''}" data-name="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}">
-        <span class="wiz-dev-label">${_esc(c.name)}</span>
-        <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(c.attribute_type||'')}</span>
-      </div>`
-    ).join('');
-
-    el.querySelectorAll('.wiz-device-row').forEach(row => {
-      row.addEventListener('click', () => {
-        _sel.attribute      = row.dataset.name;
-        _sel.attribute_type = row.dataset.type;
-        _goConditionBuilder();
-      });
-    });
+    // HA API
+    const data = await API.getCapabilities(deviceId);
+    return data.capabilities || [];
   }
 
   // ── GROUP BUILDER ─────────────────────────────────────────
@@ -724,7 +722,7 @@ const Wizard = (() => {
       _extra = { 'block-id': ifId };
     } else {
       Editor.insertStatement(_context, node);
-      const kept = { device_id:_sel.device_id, device_label:_sel.device_label, subject_type:_sel.subject_type, statement_class:'condition' };
+      const kept = { statement_class:'condition' };
       _sel = kept;
     }
     _editNode = null;

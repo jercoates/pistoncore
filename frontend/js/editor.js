@@ -285,7 +285,8 @@ const Editor = (() => {
   // ── Inline helpers ───────────────────────────────────────
   function _condLine(c) {
     if (!c) return '<span class="doc-ph">[condition]</span>';
-    const agg = c.aggregation && c.aggregation !== 'null'
+    const deviceCount = Array.isArray(c.devices) ? c.devices.length : (c.subject ? 1 : 0);
+    const agg = c.aggregation && c.aggregation !== 'null' && deviceCount > 1
       ? `<span class="kw">${_esc({any:'Any of',all:'All of',none:'None of'}[c.aggregation]||c.aggregation)}</span> `
       : '';
     const subj = _subj(c.subject);

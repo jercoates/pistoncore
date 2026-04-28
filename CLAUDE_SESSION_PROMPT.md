@@ -171,6 +171,18 @@ NO curly braces. Keywords: if / then / else / end if;
 
 ## Known Bugs — Fix List for Session 15
 
+### PRIORITY 0 — Must do first, nothing else works without it
+
+**Frontend settings/connection page — HA URL and API key entry**
+- The frontend has NO UI to enter the HA URL and API key — it was never built
+- Without it the frontend cannot connect to HA regardless of what's in the backend
+- Jeremy already has a long-lived HA API key ready to enter
+- Virtual test devices are already set up in HA and available for testing once connected
+- Real physical devices will appear automatically once connected
+- BUILD THIS FIRST before any wizard work in Session 15
+
+---
+
 1. **wizard.js** — Attribute select for local device variables only shows `switch`
    - Should call HA API using the entity IDs from the variable's initial_value
    - If multiple devices: show union of all capabilities
@@ -241,8 +253,9 @@ Session 14: Condition builder inline device/attribute pickers. Demo device searc
 1. Read this prompt fully
 2. **Ask Jeremy to upload wizard_reference_screenshots.zip and any session screenshots**
    - Read ANNOTATIONS.md inside each zip before touching any code
-3. Ask Jeremy to upload current wizard.js and editor.js from the repo
-4. Confirm fix list with Jeremy — do NOT start coding until confirmed
-5. Fix bugs in priority order — attribute loading for local vars first
-6. After each fix: give Jeremy the yes/no test checklist, wait for screenshot
-7. Generate updated session prompt at end of session
+3. Ask Jeremy to upload current wizard.js, editor.js, and any other files that need changes
+4. Confirm fix list with Jeremy — Priority 0 is the HA settings/connection page
+5. Build the settings page FIRST — no wizard work until HA can actually connect
+6. After settings page works and HA connects, move to wizard fix list in priority order
+7. After each fix: give Jeremy the yes/no test checklist, wait for screenshot
+8. Generate updated session prompt at end of session

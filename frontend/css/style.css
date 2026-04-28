@@ -1857,6 +1857,28 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 .wiz-attr-pick-btn:hover { border-color: var(--teal); }
 .wiz-device-pick-btn.has-value,
 .wiz-attr-pick-btn.has-value { color: var(--text-primary); border-color: var(--teal-dim); }
+.wiz-attr-pick-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+
+/* Inline device/attribute dropdowns */
+.wiz-attr-dropdown {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  margin-top: 4px;
+  background: var(--bg-raised);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.wiz-attr-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.wiz-attr-option:hover,
+.wiz-attr-option.selected { background: var(--bg-hover); }
 .wiz-device-tag {
   font-size: 10px;
   color: var(--teal);

@@ -1,5 +1,5 @@
 # PistonCore — Claude Session Starter Prompt
-# Session 14 — Updated end of Session 13
+# Session 15 — Updated end of Session 14
 
 ---
 
@@ -11,6 +11,10 @@
 4. **Do not code without permission** — present the fix list, wait for "go"
 5. **Do not update specs mid-session** — code first, specs after it works in browser
 6. **One problem at a time** — confirm the full list before writing any code
+7. **Always ask Jeremy to upload the WebCoRE reference screenshots at session start**
+   - wizard_reference_screenshots.zip — condition builder, operator list, action picker
+   - session screenshots from prior session if Jeremy has them
+   - Read the ANNOTATIONS.md inside each zip before writing any code
 
 ---
 
@@ -111,11 +115,28 @@ NO curly braces. Keywords: if / then / else / end if;
 - Backdrop is transparent (no rgba dimming)
 - Modal is centered, floats over document without hiding it
 
+### Condition builder layout — matches WebCoRE exactly:
+- ONE screen, everything visible at once
+- Row: `[Physical device(s) ▾]` `[device label ▾]` `[attribute ▾]` — all native selects
+- Device picker opens a searchable panel BELOW the row (not full screen replacement)
+- Attribute is a plain `<select>` populated from device capabilities — always visible
+- When HA disconnected: attribute select shows generic fallback list for local vars
+- "Which interaction" row appears below for trigger operators
+- Operator dropdown below that
+- Value row appears below operator when needed
+
+### Attribute select — capability loading rules:
+- Demo devices: load from DEMO_DEVICES capabilities array in wizard.js
+- Local device variables: call HA API using the entity IDs in the variable's initial_value
+  - If variable has multiple devices: show UNION of all capabilities
+  - If HA disconnected: show generic fallback (switch, level, battery, etc.)
+- Physical devices: call API.getCapabilities(entity_id)
+- See COMPILER_SPEC.md Section 18, item 8 for backend implications
+
 ### Variable wizard initial value — matches WebCoRE layout:
 - One combined blue bar: `[type dropdown] [value/picker on right]`
 - Note text appears BELOW the combined bar (not above)
 - Warning triangle icon appears next to label when a value is set
-- Exact WebCoRE note text about initial values and persistence
 - Options: Nothing selected / Physical device(s) / Value / Variable / Expression / Argument
   - Physical device(s) → dedicated device picker (virtual + physical + local device vars, NO system vars, NO demo devices)
   - Value → text input on right side of bar
@@ -130,73 +151,55 @@ NO curly braces. Keywords: if / then / else / end if;
 ### Condition device picker:
 - Shows: Physical devices, Local device variables, Demo devices
 - Does NOT show: Virtual devices, System variables
-- Search works on all sections including demo devices (filter demo devices when query is non-empty)
-- Local device variables defined in the piston appear under "Local variables" section
-- Clicking a local device variable shows its capabilities (switch/binary) — does not call HA API
-
-### Condition builder — KNOWN ISSUE for Session 14:
-- Currently navigates to separate screens for device/attribute picking (wrong)
-- WebCoRE shows everything inline — device dropdown, attribute dropdown opens below inline, operator, value all on ONE screen
-- The attribute picker should be an inline dropdown, NOT a full screen replacement
-- This is the #1 priority for Session 14
-
-### Demo devices — always visible without HA
-- Demo devices appear in condition picker device list
-- Demo devices appear when search query is empty AND when query matches their name
-- Currently broken: demo devices disappear when any search query is typed (fix in Session 14)
+- Search filters all sections including demo devices
+- Demo devices always show — filtered by query when search typed, never hidden entirely
 
 ---
 
-## Session 13 — What Was Fixed
+## Session 14 — What Was Fixed
 
-1. ✅ "only when" hidden in simple mode on blank piston
-2. ✅ Two modals bug — if_block now walks through condition builder first
-3. ✅ Variable initial value — full WebCoRE-style combined row layout
-4. ✅ Comment format — fixed double-wrapping on variable initial values
-5. ✅ Define block renders like WebCoRE (lowercase type, no $, = value format)
-6. ✅ Piston name field now visible and editable
-7. ✅ Mode preference persisted in localStorage, defaults to Advanced
-8. ✅ Simple mode: define always shown, only when hidden unless populated
-9. ✅ Condition device picker: removed virtual devices and system variables
-10. ✅ Local device variables show in condition device picker
-11. ✅ Clicking existing statement opens wizard pre-populated for editing
-12. ✅ Search input visible and working in condition device picker
-13. ✅ Variable device picker: dedicated picker with correct sections
-14. ✅ var_type normalized to lowercase keys on save
+1. ✅ Demo devices no longer disappear when search query is typed
+2. ✅ "Argument" option added to condition value type dropdown
+3. ✅ "Add more" now resets completely — no carryover from previous condition
+4. ✅ "Any of" no longer shows for single device conditions in editor
+5. ✅ Device picker no longer replaces full modal body — expands inline below compare row
+6. ✅ Attribute is now a plain `<select>` populated from device capabilities
+7. ✅ CSS added for inline dropdown styling
+8. ✅ COMPILER_SPEC.md updated — added open item 8 (local device variable attribute resolution)
 
 ---
 
-## Known Bugs — Fix List for Session 14
+## Known Bugs — Fix List for Session 15
 
-1. **wizard.js** — Condition builder still navigates to separate screens for device/attribute
-   - Should be inline dropdowns matching WebCoRE — everything on one screen
-   - Attribute picker should open as dropdown below, not replace the whole body
-   - This is the biggest UX gap vs WebCoRE right now
+1. **wizard.js** — Attribute select for local device variables only shows `switch`
+   - Should call HA API using the entity IDs from the variable's initial_value
+   - If multiple devices: show union of all capabilities
+   - If HA disconnected: show generic fallback list
 
-2. **wizard.js** — Demo devices disappear when search query is typed
-   - Fix: filter demo devices by query instead of hiding all when q is non-empty
+2. **wizard.js** — Value input for conditions is always a free text field
+   - Should be context-aware: binary = on/off dropdown, enum = options list, numeric = number input
+   - For demo devices: read values from DEMO_DEVICES capabilities array
+   - For HA devices: use capability data from HA API
+   - WebCoRE populates value choices from device's actual states (see session13_screenshots/26)
 
-3. **wizard.js** — Value input for conditions is always a free text field
-   - Should be context-aware: binary device = show on/off dropdown, enum = show options list, numeric = show number input
-   - For demo devices: read values from the DEMO_DEVICES capabilities array in wizard.js — already defined, just not wired to the value input
-   - For HA devices: use capability data returned from HA API
-   - WebCoRE populates the value choices from the device's actual states
-
-4. **wizard.js** — "Argument" option missing from condition value type dropdown
-   - Current options: Physical device(s), Value, Variable, Expression
-   - Missing: Argument
-
-7. **wizard.js** — "Add more" carries over previous condition's device/attribute/operator instead of resetting
-   - Should start fresh except maybe keeping the device if it makes sense
-   - Currently pre-populates everything from the last condition
-
-8. **wizard.js** — No AND/OR prompt between conditions when using "Add more"
+3. **wizard.js** — No AND/OR prompt between conditions when using "Add more"
    - WebCoRE asks how the new condition relates to the previous one (AND/OR)
    - Currently just stacks conditions with no group operator
 
-9. **editor.js** — "Any of" showing for single device conditions
-   - "Any of {light}" should just be "{light}" when only one device selected
-   - Aggregation label should only show when multiple devices are selected
+4. **wizard.js** — Device picker still opens as panel below — should become native `<select>`
+   - In WebCoRE all three (subject type, device, attribute) are native selects in a row
+   - Device select opens a searchable list — but it IS a select, not a button+panel
+
+---
+
+## Device Variable Attribute Resolution — Important Design Note
+
+Local device variables can contain multiple HA entities (e.g. `device light = Cave Light, Dining Light`).
+HA integrations use inconsistent naming for the same capability across device types.
+The wizard shows the UNION of all capabilities for the group — user picks the attribute.
+The COMPILER handles per-device resolution at compile time (see COMPILER_SPEC Section 18, item 8).
+Users mixing incompatible types (contact sensors + lights) is an edge case — most groupings are
+same-type devices. Cross-type attributes like battery work cleanly across any group.
 
 ---
 
@@ -206,7 +209,6 @@ Jeremy uses Advanced mode almost always. Simple mode should:
 - Show define block (always — Jeremy uses it constantly)
 - Hide only when blocks unless they have content
 - Show execute block with `· add a new statement`
-- NOT hide the define block (old behavior was wrong)
 
 Simple/Advanced toggle stays in UI. Default = Advanced.
 
@@ -214,7 +216,7 @@ Simple/Advanced toggle stays in UI. Default = Advanced.
 
 ## Future Plans (noted, not blocking)
 
-- Virtual test devices in companion HA app
+- Virtual test devices in companion HA app (Grok has partial working version)
 - Windows app via PyInstaller
 - Login system (post-v1)
 - Cloud hosting (after login)
@@ -228,12 +230,19 @@ Sessions 1-11: Design, backend, Docker, frontend scaffold.
 Session 12: Editor + wizard rewrites. Demo devices. Multiple bugs found, partially fixed.
 Session 13: Major wizard and editor fixes. Variable wizard layout, define block rendering,
             mode persistence, condition picker improvements, edit-in-place for statements.
+Session 14: Condition builder inline device/attribute pickers. Demo device search fix.
+            Argument option added. Add more reset. Any-of single device fix. CSS for dropdowns.
+            Attribute changed to native select. COMPILER_SPEC open item 8 added.
+
+---
 
 ## Next Session — Start Here
 
 1. Read this prompt fully
-2. Clone the repo: `git clone https://github.com/jercoates/pistoncore.git`
-3. Read the current wizard.js and editor.js before touching anything
-4. Confirm fix list with Jeremy
-5. Fix bugs in priority order — condition builder inline dropdowns first
+2. **Ask Jeremy to upload wizard_reference_screenshots.zip and any session screenshots**
+   - Read ANNOTATIONS.md inside each zip before touching any code
+3. Ask Jeremy to upload current wizard.js and editor.js from the repo
+4. Confirm fix list with Jeremy — do NOT start coding until confirmed
+5. Fix bugs in priority order — attribute loading for local vars first
 6. After each fix: give Jeremy the yes/no test checklist, wait for screenshot
+7. Generate updated session prompt at end of session

@@ -5,6 +5,7 @@
 // No boxes or section headers. Line numbers, teal keywords,
 // ghost text insertion points, right-click context menu.
 // Save → navigates to status page.
+// Globals accessible via header button (GlobalsDrawer).
 
 const Editor = (() => {
 
@@ -13,7 +14,7 @@ const Editor = (() => {
   let _stmtCounter = 0;
   let _selectedId = null;
   let _cutId = null;
-  let _isNew = false;
+  let _isNew = false;  // true when piston was just created and never saved
 
   // ── Load ─────────────────────────────────────────────────
   async function load(pistonId, opts = {}) {
@@ -40,6 +41,7 @@ const Editor = (() => {
     const isPy = (p.compile_target || '').toLowerCase().includes('pyscript');
 
     container.innerHTML = `
+      <!-- Toolbar — mirrors WebCoRE top bar layout -->
       <div class="editor-toolbar">
         <div class="editor-tb-left">
           <button class="etb-icon" id="btn-editor-cancel" title="Cancel — return to status page">✕</button>
@@ -64,15 +66,20 @@ const Editor = (() => {
         </div>
       </div>
 
+      <!-- PyScript warning — only shown when piston crosses threshold -->
       <div class="pyscript-warning" id="pyscript-warning" ${isPy ? '' : 'style="display:none"'}>
         ⚠ This piston requires PyScript — some features will not work without the companion integration.
       </div>
 
+      <!-- Editor notice (save errors, warnings) -->
       <div id="editor-notice"></div>
 
+      <!-- Main document -->
       <div class="editor-doc" id="editor-doc">
         ${_renderDocument(p, isSimple)}
       </div>
+
+      <!-- Context menu anchor -->
     `;
 
     _wireEvents();
@@ -84,6 +91,7 @@ const Editor = (() => {
     const lines = [];
     const num = { n: 1 };
 
+    // ln() — numbered line
     const ln = (html, indent, opts = {}) => {
       const { id, type } = opts;
       const sel = id && id === _selectedId;
@@ -98,13 +106,14 @@ const Editor = (() => {
       lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
     };
 
+    // gh() — ghost text line (no line number)
     const gh = (text, ctx, indent, extra = {}) => {
       const attrs = Object.entries(extra).map(([k,v]) => `data-${k}="${_esc(String(v))}"`).join(' ');
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
       lines.push(`<div class="doc-line doc-ghost" ${ind}><span class="doc-ln"></span><span class="doc-lc"><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
     };
 
-    // Comment header
+    // ── Comment header ──
     ln(_cm(`************************************************************`), 0);
     ln(_cm(`* ${p.name || 'Untitled'}`), 0);
     ln(_cm(`************************************************************`), 0);
@@ -112,14 +121,14 @@ const Editor = (() => {
     ln(_cm(`* Created   : ${_fmtDate(p.created_at)}`), 0);
     ln(_cm(`* Modified  : ${_fmtDate(p.updated_at)}`), 0);
     ln(_cm(`************************************************************`), 0);
-
-    // settings block
+    // ── settings block ──
     ln(`<span class="kw">settings</span>`, 0);
     ln(`<span class="kw">end settings;</span>`, 0);
 
+    // blank line
     lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
 
-    // define block — ALWAYS shown in both Simple and Advanced
+    // ── define block — always shown in both modes ──
     ln(`<span class="kw">define</span>`, 0);
     (p.variables || []).forEach(v => {
       const typeKw = _kw(_typeLabel(v.var_type));
@@ -133,9 +142,10 @@ const Editor = (() => {
     gh('+ add a new variable', 'variable', 1);
     ln(`<span class="kw">end define;</span>`, 0);
 
+    // blank line
     lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
 
-    // only when restrictions — hidden in simple mode unless populated
+    // ── top-level only when (restrictions) — hidden in simple mode unless populated ──
     const restrictions = p.restrictions || [];
     if (restrictions.length || !isSimple) {
       ln(`<span class="kw">only when</span>`, 0);
@@ -144,9 +154,10 @@ const Editor = (() => {
       lines.push(`<div class="doc-line doc-blank"><span class="doc-ln">${num.n++}</span><span class="doc-lc"></span></div>`);
     }
 
-    // execute block
+    // ── execute block ──
     ln(`<span class="kw">execute</span>`, 0);
 
+    // only when inside execute — hidden in simple mode unless populated
     const triggers = p.triggers || [];
     const conditions = p.conditions || [];
     if (triggers.length || conditions.length || !isSimple) {
@@ -155,12 +166,12 @@ const Editor = (() => {
         ln(`<span class="doc-bolt">⚡</span> ${_condLine(t)}`, 2, { id: t.id, type: 'trigger' });
       });
       conditions.forEach(c => {
-        const bolt = c.is_trigger ? `<span class="doc-bolt">⚡</span> ` : '';
-        ln(`${bolt}${_condLine(c)}`, 2, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition' });
+        ln(_condLine(c), 2, { id: c.id, type: 'condition' });
       });
       if (!isSimple) gh('· add a new trigger or condition', 'trigger_or_condition', 2);
     }
 
+    // action nodes
     _actionLines(p.actions || [], 1, lines, num, gh);
 
     gh('· add a new statement', 'action', 1);
@@ -251,11 +262,10 @@ const Editor = (() => {
         ln(`<span class="kw">set variable</span> ${_dv('$', node.variable)} = ${_val(node.value)};`, pad, { id, type: t });
 
       } else if (t === 'service_call') {
-        const devLabel = node.device_label || (node.devices || []).join(', ') || '';
         const params = node.parameters
           ? Object.entries(node.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
           : '';
-        ln(`<span class="kw">with</span> ${_dr(devLabel)} <span class="kw">do</span> ${_esc(node.service||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
+        ln(`<span class="doc-svc">●</span> <span class="kw">do</span> ${_esc(node.service||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
 
       } else if (t === 'log') {
         ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message||'')}"</span>;`, pad, { id, type: t });
@@ -318,17 +328,10 @@ const Editor = (() => {
     document.getElementById('btn-editor-cancel-text')?.addEventListener('click', _handleCancel);
     document.getElementById('btn-save')?.addEventListener('click', () => save());
     document.getElementById('btn-editor-delete')?.addEventListener('click', _handleDelete);
-    document.getElementById('toggle-simple')?.addEventListener('click', () => {
-      App.state.simpleMode = true;
-      localStorage.setItem('pc_simpleMode','true');
-      render();
-    });
-    document.getElementById('toggle-adv')?.addEventListener('click', () => {
-      App.state.simpleMode = false;
-      localStorage.setItem('pc_simpleMode','false');
-      render();
-    });
+    document.getElementById('toggle-simple')?.addEventListener('click', () => { App.state.simpleMode = true; localStorage.setItem('pc_simpleMode','true'); render(); });
+    document.getElementById('toggle-adv')?.addEventListener('click', () => { App.state.simpleMode = false; localStorage.setItem('pc_simpleMode','false'); render(); });
 
+    // Name input — mark unsaved on change
     document.getElementById('editor-piston-name')?.addEventListener('input', () => _markUnsaved(true));
 
     const doc = document.getElementById('editor-doc');
@@ -350,6 +353,7 @@ const Editor = (() => {
     const stmt = e.target.closest('.doc-stmt');
     if (stmt) {
       _selectStmt(stmt.dataset.id);
+      // Single click opens wizard for editing
       const all = [
         ...(_piston.triggers||[]),
         ...(_piston.conditions||[]),
@@ -370,6 +374,7 @@ const Editor = (() => {
     } else if (t === 'set_variable' || t === 'wait' || t === 'log' || t === 'service_call' || t === 'call_piston') {
       Wizard.open('task', node, {});
     } else if (t === 'if_block') {
+      // Click on if block — open condition wizard to add/edit its first condition
       Wizard.open('if_condition', node.conditions?.[0] || null, { 'block-id': node.id });
     } else {
       Wizard.open(t, node, {});
@@ -425,7 +430,6 @@ const Editor = (() => {
     const node = _findNode(all, _selectedId);
     if (node) _openWizardForEdit(node);
   }
-
   function _copySelected() {
     if (!_selectedId) return;
     const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];
@@ -466,6 +470,7 @@ const Editor = (() => {
 
   function _handleCancel() {
     if (_isNew) {
+      // Brand new piston — offer to discard entirely
       App.confirm({
         title: 'Discard new piston?',
         message: 'This piston has never been saved. Discard it and go back to the list?',
@@ -506,6 +511,7 @@ const Editor = (() => {
 
   // ── Save ─────────────────────────────────────────────────
   async function save() {
+    // Read name from toolbar input
     const nameInput = document.getElementById('editor-piston-name');
     if (nameInput) _piston.name = nameInput.value.trim();
 
@@ -527,15 +533,18 @@ const Editor = (() => {
       const warnings = result.compile_check?.warnings || [];
       const errors   = result.compile_check?.errors   || [];
 
+      // Check if piston now requires PyScript and show/hide warning bar
       const needsPy = (result.piston?.compile_target || '').toLowerCase().includes('pyscript');
       const warn = document.getElementById('pyscript-warning');
       if (warn) warn.style.display = needsPy ? '' : 'none';
 
       if (errors.length || warnings.length) {
         _showNotice([...errors.map(e=>`⚠ ${e}`),...warnings.map(w=>`⚠ ${w}`)].join(' | '), 'warn');
+        // Stay in editor so user can address warnings
         return true;
       }
 
+      // Navigate to status page on clean save
       App.navigate('status', { pistonId: _piston.id });
       return true;
 
@@ -547,24 +556,9 @@ const Editor = (() => {
     }
   }
 
-  // ── insertStatement — called by wizard ───────────────────
+  // Called by wizard when it completes building a statement
   function insertStatement(context, statementData) {
-    // Handle if_condition context — add condition to existing if_block
-    const blockId = statementData._blockId || null;
-    if (context === 'if_condition' && blockId) {
-      const block = _findNode(_piston.actions || [], blockId);
-      if (block) {
-        block.conditions = block.conditions || [];
-        const i = block.conditions.findIndex(c => c.id === statementData.id);
-        if (i >= 0) block.conditions[i] = statementData;
-        else block.conditions.push(statementData);
-        _markUnsaved(true);
-        render();
-        return;
-      }
-    }
-
-    if (context === 'trigger' || statementData.type === 'trigger' || statementData.is_trigger) {
+    if (context === 'trigger' || statementData.type === 'trigger') {
       _piston.triggers = _piston.triggers || [];
       const i = _piston.triggers.findIndex(t => t.id === statementData.id);
       if (i >= 0) _piston.triggers[i] = statementData; else _piston.triggers.push(statementData);
@@ -659,12 +653,6 @@ const Editor = (() => {
     return 'stmt_' + String(_stmtCounter).padStart(3,'0');
   }
 
-  return {
-    load,
-    save,
-    insertStatement,
-    deleteStatement: _deleteSelected,
-    getPistonVariables: () => (_piston?.variables || []),
-  };
+  return { load, save, insertStatement, deleteStatement: _deleteSelected, getPistonVariables: () => (_piston?.variables || []) };
 
 })();

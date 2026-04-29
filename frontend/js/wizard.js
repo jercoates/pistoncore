@@ -67,6 +67,104 @@ const Wizard = (() => {
   const isTrigger = op => TRIGGERS.includes(op);
   const durationLabel = op => op && op.startsWith('stays') ? 'For the next...' : 'In the last...';
 
+  // ── Static capability map by HA domain ────────────────────
+  const DOMAIN_CAPS = {
+    light:         [
+      { name:'switch',      attribute_type:'binary',  values:['on','off'] },
+      { name:'brightness',  attribute_type:'numeric', min:0, max:255, unit:'%' },
+      { name:'color_temp',  attribute_type:'numeric', min:153, max:500, unit:'mireds' },
+      { name:'color_mode',  attribute_type:'enum',    values:['color_temp','rgb','brightness'] },
+      { name:'effect',      attribute_type:'enum',    values:[] },
+    ],
+    switch:        [
+      { name:'switch', attribute_type:'binary', values:['on','off'] },
+      { name:'power',  attribute_type:'numeric', unit:'W' },
+    ],
+    binary_sensor: [
+      { name:'state',    attribute_type:'binary',  values:['on','off'] },
+      { name:'motion',   attribute_type:'binary',  values:['active','inactive'] },
+      { name:'contact',  attribute_type:'binary',  values:['open','closed'] },
+      { name:'presence', attribute_type:'binary',  values:['home','away'] },
+      { name:'smoke',    attribute_type:'binary',  values:['detected','clear'] },
+      { name:'moisture', attribute_type:'binary',  values:['wet','dry'] },
+      { name:'battery',  attribute_type:'numeric', unit:'%' },
+    ],
+    sensor:        [
+      { name:'state',               attribute_type:'numeric', unit:'' },
+      { name:'battery',             attribute_type:'numeric', unit:'%' },
+      { name:'temperature',         attribute_type:'numeric', unit:'\u00b0F' },
+      { name:'humidity',            attribute_type:'numeric', unit:'%' },
+      { name:'illuminance',         attribute_type:'numeric', unit:'lx' },
+      { name:'unit_of_measurement', attribute_type:'enum',   values:[] },
+    ],
+    media_player:  [
+      { name:'state',           attribute_type:'enum',    values:['playing','paused','idle','off','standby'] },
+      { name:'volume_level',    attribute_type:'numeric', min:0, max:1 },
+      { name:'source',          attribute_type:'enum',    values:[] },
+      { name:'media_title',     attribute_type:'enum',    values:[] },
+      { name:'is_volume_muted', attribute_type:'binary',  values:['true','false'] },
+    ],
+    cover:         [
+      { name:'state',         attribute_type:'enum',    values:['open','closed','opening','closing'] },
+      { name:'position',      attribute_type:'numeric', min:0, max:100, unit:'%' },
+      { name:'tilt_position', attribute_type:'numeric', min:0, max:100, unit:'%' },
+    ],
+    climate:       [
+      { name:'hvac_mode',           attribute_type:'enum',    values:['off','heat','cool','auto','fan_only','dry'] },
+      { name:'temperature',         attribute_type:'numeric', unit:'\u00b0F' },
+      { name:'current_temperature', attribute_type:'numeric', unit:'\u00b0F' },
+      { name:'humidity',            attribute_type:'numeric', unit:'%' },
+      { name:'preset_mode',         attribute_type:'enum',    values:[] },
+    ],
+    fan:           [
+      { name:'switch',      attribute_type:'binary',  values:['on','off'] },
+      { name:'percentage',  attribute_type:'numeric', min:0, max:100, unit:'%' },
+      { name:'preset_mode', attribute_type:'enum',    values:[] },
+    ],
+    lock:          [
+      { name:'state', attribute_type:'enum', values:['locked','unlocked','locking','unlocking'] },
+    ],
+    input_boolean: [
+      { name:'state', attribute_type:'binary', values:['on','off'] },
+    ],
+    input_number:  [
+      { name:'state', attribute_type:'numeric', unit:'' },
+    ],
+    input_select:  [
+      { name:'state', attribute_type:'enum', values:[] },
+    ],
+    automation:    [
+      { name:'state', attribute_type:'enum', values:['on','off'] },
+    ],
+    person:        [
+      { name:'state',     attribute_type:'enum',    values:['home','not_home'] },
+      { name:'latitude',  attribute_type:'numeric', unit:'\u00b0' },
+      { name:'longitude', attribute_type:'numeric', unit:'\u00b0' },
+    ],
+    device_tracker:[
+      { name:'state', attribute_type:'enum', values:['home','not_home'] },
+    ],
+    alarm_control_panel:[
+      { name:'state', attribute_type:'enum', values:['disarmed','armed_home','armed_away','armed_night','triggered'] },
+    ],
+  };
+
+  // Given entity_id(s) from a variable's initial_value, return union of domain caps
+  function _getCapsForDomain(entityIdOrList) {
+    const ids = Array.isArray(entityIdOrList)
+      ? entityIdOrList
+      : String(entityIdOrList||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const seen = new Map();
+    for (const id of ids) {
+      const domain = id.split('.')[0];
+      const caps = DOMAIN_CAPS[domain] || [];
+      for (const cap of caps) {
+        if (!seen.has(cap.name)) seen.set(cap.name, cap);
+      }
+    }
+    return [...seen.values()];
+  }
+
   // ── Built-in demo devices ─────────────────────────────────
   const DEMO_DEVICES = [
     {
@@ -175,6 +273,29 @@ const Wizard = (() => {
   };
 
   // ── Open / Close ──────────────────────────────────────────
+  // ── Inject combo CSS once ─────────────────────────────────
+  function _injectComboCSS() {
+    if (document.getElementById('wiz-combo-css')) return;
+    const s = document.createElement('style');
+    s.id = 'wiz-combo-css';
+    s.textContent = `
+      .wiz-device-combo { position:relative; flex:1; min-width:0; }
+      .wiz-device-search { width:100%; box-sizing:border-box; cursor:pointer !important; }
+      .wiz-device-dropdown {
+        position:absolute; top:100%; left:0; right:0; z-index:9999;
+        background:var(--bg-raised,#1e2430);
+        border:1px solid var(--border-subtle,#333);
+        border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.4);
+        margin-top:2px;
+      }
+      .wiz-combo-row { display:flex; align-items:center; gap:6px; padding:6px 10px;
+        cursor:pointer; font-size:13px; color:var(--text-primary); }
+      .wiz-combo-row:hover, .wiz-combo-row.selected { background:var(--teal,#1abc9c); color:#fff; }
+      .wiz-combo-row.selected .wiz-dev-prefix { color:rgba(255,255,255,.7); }
+    `;
+    document.head.appendChild(s);
+  }
+
   function open(context, editNode, extra) {
     _context  = context;
     _editNode = editNode || null;
@@ -183,6 +304,7 @@ const Wizard = (() => {
     _stepStack = [];
     _sel      = editNode ? { ...editNode } : {};
 
+    _injectComboCSS();
     const modal = document.getElementById('wizard-modal');
     if (modal) modal.style.display = 'flex';
     document.getElementById('wizard-backdrop').style.display = 'block';
@@ -373,9 +495,18 @@ const Wizard = (() => {
           <option value="date"     ${_sel.subject_type==='date'                ?'selected':''}>Date</option>
           <option value="mode"     ${_sel.subject_type==='mode'                ?'selected':''}>Mode</option>
         </select>
-        <select id="wiz-device-select" class="wiz-select-blue wiz-device-select ${hasDevice?'has-value':''}">
-          ${_buildDeviceOptions()}
-        </select>
+        <div class="wiz-device-combo" id="wiz-device-combo">
+          <input type="text" id="wiz-device-search" class="wiz-select-blue wiz-device-search"
+            placeholder="Nothing selected"
+            value="${hasDevice ? _esc(_sel.device_label||_sel.device_id) : ''}"
+            autocomplete="off" readonly
+            style="cursor:pointer;width:100%" />
+          <div class="wiz-device-dropdown" id="wiz-device-dropdown" style="display:none">
+            <input type="text" id="wiz-device-filter" placeholder="Search devices..." autocomplete="off"
+              style="width:100%;box-sizing:border-box;padding:6px 8px;border:none;border-bottom:1px solid var(--border-subtle);background:var(--bg-raised);color:var(--text-primary);font-size:13px;outline:none" />
+            <div id="wiz-device-list" style="max-height:220px;overflow-y:auto"></div>
+          </div>
+        </div>
         <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}" ${!hasDevice?'disabled':''}>
           <option value="">attribute...</option>
           ${(_sel._caps||[]).map(c=>`<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${attr===c.name?'selected':''}>${_esc(c.name)}</option>`).join('')}
@@ -449,33 +580,95 @@ const Wizard = (() => {
       _goConditionBuilder();
     });
 
-    // Device <select> — on change, update _sel and load caps
-    document.getElementById('wiz-device-select')?.addEventListener('change', e => {
-      const opt = e.target.selectedOptions[0];
-      _sel.device_id    = e.target.value;
-      _sel.device_label = opt?.dataset.label || e.target.value;
-      _sel.devices      = e.target.value ? [e.target.value] : [];
-      _sel.attribute    = '';
-      _sel.attribute_type = '';
-      _sel._caps = [];
-      const attrSel = document.getElementById('wiz-attr-select');
-      if (attrSel) {
-        attrSel.innerHTML = `<option value="">loading...</option>`;
-        attrSel.disabled = !e.target.value;
+    // ── Searchable device combo ───────────────────────────────
+    function _renderDeviceList(query) {
+      const el = document.getElementById('wiz-device-list');
+      if (!el) return;
+      const q = (query||'').toLowerCase();
+      const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+      const localDeviceVars = allLocals.filter(v => v.var_type === 'device' &&
+        (!q || v.name.toLowerCase().includes(q)));
+      const physical = (_deviceData||[]).filter(d =>
+        !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q));
+      const demos = DEMO_DEVICES.filter(d =>
+        !q || d.friendly_name.toLowerCase().includes(q));
+
+      const row = (id, label, badge) =>
+        `<div class="wiz-device-row wiz-combo-row ${_sel.device_id===id?'selected':''}"
+          data-id="${_esc(id)}" data-label="${_esc(label)}">
+          ${badge?`<span class="wiz-dev-prefix">${_esc(badge)}</span>`:''}
+          <span class="wiz-dev-label">${_esc(label)}</span>
+        </div>`;
+
+      let html = '';
+      if (physical.length) {
+        html += `<div class="wiz-device-group-header">Physical devices</div>`;
+        html += physical.slice(0,300).map(d => row(d.entity_id, d.friendly_name, '')).join('');
       }
-      if (e.target.value) _loadCapsIntoSelect();
-      _refreshConditionRows();
+      if (localDeviceVars.length) {
+        html += `<div class="wiz-device-group-header">Local variables</div>`;
+        html += localDeviceVars.map(v => row(v.name, v.name, 'device')).join('');
+      }
+      if (demos.length) {
+        html += `<div class="wiz-device-group-header">Demo devices</div>`;
+        html += demos.map(d => row(d.entity_id, d.friendly_name + ' (demo)', '')).join('');
+      }
+      el.innerHTML = html || `<div class="wiz-empty" style="padding:8px 12px">No devices found.</div>`;
+
+      el.querySelectorAll('.wiz-combo-row').forEach(r => {
+        r.addEventListener('mousedown', e => {
+          e.preventDefault();
+          _sel.device_id    = r.dataset.id;
+          _sel.device_label = r.dataset.label;
+          _sel.devices      = [r.dataset.id];
+          _sel.attribute    = '';
+          _sel.attribute_type = '';
+          _sel._caps = [];
+          const searchEl = document.getElementById('wiz-device-search');
+          if (searchEl) searchEl.value = r.dataset.label;
+          document.getElementById('wiz-device-dropdown').style.display = 'none';
+          const attrSel = document.getElementById('wiz-attr-select');
+          if (attrSel) {
+            attrSel.innerHTML = `<option value="">loading...</option>`;
+            attrSel.disabled = false;
+          }
+          _loadCapsIntoSelect();
+          _refreshConditionRows();
+        });
+      });
+    }
+
+    document.getElementById('wiz-device-search')?.addEventListener('click', () => {
+      const dd = document.getElementById('wiz-device-dropdown');
+      dd.style.display = 'block';
+      document.getElementById('wiz-device-filter')?.focus();
+      _renderDeviceList('');
+      if (!_deviceData) {
+        API.getDevices().then(data => {
+          _deviceData = data;
+          _renderDeviceList(document.getElementById('wiz-device-filter')?.value || '');
+        }).catch(() => {});
+      }
     });
 
-    // If HA not yet loaded, kick off fetch and repopulate device select when done
+    document.getElementById('wiz-device-filter')?.addEventListener('input', e => {
+      _renderDeviceList(e.target.value);
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('mousedown', function _closeDevDD(e) {
+      const combo = document.getElementById('wiz-device-combo');
+      if (combo && !combo.contains(e.target)) {
+        const dd = document.getElementById('wiz-device-dropdown');
+        if (dd) dd.style.display = 'none';
+        document.removeEventListener('mousedown', _closeDevDD);
+      }
+    });
+
+    // If HA not yet loaded, kick off fetch
     if (!_deviceData) {
       API.getDevices().then(data => {
         _deviceData = data;
-        const devSel = document.getElementById('wiz-device-select');
-        if (!devSel) return;
-        const curVal = _sel.device_id;
-        devSel.innerHTML = _buildDeviceOptions_static(data);
-        if (curVal) devSel.value = curVal;
       }).catch(() => {});
     }
 
@@ -696,7 +889,13 @@ const Wizard = (() => {
       const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
       const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
       if (localVar) {
-        caps = [{ name:'switch', attribute_type:'binary', values:['on','off'] }];
+        // Use domain caps from initial_value entity IDs — works offline
+        const entityIds = localVar.initial_value
+          ? String(localVar.initial_value).split(',').map(s=>s.trim()).filter(Boolean)
+          : [];
+        caps = entityIds.length
+          ? _getCapsForDomain(entityIds)
+          : _getCapsForDomain('light.unknown'); // fallback: show light caps
       } else {
         try {
           const data = await API.getCapabilities(_sel.device_id);
@@ -788,12 +987,7 @@ const Wizard = (() => {
 
   function _buildConditionNode() {
     const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
-    // Read device from select if present, fall back to _sel
-    const devSel = document.getElementById('wiz-device-select');
-    if (devSel && devSel.value) {
-      _sel.device_id    = devSel.value;
-      _sel.device_label = devSel.selectedOptions[0]?.dataset.label || devSel.value;
-    }
+    // device_id/label are updated live by the combo — _sel is already current
     const entityId = _sel.device_id;
     if (!entityId || !op) return null;
     const attrSel = document.getElementById('wiz-attr-select');

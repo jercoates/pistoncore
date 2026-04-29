@@ -317,11 +317,38 @@ const Wizard = (() => {
     const needsTwo  = NEEDS_TWO_VALUES.has(op);
     const agg       = _sel.aggregation || 'any';
     const isMulti   = (_sel.devices || []).length > 1;
-    const devLabel  = _sel.device_label || '';
     const attr      = _sel.attribute || '';
+    const interaction = _sel.interaction || 'any';
 
     const backFn = _sel.statement_class === 'condition' && _context !== 'if_condition'
       ? _goConditionOrGroup : null;
+
+    // Build device <select> options from cached data + demo devices
+    const _buildDeviceOptions = () => {
+      const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+      const localDeviceVars = allLocals.filter(v => v.var_type === 'device');
+      let opts = `<option value="">Nothing selected</option>`;
+      if ((_deviceData||[]).length) {
+        opts += `<optgroup label="Physical devices">`;
+        opts += (_deviceData||[]).slice(0,300).map(d =>
+          `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)}</option>`
+        ).join('');
+        opts += `</optgroup>`;
+      }
+      if (localDeviceVars.length) {
+        opts += `<optgroup label="Local variables">`;
+        opts += localDeviceVars.map(v =>
+          `<option value="${_esc(v.name)}" data-label="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>device ${_esc(v.name)}</option>`
+        ).join('');
+        opts += `</optgroup>`;
+      }
+      opts += `<optgroup label="Demo devices">`;
+      opts += DEMO_DEVICES.map(d =>
+        `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)} (demo)</option>`
+      ).join('');
+      opts += `</optgroup>`;
+      return opts;
+    };
 
     _render(
       'Add a new condition',
@@ -337,7 +364,7 @@ const Wizard = (() => {
         </select>
       </div>` : ''}
 
-      <div class="wiz-row-label">What to compare <span class="wiz-required" id="wiz-warn">⚠</span></div>
+      <div class="wiz-row-label">What to compare</div>
       <div class="wiz-compare-row">
         <select id="wiz-subj-type" class="wiz-select-blue">
           <option value="device"   ${(_sel.subject_type||'device')==='device'  ?'selected':''}>Physical device(s)</option>
@@ -346,32 +373,23 @@ const Wizard = (() => {
           <option value="date"     ${_sel.subject_type==='date'                ?'selected':''}>Date</option>
           <option value="mode"     ${_sel.subject_type==='mode'                ?'selected':''}>Mode</option>
         </select>
-        <button class="wiz-device-pick-btn ${devLabel?'has-value':''}" id="wiz-open-devpicker">
-          ${devLabel ? `<span class="wiz-device-tag">device</span> ${_esc(devLabel)}` : 'Nothing selected'}
-        </button>
-        <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}" ${!_sel.device_id?'disabled':''}>
+        <select id="wiz-device-select" class="wiz-select-blue wiz-device-select ${hasDevice?'has-value':''}">
+          ${_buildDeviceOptions()}
+        </select>
+        <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}" ${!hasDevice?'disabled':''}>
           <option value="">attribute...</option>
           ${(_sel._caps||[]).map(c=>`<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${attr===c.name?'selected':''}>${_esc(c.name)}</option>`).join('')}
         </select>
       </div>
 
-      <div id="wiz-dev-panel" style="display:none;margin-top:4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-raised)">
-        <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">
-          <input type="text" id="wiz-dev-panel-search" placeholder="Search devices..." autocomplete="off"
-            style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
-        </div>
-        <div id="wiz-dev-panel-list" style="max-height:200px;overflow-y:auto"></div>
-      </div>
-
-      ${hasDevice ? `
       <div class="wiz-interaction-row" id="wiz-int-row">
         <span class="wiz-row-label-inline">Which interaction</span>
         <select id="wiz-interaction" class="wiz-select-blue-sm">
-          <option value="any">Any interaction</option>
-          <option value="physical">Physical</option>
-          <option value="programmatic">Programmatic</option>
+          <option value="any"          ${interaction==='any'          ?'selected':''}>Any interaction</option>
+          <option value="physical"     ${interaction==='physical'     ?'selected':''}>Physical</option>
+          <option value="programmatic" ${interaction==='programmatic' ?'selected':''}>Programmatic</option>
         </select>
-      </div>` : ''}
+      </div>
 
       <div class="wiz-row-label">What kind of comparison?</div>
       <select id="wiz-operator" class="wiz-select-blue wiz-select-full ${op?'has-value':''} ${isTrigger(op)?'is-trigger':''}">
@@ -393,8 +411,8 @@ const Wizard = (() => {
             <option value="expression">Expression</option>
             <option value="argument">Argument</option>
           </select>
-          <input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="Value..." />
-          ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">and</span><input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />` : ''}
+          <span id="wiz-val-widget"></span>
+          ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">and</span><span id="wiz-val-widget-2"></span>` : ''}
         </div>
       </div>
 
@@ -421,39 +439,51 @@ const Wizard = (() => {
       `
     );
 
+    // Populate value widget on initial render
+    if (needsVal) _renderValueWidget();
+
     document.getElementById('wiz-back-btn')?.addEventListener('click', backFn || close);
+
     document.getElementById('wiz-subj-type')?.addEventListener('change', e => {
       _sel.subject_type = e.target.value;
       _goConditionBuilder();
     });
 
-    // Device picker button — toggle inline panel (no full re-render)
-    document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
-      const devPanel = document.getElementById('wiz-dev-panel');
-      if (!devPanel) return;
-      const isOpen = devPanel.style.display !== 'none';
-      devPanel.style.display = isOpen ? 'none' : 'block';
-      if (!isOpen) {
-        _renderDevPanelList('');
-        if (!_deviceData) {
-          API.getDevices().then(data => {
-            _deviceData = data;
-            const q = document.getElementById('wiz-dev-panel-search')?.value || '';
-            _renderDevPanelList(q);
-          }).catch(() => {});
-        }
-        let _ft = null;
-        document.getElementById('wiz-dev-panel-search')?.addEventListener('input', e => {
-          clearTimeout(_ft);
-          _ft = setTimeout(() => _renderDevPanelList(e.target.value.trim()), 200);
-        });
+    // Device <select> — on change, update _sel and load caps
+    document.getElementById('wiz-device-select')?.addEventListener('change', e => {
+      const opt = e.target.selectedOptions[0];
+      _sel.device_id    = e.target.value;
+      _sel.device_label = opt?.dataset.label || e.target.value;
+      _sel.devices      = e.target.value ? [e.target.value] : [];
+      _sel.attribute    = '';
+      _sel.attribute_type = '';
+      _sel._caps = [];
+      const attrSel = document.getElementById('wiz-attr-select');
+      if (attrSel) {
+        attrSel.innerHTML = `<option value="">loading...</option>`;
+        attrSel.disabled = !e.target.value;
       }
+      if (e.target.value) _loadCapsIntoSelect();
+      _refreshConditionRows();
     });
+
+    // If HA not yet loaded, kick off fetch and repopulate device select when done
+    if (!_deviceData) {
+      API.getDevices().then(data => {
+        _deviceData = data;
+        const devSel = document.getElementById('wiz-device-select');
+        if (!devSel) return;
+        const curVal = _sel.device_id;
+        devSel.innerHTML = _buildDeviceOptions_static(data);
+        if (curVal) devSel.value = curVal;
+      }).catch(() => {});
+    }
 
     document.getElementById('wiz-attr-select')?.addEventListener('change', e => {
       const opt = e.target.selectedOptions[0];
       _sel.attribute      = e.target.value;
       _sel.attribute_type = opt?.dataset.type || '';
+      _renderValueWidget();
     });
 
     if (_sel.device_id) _loadCapsIntoSelect();
@@ -463,8 +493,81 @@ const Wizard = (() => {
       _refreshConditionRows();
     });
 
+    document.getElementById('wiz-val-type')?.addEventListener('change', () => _renderValueWidget());
+
     document.getElementById('wiz-add')?.addEventListener('click', _commitCondition);
     document.getElementById('wiz-add-more')?.addEventListener('click', _commitConditionAndMore);
+  }
+
+  // Build device options from already-loaded data (used after async fetch)
+  function _buildDeviceOptions_static(physicalDevices) {
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const localDeviceVars = allLocals.filter(v => v.var_type === 'device');
+    let opts = `<option value="">Nothing selected</option>`;
+    if ((physicalDevices||[]).length) {
+      opts += `<optgroup label="Physical devices">`;
+      opts += (physicalDevices||[]).slice(0,300).map(d =>
+        `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)}</option>`
+      ).join('');
+      opts += `</optgroup>`;
+    }
+    if (localDeviceVars.length) {
+      opts += `<optgroup label="Local variables">`;
+      opts += localDeviceVars.map(v =>
+        `<option value="${_esc(v.name)}" data-label="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>device ${_esc(v.name)}</option>`
+      ).join('');
+      opts += `</optgroup>`;
+    }
+    opts += `<optgroup label="Demo devices">`;
+    opts += DEMO_DEVICES.map(d =>
+      `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)} (demo)</option>`
+    ).join('');
+    opts += `</optgroup>`;
+    return opts;
+  }
+
+  // Render the value widget based on attribute_type and val_type
+  function _renderValueWidget() {
+    const widget = document.getElementById('wiz-val-widget');
+    if (!widget) return;
+    const valType = document.getElementById('wiz-val-type')?.value || 'value';
+    const attrType = _sel.attribute_type || '';
+    const cap = (_sel._caps||[]).find(c => c.name === _sel.attribute);
+
+    if (valType !== 'value') {
+      // variable / expression / argument — always plain text
+      widget.innerHTML = `<input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="${valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...'}" />`;
+      // second widget for between
+      const w2 = document.getElementById('wiz-val-widget-2');
+      if (w2) w2.innerHTML = `<input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />`;
+      return;
+    }
+
+    if (attrType === 'binary' && cap?.values?.length) {
+      // Dropdown with actual on/off or open/closed etc.
+      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue-sm">
+        ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
+      </select>`;
+    } else if (attrType === 'enum' && cap?.values?.length) {
+      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue-sm">
+        <option value="">Select...</option>
+        ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
+      </select>`;
+    } else if (attrType === 'numeric') {
+      const unit = cap?.unit || '';
+      widget.innerHTML = `<input type="number" id="wiz-val-1" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
+      // second value for between
+      const w2 = document.getElementById('wiz-val-widget-2');
+      if (w2) w2.innerHTML = `<input type="number" id="wiz-val-2" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value2||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
+      return;
+    } else {
+      // fallback plain text
+      widget.innerHTML = `<input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="Value..." />`;
+    }
+
+    // second widget for between (non-numeric path)
+    const w2 = document.getElementById('wiz-val-widget-2');
+    if (w2) w2.innerHTML = `<input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />`;
   }
 
   function _refreshConditionRows() {
@@ -481,31 +584,15 @@ const Wizard = (() => {
     const lbl = document.getElementById('wiz-dur-label');
     if (lbl) lbl.textContent = durationLabel(op);
 
-    // Handle second value input dynamically without full re-render
-    const valInputs = document.getElementById('wiz-val-inputs');
-    if (valInputs) {
-      let v2 = document.getElementById('wiz-val-2');
-      let andSpan = document.getElementById('wiz-between-and');
-      if (needsTwo && !v2) {
-        const span = document.createElement('span');
-        span.id = 'wiz-between-and';
-        span.className = 'wiz-between-and';
-        span.textContent = 'and';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.id = 'wiz-val-2';
-        input.className = 'wiz-value-input';
-        input.value = _sel.value2 || '';
-        input.placeholder = 'Value...';
-        valInputs.appendChild(span);
-        valInputs.appendChild(input);
-      } else if (!needsTwo && v2) {
-        v2.remove();
-        andSpan?.remove();
-      }
-    }
+    // Show/hide second value widget for between operators
+    const andSpan = document.getElementById('wiz-between-and');
+    const w2 = document.getElementById('wiz-val-widget-2');
+    if (andSpan) andSpan.style.display = needsTwo ? '' : 'none';
+    if (w2) w2.style.display = needsTwo ? '' : 'none';
 
     document.getElementById('wiz-operator')?.classList.toggle('is-trigger', isTrigger(op));
+
+    if (needsVal) _renderValueWidget();
 
     const ok = hasDevice && !!op;
     document.getElementById('wiz-add')?.toggleAttribute('disabled', !ok);
@@ -701,11 +788,19 @@ const Wizard = (() => {
 
   function _buildConditionNode() {
     const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
+    // Read device from select if present, fall back to _sel
+    const devSel = document.getElementById('wiz-device-select');
+    if (devSel && devSel.value) {
+      _sel.device_id    = devSel.value;
+      _sel.device_label = devSel.selectedOptions[0]?.dataset.label || devSel.value;
+    }
     const entityId = _sel.device_id;
     if (!entityId || !op) return null;
     const attrSel = document.getElementById('wiz-attr-select');
     const attrVal = attrSel ? attrSel.value : (_sel.attribute || '');
     const attrType = attrSel ? (attrSel.selectedOptions[0]?.dataset.type || '') : (_sel.attribute_type || '');
+    const val1 = document.getElementById('wiz-val-1')?.value || '';
+    const val2 = document.getElementById('wiz-val-2')?.value || '';
     return {
       type: isTrigger(op) ? 'trigger' : 'condition',
       id: _editNode?.id || _newId(),
@@ -718,10 +813,10 @@ const Wizard = (() => {
         attribute_type: attrType,
       },
       operator: op,
-      value:    document.getElementById('wiz-val-1')?.value || '',
-      value2:   document.getElementById('wiz-val-2')?.value || '',
-      display_value: document.getElementById('wiz-val-1')?.value || '',
-      compiled_value: document.getElementById('wiz-val-1')?.value || '',
+      value:         val1,
+      value2:        val2,
+      display_value: val1,
+      compiled_value: val1,
       duration_amount: parseInt(document.getElementById('wiz-dur-amount')?.value||'1'),
       duration_unit:   document.getElementById('wiz-dur-unit')?.value || 'minutes',
       interaction: document.getElementById('wiz-interaction')?.value || 'any',

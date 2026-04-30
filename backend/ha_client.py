@@ -30,6 +30,52 @@ logger = logging.getLogger("ha_client")
 DEVICE_CACHE_TTL = 60        # seconds — device list changes rarely
 CAPABILITY_CACHE_TTL = 120   # seconds — attributes change rarely
 
+# ---------------------------------------------------------------------------
+# Domain filter — only show domains useful for automation
+# Everything else (backup, update, event, button, weather, sun, etc.) hidden
+# ---------------------------------------------------------------------------
+ALLOWED_DOMAINS = {
+    "light", "switch", "binary_sensor", "sensor", "media_player",
+    "cover", "climate", "fan", "lock", "input_boolean", "input_number",
+    "input_select", "person", "device_tracker", "alarm_control_panel",
+    "vacuum", "camera", "scene", "script", "automation", "humidifier",
+    "water_heater", "remote", "siren", "valve",
+}
+
+
+def _parse_entity_label(entity_id: str, friendly_name: str) -> str:
+    """
+    Build a display label that disambiguates entities with the same friendly name.
+
+    Rules:
+    1. Strip domain prefix from entity_id, replace underscores with spaces,
+       title-case → parsed_name
+    2. If friendly_name already contains the parsed suffix info, just use
+       friendly_name as-is.
+    3. If friendly_name is a prefix of parsed_name (i.e. HA auto-generated a
+       suffix), append the extra part: "Basement — Volume"
+    4. Otherwise just use friendly_name.
+    """
+    local = entity_id.split(".", 1)[-1]           # e.g. "basement_volume"
+    parsed = local.replace("_", " ").title()      # e.g. "Basement Volume"
+
+    fn_lower = friendly_name.lower().strip()
+    parsed_lower = parsed.lower().strip()
+
+    # Already identical — nothing to add
+    if fn_lower == parsed_lower:
+        return friendly_name
+
+    # friendly_name is shorter — parsed has extra suffix info
+    # e.g. friendly="Basement", parsed="Basement Volume" → "Basement — Volume"
+    if parsed_lower.startswith(fn_lower):
+        suffix = parsed[len(friendly_name):].strip().title()
+        if suffix:
+            return f"{friendly_name} — {suffix}"
+
+    # friendly_name already contains distinguishing info — use as-is
+    return friendly_name
+
 _cache: dict[str, tuple[float, Any]] = {}  # key -> (timestamp, value)
 
 
@@ -195,6 +241,11 @@ async def _fetch_devices() -> list[dict]:
     for state in states_resp.get("result", []):
         entity_id = state["entity_id"]
         domain = entity_id.split(".")[0]
+
+        # Skip domains not useful for automation
+        if domain not in ALLOWED_DOMAINS:
+            continue
+
         attrs = state.get("attributes", {})
         friendly_name = attrs.get("friendly_name") or entity_id
 
@@ -202,16 +253,19 @@ async def _fetch_devices() -> list[dict]:
         area_id = meta.get("area_id")
         area_name = area_map.get(area_id) if area_id else None
 
+        # Build display label — disambiguates entities with same friendly name
+        display_name = _parse_entity_label(entity_id, friendly_name)
+
         devices.append({
             "entity_id": entity_id,
-            "friendly_name": friendly_name,
+            "friendly_name": display_name,
             "domain": domain,
             "area": area_name,
             "device_id": meta.get("device_id"),
         })
 
-    # Sort by friendly name, case-insensitive
-    devices.sort(key=lambda d: d["friendly_name"].lower())
+    # Sort by area (None last), then display name
+    devices.sort(key=lambda d: (d["area"] is None, (d["area"] or "").lower(), d["friendly_name"].lower()))
     return devices
 
 

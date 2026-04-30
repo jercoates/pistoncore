@@ -97,6 +97,46 @@
 <div id="context-menu"></div>
 
 <!-- ════════════════════════════════════════════════════
+     HA SETTINGS MODAL
+     ════════════════════════════════════════════════════ -->
+<div id="ha-settings-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;align-items:center;justify-content:center;">
+  <div id="ha-settings-modal" style="background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:8px;width:520px;max-width:calc(100vw - 32px);overflow:hidden;">
+    <div style="padding:20px 24px 12px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:16px;font-weight:600;color:var(--text-primary);">Home Assistant Connection</div>
+      <button id="ha-settings-close" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:2px 6px;">✕</button>
+    </div>
+    <div style="padding:20px 24px;">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
+        Enter your Home Assistant URL and a long-lived access token. PistonCore connects to HA to fetch devices and capabilities for the wizard.
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Home Assistant URL</label>
+        <input type="text" id="ha-url-input" placeholder="http://192.168.1.x:8123"
+          style="width:100%;box-sizing:border-box;background:var(--bg-raised);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:13px;padding:8px 10px;outline:none;" />
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Use your local IP — not homeassistant.local</div>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Long-lived Access Token</label>
+        <textarea id="ha-token-input" rows="3" placeholder="Paste your long-lived access token here..."
+          style="width:100%;box-sizing:border-box;background:var(--bg-raised);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:monospace;padding:8px 10px;outline:none;resize:none;"></textarea>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+          In HA: Profile → Security → Long-lived access tokens → Create token
+        </div>
+      </div>
+
+      <div id="ha-settings-status" style="min-height:24px;font-size:12px;margin-bottom:16px;"></div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="ha-settings-test" class="btn btn-ghost btn-sm">Test connection</button>
+        <button id="ha-settings-save" class="btn btn-primary btn-sm">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
      JS — load order matters
      ════════════════════════════════════════════════════ -->
 <script src="/frontend/js/api.js"></script>

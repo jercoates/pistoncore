@@ -161,6 +161,28 @@ const App = (() => {
     }
   }
 
+  // Check HA connection via REST (separate from WebSocket)
+  async function checkHAConnection() {
+    try {
+      await API.getDevices();
+      _updateHABadge(true);
+      return true;
+    } catch {
+      _updateHABadge(false);
+      return false;
+    }
+  }
+
+  function _updateHABadge(connected) {
+    const badge = document.getElementById('header-status');
+    const banner = document.getElementById('ws-banner');
+    if (badge) {
+      badge.className = 'header-status ' + (connected ? 'connected' : 'disconnected');
+      badge.textContent = connected ? 'HA Connected' : 'HA Disconnected';
+    }
+    if (banner) banner.classList.toggle('visible', !connected);
+  }
+
   function _handleWsMessage(msg) {
     if (msg.type === 'run_complete' || msg.type === 'run_log') {
       if (state.currentPage === 'status') StatusPage.onWsMessage(msg);
@@ -242,11 +264,14 @@ const App = (() => {
       }
     });
 
+    document.getElementById('header-status')?.addEventListener('click', () => HASettings.open());
+
     setTimeout(_connectWebSocket, 2000);
+    setTimeout(checkHAConnection, 1000);
     setTimeout(_restoreNavState, 0);
   }
 
-  return { state, navigate, loadPistons, getPistonFromCache, init, confirm, showContextMenu };
+  return { state, navigate, loadPistons, getPistonFromCache, init, confirm, showContextMenu, checkHAConnection };
 
 })();
 
@@ -426,4 +451,87 @@ const ContextMenu = (() => {
   function hide() { menu?.classList.remove('visible'); _onAction = null; }
 
   return { show, hide };
+})();
+
+// ── HA Settings Modal ────────────────────────────────────
+const HASettings = (() => {
+  const backdrop = document.getElementById('ha-settings-backdrop');
+
+  function open() {
+    if (!backdrop) return;
+    backdrop.style.display = 'flex';
+    _loadConfig();
+    _setStatus('', '');
+    document.getElementById('ha-settings-close')?.addEventListener('click', close, { once: true });
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); }, { once: true });
+    document.getElementById('ha-settings-test')?.addEventListener('click', _testConnection, { once: false });
+    document.getElementById('ha-settings-save')?.addEventListener('click', _saveAndConnect, { once: false });
+  }
+
+  function close() {
+    if (backdrop) backdrop.style.display = 'none';
+  }
+
+  async function _loadConfig() {
+    try {
+      const config = await API.getConfig();
+      const urlInput = document.getElementById('ha-url-input');
+      const tokenInput = document.getElementById('ha-token-input');
+      if (urlInput) urlInput.value = config.ha_url || '';
+      // Token is redacted on GET — don't overwrite if user already has one typed
+      if (tokenInput && !tokenInput.value) {
+        tokenInput.value = config.ha_token && config.ha_token !== '***' ? config.ha_token : '';
+        tokenInput.placeholder = config.ha_token === '***'
+          ? 'Token saved — paste new token to change it'
+          : 'Paste your long-lived access token here...';
+      }
+    } catch (e) {
+      _setStatus('Could not load config: ' + e.message, 'error');
+    }
+  }
+
+  async function _saveAndConnect() {
+    const url = document.getElementById('ha-url-input')?.value.trim();
+    const token = document.getElementById('ha-token-input')?.value.trim();
+
+    if (!url) { _setStatus('Please enter the Home Assistant URL.', 'error'); return; }
+    if (!token) { _setStatus('Please enter your long-lived access token.', 'error'); return; }
+
+    _setStatus('Saving...', 'info');
+    try {
+      await API.saveConfig({ ha_url: url, ha_token: token });
+      _setStatus('Saved. Testing connection...', 'info');
+      await _testConnection();
+    } catch (e) {
+      _setStatus('Save failed: ' + e.message, 'error');
+    }
+  }
+
+  async function _testConnection() {
+    _setStatus('Connecting to Home Assistant...', 'info');
+    try {
+      const devices = await API.getDevices();
+      const count = Array.isArray(devices) ? devices.length : '?';
+      _setStatus(`✓ Connected — ${count} devices found`, 'success');
+      // Update the header badge
+      const badge = document.getElementById('header-status');
+      const banner = document.getElementById('ws-banner');
+      if (badge) { badge.className = 'header-status connected'; badge.textContent = 'HA Connected'; }
+      if (banner) banner.classList.remove('visible');
+    } catch (e) {
+      _setStatus('✗ Could not connect: ' + e.message, 'error');
+      const badge = document.getElementById('header-status');
+      if (badge) { badge.className = 'header-status disconnected'; badge.textContent = 'HA Disconnected'; }
+    }
+  }
+
+  function _setStatus(msg, type) {
+    const el = document.getElementById('ha-settings-status');
+    if (!el) return;
+    const colors = { success: 'var(--teal)', error: 'var(--red, #e74c3c)', info: 'var(--text-muted)' };
+    el.style.color = colors[type] || 'var(--text-muted)';
+    el.textContent = msg;
+  }
+
+  return { open, close };
 })();

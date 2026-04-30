@@ -279,19 +279,21 @@ const Wizard = (() => {
     const s = document.createElement('style');
     s.id = 'wiz-combo-css';
     s.textContent = `
-      .wiz-device-combo { position:relative; flex:1; min-width:0; }
+      .wiz-device-combo { position:static; flex:1; min-width:0; }
       .wiz-device-search { width:100%; box-sizing:border-box; cursor:pointer !important; }
       .wiz-device-dropdown {
-        position:absolute; top:100%; left:0; right:0; z-index:9999;
+        position:fixed; z-index:99999;
         background:var(--bg-raised,#1e2430);
         border:1px solid var(--border-subtle,#333);
-        border-radius:4px; box-shadow:0 4px 16px rgba(0,0,0,.4);
-        margin-top:2px;
+        border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,.6);
+        min-width:260px; max-width:420px;
       }
-      .wiz-combo-row { display:flex; align-items:center; gap:6px; padding:6px 10px;
+      #wiz-device-list { max-height:400px; overflow-y:auto; }
+      .wiz-combo-row { display:flex; align-items:center; gap:6px; padding:7px 10px;
         cursor:pointer; font-size:13px; color:var(--text-primary); }
       .wiz-combo-row:hover, .wiz-combo-row.selected { background:var(--teal,#1abc9c); color:#fff; }
-      .wiz-combo-row.selected .wiz-dev-prefix { color:rgba(255,255,255,.7); }
+      .wiz-combo-row .wiz-dev-prefix { font-size:10px; opacity:.7; }
+      .wiz-combo-row:hover .wiz-dev-prefix { opacity:.9; }
     `;
     document.head.appendChild(s);
   }
@@ -477,14 +479,13 @@ const Wizard = (() => {
       `
       <div class="wiz-desc">A condition allows for a single comparison to be made between two expressions.</div>
 
-      ${isMulti ? `
-      <div class="wiz-agg-bar">
+      <div class="wiz-agg-bar" ${!hasDevice?'style="display:none"':''} id="wiz-agg-bar">
         <select id="wiz-agg" class="wiz-agg-select">
           <option value="any"  ${agg==='any'  ?'selected':''}>Any of the selected devices</option>
           <option value="all"  ${agg==='all'  ?'selected':''}>All of the selected devices</option>
           <option value="none" ${agg==='none' ?'selected':''}>None of the selected devices</option>
         </select>
-      </div>` : ''}
+      </div>
 
       <div class="wiz-row-label">What to compare</div>
       <div class="wiz-compare-row">
@@ -495,22 +496,21 @@ const Wizard = (() => {
           <option value="date"     ${_sel.subject_type==='date'                ?'selected':''}>Date</option>
           <option value="mode"     ${_sel.subject_type==='mode'                ?'selected':''}>Mode</option>
         </select>
-        <div class="wiz-device-combo" id="wiz-device-combo">
-          <input type="text" id="wiz-device-search" class="wiz-select-blue wiz-device-search"
-            placeholder="Nothing selected"
-            value="${hasDevice ? _esc(_sel.device_label||_sel.device_id) : ''}"
-            autocomplete="off" readonly
-            style="cursor:pointer;width:100%" />
-          <div class="wiz-device-dropdown" id="wiz-device-dropdown" style="display:none">
-            <input type="text" id="wiz-device-filter" placeholder="Search devices..." autocomplete="off"
-              style="width:100%;box-sizing:border-box;padding:6px 8px;border:none;border-bottom:1px solid var(--border-subtle);background:var(--bg-raised);color:var(--text-primary);font-size:13px;outline:none" />
-            <div id="wiz-device-list" style="max-height:220px;overflow-y:auto"></div>
-          </div>
-        </div>
+        <button class="wiz-device-pick-btn ${hasDevice?'has-value':''}" id="wiz-open-devpicker" style="flex:1;min-width:120px">
+          ${hasDevice ? `<span class="wiz-device-tag">device</span> ${_esc(_sel.device_label||_sel.device_id)}` : 'Nothing selected'}
+        </button>
         <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}" ${!hasDevice?'disabled':''}>
           <option value="">attribute...</option>
           ${(_sel._caps||[]).map(c=>`<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${attr===c.name?'selected':''}>${_esc(c.name)}</option>`).join('')}
         </select>
+      </div>
+
+      <div id="wiz-dev-panel" style="display:none;margin-top:4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-raised)">
+        <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">
+          <input type="text" id="wiz-dev-panel-search" placeholder="Search devices..." autocomplete="off"
+            style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
+        </div>
+        <div id="wiz-dev-panel-list" style="max-height:260px;overflow-y:auto"></div>
       </div>
 
       <div class="wiz-interaction-row" id="wiz-int-row">
@@ -536,14 +536,16 @@ const Wizard = (() => {
       <div id="wiz-value-row" class="${needsVal?'':'hidden'}">
         <div class="wiz-row-label">Value</div>
         <div class="wiz-value-inputs" id="wiz-val-inputs">
-          <select id="wiz-val-type" class="wiz-select-blue-sm">
+          <select id="wiz-val-type" class="wiz-select-blue-sm" style="align-self:flex-start">
             <option value="value">Value</option>
             <option value="variable">Variable</option>
             <option value="expression">Expression</option>
             <option value="argument">Argument</option>
           </select>
-          <span id="wiz-val-widget"></span>
-          ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">and</span><span id="wiz-val-widget-2"></span>` : ''}
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+            <span id="wiz-val-widget" style="display:block;width:100%"></span>
+            ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">and</span><span id="wiz-val-widget-2" style="display:block;width:100%"></span>` : ''}
+          </div>
         </div>
       </div>
 
@@ -580,96 +582,33 @@ const Wizard = (() => {
       _goConditionBuilder();
     });
 
-    // ── Searchable device combo ───────────────────────────────
-    function _renderDeviceList(query) {
-      const el = document.getElementById('wiz-device-list');
-      if (!el) return;
-      const q = (query||'').toLowerCase();
-      const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-      const localDeviceVars = allLocals.filter(v => v.var_type === 'device' &&
-        (!q || v.name.toLowerCase().includes(q)));
-      const physical = (_deviceData||[]).filter(d =>
-        !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q));
-      const demos = DEMO_DEVICES.filter(d =>
-        !q || d.friendly_name.toLowerCase().includes(q));
-
-      const row = (id, label, badge) =>
-        `<div class="wiz-device-row wiz-combo-row ${_sel.device_id===id?'selected':''}"
-          data-id="${_esc(id)}" data-label="${_esc(label)}">
-          ${badge?`<span class="wiz-dev-prefix">${_esc(badge)}</span>`:''}
-          <span class="wiz-dev-label">${_esc(label)}</span>
-        </div>`;
-
-      let html = '';
-      if (physical.length) {
-        html += `<div class="wiz-device-group-header">Physical devices</div>`;
-        html += physical.slice(0,300).map(d => row(d.entity_id, d.friendly_name, '')).join('');
-      }
-      if (localDeviceVars.length) {
-        html += `<div class="wiz-device-group-header">Local variables</div>`;
-        html += localDeviceVars.map(v => row(v.name, v.name, 'device')).join('');
-      }
-      if (demos.length) {
-        html += `<div class="wiz-device-group-header">Demo devices</div>`;
-        html += demos.map(d => row(d.entity_id, d.friendly_name + ' (demo)', '')).join('');
-      }
-      el.innerHTML = html || `<div class="wiz-empty" style="padding:8px 12px">No devices found.</div>`;
-
-      el.querySelectorAll('.wiz-combo-row').forEach(r => {
-        r.addEventListener('mousedown', e => {
-          e.preventDefault();
-          _sel.device_id    = r.dataset.id;
-          _sel.device_label = r.dataset.label;
-          _sel.devices      = [r.dataset.id];
-          _sel.attribute    = '';
-          _sel.attribute_type = '';
-          _sel._caps = [];
-          const searchEl = document.getElementById('wiz-device-search');
-          if (searchEl) searchEl.value = r.dataset.label;
-          document.getElementById('wiz-device-dropdown').style.display = 'none';
-          const attrSel = document.getElementById('wiz-attr-select');
-          if (attrSel) {
-            attrSel.innerHTML = `<option value="">loading...</option>`;
-            attrSel.disabled = false;
-          }
-          _loadCapsIntoSelect();
-          _refreshConditionRows();
+    // ── Device picker button — inline panel ──────────────────
+    document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
+      const panel = document.getElementById('wiz-dev-panel');
+      if (!panel) return;
+      const isOpen = panel.style.display !== 'none';
+      panel.style.display = isOpen ? 'none' : 'block';
+      if (!isOpen) {
+        const searchEl = document.getElementById('wiz-dev-panel-search');
+        if (searchEl) { searchEl.value = ''; searchEl.focus(); }
+        _renderDevPanelList('');
+        if (!_deviceData) {
+          API.getDevices().then(data => {
+            _deviceData = data;
+            _renderDevPanelList(document.getElementById('wiz-dev-panel-search')?.value || '');
+          }).catch(() => {});
+        }
+        let ft = null;
+        searchEl?.addEventListener('input', e => {
+          clearTimeout(ft);
+          ft = setTimeout(() => _renderDevPanelList(e.target.value.trim()), 150);
         });
-      });
-    }
-
-    document.getElementById('wiz-device-search')?.addEventListener('click', () => {
-      const dd = document.getElementById('wiz-device-dropdown');
-      dd.style.display = 'block';
-      document.getElementById('wiz-device-filter')?.focus();
-      _renderDeviceList('');
-      if (!_deviceData) {
-        API.getDevices().then(data => {
-          _deviceData = data;
-          _renderDeviceList(document.getElementById('wiz-device-filter')?.value || '');
-        }).catch(() => {});
       }
     });
 
-    document.getElementById('wiz-device-filter')?.addEventListener('input', e => {
-      _renderDeviceList(e.target.value);
-    });
-
-    // Close dropdown when clicking outside
-    document.addEventListener('mousedown', function _closeDevDD(e) {
-      const combo = document.getElementById('wiz-device-combo');
-      if (combo && !combo.contains(e.target)) {
-        const dd = document.getElementById('wiz-device-dropdown');
-        if (dd) dd.style.display = 'none';
-        document.removeEventListener('mousedown', _closeDevDD);
-      }
-    });
-
-    // If HA not yet loaded, kick off fetch
+    // Kick off HA device fetch silently
     if (!_deviceData) {
-      API.getDevices().then(data => {
-        _deviceData = data;
-      }).catch(() => {});
+      API.getDevices().then(data => { _deviceData = data; }).catch(() => {});
     }
 
     document.getElementById('wiz-attr-select')?.addEventListener('change', e => {
@@ -728,21 +667,20 @@ const Wizard = (() => {
     const cap = (_sel._caps||[]).find(c => c.name === _sel.attribute);
 
     if (valType !== 'value') {
-      // variable / expression / argument — always plain text
-      widget.innerHTML = `<input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="${valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...'}" />`;
-      // second widget for between
+      // All free-text types use textarea so content wraps instead of scrolling
+      const ph = valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...';
+      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="${ph}" style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
       const w2 = document.getElementById('wiz-val-widget-2');
-      if (w2) w2.innerHTML = `<input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />`;
+      if (w2) w2.innerHTML = `<textarea id="wiz-val-2" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:64px;resize:vertical;box-sizing:border-box">${_esc(_sel.value2||'')}</textarea>`;
       return;
     }
 
     if (attrType === 'binary' && cap?.values?.length) {
-      // Dropdown with actual on/off or open/closed etc.
-      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue-sm">
+      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue wiz-select-full">
         ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
       </select>`;
     } else if (attrType === 'enum' && cap?.values?.length) {
-      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue-sm">
+      widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue wiz-select-full">
         <option value="">Select...</option>
         ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
       </select>`;
@@ -754,8 +692,8 @@ const Wizard = (() => {
       if (w2) w2.innerHTML = `<input type="number" id="wiz-val-2" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value2||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
       return;
     } else {
-      // fallback plain text
-      widget.innerHTML = `<input type="text" id="wiz-val-1" class="wiz-value-input" value="${_esc(_sel.value||'')}" placeholder="Value..." />`;
+      // fallback — textarea so it wraps
+      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
     }
 
     // second widget for between (non-numeric path)
@@ -828,15 +766,17 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
-    // Demo devices always shown, filtered by query
+    // Demo devices — always show section, filtered by query
+    html += `<div class="wiz-device-group-header">Demo devices</div>`;
     if (filteredDemos.length) {
-      html += `<div class="wiz-device-group-header">Demo devices</div>`;
       html += filteredDemos.map(d =>
         `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-demo-badge">demo</span>
         </div>`
       ).join('');
+    } else {
+      html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">No demo devices match.</div>`;
     }
     el.innerHTML = html || `<div class="wiz-empty" style="padding:8px 12px">No devices found.</div>`;
 
@@ -858,6 +798,10 @@ const Wizard = (() => {
           btn.innerHTML = `<span class="wiz-device-tag">device</span> ${_esc(_sel.device_label)}`;
           btn.classList.add('has-value');
         }
+
+        // Show orange banner
+        const aggBar = document.getElementById('wiz-agg-bar');
+        if (aggBar) aggBar.style.display = '';
 
         // Enable attr select and load caps
         const attrSel = document.getElementById('wiz-attr-select');
@@ -889,13 +833,25 @@ const Wizard = (() => {
       const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
       const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
       if (localVar) {
-        // Use domain caps from initial_value entity IDs — works offline
-        const entityIds = localVar.initial_value
-          ? String(localVar.initial_value).split(',').map(s=>s.trim()).filter(Boolean)
-          : [];
-        caps = entityIds.length
-          ? _getCapsForDomain(entityIds)
-          : _getCapsForDomain('light.unknown'); // fallback: show light caps
+        // initial_value may be entity_id (light.cave_light) or label (Cave Light)
+        // Try entity_id path first; if no dots found, look up entity by label in _deviceData
+        const rawVal = String(localVar.initial_value || '');
+        const entityIds = rawVal.split(',').map(s => s.trim()).filter(Boolean);
+        const hasEntityIds = entityIds.some(id => id.includes('.'));
+        if (hasEntityIds) {
+          caps = _getCapsForDomain(entityIds);
+        } else if (entityIds.length && _deviceData) {
+          // Try to resolve labels to entity_ids via _deviceData
+          const resolved = entityIds.map(label => {
+            const match = (_deviceData||[]).find(d =>
+              d.friendly_name.toLowerCase() === label.toLowerCase());
+            return match ? match.entity_id : null;
+          }).filter(Boolean);
+          caps = resolved.length ? _getCapsForDomain(resolved) : _getCapsForDomain('light.unknown');
+        } else {
+          // No entity info — show light caps as sensible default for device variables
+          caps = _getCapsForDomain('light.unknown');
+        }
       } else {
         try {
           const data = await API.getCapabilities(_sel.device_id);
@@ -904,6 +860,10 @@ const Wizard = (() => {
       }
     }
 
+    // Last resort: if still no caps, derive from entity_id domain directly
+    if (!caps.length && _sel.device_id && _sel.device_id.includes('.')) {
+      caps = _getCapsForDomain(_sel.device_id);
+    }
     _sel._caps = caps;
     sel.innerHTML = `<option value="">attribute...</option>` +
       caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');

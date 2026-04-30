@@ -1,5 +1,5 @@
 # PistonCore — Claude Session Starter Prompt
-# Session 15 — Updated end of Session 14
+# Session 16 — Updated end of Session 15
 
 ---
 
@@ -32,10 +32,12 @@ Real users are watching the GitHub repo.
 ## Infrastructure
 
 - Unraid server at 192.168.1.226, port 7777
+- Files are copied directly over the network to Unraid — NOT deployed via git pull
+  (git pull has a caching issue that overwrites changes)
+- Jeremy pushes to GitHub manually after a session's fixes are confirmed working
 - Docker rebuild command:
   ```
   cd /mnt/user/appdata/pistoncore-dev
-  git pull
   docker build -t pistoncore .
   docker stop pistoncore && docker rm pistoncore
   docker run -d \
@@ -46,9 +48,10 @@ Real users are watching the GitHub repo.
     -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize \
     pistoncore
   ```
-- When Docker build uses cached layers and changes don't appear: use `docker build --no-cache`
-- Browser cache can also hide changes — use Ctrl+Shift+R or incognito window
+- When Docker build uses cached layers: use `docker build --no-cache`
+- Browser cache: Ctrl+Shift+R or incognito window
 - Frontend: vanilla JS/HTML/CSS, no framework
+- Backend: Python FastAPI, port 7777
 
 ---
 
@@ -57,6 +60,104 @@ Real users are watching the GitHub repo.
 1. **List page** — home screen, OK as-is
 2. **Status/Debug page** — land here after saving or clicking a piston
 3. **Editor page** — full width, no centering, fills viewport, continuous document renderer
+
+---
+
+## HA Connection — Working as of Session 15
+
+- HA settings modal opens by clicking the "HA Disconnected" badge in the header
+- Saves ha_url and ha_token via `PUT /config`
+- Tests connection via `GET /devices`
+- Badge updates to "HA Connected" on success
+- Jeremy's HA is at http://192.168.1.65:8123
+- Long-lived token is saved in config — Jeremy has it ready if needed
+
+---
+
+## Device Picker — Current State
+
+The condition wizard device panel now:
+- Connects to real HA and shows live devices ✅
+- Filters to useful domains only (light, switch, binary_sensor, sensor, etc.) ✅
+- Parses entity_id to disambiguate duplicate friendly names ("Basement — Volume") ✅
+- Sorts by area then name ✅
+
+---
+
+## Known Bugs — Fix List for Session 16
+
+### PRIORITY 1 — HA Device List Quality
+
+**Problem:** Even with domain filtering, the device list still has issues:
+- Some entities that shouldn't appear are still showing (HA auto-discovered integrations
+  like Sonos that Jeremy didn't set up — these appear as media_player entities)
+- Virtual test devices Jeremy set up in HA are not showing correct state/attributes
+  in the attribute picker (may be a virtual device config issue, not a PistonCore bug —
+  verify with real physical devices first)
+- HA has entities for devices "not actually set up" — these come from HA's auto-discovery
+  (mDNS/SSDP). No clean way to filter these without user input. Options to discuss:
+  1. Add an "Only show devices in areas" filter toggle — devices without an area assigned
+     are often auto-discovered junk
+  2. Let user hide specific entities from the picker (My Device Definitions screen)
+  3. Accept it as a known HA limitation and document it
+
+**DESIGN.md note:** Section 5 says "no entity IDs ever visible to the user" — this needs
+to be updated. The compromise reached in Session 15: show friendly name prominently,
+append parsed entity suffix to disambiguate ("Basement — Volume"). No raw entity_id
+shown. Update DESIGN.md Section 5 wording to match this approach before coding.
+
+### PRIORITY 2 — Wizard: AND/OR prompt between conditions (Add more)
+
+From SESSION_14_5_NOTES:
+- WebCoRE asks how new condition relates to previous one (AND or OR)
+- Currently just stacks conditions with no group_operator set
+- Fix: after first condition is added, prompt for AND/OR before building next one
+
+### PRIORITY 3 — Wizard: Operator order still wrong
+
+- Triggers should appear FIRST with ⚡ prefix
+- Conditions second
+- Currently reversed in PistonCore
+
+### PRIORITY 4 — Wizard: Orange "Any of the selected devices" banner
+
+- Should appear above compare row when ANY device is selected (not just multi-device)
+- Currently hidden until multiple devices selected
+- Partially fixed in Session 15 but needs verification with real devices
+
+### PRIORITY 5 — Wizard: Value input for binary/enum attributes from real HA devices
+
+- When a real HA device is selected (not demo), attribute type comes from
+  `API.getCapabilities(entity_id)` — but the value widget isn't updating correctly
+  for binary/enum types from real devices
+- For demo devices this works. For real HA devices verify it works after HA connects.
+
+---
+
+## Backend / Compiler Gaps — Fix AFTER Wizard Works End to End
+
+These don't affect the browser UI but matter when Deploy is wired up.
+From SESSION_14_5_NOTES:
+
+1. **Wizard produces `service_call`, compiler expects `with_block`**
+   - `_saveDeviceCmd()` produces `{type:"service_call", devices:[entityId]}`
+   - Compiler `_compile_sequence()` has no handler for `service_call`
+   - Fix: add `_normalize_action()` to compiler, or make wizard produce `with_block`
+
+2. **Entity ID vs Role in device_map**
+   - Wizard stores `entity_id` on subject but compiler resolves via `device_map[role]`
+   - Need `_entityToRole()` in wizard and `Editor.registerDeviceRole()` to auto-populate
+     `piston.roles` and `piston.device_map` when user picks a device
+
+3. **Trigger format mismatch**
+   - Wizard produces `{type:"trigger", operator:"changes to", compiled_value:"on"}`
+   - Compiler expects `{type:"state", target_role:"...", to:"on"}`
+   - Fix: add `_normalize_trigger()` pre-processing step in compiler
+
+4. **Binary sensor compiled_value lookup must live in wizard**
+   - DEVICE_CLASS_LABELS table (door→Open/Closed, motion→Detected/Clear, etc.)
+     must be in wizard so it sets `compiled_value` correctly before saving
+   - Compiler reads `compiled_value` directly into HA YAML — wrong value = silent HA failure
 
 ---
 
@@ -74,17 +175,13 @@ Real users are watching the GitHub repo.
 - only when inside execute (triggers/conditions) with ghost text
 
 ### Mode persistence:
-- Simple/Advanced preference is saved to localStorage (`pc_simpleMode`)
+- Simple/Advanced preference saved to localStorage (`pc_simpleMode`)
 - Default is Advanced (Jeremy prefers Advanced)
 
 ### Define block rendering — matches WebCoRE:
 ```
 device light = Cave Light ;
 ```
-- Lowercase type keyword (device, string, boolean, etc.)
-- No $ prefix on variable name in define block
-- `= DeviceLabel` for device variables with initial value
-- Space before semicolon
 
 ### If block — correct keywords:
 ```
@@ -96,143 +193,88 @@ else
   · add a new statement
 end if;
 ```
-NO curly braces. Keywords: if / then / else / end if;
-
-### Comment format: `/* text */` — correct spacing
-
-### Clicking an existing statement opens wizard pre-populated for editing
 
 ---
 
 ## Wizard — Confirmed Rules
 
 ### NEVER two modals open at once
-- if_block selection from statement picker goes to condition builder FIRST
-- Only inserts the if_block into document AFTER condition is completed
-- Statement picker closes, condition wizard opens — never both at once
+- if_block selection goes to condition builder FIRST
+- Only inserts if_block AFTER condition is completed
+- Uses `_extra['block-id']` exclusively — unified mechanism
 
 ### Wizard backdrop — no dark overlay
-- Backdrop is transparent (no rgba dimming)
-- Modal is centered, floats over document without hiding it
+- Backdrop is transparent
+- Modal is centered, floats over document
 
-### Condition builder layout — matches WebCoRE exactly:
+### Condition builder layout:
 - ONE screen, everything visible at once
-- Row: `[Physical device(s) ▾]` `[device label ▾]` `[attribute ▾]` — all native selects
-- Device picker opens a searchable panel BELOW the row (not full screen replacement)
-- Attribute is a plain `<select>` populated from device capabilities — always visible
-- When HA disconnected: attribute select shows generic fallback list for local vars
-- "Which interaction" row appears below for trigger operators
-- Operator dropdown below that
-- Value row appears below operator when needed
+- Row: `[Physical device(s) ▾]` `[device picker button]` `[attribute ▾]`
+- Device picker opens inline panel BELOW the row with search
+- "Which interaction" row always visible (not conditional on device selection)
+- Operator dropdown below that (Triggers first ⚡, Conditions second)
+- Value row appears below operator when needed — textarea for free text types
 
-### Attribute select — capability loading rules:
-- Demo devices: load from DEMO_DEVICES capabilities array in wizard.js
-- Local device variables: call HA API using the entity IDs in the variable's initial_value
-  - If variable has multiple devices: show UNION of all capabilities
-  - If HA disconnected: show generic fallback (switch, level, battery, etc.)
-- Physical devices: call API.getCapabilities(entity_id)
-- See COMPILER_SPEC.md Section 18, item 8 for backend implications
+### Modal size:
+- 720px wide, fills most of screen height
+- wiz-body scrolls, modal does not grow
 
-### Variable wizard initial value — matches WebCoRE layout:
-- One combined blue bar: `[type dropdown] [value/picker on right]`
-- Note text appears BELOW the combined bar (not above)
-- Warning triangle icon appears next to label when a value is set
-- Options: Nothing selected / Physical device(s) / Value / Variable / Expression / Argument
-  - Physical device(s) → dedicated device picker (virtual + physical + local device vars, NO system vars, NO demo devices)
-  - Value → text input on right side of bar
-  - Variable → picker with Local / Global / System sections
-  - Expression → textarea
-  - Argument → text input
-
-### var_type normalization:
-- Wizard saves normalized lowercase keys: device, string, boolean, integer, decimal, long, datetime, date, time, dynamic
-- NOT the display labels (Device, String (text), etc.)
-
-### Condition device picker:
-- Shows: Physical devices, Local device variables, Demo devices
-- Does NOT show: Virtual devices, System variables
-- Search filters all sections including demo devices
-- Demo devices always show — filtered by query when search typed, never hidden entirely
+### Value inputs:
+- Binary/enum attributes → dropdown of actual values
+- Numeric attributes → number input with unit
+- Free text (Value/Variable/Expression/Argument) → textarea that wraps
 
 ---
 
-## Session 14 — What Was Fixed
+## Session 15 — What Was Fixed
 
-1. ✅ Demo devices no longer disappear when search query is typed
-2. ✅ "Argument" option added to condition value type dropdown
-3. ✅ "Add more" now resets completely — no carryover from previous condition
-4. ✅ "Any of" no longer shows for single device conditions in editor
-5. ✅ Device picker no longer replaces full modal body — expands inline below compare row
-6. ✅ Attribute is now a plain `<select>` populated from device capabilities
-7. ✅ CSS added for inline dropdown styling
-8. ✅ COMPILER_SPEC.md updated — added open item 8 (local device variable attribute resolution)
-
----
-
-## Known Bugs — Fix List for Session 15
-
-### PRIORITY 0 — Must do first, nothing else works without it
-
-**Frontend settings/connection page — HA URL and API key entry**
-- The frontend has NO UI to enter the HA URL and API key — it was never built
-- Without it the frontend cannot connect to HA regardless of what's in the backend
-- Jeremy already has a long-lived HA API key ready to enter
-- Virtual test devices are already set up in HA and available for testing once connected
-- Real physical devices will appear automatically once connected
-- BUILD THIS FIRST before any wizard work in Session 15
+1. ✅ Device picker changed to inline panel with search
+2. ✅ Static domain capability map added (DOMAIN_CAPS) for offline/local variable use
+3. ✅ Local device variable caps now derived from entity domain instead of hardcoded "switch"
+4. ✅ Modal size increased to 720px wide, full height
+5. ✅ Value inputs changed to textareas for free-text types
+6. ✅ Orange "Any of the selected devices" banner added (shows on device select)
+7. ✅ "Which interaction" row always visible
+8. ✅ HA settings modal built — click badge to open, save URL+token, test connection
+9. ✅ HA WebSocket connection working — real devices loading in wizard
+10. ✅ Domain filter added to ha_client.py — junk entities removed
+11. ✅ Entity label parser added — "Basement — Volume" disambiguation
+12. ✅ Devices sorted by area then name
 
 ---
 
-1. **wizard.js** — Attribute select for local device variables only shows `switch`
-   - Should call HA API using the entity IDs from the variable's initial_value
-   - If multiple devices: show union of all capabilities
-   - If HA disconnected: show generic fallback list
+## Files Changed in Session 15
 
-2. **wizard.js** — Value input for conditions is always a free text field
-   - Should be context-aware: binary = on/off dropdown, enum = options list, numeric = number input
-   - For demo devices: read values from DEMO_DEVICES capabilities array
-   - For HA devices: use capability data from HA API
-   - WebCoRE populates value choices from device's actual states (see session13_screenshots/26)
-
-3. **wizard.js** — No AND/OR prompt between conditions when using "Add more"
-   - WebCoRE asks how the new condition relates to the previous one (AND/OR)
-   - Currently just stacks conditions with no group operator
-
-4. **wizard.js** — Device picker still opens as panel below — should become native `<select>`
-   - In WebCoRE all three (subject type, device, attribute) are native selects in a row
-   - Device select opens a searchable list — but it IS a select, not a button+panel
+- `frontend/js/wizard.js` — device picker, caps, modal size, value inputs, banner
+- `frontend/css/style.css` — modal size, wiz-body scrolling, spacing
+- `frontend/js/app.js` — HA badge click, HASettings module, checkHAConnection
+- `frontend/index.html` — HA settings modal markup
+- `backend/ha_client.py` — domain filter, label parser, area sort
 
 ---
 
-## Device Variable Attribute Resolution — Important Design Note
+## Design Doc Updates Needed (do at start of Session 16)
 
-Local device variables can contain multiple HA entities (e.g. `device light = Cave Light, Dining Light`).
-HA integrations use inconsistent naming for the same capability across device types.
-The wizard shows the UNION of all capabilities for the group — user picks the attribute.
-The COMPILER handles per-device resolution at compile time (see COMPILER_SPEC Section 18, item 8).
-Users mixing incompatible types (contact sensors + lights) is an edge case — most groupings are
-same-type devices. Cross-type attributes like battery work cleanly across any group.
+1. **DESIGN.md Section 5** — "No entity IDs ever visible to the user" needs updating.
+   Compromise: show friendly name + parsed entity suffix to disambiguate
+   ("Basement — Volume"). No raw entity_id shown. Update wording to match.
 
----
-
-## Simple Mode — Jeremy's Preference (confirmed Session 13)
-
-Jeremy uses Advanced mode almost always. Simple mode should:
-- Show define block (always — Jeremy uses it constantly)
-- Hide only when blocks unless they have content
-- Show execute block with `· add a new statement`
-
-Simple/Advanced toggle stays in UI. Default = Advanced.
+2. **README.md** — Check if it's stale. It was flagged in Session 13 notes as needing
+   update to reflect: current status, how to run on Unraid, remove "planned" language
+   for things already built. Check before session 16 coding starts.
 
 ---
 
 ## Future Plans (noted, not blocking)
 
-- Virtual test devices in companion HA app (Grok has partial working version)
+- AND/OR prompt between conditions (Priority 2 above)
+- Virtual test devices in companion HA app
 - Windows app via PyInstaller
 - Login system (post-v1)
 - Cloud hosting (after login)
-- WebCoRE-style toolbar icons (properties panel, etc.) — noted, not v1
+- "Only show devices in areas" filter toggle for device picker
+- My Device Definitions screen (hide/rename entities from picker)
+- WebCoRE-style toolbar icons
 
 ---
 
@@ -245,17 +287,21 @@ Session 13: Major wizard and editor fixes. Variable wizard layout, define block 
 Session 14: Condition builder inline device/attribute pickers. Demo device search fix.
             Argument option added. Add more reset. Any-of single device fix. CSS for dropdowns.
             Attribute changed to native select. COMPILER_SPEC open item 8 added.
+Session 14.5: wizard.js and editor.js structural bug fixes. Step stack, device selection,
+              refreshConditionRows, operator order, if_block unified mechanism.
+Session 15: Wizard improvements (larger modal, device search panel, domain caps map,
+            context-aware value inputs, agg banner). HA settings page with WebSocket
+            connection. Real devices loading. Domain filter + label disambiguator in backend.
 
 ---
 
 ## Next Session — Start Here
 
 1. Read this prompt fully
-2. **Ask Jeremy to upload wizard_reference_screenshots.zip and any session screenshots**
-   - Read ANNOTATIONS.md inside each zip before touching any code
-3. Ask Jeremy to upload current wizard.js, editor.js, and any other files that need changes
-4. Confirm fix list with Jeremy — Priority 0 is the HA settings/connection page
-5. Build the settings page FIRST — no wizard work until HA can actually connect
-6. After settings page works and HA connects, move to wizard fix list in priority order
+2. Update DESIGN.md Section 5 wording (entity ID compromise) — do this BEFORE coding
+3. Check README.md for staleness
+4. Ask Jeremy to upload current wizard.js, ha_client.py, and any other files that need changes
+5. Confirm fix list with Jeremy — Priority 1 is HA device list quality
+6. Work through fix list in priority order
 7. After each fix: give Jeremy the yes/no test checklist, wait for screenshot
 8. Generate updated session prompt at end of session

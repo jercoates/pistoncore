@@ -256,3 +256,204 @@ Priority order for the rewrite:
 3. Item 5 — compiler error contract (add to compiler spec)
 4. Item 6 — global variable naming (add to globals section)
 5. PyScript/runtime/extensible output target section (add to compiler architecture)
+
+---
+
+## 8. Fat Compiler Context Object
+
+### Problem
+If Python transforms HA data before handing it to Jinja2, any HA change to data
+structure still requires a Python code change — the templates can't save you.
+This defeats the purpose of the template system.
+
+### Decision Needed
+The compiler must pass a "fat" context object to every Jinja2 template — over-fetch
+data from HA so templates have more than they need. Logic that selects or transforms
+data lives in the template (Jinja2), not in the Python core. Python fetches and passes;
+the template decides what to use.
+
+### What To Do In DESIGN.md
+- Add "fat context" rule to compiler architecture section
+- Define the standard compiler context object — list exactly what data is available
+  to Jinja2 (device states, entity attributes, variable values, helper entities, etc.)
+- This list becomes the contract for template authors
+
+---
+
+## 9. Template Folder Manifest File
+
+### Problem
+If a user falls back to an older template set and that template uses a deprecated HA API,
+the result is a cryptic Jinja2 error. No way to know if a template pack requires a newer
+PistonCore version than installed.
+
+### Decision Needed
+Every versioned template folder must contain a manifest.json:
+
+```json
+{
+  "ha_version_min": "2025.1",
+  "ha_version_max": "2025.12",
+  "pistoncore_version_min": "1.0",
+  "description": "Templates for HA 2025.x automation schema"
+}
+```
+
+- PistonCore reads manifest before loading any template
+- If pistoncore_version_min is higher than installed: clean error "Please update PistonCore"
+- If HA version outside supported range: warn user, don't silently fall back
+- Same manifest applies to ha_api/ versioned folders
+
+### What To Do In DESIGN.md
+- Add manifest.json requirement to template folder spec
+- Define all manifest fields and fallback/error behavior
+- Apply same requirement to ha_api/ folders
+
+---
+
+## 10. HA API Header Templates
+
+### Problem
+HA addon ingress requires specific headers that differ from external REST calls.
+If endpoints.json only stores URLs, header differences still require Python changes.
+
+### Decision Needed
+Extend endpoints.json to include a headers section per endpoint:
+
+```json
+{
+  "get_states": {
+    "url": "/api/states",
+    "headers": {
+      "Authorization": "Bearer {token}",
+      "Content-Type": "application/json"
+    }
+  }
+}
+```
+
+- Token value injected at runtime — never stored in the file
+- Addon and Docker deployments can define different headers without Python changes
+
+### What To Do In DESIGN.md
+- Update ha_api/ endpoints.json format to include headers section
+- Note token injection is runtime only, never stored
+- Note addon and Docker may have different header requirements
+
+---
+
+## 11. Separate ui_version and logic_version in Piston JSON
+
+### Problem
+A single schema_version forces migration whenever either frontend layout OR compiler
+logic changes. These change independently — a drag-and-drop library swap shouldn't
+force compiler migration and vice versa.
+
+### Decision Needed
+Replace schema_version (item 2) with two fields:
+
+```json
+{
+  "logic_version": 1,
+  "ui_version": 1,
+  "id": "abc123",
+  "name": "My Piston"
+}
+```
+
+- logic_version — compiler-facing schema (triggers, conditions, actions tree)
+- ui_version — frontend-facing layout data (block positions, editor state)
+- Separate migration function stacks for each
+
+### What To Do In DESIGN.md
+- Replace schema_version with logic_version and ui_version
+- Define what belongs to each version scope
+- Define separate migration stacks
+
+---
+
+## 12. Piston Identity Rule
+
+### Problem
+No documented rule for how piston ID maps to HA automation ID means future contributors
+can break the mapping accidentally, orphaning automations or overwriting the wrong one.
+
+### Decision Needed
+Define as immutable core invariant:
+- Every piston gets a UUID on creation — never changes even if piston is renamed
+- HA automation ID is always pistoncore_{uuid}
+- PyScript file is always pistoncore_{uuid}.py
+- This is the permanent link between PistonCore and HA
+
+### What To Do In DESIGN.md
+- Add piston identity rule as a core invariant section
+- State explicitly: UUID is immutable from creation
+- State explicitly: all HA artifacts derived from UUID, never from piston name
+
+---
+
+## 13. Orphan Automation Cleanup
+
+### Problem
+When a piston is deleted in PistonCore, the compiled HA automation keeps running.
+No cleanup strategy is defined.
+
+### Decision Needed
+On piston delete:
+1. Call HA to delete the automation (DELETE /api/config/automation/config/{id})
+2. Delete PyScript file if one exists
+3. Call automation/reload
+4. If HA is offline, queue the cleanup and retry on next connect
+5. PistonCore maintains a "pending cleanup" list in userdata for failed deletes
+
+### What To Do In DESIGN.md
+- Add orphan cleanup to piston delete flow
+- Add pending cleanup queue to userdata storage spec
+- Define retry behavior on reconnect
+
+---
+
+## 14. v2 Runtime Engine — Hard Choice Required
+
+### Problem
+If AppDaemon is used for v2, PistonCore has three output targets: YAML, PyScript,
+AppDaemon. Three targets is a long term maintenance burden that gets worse over time.
+
+### Decision Needed
+Two options — pick one before v2 design starts:
+
+Option A: AppDaemon for v2 runtime
+- Pros: Handles WebSocket plumbing, state tracking, scheduler out of the box
+- Cons: Heavy dependency, three output targets, essentially writing an AppDaemon app generator
+
+Option B: Slim internal async runner (recommended)
+- Pros: PistonCore owns the stack, no external dependency, two output targets max
+- Cons: More build work — must handle WebSocket reconnection, async execution, state cache
+- When v2 ships: PyScript deprecated, eventually removed. YAML + internal runtime only.
+- Piston JSON does not change — same file, different output target
+
+Recommendation: Option B. Maintenance tax of three targets is worse than build cost
+of the runner. State this direction in DESIGN.md now so v2 design starts right.
+
+### What To Do In DESIGN.md
+- Add v2 runtime section with Option A/B tradeoff documented
+- State chosen direction (Option B recommended)
+- Note PyScript deprecated in v2, removed in v3
+- Note piston JSON does not change between v1 and v2
+
+---
+
+## Updated Summary — What Goes Into DESIGN.md Rewrite
+
+All 14 items need sections or updates in DESIGN.md v1.0.
+Items added from Gemini review: 8, 9, 10, 11, 12, 13, 14.
+
+Priority order:
+1. Items 1, 2/11, 3, 7, 8, 9, 10 — template system, versioning, API externalization
+   (all tightly coupled — design together, item 2 replaced by item 11)
+2. Item 4 — BASE_URL (quick frontend spec addition)
+3. Item 5 — compiler error contract
+4. Item 6 — global variable naming
+5. Items 12, 13 — piston identity rule, orphan cleanup (core invariants)
+6. Item 14 — v2 runtime direction (sets long term trajectory)
+7. PyScript/runtime/extensible output target section

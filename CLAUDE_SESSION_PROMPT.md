@@ -150,21 +150,24 @@ ALL of these are stale. Rewrite at the START of the next coding session, before 
 - Remove HACS companion references — replaced by direct REST API calls
 - Add two-product architecture (addon primary, Docker secondary)
 - Add compiler output targets as extensible list (YAML, PyScript for v1; runtime for v2)
-- Add v2 runtime engine section — architecture designed in, not built yet
-- Add note to evaluate AppDaemon as v2 runtime foundation before designing from scratch
+- Add v2 runtime engine section — Option A (AppDaemon) vs Option B (slim internal runner)
+  documented with tradeoffs — recommend Option B, state direction explicitly
+- Add note: PyScript deprecated in v2, removed in v3, piston JSON unchanged
 - Add piston JSON as permanent master format — core architectural principle
-- Add deployment target section
-- Update auth model (supervisor token for addon, long-lived token for Docker)
-- Add versioned template folder structure (ha_YYYY.x/) for YAML compiler templates
-- Add versioned ha_api/ folder structure for HA endpoint externalization
-- Add piston JSON schema_version field and migration strategy
+- Add fat compiler context object rule — Python fetches, template decides
+- Define standard compiler context object — contract for template authors
+- Add versioned template folder structure (ha_YYYY.x/) with manifest.json per folder
+- Add manifest.json spec: ha_version_min/max, pistoncore_version_min, description
+- Add versioned ha_api/ folder structure with manifest.json and headers in endpoints.json
+- Replace schema_version with logic_version + ui_version in piston JSON spec
+- Add separate migration stacks for logic and UI versions
 - Add HA version detection at startup sequence
+- Add piston identity rule as core invariant — UUID immutable, all HA artifacts from UUID
+- Add orphan automation cleanup to piston delete flow + pending cleanup queue
 - Add BASE_URL pattern to frontend architecture section
 - Add compiler error/warning object shape to compiler spec
 - Add global variable naming rules and pistoncore_ prefix convention
-- Update Section 5: "No entity IDs ever visible" — compromise reached in Session 15:
-  show friendly name prominently, append parsed entity suffix to disambiguate
-  ("Basement — Volume"). No raw entity_id shown.
+- Update Section 5 entity ID wording (friendly name + parsed suffix, no raw entity_id)
 - Keep all still-valid sections
 
 ### FRONTEND_SPEC.md — Update

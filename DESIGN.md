@@ -24,7 +24,7 @@ It does not add devices, manage integrations, or extend HA's capabilities in any
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 13.
 * **Compiled files are compiler-owned artifacts.** Files written by PistonCore to HA directories are deployment artifacts, not source files. They may be replaced wholesale on recompile. The piston JSON is always the source of truth — never the compiled HA file. Users who hand-edit compiled files will be warned at next deploy via the hash check.
-* **Piston JSON is the permanent master format and IS the editor format.** The JSON stores exactly what the editor displays — friendly names, plain English operators, readable times, role names. No translation layer exists between display and storage. The compiler owns all translation from the editor format to HA YAML. This is a core architectural invariant — there are no `compiled_value` fields pre-stored in the JSON.
+* **Piston JSON is the permanent master format and IS the editor format.** The JSON stores exactly what the editor displays — friendly names, plain English operators, readable times, role names. No translation layer exists between display and storage. The compiler owns all translation from the editor format to HA YAML. Internally stored pistons include a lightweight `context` block maintained by the wizard — the compiler uses it for reliable translation. Snapshot exports strip the context block to pure display values. This is a core architectural invariant.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message. Import from a URL or paste directly. No account required, no server involved.
 * **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
 * **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
@@ -267,14 +267,28 @@ This means:
 
 **There are NO `compiled_value` fields in piston JSON.** The JSON stores the display value only. The compiler looks up what it needs. If the compiler needs to know that "Detected" means `"on"` for a motion sensor, it looks that up from its device class table — it does not rely on a pre-stored compiled value in the JSON.
 
-### JSON Format — One Translation Point: Import
+### Two Formats — Same Data, Different Purpose
 
-The only time translation happens is at import. When a WebCoRE backup or community piston is imported, the importer translates the WebCoRE format into PistonCore editor format once. After that it is native PistonCore JSON forever. The user opens it in the editor, sees familiar logic, maps their devices, deploys.
+PistonCore uses two variants of the piston JSON format:
+
+**Shareable format** (Snapshot export, AI generation, community sharing, write-a-piston.md prompt):
+Pure display values only. No context blocks. Clean, human readable, safe to post anywhere.
+What you see is what it is — no hidden fields.
+
+**Internal storage format** (saved to /pistoncore-userdata/pistons/):
+Display values PLUS lightweight context blocks maintained transparently by the wizard.
+The compiler prefers context blocks and falls back to parsing display values when necessary.
+Users never see context blocks — they are an implementation detail.
+
+The only time format translation happens is at import. WebCoRE format or AI-generated
+shareable format → PistonCore internal format once, after role mapping and time review.
 
 ```
-WebCoRE format → (import translation, once) → PistonCore JSON = editor display
-                                                      ↓ (compiler translation)
-                                                   HA YAML
+WebCoRE / AI shareable format
+         ↓ (import: role mapping + time review)
+PistonCore internal format (display + context)
+         ↓ (compiler: translate to HA)
+HA YAML / PyScript
 ```
 
 ### Versioning
@@ -509,6 +523,8 @@ The compiler translates all values to HA YAML — nothing is pre-translated in t
   ]
 }
 ```
+
+**Note:** This is the shareable format — pure display values, no context blocks. The internally stored version includes lightweight context blocks on conditions and tasks populated by the wizard. See Section 15.5 for the context schema.
 
 **Notice what is NOT in this JSON:**
 * No `compiled_value` anywhere — "800 lux" is stored as the user sees it
@@ -927,6 +943,129 @@ pistoncore-customize/
 * `ha_client.py` loads `endpoints.json` on startup — no hardcoded URLs in Python
 
 **When to implement:** During the `ha_client.py` refactor for HAClient abstraction (Section 4). Not before, not after — at the same time.
+
+---
+
+## 15.5 Piston JSON — Internal Format Details
+
+The internal storage format adds a lightweight `context` block to conditions,
+triggers, and tasks. See Section 6 for the two-format model overview.
+
+### Context Block Schema — 4 Fields Maximum
+
+**Context block — maximum 4 fields, only what the compiler cannot derive from live HA data:**
+
+On conditions and triggers involving device attributes:
+```json
+"context": {
+  "attribute_type": "numeric",
+  "device_class": "illuminance",
+  "unit": "lux"
+}
+```
+
+On service call tasks:
+```json
+"context": {
+  "domain": "light",
+  "ha_service": "light.turn_on"
+}
+```
+
+On time values (confirms the format is normalized):
+```json
+"context": {
+  "value_type": "time"
+}
+```
+
+**Wizard discipline rule — enforced in code:**
+The wizard must populate context when it saves a condition, trigger, or task.
+Missing context on a field the compiler needs = compile blocked, not save blocked.
+Save always works. Deploy checks for required context and shows a plain English
+error naming the exact statement that is incomplete.
+
+### Shareable Format (Snapshot export)
+
+All `context` blocks stripped. Pure display values only. Clean, human readable,
+safe to post anywhere. This is what the write-a-piston.md prompt generates.
+
+Stripping is a simple JSON filter function applied at Snapshot export time.
+Backup export retains context blocks — it is a full internal restore format.
+
+### Import Flow — Time Review Step
+
+After role mapping, before save, PistonCore shows a time review step:
+
+```
+Review times in this piston — most people adjust these on import:
+──────────────────────────────────────────────
+Morning on:      [8:00 AM    ▼]
+Evening off:     [9:00 PM    ▼]
+Sunrise offset:  [30 minutes ▼]
+Sunset offset:   [30 minutes ▼]
+──────────────────────────────────────────────
+[Skip — use as imported]    [Confirm times]
+```
+
+This serves two purposes:
+1. Normalizes any time format inconsistencies from AI generation or WebCoRE import
+   into PistonCore's standard format via the time picker
+2. Good UX — most users want different times than whoever shared the piston
+
+Only surfaces: fixed times, sun offsets, wait durations.
+Not conditions, operators, or device attributes — just the values users most commonly change.
+After this step, all time values are in PistonCore standard format. Compiler parses reliably.
+
+---
+
+## 15.6 Missing Device Handling
+
+### Core Rule — Non-Negotiable
+
+**Pistons always run with whatever devices are available.** If a device in a role
+is missing from HA, the piston compiles and runs against the remaining devices.
+Batteries die, sensors get replaced, life happens. A piston that breaks because
+one device out of four is temporarily unavailable is worse than useless.
+
+### Detection — V1
+
+On every HA connect, PistonCore checks if any entity in any piston's device_map
+still exists in HA. Simple loop against the entity list already fetched.
+
+If any entity is missing:
+- Set `has_missing_devices: true` flag on the piston record
+- Show ⚠️ icon next to the piston name on the piston list page
+- Show a banner on the status page naming the specific missing device by its
+  last known friendly name — this data already exists in change tracking and
+  debug page storage, no new data model needed
+
+### Fix Flow — Same as Import Role Mapping
+
+No new UI flow needed. The fix flow IS the import role mapping flow — the same
+device picker component already built for import. When a device is missing:
+
+1. ⚠️ icon on piston list — user sees something needs attention
+2. User opens the piston in the editor
+3. Missing device role shows with a warning indicator
+4. User clicks it — same device picker opens that already exists
+5. User picks the replacement or removes the device from the role
+6. Save and redeploy
+
+One well-built component handles both import role mapping and missing device
+replacement. Less code, less to test, less to maintain.
+
+### Change Tracking and Debug Data
+
+Last known friendly name for every device in every piston's device_map is
+already stored as part of change tracking and the debug/trace page. Missing
+device notification uses this existing data — it is not stored separately.
+
+### What Never Happens
+
+- A piston never fails to compile because a device is missing
+- A piston never stops running because a device is missing
+- The user is never blocked from deploying — warned, not blocked
 
 ---
 

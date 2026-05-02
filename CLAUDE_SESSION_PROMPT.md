@@ -1,6 +1,6 @@
 # PistonCore — Claude Session Starter Prompt
-# Session 16 — Architecture Pivot Edition
-# Updated end of Session 15 + major architecture pivot discussion
+# Session 18 — Compiler Spec + Resume Coding Edition
+# Updated end of Session 17
 
 ---
 
@@ -30,190 +30,128 @@ Real users are watching the GitHub repo.
 
 ---
 
-## ⚠️ ARCHITECTURE PIVOT — Decided Session 16 (Read This First)
+## Architecture — Current and Locked (Session 17)
 
-The architecture changed significantly in a design discussion this session.
-The design documents in the repo are NOW STALE and need rewriting before coding resumes.
-Do NOT code against the old architecture. Do NOT start coding until DESIGN.md is updated.
+All design documents were rewritten to v1.0 in Session 17. The architecture is locked.
+Do NOT re-open closed decisions. Do NOT suggest AppDaemon. Do NOT suggest removing PyScript for Docker.
 
-### What Changed
+### Two Products
 
-**Old architecture:**
-- Single Docker container only
-- PyScript for complex automations
-- HACS companion integration to write files into HA
-- External deployment only (Unraid, NAS, Docker host)
+**Product 1: PistonCore Addon (PRIMARY — build this first)**
+- Runs on HA OS and HA Supervised
+- Installs from GitHub addon repo URL in HA addon store
+- Supervisor token automatic — zero user setup
+- Writes directly to /config/automations/pistoncore/ and /config/pyscript/pistoncore/
+- No HACS companion needed
 
-**New architecture:**
-- Primary target: Native HA Addon (HA OS and HA Supervised)
-- Secondary target: Docker container — build later once addon is solid
-- PyScript: KEPT for v1 addon complex pistons, PERMANENT for Docker complex pistons
-- HACS companion integration: GONE entirely
-- Auth: HAClient abstraction — supervisor token (addon) or long-lived token (Docker)
-- File writing: HA REST API directly — no companion needed
-- Frontend never talks to HA directly — all HA calls go through PistonCore backend only
-- AppDaemon: RULED OUT — definitively, see design decisions item 28
-- PistonCore native runtime engine: v2 addon feature — slim purpose-built async runner,
-  estimated 2-4 weeks to build, not months
+**Product 2: PistonCore Docker (SECONDARY — build after addon is solid)**
+- Runs on Unraid, NAS, any Docker host
+- Long-lived HA token entered once in settings
+- Calls HA REST API directly
+- Dev environment stays Docker during all v1 development
 
-### Why This Is Better
-- PyScript stays for v1 addon and permanently for Docker — ship what works
-- AppDaemon ruled out — observability impossible on someone else's runtime
-- Native runtime is purpose-built for piston JSON — full execution tracing and debugging
-- Eliminates HACS companion (complex to distribute, significant maintenance burden)
-- HA Addon = proper two-click install for majority of HA users
-- HAClient abstraction centralizes all auth — auth differences are config only
-- Frontend/backend boundary enforced — supervisor token never reaches browser
+### Compiler Output Model (permanent)
 
----
+| Piston Type | Output | Status |
+|---|---|---|
+| Simple | Native HA YAML automation + script | Permanent forever |
+| Complex — addon v1 | PyScript | Until v2 |
+| Complex — addon v2+ | PistonCore native runtime | Permanent for complex |
+| Complex — Docker | PyScript | Permanent — never deprecated |
 
-## The Two Products (Addon First, Docker Later)
+### Closed Decisions — Do Not Relitigate
 
-### Product 1: PistonCore Addon (PRIMARY — Build This First)
-- Runs on: HA OS, HA Supervised
-- Install: User adds GitHub repo URL to HA addon store, installs like any other addon
-- What it does: Full hybrid — simple pistons compile to native HA YAML, complex pistons
-  run via PistonCore's own WebSocket runtime
-- Auth: Gets HA supervisor token automatically — zero user setup
-- File writing: Writes directly to /config/automations/, calls automation/reload via REST
-- No companion needed, no HACS needed
-- Distribution: GitHub addon repo
+- AppDaemon: ruled out, decision closed (DESIGN.md Section 27)
+- Hybrid output model: simple pistons compile to native YAML permanently
+- PyScript: permanent for Docker, deprecated for addon in v2 only
+- No HACS companion: PistonCore writes to HA directly via REST API
+- Frontend never calls HA directly: security invariant, no exceptions
+- BASE_URL: required for all frontend connections, no hardcoded paths
 
-### Product 2: PistonCore Docker (SECONDARY — Build Later)
-- Runs on: Unraid, NAS, any Docker host, Docker-based HA installs
-- Install: Docker Hub / Unraid Community Apps
-- Target audience: Power users comfortable with HACS and external Docker deployment
-- What it does: Full featured — simple pistons compile to native YAML, complex pistons
-  compile to PyScript (permanent, long term supported — never deprecated for Docker)
-- PyScript: HACS integration users install once — PistonCore just generates the files
-- Auth: Long-lived HA token entered once in PistonCore settings
-- File writing: Calls HA REST API directly with token — no companion needed
-- Distribution: Docker Hub, Unraid Community Apps, GitHub
-- This is a full product, not a lite version — Docker users lose nothing vs addon users
-  except the v2 native runtime (which they don't need — PyScript covers complex pistons)
+### Core Invariants — Never Break
 
-### Docker HA Users (homeassistant/home-assistant container)
-- Cannot install HA addons — no supervisor
-- Will use Docker version when it's built
-- REST API still works fine for them — same token approach
-- Reasonable to tell them "Docker version coming later"
+- Every piston UUID is immutable from creation — all HA artifact names derive from UUID
+- logic_version and ui_version are separate fields — not a single schema_version
+- Compile target boundary lives in target-boundary.json — not hardcoded in Python
+- Entity IDs are never shown to the user in any screen
 
 ---
 
-## The Compiler Output Model
+## What Was Done in Session 17 (docs only, no code)
 
-### Compiler output targets — extensible list, not hardcoded
-The compiler selects an output target based on piston complexity and deployment type.
-Designed as an extensible list so adding new targets is an addition not a rewrite.
+All four repo docs rewritten. Key changes:
+- DESIGN.md v1.0: all 28 design decisions incorporated
+- FRONTEND_SPEC.md v0.6: BASE_URL, AI Help button, complexity indicator, compile status
+- WIZARD_SPEC.md v0.4: runtime target section added
+- README.md: two-product story, feature comparison, AI orientation section
+- write-a-piston.md created: first user-facing AI prompt file
+- COMPILER_SPEC.md flagged as stale — must update before compiler coding
+- AI-REVIEW-PROMPT.md flagged as stale
 
-### v1 Output Targets (both products)
-**Simple → Native HA YAML**
-- Basic triggers, conditions, actions
-- Output: Native HA automation YAML — HA fully owns it, traces work, survives restarts
-
-**Complex → PyScript**
-- Variables, math, loops, dynamic conditions, persistent state
-- Output: PyScript file deployed to HA /config/pyscript/
-- PyScript must be installed in HA as a HACS integration
-- PistonCore detects whether PyScript is installed and prompts user if not
-
-### Long Term Output Targets by Deployment
-
-**Addon (v2+):**
-- Simple → Native YAML (permanent)
-- Complex → PistonCore native internal runtime (replaces PyScript in v2)
-- PyScript deprecated for addon in v2, removed in v3
-
-**Docker (permanent, no deprecation planned):**
-- Simple → Native YAML (permanent)
-- Complex → PyScript (permanent — never deprecated for Docker)
-- Docker users are power users comfortable with HACS — PyScript fits this audience
-- No native runtime planned for Docker — PyScript is the long term complex solution
-
-### Piston JSON is the permanent master format
-- Pistons always saved as JSON in PistonCore — never lost
-- JSON is source of truth for sharing, backup, recompilation
-- Compiled output always regeneratable from JSON
-- Same piston JSON works on both addon and Docker — output target differs, JSON does not
-- Core architectural principle — state explicitly in DESIGN.md
+These were committed to GitHub. All four docs are current.
 
 ---
 
-## Design Documents — Rewrite Needed Before Coding Resumes
+## Next Session — Start Here
 
-ALL of these are stale. Rewrite at the START of the next coding session, before any code changes.
+### Step 1: COMPILER_SPEC.md Update (before any coding)
 
-### DESIGN.md — Full rewrite to v1.0
-- Keep PyScript as v1 complex piston output — do NOT remove
-- Remove HACS companion references — replaced by direct REST API calls
-- Add two-product architecture (addon primary, Docker secondary)
-- Add compiler output targets as extensible list (YAML, PyScript for v1; runtime for v2)
-- Add v2 runtime engine section — Option A (AppDaemon) vs Option B (slim internal runner)
-  documented with tradeoffs — recommend Option B, state direction explicitly
-- Add note: PyScript deprecated in v2, removed in v3, piston JSON unchanged
-- Add piston JSON as permanent master format — core architectural principle
-- Add fat compiler context object rule — Python fetches, template decides
-- Define standard compiler context object — contract for template authors
-- Add versioned template folder structure (ha_YYYY.x/) with manifest.json per folder
-- Add manifest.json spec: ha_version_min/max, pistoncore_version_min, description
-- Add versioned ha_api/ folder structure with manifest.json and headers in endpoints.json
-- Replace schema_version with logic_version + ui_version in piston JSON spec
-- Add separate migration stacks for logic and UI versions
-- Add HA version detection at startup sequence
-- Add piston identity rule as core invariant — UUID immutable, all HA artifacts from UUID
-- Add orphan automation cleanup to piston delete flow + pending cleanup queue
-- Add BASE_URL pattern to frontend architecture section
-- Add compiler error/warning object shape to compiler spec
-- Add global variable naming rules and pistoncore_ prefix convention
-- Update Section 5 entity ID wording (friendly name + parsed suffix, no raw entity_id)
-- Keep all still-valid sections
+COMPILER_SPEC.md is stale — written against old architecture (references companion,
+uses old schema_version, assumes hardcoded compile target boundary). Must update before
+compiler work begins. Key things that changed:
 
-### FRONTEND_SPEC.md — Update
-- Add complexity indicator UI element
-- Add Docker vs Addon feature availability flags
-- Remove PyScript-related UI elements
-- Everything else stays
+- Remove all companion references — PistonCore writes to HA directly via REST API
+- Replace schema_version with logic_version + ui_version
+- Add compile target boundary — reads from target-boundary.json, not hardcoded
+- Add HAClient as the auth abstraction for all HA calls
+- Update file paths — pistoncore_{uuid}.yaml not piston name based
+- Add fat compiler context object spec (DESIGN.md Section 14)
+- Add compiler error/warning contract (DESIGN.md Section 18)
+- Add Test Compile endpoint spec (returns compiled output, does not deploy)
 
-### WIZARD_SPEC.md — Minor update
-- Note which wizard features are runtime-only vs compiler
-- Otherwise largely unchanged
+### Step 2: Resume Coding (after COMPILER_SPEC.md is updated)
 
-### README.md — Rewrite
-- Was flagged stale in Session 13, still stale
-- Two-product install story
-- Feature comparison table (addon vs Docker)
-- Remove all "planned" language for things already built
+Bug fix priority from Session 15 (still outstanding):
 
----
+**PRIORITY 1 — HA Device List Quality**
+- Some entities still showing that shouldn't (Sonos auto-discovered media_player entities)
+- "Only show devices in areas" filter toggle — devices without area assigned are often junk
+- Virtual test devices showing wrong state/attributes — verify with real physical devices first
 
-## Open Architecture Questions (Resolve Before Coding)
+**PRIORITY 2 — Wizard: AND/OR prompt between conditions**
+- After first condition added, prompt for AND/OR before building next one
+- Currently just stacks conditions with no group_operator set
 
-1. **Complex pistons in Docker version** — show features with warning banner and allow
-   building but block deployment? Or hide complex features entirely in Docker?
-   Current thinking: show with warning, allow building, block deployment.
+**PRIORITY 3 — Wizard: Operator order still wrong**
+- Triggers should appear FIRST with ⚡ prefix
+- Conditions second
+- Currently reversed
 
-2. **Global variables in addon runtime** — push to HA input_boolean/input_number helpers,
-   or stay internal to PistonCore only? Has UX implications for HA dashboard use.
+**PRIORITY 4 — Wizard: Orange "Any of selected devices" banner**
+- Should appear above compare row when ANY device is selected (not just multi-device)
+- Partially fixed in Session 15 — needs verification with real devices
 
-3. **Addon ingress vs direct port** — HA addons can expose a port directly OR use ingress
-   (cleaner but adds path prefix). Must decide before building addon UI.
+**PRIORITY 5 — Wizard: Value input for binary/enum from real HA devices**
+- When real HA device selected, attribute type from API.getCapabilities(entity_id)
+- Value widget not updating correctly for binary/enum types from real devices
+- Works for demo devices — verify with real HA devices after connection confirmed
 
-4. **Docker version runtime mode** — if PistonCore Docker is running on the same host as HA,
-   should it ever support runtime mode? Or keep Docker strictly compiler-only forever?
+### Step 3: After Bug Fixes
 
-5. **Global variables** — push to HA input helpers or stay internal to PistonCore only?
+Wire up compilation and deployment to HA. Requires COMPILER_SPEC.md done first.
 
 ---
 
-## Infrastructure — Current Dev Setup (Unchanged)
+## Infrastructure — Current Dev Setup
 
 - Unraid server at 192.168.1.226, port 7777
-- Files are copied directly over the network to Unraid — NOT deployed via git pull
+- Files copied directly over network to Unraid — NOT deployed via git pull
   (git pull has a caching issue that overwrites changes)
 - Jeremy pushes to GitHub manually after a session's fixes are confirmed working
 - Docker rebuild command:
   ```
   cd /mnt/user/appdata/pistoncore-dev
+  git pull
   docker build -t pistoncore .
   docker stop pistoncore && docker rm pistoncore
   docker run -d \
@@ -229,110 +167,49 @@ ALL of these are stale. Rewrite at the START of the next coding session, before 
 - Frontend: vanilla JS/HTML/CSS, no framework
 - Backend: Python FastAPI, port 7777
 
-Note: Dev environment will stay Docker on Unraid during development. The addon packaging
-is a future step — build and validate the core functionality in Docker first, then package
-as an addon.
-
 ---
 
 ## HA Connection — Working as of Session 15
 
 - HA settings modal opens by clicking the "HA Disconnected" badge in the header
-- Saves ha_url and ha_token via `PUT /config`
-- Tests connection via `GET /devices`
+- Saves ha_url and ha_token via PUT /config
+- Tests connection via GET /devices
 - Badge updates to "HA Connected" on success
 - Jeremy's HA is at http://192.168.1.65:8123
-- Long-lived token is saved in config — Jeremy has it ready if needed
+- Long-lived token saved in config — Jeremy has it ready if needed
 
 ---
 
-## Three Pages — Confirmed Layout
+## Files Changed in Session 15 (last code session)
 
-1. **List page** — home screen, OK as-is
-2. **Status/Debug page** — land here after saving or clicking a piston
-3. **Editor page** — full width, no centering, fills viewport, continuous document renderer
-
----
-
-## Device Picker — Current State
-
-The condition wizard device panel now:
-- Connects to real HA and shows live devices ✅
-- Filters to useful domains only (light, switch, binary_sensor, sensor, etc.) ✅
-- Parses entity_id to disambiguate duplicate friendly names ("Basement — Volume") ✅
-- Sorts by area then name ✅
+- frontend/js/wizard.js — device picker, caps, modal size, value inputs, banner
+- frontend/css/style.css — modal size, wiz-body scrolling, spacing
+- frontend/js/app.js — HA badge click, HASettings module, checkHAConnection
+- frontend/index.html — HA settings modal markup
+- backend/ha_client.py — domain filter, label parser, area sort
 
 ---
 
-## Known Bugs — Fix List for Session 16
+## Backend / Compiler Gaps — Fix After Wizard Works End to End
 
-### ⚠️ Do design doc rewrites BEFORE touching any of these
-
-### PRIORITY 1 — HA Device List Quality
-
-**Problem:** Even with domain filtering, the device list still has issues:
-- Some entities that shouldn't appear are still showing (HA auto-discovered integrations
-  like Sonos that Jeremy didn't set up — these appear as media_player entities)
-- Virtual test devices Jeremy set up in HA are not showing correct state/attributes
-  in the attribute picker (may be a virtual device config issue, not a PistonCore bug —
-  verify with real physical devices first)
-- HA has entities for devices "not actually set up" — these come from HA's auto-discovery
-  (mDNS/SSDP). No clean way to filter these without user input. Options to discuss:
-  1. Add an "Only show devices in areas" filter toggle — devices without an area assigned
-     are often auto-discovered junk
-  2. Let user hide specific entities from the picker (My Device Definitions screen)
-  3. Accept it as a known HA limitation and document it
-
-### PRIORITY 2 — Wizard: AND/OR prompt between conditions (Add more)
-
-- WebCoRE asks how new condition relates to previous one (AND or OR)
-- Currently just stacks conditions with no group_operator set
-- Fix: after first condition is added, prompt for AND/OR before building next one
-
-### PRIORITY 3 — Wizard: Operator order still wrong
-
-- Triggers should appear FIRST with ⚡ prefix
-- Conditions second
-- Currently reversed in PistonCore
-
-### PRIORITY 4 — Wizard: Orange "Any of the selected devices" banner
-
-- Should appear above compare row when ANY device is selected (not just multi-device)
-- Currently hidden until multiple devices selected
-- Partially fixed in Session 15 but needs verification with real devices
-
-### PRIORITY 5 — Wizard: Value input for binary/enum attributes from real HA devices
-
-- When a real HA device is selected (not demo), attribute type comes from
-  `API.getCapabilities(entity_id)` — but the value widget isn't updating correctly
-  for binary/enum types from real devices
-- For demo devices this works. For real HA devices verify it works after HA connects.
-
----
-
-## Backend / Compiler Gaps — Fix AFTER Wizard Works End to End
-
-These don't affect the browser UI but matter when Deploy is wired up.
-
-1. **Wizard produces `service_call`, compiler expects `with_block`**
-   - `_saveDeviceCmd()` produces `{type:"service_call", devices:[entityId]}`
-   - Compiler `_compile_sequence()` has no handler for `service_call`
-   - Fix: add `_normalize_action()` to compiler, or make wizard produce `with_block`
+1. **Wizard produces service_call, compiler expects with_block**
+   - _saveDeviceCmd() produces {type:"service_call", devices:[entityId]}
+   - Compiler _compile_sequence() has no handler for service_call
+   - Fix: add _normalize_action() to compiler, or make wizard produce with_block
 
 2. **Entity ID vs Role in device_map**
-   - Wizard stores `entity_id` on subject but compiler resolves via `device_map[role]`
-   - Need `_entityToRole()` in wizard and `Editor.registerDeviceRole()` to auto-populate
-     `piston.roles` and `piston.device_map` when user picks a device
+   - Wizard stores entity_id on subject but compiler resolves via device_map[role]
+   - Need _entityToRole() in wizard and Editor.registerDeviceRole() to auto-populate
+     piston.roles and piston.device_map when user picks a device
 
 3. **Trigger format mismatch**
-   - Wizard produces `{type:"trigger", operator:"changes to", compiled_value:"on"}`
-   - Compiler expects `{type:"state", target_role:"...", to:"on"}`
-   - Fix: add `_normalize_trigger()` pre-processing step in compiler
+   - Wizard produces {type:"trigger", operator:"changes to", compiled_value:"on"}
+   - Compiler expects {type:"state", target_role:"...", to:"on"}
+   - Fix: add _normalize_trigger() pre-processing step in compiler
 
 4. **Binary sensor compiled_value lookup must live in wizard**
    - DEVICE_CLASS_LABELS table (door→Open/Closed, motion→Detected/Clear, etc.)
-     must be in wizard so it sets `compiled_value` correctly before saving
-   - Compiler reads `compiled_value` directly into HA YAML — wrong value = silent HA failure
+     must be in wizard so it sets compiled_value correctly before saving
 
 ---
 
@@ -341,22 +218,17 @@ These don't affect the browser UI but matter when Deploy is wired up.
 ### Simple mode shows:
 - Comment header block
 - settings / end settings
-- define block — ALWAYS shown in both Simple and Advanced (Jeremy uses it constantly)
-- execute block with `· add a new statement`
+- define block — ALWAYS shown in both Simple and Advanced
+- execute block with · add a new statement
 - NO "only when" blocks unless they have content
 
 ### Advanced mode shows everything including:
 - only when (restrictions) block with ghost text
-- only when inside execute (triggers/conditions) with ghost text
+- only when inside execute with ghost text
 
 ### Mode persistence:
-- Simple/Advanced preference saved to localStorage (`pc_simpleMode`)
-- Default is Advanced (Jeremy prefers Advanced)
-
-### Define block rendering — matches WebCoRE:
-```
-device light = Cave Light ;
-```
+- Simple/Advanced preference saved to localStorage (pc_simpleMode)
+- Default is Advanced
 
 ### If block — correct keywords:
 ```
@@ -373,73 +245,15 @@ end if;
 
 ## Wizard — Confirmed Rules
 
-### NEVER two modals open at once
-- if_block selection goes to condition builder FIRST
-- Only inserts if_block AFTER condition is completed
-- Uses `_extra['block-id']` exclusively — unified mechanism
-
-### Wizard backdrop — no dark overlay
-- Backdrop is transparent
-- Modal is centered, floats over document
-
-### Condition builder layout:
-- ONE screen, everything visible at once
-- Row: `[Physical device(s) ▾]` `[device picker button]` `[attribute ▾]`
-- Device picker opens inline panel BELOW the row with search
-- "Which interaction" row always visible (not conditional on device selection)
-- Operator dropdown below that (Triggers first ⚡, Conditions second)
-- Value row appears below operator when needed — textarea for free text types
-
-### Modal size:
-- 720px wide, fills most of screen height
-- wiz-body scrolls, modal does not grow
-
-### Value inputs:
-- Binary/enum attributes → dropdown of actual values
-- Numeric attributes → number input with unit
-- Free text (Value/Variable/Expression/Argument) → textarea that wraps
-
----
-
-## Session 15 — What Was Fixed
-
-1. ✅ Device picker changed to inline panel with search
-2. ✅ Static domain capability map added (DOMAIN_CAPS) for offline/local variable use
-3. ✅ Local device variable caps now derived from entity domain instead of hardcoded "switch"
-4. ✅ Modal size increased to 720px wide, full height
-5. ✅ Value inputs changed to textareas for free-text types
-6. ✅ Orange "Any of the selected devices" banner added (shows on device select)
-7. ✅ "Which interaction" row always visible
-8. ✅ HA settings modal built — click badge to open, save URL+token, test connection
-9. ✅ HA WebSocket connection working — real devices loading in wizard
-10. ✅ Domain filter added to ha_client.py — junk entities removed
-11. ✅ Entity label parser added — "Basement — Volume" disambiguation
-12. ✅ Devices sorted by area then name
-
----
-
-## Files Changed in Session 15
-
-- `frontend/js/wizard.js` — device picker, caps, modal size, value inputs, banner
-- `frontend/css/style.css` — modal size, wiz-body scrolling, spacing
-- `frontend/js/app.js` — HA badge click, HASettings module, checkHAConnection
-- `frontend/index.html` — HA settings modal markup
-- `backend/ha_client.py` — domain filter, label parser, area sort
-
----
-
-## Future Plans (noted, not blocking)
-
-- Addon packaging (after core is working and validated in Docker dev environment)
-- v2 PistonCore native runtime engine to replace PyScript (evaluate AppDaemon first)
-- AND/OR prompt between conditions (Priority 2 above)
-- Virtual test devices in HA
-- Login system (post-v1)
-- Cloud hosting (after login)
-- "Only show devices in areas" filter toggle for device picker
-- My Device Definitions screen (hide/rename entities from picker)
-- WebCoRE-style toolbar icons
-- Docker product (after addon is solid)
+- NEVER two modals open at once
+- if_block selection goes to condition builder FIRST, inserts block AFTER condition done
+- Uses _extra['block-id'] exclusively — unified mechanism
+- Backdrop is transparent — no dark overlay
+- Modal is centered, 720px wide, fills screen height, wiz-body scrolls
+- Condition builder: ONE screen, everything visible at once
+- Device picker opens as inline panel BELOW the row with search
+- Operator order: Triggers FIRST with ⚡, Conditions second
+- Value inputs: binary/enum → dropdown, numeric → number input, free text → textarea
 
 ---
 
@@ -451,31 +265,26 @@ Session 13: Major wizard and editor fixes. Variable wizard layout, define block 
             mode persistence, condition picker improvements, edit-in-place for statements.
 Session 14: Condition builder inline device/attribute pickers. Demo device search fix.
             Argument option added. Add more reset. Any-of single device fix. CSS for dropdowns.
-            Attribute changed to native select. COMPILER_SPEC open item 8 added.
 Session 14.5: wizard.js and editor.js structural bug fixes. Step stack, device selection,
               refreshConditionRows, operator order, if_block unified mechanism.
 Session 15: Wizard improvements (larger modal, device search panel, domain caps map,
             context-aware value inputs, agg banner). HA settings page with WebSocket
             connection. Real devices loading. Domain filter + label disambiguator in backend.
-Session 16: Architecture pivot discussion. HACS companion dropped — replaced by direct REST
-            API. Primary target shifted to native HA Addon. Docker version secondary (later).
-            PyScript KEPT for v1 — compiler mostly built, no reason to discard. Native runtime
-            engine planned for v2 — AppDaemon flagged as potential foundation to evaluate.
-            Piston JSON confirmed as permanent master format — core principle. Seven design
-            decisions documented for DESIGN.md rewrite. No code written this session.
+Session 16: Architecture pivot. Companion dropped, addon primary, Docker secondary.
+            PyScript permanent for Docker. AppDaemon ruled out. 28 design decisions doc'd.
+            No code written.
+Session 17: All four repo docs rewritten to v1.0. Data-driven compile boundary added.
+            Hybrid-permanent decision locked. AI instruction file system defined.
+            write-a-piston.md prompt created. COMPILER_SPEC.md flagged stale. No code written.
 
 ---
 
-## Next Session — Start Here
+## Next Session Checklist
 
-1. Read this prompt fully — pay close attention to Architecture Pivot and Compiler Output Model
-2. This is a design document rewrite session — confirm with Jeremy before touching any code
-3. Resolve open architecture questions with Jeremy (listed above)
-4. Rewrite DESIGN.md to v1.0 using the checklist above — this is the priority
-5. Update FRONTEND_SPEC.md (BASE_URL standard, complexity indicator, feature flags)
-6. Update WIZARD_SPEC.md (note PyScript vs runtime for complex features)
-7. Rewrite README.md (two-product story, remove stale planned language)
-8. After documents done: ask Jeremy to upload files and resume bug fix list
-9. Bug fix priority: Priority 1 (device list quality) → Priority 2 (AND/OR) → etc.
-10. After each fix: give Jeremy yes/no test checklist, wait for screenshot
-11. Generate updated session prompt at end of session
+1. Read this prompt fully
+2. Confirm with Jeremy: start with COMPILER_SPEC.md update, or jump to bug fixes?
+3. If bug fixes: ask Jeremy to upload current frontend files before touching any code
+4. Ask Jeremy for WebCoRE reference screenshots if wizard work is on the agenda
+5. Present full fix list before writing any code — wait for go
+6. After each fix: give yes/no test checklist, wait for screenshot
+7. Generate updated session prompt at end of session

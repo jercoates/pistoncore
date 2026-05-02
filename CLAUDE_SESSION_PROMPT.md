@@ -283,10 +283,16 @@ Wire up compilation and deployment to HA. Requires COMPILER_SPEC.md done first.
 
 ## Backend / Compiler Gaps — Fix After Wizard Works End to End
 
-1. **Wizard produces service_call, compiler expects with_block**
+1. **Wizard produces service_call, compiler expects with_block — FORMAT DECISION NEEDED**
    - _saveDeviceCmd() produces {type:"service_call", devices:[entityId]}
    - Compiler _compile_sequence() has no handler for service_call
-   - Fix: add _normalize_action() to compiler, or make wizard produce with_block
+   - This is not just a wizard bug — it is an unresolved format contract question
+   - Decision must be made when COMPILER_SPEC.md is updated:
+     Option A: Fix in wizard — wizard produces with_block, compiler never sees service_call
+     Option B: Fix in compiler — add _normalize_action() to handle both formats
+   - Recommendation: Option A. Piston JSON should be canonical format (with_block).
+     Compiler should never normalize malformed input — clean contract is easier to maintain.
+   - Whatever is decided must be locked in COMPILER_SPEC.md before compiler work starts
 
 2. **Entity ID vs Role in device_map**
    - Wizard stores entity_id on subject but compiler resolves via device_map[role]

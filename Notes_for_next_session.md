@@ -127,6 +127,61 @@ Update that example when rewriting the spec.
 
 ---
 
+## Test Devices — Promote to V1 (Compiler Testing Dependency)
+
+Originally deferred to post-v1 but should be reconsidered as v1 scope because
+it directly speeds up compiler testing. Without controllable test devices, every
+compiler test cycle requires waiting for real devices to change state or manually
+triggering things in HA. That slows every test iteration significantly.
+
+PistonCore already has REST API access to create and control input helpers —
+the implementation cost is low and the testing productivity gain is high.
+
+### How It Works
+
+HA input helpers are real entities that behave identically to physical devices
+from an automation/trigger perspective. HA cannot tell the difference.
+
+For richer fake devices, combine input helpers with template entities:
+- input_boolean.test_motion_sensor → template binary_sensor with device_class: motion
+- HA sees a real motion sensor, wizard discovers it with correct capabilities,
+  real triggers fire when state changes
+
+### PistonCore Implementation
+
+Add a "Test Devices" screen in PistonCore settings:
+1. User defines a test device — name, domain, device_class
+2. PistonCore calls HA REST API to create the appropriate input helper
+3. Test device appears in wizard device picker immediately like any real device
+4. State control panel in PistonCore: toggle (binary), slider (numeric),
+   dropdown (enum) — calls HA helper set service directly via REST API
+5. No HA dashboard needed, no HA UI involved — PistonCore is the control panel
+
+### Test Device Types to Support
+
+| Simulates | Input Helper | device_class |
+|---|---|---|
+| Motion sensor | input_boolean | motion |
+| Door/window contact | input_boolean | door / window |
+| Light switch | input_boolean | — |
+| Dimmer light | input_number (0-100) | — |
+| Temperature sensor | input_number | temperature |
+| Presence/occupancy | input_boolean | occupancy |
+| Media player state | input_select (playing/paused/idle/off) | — |
+| Lock | input_boolean | lock |
+
+### Why V1 and Not Later
+
+- Compiler cannot be properly tested without controllable triggers
+- Real devices are unreliable as test fixtures — state changes happen on their own schedule
+- Every compiler feature (triggers, conditions, loops, waits) needs a device
+  whose state can be set precisely at test time
+- PistonCore already has all the API access needed — this is low effort, high value
+- Users will also benefit — this is the missing piece Jeremy was trying to solve
+  with HA dashboards
+
+---
+
 ## Docker Native Runtime Option for Docker HA Users
 
 When updating COMPILER_SPEC.md, add as a planned future extensible output target.

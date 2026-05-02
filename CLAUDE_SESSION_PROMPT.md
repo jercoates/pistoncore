@@ -47,20 +47,23 @@ Do NOT code against the old architecture. Do NOT start coding until DESIGN.md is
 **New architecture:**
 - Primary target: Native HA Addon (HA OS and HA Supervised)
 - Secondary target: Docker container — build later once addon is solid
-- PyScript: KEPT for v1 complex pistons — compiler mostly built, no reason to discard
+- PyScript: KEPT for v1 addon complex pistons, PERMANENT for Docker complex pistons
 - HACS companion integration: GONE entirely
-- Auth: Supervisor token (addon) or long-lived token entered in settings (Docker)
+- Auth: HAClient abstraction — supervisor token (addon) or long-lived token (Docker)
 - File writing: HA REST API directly — no companion needed
-- PistonCore native runtime engine: v2 feature — architecture ready, not built yet
+- Frontend never talks to HA directly — all HA calls go through PistonCore backend only
+- AppDaemon: RULED OUT — definitively, see design decisions item 28
+- PistonCore native runtime engine: v2 addon feature — slim purpose-built async runner,
+  estimated 2-4 weeks to build, not months
 
 ### Why This Is Better
-- PyScript stays for v1 — working code, ship what works
-- Native runtime engine is the long term PyScript replacement — designed in, built in v2
+- PyScript stays for v1 addon and permanently for Docker — ship what works
+- AppDaemon ruled out — observability impossible on someone else's runtime
+- Native runtime is purpose-built for piston JSON — full execution tracing and debugging
 - Eliminates HACS companion (complex to distribute, significant maintenance burden)
-- HA Addon = proper two-click install from addon store for the majority of HA users
-- Core backend code is the same for both targets — only packaging and auth differ
-- HA OS / Supervised are the dominant HA install types — this is the right primary target
-- Docker HA users (no supervisor) will wait for the Docker version — they understand the limitation
+- HA Addon = proper two-click install for majority of HA users
+- HAClient abstraction centralizes all auth — auth differences are config only
+- Frontend/backend boundary enforced — supervisor token never reaches browser
 
 ---
 

@@ -654,3 +654,201 @@ users install once. PistonCore Docker just generates the files. Low ongoing burd
 - Update v2 runtime section: native runtime is addon-only, Docker keeps PyScript
 - Remove any language implying PyScript is deprecated everywhere in v2
 - Frame Docker product as full featured power user alternative, not lite version
+
+---
+
+## 22. Frontend Must Never Talk To HA Directly
+
+### Problem
+If any frontend JavaScript ever calls HA APIs directly using the supervisor token,
+that is a security vulnerability. The supervisor token must never leave the backend.
+
+### Decision Needed
+Hard rule — non-negotiable:
+- All HA communication goes through the PistonCore backend only
+- Frontend calls PistonCore API endpoints only
+- Backend calls HA — never the frontend
+- Supervisor token is backend-only, never exposed to frontend or browser
+- Enforce this in code review and document it as a security invariant in DESIGN.md
+
+### What To Do In DESIGN.md
+- Add as security invariant: frontend never touches HA directly
+- Add to FRONTEND_SPEC.md as a hard rule
+- Note: if JS ever fetches from HA directly that is a bug, not a feature
+
+---
+
+## 23. HAClient Abstraction — Urgent, Before More Features
+
+### Problem
+Auth logic for supervisor token (addon) vs long-lived token (Docker) will sprawl
+into multiple files if not centralized now. Fixing scattered auth later requires
+touching every file that makes HA calls.
+
+### Decision Needed
+Define and implement HAClient abstraction before any more backend features are built:
+
+```python
+HAClient(auth_mode="supervisor" | "token", token=None)
+```
+
+- Single class handles all HA communication
+- Auth mode is config-only — rest of codebase never knows which mode is active
+- Supervisor token injected via SUPERVISOR_TOKEN environment variable — never stored
+- All HA API calls go through this class — nothing else calls HA directly
+- This is urgent — do it before addon packaging work starts
+
+### What To Do In DESIGN.md
+- Add HAClient as a core backend component
+- Define auth_mode interface
+- Add to backend architecture section
+- Flag as must-do before addon packaging
+
+---
+
+## 24. WebSocket Connections Also Need BASE_URL Treatment
+
+### Problem
+Item 4 (BASE_URL) covers HTTP API paths. Ingress also affects WebSocket connections
+and static assets. The trace/debug WebSocket will break under ingress if it uses
+a hardcoded path.
+
+### Decision Needed
+BASE_URL treatment applies to ALL frontend connections — not just fetch calls:
+- WebSocket connections use BASE_URL prefix
+- Static asset paths use BASE_URL prefix
+- Absolute URLs anywhere in frontend use BASE_URL prefix
+- No exceptions — ingress will break anything hardcoded
+
+### What To Do In DESIGN.md
+- Expand BASE_URL section to explicitly cover WebSockets and static assets
+- Add to FRONTEND_SPEC.md: BASE_URL applies to all connection types
+
+---
+
+## 25. Test Ingress Before UI Is Complete
+
+### Problem
+Docker dev environment (localhost:7777) hides ingress bugs completely. Addons that
+work perfectly in Docker break when running under HA ingress. Finding this after
+UI is "done" means significant rework.
+
+### Decision Needed
+Ingress compatibility testing is a first-class development requirement:
+- Set up a test HA instance with the addon running under ingress before UI is finished
+- Test every frontend feature under ingress, not just Docker
+- Add ingress test to definition of "done" for any UI feature
+- Do not consider UI complete until ingress is verified working
+
+### What To Do In DESIGN.md
+- Add ingress testing requirement to development process section
+- Note that Docker-only testing is insufficient for addon target
+
+---
+
+## 26. State Rehydration on HA Restart (v2 Runtime)
+
+### Problem
+If the v2 runtime has pistons mid-execution when HA restarts, behavior is undefined.
+Users need to know what to expect and the runtime needs a defined strategy.
+
+### Decision Needed
+Define rehydration behavior before v2 runtime is designed:
+- On HA reconnect, runtime resubscribes to all active piston triggers
+- In-flight executions at time of disconnect are abandoned — not resumed
+- Pistons that were mid-delay restart from the beginning on next trigger
+- State cache is rebuilt from HA on reconnect, not from memory
+- Document this behavior clearly in UI — users should understand pistons don't resume mid-execution
+
+### What To Do In DESIGN.md
+- Add state rehydration section to v2 runtime design
+- Define abandoned execution behavior explicitly
+- Note in UI spec: show reconnection status clearly
+
+---
+
+## 27. Addon Permissions — Minimum Required Only
+
+### Problem
+Over-permissioned addons raise red flags with users and in any future official store
+review. Defining permissions late means auditing and potentially breaking changes.
+
+### Decision Needed
+Define minimum required permissions in addon config.json now:
+- homeassistant API access — required for service calls and state reads
+- filesystem access to /config — required for writing automation files
+- hassio_api — only if supervisor token access requires it
+- No other permissions
+- Document why each permission is needed
+
+### What To Do In DESIGN.md
+- Add permissions section to addon architecture
+- List minimum required permissions with justification for each
+- Note: request only what is needed, nothing more
+
+---
+
+## 28. AppDaemon — Definitively Off The Table
+
+### Problem
+Item 14 left AppDaemon as an open question with Option B recommended. Based on
+detailed ChatGPT analysis this is now a closed decision. AppDaemon is ruled out.
+
+### Why (definitive reasoning)
+Three fatal mismatches for PistonCore specifically:
+
+1. Programming model mismatch — AppDaemon expects static Python classes.
+   PistonCore needs dynamic pistons loaded from JSON at runtime. You end up
+   building a runtime layer inside AppDaemon that ignores its intended model.
+   At that point AppDaemon is just a transport layer you're fighting.
+
+2. Observability is impossible — WebCoRE's real value was logs, traces, and
+   visibility into execution. PistonCore must replicate this. You cannot get
+   clean observability riding on top of another runtime you don't control.
+   This single point rules out AppDaemon for a product like PistonCore.
+
+3. Two-runtime debugging — PistonCore logic → AppDaemon → HA is three layers.
+   When something breaks users cannot tell which layer caused it. Unacceptable
+   for a product targeting non-technical users.
+
+### What To Build Instead
+Slim purpose-built async runtime. Actual scope:
+- HA WebSocket client with reconnection logic
+- Event router (state_changed, time, etc.)
+- Execution engine that walks piston JSON
+- Scheduler for delays and time triggers
+- Estimated build time: 2-4 weeks of focused backend work, not months
+
+### Spike Approach (reduces risk)
+Use AppDaemon briefly as a throwaway spike to validate event model and test
+piston execution concepts. Learn from it. Then build the real thing from scratch.
+Spike is disposable — not the foundation.
+
+### What To Do In DESIGN.md
+- Update item 14 — AppDaemon is ruled out, decision is closed
+- Define v2 runtime as purpose-built slim async runner
+- Add scope estimate (2-4 weeks) to set expectations
+- Add spike approach as optional risk reducer
+- Remove all "evaluate AppDaemon" language — replace with "AppDaemon ruled out, see item 28"
+
+---
+
+## Final Summary — All 28 Items for DESIGN.md Rewrite
+
+Original items: 1-7
+Added from Gemini review: 8-14
+Added from Grok review: 15-20
+Added from session discussion: 21
+Added from ChatGPT review: 22-28
+
+Priority order for DESIGN.md rewrite:
+1. Items 1, 3, 7, 8, 9, 10, 17 — template system, manifest, API externalization
+2. Items 4, 18, 24 — BASE_URL, ingress/port, WebSocket coverage
+3. Items 5, 19 — compiler contract, background compile
+4. Items 6, 20 — global naming, token security
+5. Items 11, 12, 13 — versioning split, piston identity, orphan cleanup
+6. Items 14/28 — v2 runtime direction (AppDaemon ruled out, slim runner confirmed)
+7. Items 15, 16 — test compile preview, PyScript detection
+8. Items 21, 22, 23 — PyScript permanent for Docker, frontend/HA boundary, HAClient
+9. Items 25, 26, 27 — ingress testing, state rehydration, addon permissions
+10. PyScript/runtime/extensible output target section

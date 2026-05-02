@@ -1,8 +1,8 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.5
+**Version:** 0.6
 **Status:** Draft — For Developer Use
-**Last Updated:** April 2026
+**Last Updated:** May 2026
 
 This document is written for the frontend developer. It defines exactly what to build.
 Read DESIGN.md first for background and philosophy. This document is the concrete implementation spec.
@@ -18,6 +18,57 @@ Deviation from WebCoRE requires a specific documented reason.
 - No build pipeline, no transpilation
 - Files served directly by the FastAPI backend at port 7777
 - WebSocket connection to HA is managed by the backend — the frontend talks to the backend, not directly to HA
+
+---
+
+## Hard Rules — No Exceptions
+
+**The frontend never calls HA directly.** This is a security invariant, not a guideline. All HA data comes from the PistonCore backend API. Any `fetch()` to an HA URL in frontend JS is a bug.
+
+**BASE_URL must be used for every connection.** See the BASE_URL section below. No hardcoded paths anywhere.
+
+---
+
+## BASE_URL Standard — Required for All Connections
+
+HA addon ingress proxies traffic through a path prefix. All frontend connections must use `BASE_URL` so they work correctly under both Docker (no prefix) and addon ingress (prefix injected at serve time).
+
+```javascript
+// frontend/js/config.js
+const BASE_URL = window.PISTONCORE_BASE_URL || '';
+```
+
+Apply `BASE_URL` to every connection type — no exceptions:
+
+```javascript
+// API calls
+fetch(BASE_URL + '/api/pistons')
+
+// WebSocket
+new WebSocket(BASE_URL.replace('http', 'ws') + '/ws')
+
+// Any dynamically constructed static asset path
+BASE_URL + '/static/something.js'
+```
+
+**Docker:** `BASE_URL` is empty string — zero change to current behavior.
+**Addon ingress:** `BASE_URL` is injected by the backend at page serve time.
+
+Any hardcoded path is a bug that will silently break under addon ingress.
+
+---
+
+## Deployment Type Feature Flags
+
+The backend includes `deployment_type: "addon" | "docker"` in the config response. The frontend uses this to conditionally show or hide UI elements:
+
+| UI Element | Addon | Docker |
+|---|---|---|
+| HA token entry field in settings | Hidden — supervisor token is automatic | Shown |
+| PyScript requirement indicator on complex pistons | Hidden in v2+ (native runtime available) | Always shown |
+| "HA Disconnected" badge | Shown if WebSocket not connected | Shown if WebSocket not connected |
+
+Feature flags are informational — the editor never blocks building based on deployment type.
 
 ---
 
@@ -41,7 +92,7 @@ There is no fourth page. The wizard is a modal that opens on top of the editor.
 ### Layout
 
 Single scrolling list. **Not a two-column layout.** Folder names appear as inline section headers
-with a piston count — the same pattern WebCoRE uses. There is no folder sidebar column.
+with a piston count. There is no folder sidebar column.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -69,39 +120,65 @@ with a piston count — the same pattern WebCoRE uses. There is no folder sideba
 
 ### Folder Section Headers
 
-- Folder name in a distinct color (teal or equivalent, matching WebCoRE's style) as a section divider
+- Folder name in a distinct color (teal or equivalent, matching WebCoRE's style)
 - Piston count shown inline: "Outdoor Lighting (3)"
 - A horizontal rule or divider line below the header
 - Folders are sorted alphabetically; Uncategorized always appears last
-- `[+ New Folder]` button at the bottom of the list — opens a simple inline text input to name the new folder
-- Folders are created here only — not in the editor or wizard
+- `[+ New Folder]` at the bottom of the list — opens a simple inline text input
 
 ### Piston List Items
 
 Each piston shows on a single row:
 - Enabled indicator: `●` (green, enabled) or `○` (gray, disabled)
-- Piston name — clicking navigates to the Status Page for that piston
-- Last evaluation result: `✅` (true) / `❌` (false) / `—` (never run or disabled) — shown inline after the name
-- Last ran timestamp — shown right-aligned as a time only: `08:46:25` not "10 minutes ago". Shows `Never` if never run.
+- Piston name — clicking navigates to the Status Page
+- Last evaluation result: `✅` / `❌` / `—` (never run or disabled)
+- Last ran timestamp — right-aligned, time only: `08:46:25` not "10 minutes ago". Shows `Never` if never run.
 - Pause/Resume button per piston (inline, subtle)
 
 ### Global Variables Drawer
 
-Accessible from the main list page via a button or link in the header area.
-A slide-out panel from the right side showing all global variables and their current values — read only.
-Matches the WebCoRE right sidebar behavior.
-
-### Mode Notice
-
-**Standard mode notice (subtle, footer):**
-*"PistonCore manages automations in its own subfolder. Automations created directly in Home Assistant are not visible or managed here."*
+Accessible from the header area. A slide-out panel from the right showing all global variables and their current values — read only.
 
 ### Buttons
 
-- `[Copy AI Prompt]` — copies the PistonCore JSON format spec to clipboard (redesign required — see DESIGN.md Section 11)
-- `[+ New]` — creates a new blank piston and navigates to its Status Page. New piston lands in Uncategorized.
+- `[+ New]` — creates a new blank piston and navigates to its Status Page. Lands in Uncategorized.
 - `[+ New Folder]` — opens inline text input at the bottom of the list
 - `[Import]` — opens import dialog (paste JSON, paste URL, or upload .piston file)
+- `[AI Help]` — opens the AI Help modal (see below)
+
+### AI Help Modal
+
+The AI Help button on the main menu opens a modal with user-facing AI prompts. v1 contains one prompt: **Write a Piston**.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  AI Help — Write a Piston                       [✕] │
+├─────────────────────────────────────────────────────┤
+│  Copy this prompt and paste it into any AI          │
+│  assistant (ChatGPT, Claude, Gemini, etc.).         │
+│  Then describe what you want your piston to do.     │
+│  When the AI gives you JSON, come back and use      │
+│  the Import button on this page to load it.         │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐   │
+│  │ [prompt text — read only, scrollable]       │   │
+│  │                                             │   │
+│  │                                             │   │
+│  └─────────────────────────────────────────────┘   │
+│                                                     │
+│                        [Copy to Clipboard] [Close]  │
+└─────────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+- Modal opens centered, backdrop transparent (matches wizard style)
+- Prompt text area is read-only and scrollable — user cannot edit it
+- `[Copy to Clipboard]` copies the full prompt text, button changes to `[Copied ✓]` for 2 seconds
+- `[Close]` or `[✕]` closes with no action
+- Prompt content is fetched from `GET /api/prompts/write-a-piston` — backend serves the file from `pistoncore/prompts/write-a-piston.md`
+- If the fetch fails, show: *"Prompt unavailable — check your connection and try again."*
+
+**Future prompt options** (not v1 scope) will appear as tabs or a dropdown inside this same modal. Do not build the tab structure until a second prompt exists.
 
 ---
 
@@ -120,8 +197,8 @@ Saving in the editor always returns here.
 │  ⚠ VALIDATION                                       │
 │  (warnings appear here automatically after save)    │
 ├─────────────────────────────────────────────────────┤
-│  [✎ Edit] [▶ Test — Live Fire ⚠] [📷 Snapshot]     │
-│  [📷 Backup] [⧉ Duplicate] [🗑 Delete]              │
+│  [✎ Edit] [▶ Test — Live Fire ⚠] [Test Compile]     │
+│  [📷 Snapshot] [📷 Backup] [⧉ Duplicate] [🗑 Delete]│
 │                      [Trace: OFF]  [⚠ Notify: OFF]  │
 ├─────────────────────────────────────────────────────┤
 │  QUICK FACTS                                        │
@@ -134,25 +211,12 @@ Saving in the editor always returns here.
 │  execute                                            │
 │  1   with                                           │
 │  2     (Driveway Main Light)                        │
-│  3   do                                             │
-│  4     Turn On                                      │
-│  5       Brightness: 100%                           │
-│  6   end with;                                      │
-│  7   wait until 11:00 PM;                           │
-│  8   with                                           │
-│  9     (Driveway Main Light)                        │
-│  10  do                                             │
-│  11    Turn Off                                     │
-│  12  end with;                                      │
+│  ...                                                │
 │  end execute;                                       │
 ├─────────────────────────────────────────────────────┤
 │  LOG                          [▼ Full] [Clear Log]  │
 │  08:46:25 — Triggered by sunset                     │
-│    Condition 1: No conditions — passed              │
-│    Action 1: Turn On Driveway Main Light — ✅        │
-│    Action 2: Wait until 11:00 PM                    │
-│    Action 3: Turn Off Driveway Main Light — ✅       │
-│    Completed in 0.3s                                │
+│  ...                                                │
 ├─────────────────────────────────────────────────────┤
 │  VARIABLES                                          │
 │  (piston variable state from last run)              │
@@ -161,41 +225,48 @@ Saving in the editor always returns here.
 
 ### Piston Script Panel
 
-Displayed below Quick Facts, above the Log panel.
-
-This shows the piston in **read-only form** — the same visual document the editor shows, rendered
-with syntax highlighting and statement numbers. This is PistonCore's own visual format, the script
-the user authored. It is NOT compiled output (YAML or PyScript).
+Shows the piston in **read-only form** — the same visual document the editor shows, rendered with syntax highlighting and statement numbers. This is PistonCore's own visual format.
 
 **Compiled output is never shown on this page.**
 
 Rendering rules:
-- `execute` and `end execute;` appear as wrapper lines at the top and bottom of the script
+- `execute` and `end execute;` appear as wrapper lines
 - Statement numbers appear on the left (used by Trace mode)
-- Keywords are styled the same as in the editor (distinct color/weight)
-- Indentation matches the editor indentation
+- Keywords are styled the same as in the editor
 - The saved format is used here: `then / end if;` (not `when true / when false`)
-- The view is read-only — clicking on it opens the editor
+- Clicking on it opens the editor
+
+### Test Compile Button
+
+`[Test Compile]` opens a read-only compiled YAML or PyScript output view. This is the **only place compiled output is ever shown to the user.** The view is read-only and does not deploy to HA.
+
+Compiler errors and warnings appear inline below the compiled output.
 
 ### Test Button — Always Live Fire
 
-**Both compile targets (Native HA Script and PyScript) execute real device actions when tested.**
-There is no preview or dry-run mode for either target.
+Both compile targets execute real device actions when tested. There is no preview or dry-run mode.
 
-The Test button always shows: `[▶ Test — Live Fire ⚠]`
+Button always shows: `[▶ Test — Live Fire ⚠]`
 
-Before firing, always show a confirmation dialog:
+Before firing, always show:
 *"This will execute real actions on your devices. Are you sure?"*
 `[Yes, run it]` `[Cancel]`
 
 The ⚠ warning symbol must be visible on the button itself before the user clicks.
 
+### Compile Target / Complexity Indicator
+
+Quick Facts section shows current compile target. If the piston is complex (PyScript required), show a subtle indicator:
+- **Addon:** "Requires PyScript — install via HACS before deploying"
+- **Docker:** Same indicator, same text
+
+If PyScript is detected as already installed, the indicator changes to a neutral confirmation: "PyScript: Installed ✓"
+
 ### Navigation
 
-- `← My Pistons` returns to the folder this piston is in — not always the root list
-- If the piston is in Uncategorized, the back button returns to the list with Uncategorized visible
+- `← My Pistons` returns to the piston list
 - `[✎ Edit]` opens the Editor for this piston
-- Folder dropdown on this page allows reassigning the piston to a different folder
+- Folder dropdown allows reassigning the piston to a different folder
 
 ### Buttons
 
@@ -203,44 +274,30 @@ All buttons use icon + plain English label. Never icon alone.
 
 - `[✎ Edit]` — opens editor
 - `[▶ Test — Live Fire ⚠]` — fires the piston manually, always with confirmation dialog
+- `[Test Compile]` — shows compiled output in read-only view, does not deploy
 - `[📷 Snapshot]` — green label — anonymized export, safe to share
 - `[📷 Backup]` — red label — full export including entity mappings, personal restore only
-- `[⧉ Duplicate]` — creates a copy of the piston, lands in Uncategorized
-- `[🗑 Delete]` — deletes the piston with a confirmation prompt
+- `[⧉ Duplicate]` — creates a copy, lands in Uncategorized
+- `[🗑 Delete]` — deletes with confirmation prompt
 - `[Trace: OFF/ON]` — toggle, only active after Test has been pressed at least once
 - `[⚠ Notify: OFF/ON]` — toggle, enables failure notifications via persistent HA UI notification
 
 ### Validation Banner
 
-Appears automatically after save. Shows warnings and errors from Stage 1 internal validation.
-Plain English only. No technical error codes.
+Appears automatically after save. Shows warnings and errors from Stage 1 internal validation. Plain English only. No technical error codes visible to the user.
 
 ### Log Panel
 
 Most recent runs at the top. Each run entry is collapsible.
-Log level selector: Full / Minimal / None (mirrors what is set in the editor).
-`[Clear Log]` button clears all entries.
+Log level selector: Full / Minimal / None.
+`[Clear Log]` clears all entries.
 
-Timestamps in the log are shown as the time the event was received, not just when the piston ran.
-If status is unknown (WebSocket drop, missed event), show: *"Status unknown"* — never wrong information.
+If status is unknown (WebSocket drop, missed event): show *"Status unknown"* — never wrong information.
 
-**Stale run detection:**
+**Stale run detection:** If `PISTONCORE_RUN_COMPLETE` is not received within a configurable timeout (default 5 minutes), the log entry updates to:
+*"Status unknown — piston may still be running, or may have been interrupted. Check Home Assistant logs for details."*
 
-The companion tracks when a piston automation fires and starts a timeout timer. If
-`PISTONCORE_RUN_COMPLETE` is not received within 5 minutes of the run starting, the log
-entry updates to:
-
-*"Status unknown — piston may still be running, or may have been interrupted before
-completing. Check Home Assistant logs for details."*
-
-The 5-minute default is configurable in PistonCore settings (Settings → Run Timeout). For
-pistons with long waits (e.g. `wait until 11:00 PM` that may be hours away), this timeout
-will fire during normal operation. Users with long-running pistons should increase the
-timeout or understand that "status unknown" during a long wait is expected behavior, not
-an error.
-
-**Never show "Running..." indefinitely.** After the configurable timeout, always resolve to
-the unknown status message above.
+Never show "Running..." indefinitely.
 
 ---
 
@@ -271,82 +328,22 @@ the unknown status message above.
 ├─────────────────────────────────────────────────────┤
 │  ▼ ACTIONS                                          │
 │  execute                                            │
-│  [action tree — indented, see rendering section]    │
+│  [action tree — indented]                           │
 │  + add a new statement                              │
 │  end execute;                                       │
 ├─────────────────────────────────────────────────────┤
 │  [▶ Test]  [💾 Save to PistonCore]  [🚀 Deploy to HA]│
 │  [📷 Snapshot] [📷 Backup]                          │
 │  Log Level: [Full ▼]                                │
+│  Compile status: [Compiled ✓]                       │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Two Distinct Save Operations — UI Must Make This Unmistakable
+### Simple / Advanced Mode Toggle
 
-There are two separate operations and users must never confuse them:
+Single global toggle. **Default is Advanced.**
 
-**Save to PistonCore** `[💾 Save to PistonCore]`
-- Writes the piston JSON to the Docker volume
-- Runs Stage 1 internal validation
-- Fast — no HA involvement at all
-- Returns to the status page on success
-- This is where your work is preserved
-
-**Deploy to HA** `[🚀 Deploy to HA]`
-- Compiles the piston to native HA files
-- Runs Stages 2–4 validation
-- Writes automation and script files to HA directories
-- Calls automation.reload and script.reload
-- Only available after at least one successful Save to PistonCore
-- A separate button — never combined with Save
-
-The status page shows which version is deployed vs saved. If the saved piston differs from the
-deployed version, the status page shows: *"Unsaved changes — deploy to update HA."*
-
-### Save Pipeline
-
-1. Frontend validates piston has a name — if empty, stop and highlight the field
-2. Frontend sends piston JSON to backend via POST
-3. Save button shows loading state: "Saving..."
-4. Backend writes piston JSON to Docker volume, runs Stage 1 validation
-5. Backend returns success or failure plus any validation warnings
-6. If success → navigate to status page, warnings appear in banner if any
-7. If write fails → stay in editor, error banner: "Save failed — your work is preserved. Try again."
-
-### Unsaved Changes
-
-If the user navigates away with unsaved changes, show a prompt:
-*"You have unsaved changes. Save, Discard, or Cancel?"*
-- Save → triggers save pipeline then navigates
-- Discard → navigates without saving
-- Cancel → returns user to editor
-
-### Browser Refresh
-
-On refresh, restore from local browser storage:
-- Currently open folder / scroll position in the piston list
-- Last viewed status page (if on status page)
-- Editor state if in the editor — unsaved changes preserved
-
-### WebSocket Drop While in Editor
-
-If the WebSocket connection to HA drops:
-- Show a reconnecting banner at the top of the editor
-- Disable the Deploy to HA button
-- Disable wizard capability fetching (wizard can still open but shows an error state)
-- Preserve all unsaved work in local browser storage
-- When connection restores, remove banner and re-enable everything
-
-### Compile Target Indicator
-
-Shows the current compile target (Native HA Script or PyScript) based on auto-detection rules.
-Updates live as the user adds statements. If the target changes from Native HA Script to PyScript
-mid-build, show a brief inline notification:
-*"This piston now requires PyScript compilation."*
-
-### Simple / Advanced Toggle
-
-Single global toggle. Default is Simple.
+Mode preference saved to localStorage (`pc_simpleMode`).
 
 **Simple mode hides:**
 - Piston Variables section
@@ -358,28 +355,90 @@ Single global toggle. Default is Simple.
 
 **Advanced mode shows everything.**
 
-Switching modes never destroys data. A piston built in Advanced mode opens correctly in Simple mode
-— advanced features are not editable until switching back.
+Switching modes never destroys data.
+
+### Compile Target Indicator
+
+Shows the current compile target based on auto-detection. Updates live as the user adds statements. If the target changes from Native HA Script to PyScript mid-build:
+
+*"This piston now requires PyScript compilation."*
+
+This indicator is always visible in the editor header area.
+
+### PyScript Requirement Indicator
+
+If the current piston is complex (PyScript required) and PyScript is not detected in HA:
+
+- Show a subtle warning below the compile target indicator
+- Text: "PyScript not detected in HA — required before deploying this piston"
+- On Docker: always show this for complex pistons until PyScript is confirmed installed
+- On Addon v2+: suppress this indicator entirely (native runtime replaces PyScript)
+
+### Compile Status Indicator
+
+Shows background compile state in the editor footer:
+- `Compiling...` — compile job running
+- `Compiled ✓` — last compile succeeded
+- `Error ✗` — last compile had errors (click to view)
+
+Background compilation runs on a 2-second debounce after the last change. Never blocks the UI.
+
+### Two Distinct Save Operations — UI Must Make This Unmistakable
+
+**Save to PistonCore** `[💾 Save to PistonCore]`
+- Writes the piston JSON to the volume
+- Runs Stage 1 internal validation
+- Fast — no HA involvement at all
+- Returns to the status page on success
+
+**Deploy to HA** `[🚀 Deploy to HA]`
+- Compiles the piston to native HA files
+- Runs Stages 2–4 validation
+- Writes automation and script files to HA
+- Only available after at least one successful Save to PistonCore
+
+The status page shows: *"Unsaved changes — deploy to update HA."* when the saved piston differs from deployed.
+
+### Save Pipeline
+
+1. Frontend validates piston has a name — if empty, stop and highlight the field
+2. Frontend sends piston JSON to backend via POST
+3. Save button shows: "Saving..."
+4. Backend writes piston JSON to volume, runs Stage 1 validation
+5. Backend returns success or failure plus any validation warnings
+6. If success → navigate to status page, warnings appear in banner if any
+7. If write fails → stay in editor, error banner: "Save failed — your work is preserved. Try again."
+
+### Unsaved Changes
+
+If the user navigates away with unsaved changes:
+*"You have unsaved changes. Save, Discard, or Cancel?"*
+
+### WebSocket Drop While in Editor
+
+If the WebSocket connection to HA drops:
+- Show a reconnecting banner at the top of the editor
+- Disable the Deploy to HA button
+- Disable wizard capability fetching (wizard can still open but shows an error state)
+- Preserve all unsaved work in local browser storage
+- When connection restores: remove banner, re-enable everything
 
 ---
 
 ## The Action Tree — Document Rendering
 
-This is the core of the editor. It renders the piston's action tree as a structured document
-that reads top to bottom like a script.
+This is the core of the editor. It renders the piston's action tree as a structured document.
 
-The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the
-frontend. **execute and end execute are not data nodes in the JSON.** The JSON `actions` array
-is the execute body. The frontend adds the wrapper rendering only.
+The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the frontend. **execute and end execute are not data nodes in the JSON.** The JSON `actions` array is the execute body.
 
 ### Visual Rules — Match WebCoRE Exactly
 
-- Keywords are rendered in a distinct color/weight: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`, `execute`, `end execute;`, `define`, `end define;`, `settings`, `end settings;`
+- Keywords in a distinct highlight color: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`, `execute`, `end execute;`, `define`, `end define;`, `settings`, `end settings;`
 - Indentation increases with nesting depth — each level adds one indent stop (suggest 2rem per level)
 - Curly braces `{` and `}` mark branch boundaries in editor display — styled same as keywords
 - `end if;` closes every if block at the same indent level as the opening `if`
 - `else if` and `else` appear at the same indent level as the opening `if`
-- `when true` and `when false` label the branches inside an if block **in the editor**
+- `when true` and `when false` label branches in **editor display**
 - `then` and `end if;` are used in the **status page read-only view** and export format
 - `and` and `or` between conditions appear at the **same indent level as the conditions**
 - `until` in a repeat block appears at the **bottom** of the block, before `end repeat;`
@@ -388,8 +447,7 @@ is the execute body. The frontend adds the wrapper rendering only.
 
 ### Ghost Text — Primary Insertion Method
 
-At every valid insertion point, ghost text appears inline in a muted color.
-Ghost text is always visible at valid insertion points — not only on hover.
+At every valid insertion point, ghost text appears inline in a muted color. Ghost text is always visible at valid insertion points — not only on hover.
 
 - `+ add a new statement` — at the top level and inside blocks
 - `+ add a new task` — inside a with/do block
@@ -399,23 +457,16 @@ Ghost text is always visible at valid insertion points — not only on hover.
 
 Clicking any ghost text opens the wizard modal for that insertion point.
 
-### Wait Until [Time] — Inline Tooltip
+### Simple Mode Rendering
 
-When a `wait until [time]` statement is rendered in the editor action tree or in the status
-page read-only view, it shows a ⓘ info icon inline after the time value.
+Simple mode shows:
+- Comment header block
+- `settings / end settings` (if non-empty)
+- `define` block — **ALWAYS shown in both Simple and Advanced** (users define variables constantly)
+- `execute` block with `· add a new statement`
+- NO `only when` blocks unless they have content
 
-Tooltip text on hover:
-*"If this piston reaches this step after [time] has already passed today, it will wait
-until [time] tomorrow. Make sure this step is always reached before the target time."*
-
-This tooltip appears only on time-based wait statements (wait until a specific time of day).
-It does not appear on fixed-duration wait statements (wait 5 minutes, wait 2 hours, etc.).
-
-### only_when Rendering — Populated State
-
-When restrictions are added, they render as plain English using the display_value from the condition object. The `only when` keyword stays visible. Multiple restrictions show `and` between them at the same indent level. See DESIGN.md Section 19a for full rendering examples with populated restrictions.
-
-Restrictions are not collapsible in v1 — they always show inline. Right-click context menu applies to individual restriction lines.
+Advanced mode shows everything including `only when` blocks with ghost text.
 
 ### Right-Click Context Menu
 
@@ -426,151 +477,11 @@ Right-clicking any statement node shows:
 - Delete selected statement
 - Clear clipboard (if clipboard has content)
 
-Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement.
-Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
+Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement. Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
 
 ### Within-Block Drag to Reorder
 
-Statements can be dragged to reorder within their containing block only.
-Dragging across block boundaries is not supported in v1 — use cut and paste for that.
-Valid drop targets highlight on hover.
-No undo for drag operations in v1.
-
-### Editor Rendering Example
-
-```
-execute
-if
-  Any of (@Smoke_Detectors)'s smoke changes to Detected
-  {
-    when true
-      + add a new statement
-      with
-        (@Notification_Text)
-      do
-        Send device notification "Smoke detected";
-      end with;
-      + add a new statement
-    when false
-      + add a new statement
-  }
-end if;
-+ add a new statement
-only when
-  + add a new restriction
-for each ($device in {@Smoke_Detectors})
-do
-  only when
-    + add a new restriction
-  if
-    Any of ($device)'s smoke is Detected
-    {
-      when true
-        + add a new statement
-      when false
-        + add a new statement
-    }
-  else if
-    [condition]
-    {
-      when true
-        + add a new statement
-    }
-  else
-    + add a new statement
-  end if;
-  + add a new statement
-end for each;
-repeat
-do
-  + add a new statement
-until
-  [condition]
-end repeat;
-+ add a new statement
-end execute;
-```
-
-### Status Page Read-Only Rendering Example
-
-```
-execute
-1  if
-2    Any of (@Smoke_Detectors)'s smoke changes to Detected
-3  then
-4    with
-5      (@Notification_Text)
-6    do
-7      Send device notification "Smoke detected";
-8    end with;
-9  end if;
-10 for each ($device in {@Smoke_Detectors})
-11 do
-12   if
-13     Any of ($device)'s smoke is Detected
-14   then
-15     + (empty branch)
-16   end if;
-17 end for each;
-end execute;
-```
-
-Note: condition values in the document display the friendly label ("Detected") not the compiled
-value ("on"). The document always shows what the user chose, never the HA internal state value.
-
----
-
-## The Statement Tree Data Structure
-
-This is the internal JSON structure the editor manipulates in memory.
-This same structure is serialized to the piston JSON file on save.
-The compiler reads this same structure to generate native HA YAML files.
-
-**execute / end execute is a rendering artifact.** It is not represented in the JSON.
-The `actions` array in the piston JSON IS the execute block body. The frontend renders
-`execute` and `end execute;` as wrapper lines when displaying the document.
-
-### Condition Object
-
-Used inside `if_block.condition`, `repeat_block.condition`, `while_block.condition`, and `only_when` arrays.
-
-```json
-{
-  "id": "cond_001",
-  "subject": {
-    "type": "device",
-    "role": "motion_sensor",
-    "capability": "motion",
-    "attribute_type": "binary"
-  },
-  "aggregation": "any",
-  "operator": "changes to",
-  "display_value": "Detected",
-  "compiled_value": "on",
-  "duration": null,
-  "group_operator": "AND"
-}
-```
-
-`display_value` — shown in the editor document and status page read-only view.
-`compiled_value` — used by the compiler when generating HA YAML. For binary sensors this is
-always `"on"` or `"off"`. For all other entity types these are the same string.
-
-The frontend always displays `display_value`. It never shows `compiled_value` to the user.
-
-`aggregation`: `any` / `all` / `none` / `null` (null = single device, no aggregation)
-
-Subject types: `device` / `variable` / `time` / `date` / `sun` / `ha_system`
-
-### Statement IDs
-
-Generated by the editor when a statement is created.
-Format: `stmt_` + incrementing integer padded to 3 digits, e.g. `stmt_001`, `stmt_002`.
-IDs never change after creation — reordering does not reassign IDs.
-IDs are unique within a piston.
-
-Full statement node type definitions are in COMPILER_SPEC.md Section 7 and 8.
-The frontend uses the same JSON structure — do not duplicate the definitions here.
+Statements can be dragged to reorder within their containing block only. Dragging across block boundaries is not supported in v1 — use cut and paste for that. No undo for drag operations in v1.
 
 ---
 
@@ -581,53 +492,66 @@ Opens when the user clicks any ghost text or clicks to edit an existing statemen
 ### Behavior
 
 - Opens as a modal overlay on top of the editor
-- The editor document behind it is dimmed but still visible
-- The wizard builds a plain English sentence at the top as the user progresses through steps
-- Each step's options are fetched live from the backend (which fetches from HA via WebSocket)
+- **Backdrop is transparent** — no dark overlay. Modal is centered, floats over the document.
+- **Modal size: 720px wide, fills most of screen height.** wiz-body scrolls, modal does not grow.
+- The wizard builds a plain English sentence at the top as the user progresses
+- Each step's options are fetched live from the backend
 - Clicking Back goes to the previous step without losing selections
 - Clicking Cancel closes the wizard with no changes
 - Clicking Done (final step) closes the wizard and inserts or updates the statement
+- **Never two modals open at once**
+
+### Device Picker
+
+Opens as an inline panel **below** the device row — not a separate modal. The panel includes a search field. Selecting a device closes the panel and populates the row.
+
+### Condition Builder Layout
+
+One screen — everything visible at once:
+- Row: `[Physical device(s) ▾]` `[device picker button]` `[attribute ▾]`
+- Device picker opens inline panel below the row with search
+- "Which interaction" row always visible (not conditional on device selection)
+- Operator dropdown below that (Triggers first ⚡, then Conditions)
+- Value row appears below operator when needed — textarea for free text types
+
+### Operator Order
+
+Triggers appear **first** with ⚡ prefix. Conditions appear second. This order is non-negotiable.
+
+### Value Inputs
+
+- Binary/enum attributes → dropdown of actual values
+- Numeric attributes → number input with unit
+- Free text (Value/Variable/Expression/Argument) → textarea that wraps
+
+### if_block Unified Mechanism
+
+Adding an if_block goes to the condition builder first. Only inserts the if_block after the condition is completed. Uses `_extra['block-id']` exclusively as the unified mechanism.
 
 ### First Step — Condition or Group
 
-When adding to the CONDITIONS section or inside an if block condition, the first step presents:
+When adding to CONDITIONS section or inside an if_block condition, the first step presents:
 
-**Condition** — "a single comparison between two or more operands, the basic building block of a decisional statement"
+**Condition** — *"a single comparison between two or more operands"*
 `[Add a condition]`
 
-**Group** — "a collection of conditions, with a logical operator between them, allowing for complex decisional statements"
+**Group** — *"a collection of conditions with a logical operator between them"*
 `[Add a group]`
 
-Groups are first-class objects. This is how WebCoRE handles complex AND/OR logic.
+This first step does not apply when adding triggers — triggers go directly to the device/event picker.
 
 ### Cog Icon — Advanced Options
 
-Every wizard modal has a cog icon in the bottom right corner.
-Tooltip: "Show/Hide advanced options"
-Clicking expands:
+Every wizard modal has a cog icon (bottom right, tooltip: "Show/Hide advanced options") expanding:
 - Task Execution Policy (TEP)
 - Task Cancellation Policy (TCP)
 - Execution Method (Synchronous / Asynchronous)
 
-These are always accessible but hidden by default.
-If set on a native-script-bound piston, show a note: *"These options only apply to PyScript pistons."*
-
-### Wizard Steps — Condition / Trigger
-
-0. Condition or Group (when adding to conditions section)
-1. What to evaluate — Physical Device / Variable / Time / Date / Location / HA System
-2. Pick the device — type-to-filter search by friendly name, device name, or area
-3. Pick the capability or attribute — list fetched live from HA for that specific device
-4. Pick the operator — trigger group (⚡) or condition group, appropriate to the selected capability
-   (Optional) Which interaction — Any / Physical / Programmatic
-5. Value input — friendly labels shown to user; compiled_value stored internally
-
-Full wizard capability map and value input types are defined in WIZARD_SPEC.md.
+Always present, hidden until clicked. If set on a native-script-bound piston: show note *"These options only apply to PyScript pistons."*
 
 ### Call Another Piston — Warning Before Target Selection
 
-If the user initiates a Call Another Piston action with wait-for-completion on a native-script-bound
-piston, show immediately — **before** the target piston picker:
+If the piston is native-script-bound and the user adds a Call Another Piston with wait-for-completion, show **before** the target piston picker:
 
 *"Waiting for a called piston to finish requires converting this piston to PyScript."*
 `[Convert and continue]` `[Use fire-and-forget]` `[Cancel]`
@@ -636,11 +560,8 @@ This must appear BEFORE the user picks the target piston, not after.
 
 ### Loading State
 
-If the backend is fetching capability data from HA when the wizard opens, show a loading spinner inside the dropdown. Never show an empty dropdown — always show loading state until data arrives or an error occurs.
-
-If capability data fails to load, show:
-*"Could not load device capabilities. Check your Home Assistant connection."*
-With a Retry button.
+If capability data is being fetched: show a loading spinner. Never show an empty dropdown.
+If capability data fails to load: show error with a Retry button.
 
 ---
 
@@ -648,8 +569,9 @@ With a Retry button.
 
 The frontend never calls HA directly. All HA data comes from the FastAPI backend.
 
-The backend provides these endpoints the frontend uses:
+Backend endpoints the frontend uses:
 
+- `GET /api/config` — deployment type, ha_url, connection status
 - `GET /api/devices` — all devices with friendly names, areas, domains
 - `GET /api/device/{id}/capabilities` — capabilities with attribute_type and device_class
 - `GET /api/device/{id}/triggers` — valid triggers for a device
@@ -657,15 +579,15 @@ The backend provides these endpoints the frontend uses:
 - `GET /api/device/{id}/services` — valid services for a device with parameter schema
 - `GET /api/pistons` — all pistons with status
 - `GET /api/piston/{id}` — single piston JSON
-- `POST /api/piston/{id}/save` — save piston JSON to Docker volume
+- `POST /api/piston/{id}/save` — save piston JSON to volume
 - `POST /api/piston/{id}/deploy` — compile and deploy to HA
 - `POST /api/piston/{id}/test` — fire piston manually (always live fire, always confirms first)
+- `POST /api/piston/{id}/test_compile` — compile and return output for preview (does not deploy)
 - `GET /api/globals` — all global variables
+- `PUT /config` — save HA connection settings
 - `WebSocket /ws` — live log updates, trace data, run status events
 
-The capability map (which operators are valid for which attribute types) lives in the frontend.
-Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA.
-The backend provides raw HA data. The frontend applies the map to determine operators and input types.
+The capability map (which operators are valid for which attribute types) lives in the frontend. Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA. The backend provides raw HA data. The frontend applies the map.
 
 Exact endpoint signatures to be confirmed with the backend developer.
 
@@ -681,10 +603,10 @@ Match WebCoRE's visual language as closely as possible:
 - Ghost text in a muted/gray color — clearly secondary
 - Indentation uses consistent spacing (suggest 2rem per level)
 - Curly braces `{` and `}` styled the same as keywords
-- Statement numbers visible on the left side of the action tree (used by Trace mode)
+- Statement numbers visible on the left side of the action tree
 - Selected statement has a visible highlight/border
 - Cut statement is visually dimmed (50% opacity or similar)
-- `and` and `or` between conditions rendered at same indent as conditions, not indented further
+- `and` and `or` between conditions rendered at same indent as conditions
 
 ---
 
@@ -692,9 +614,9 @@ Match WebCoRE's visual language as closely as possible:
 
 - Compiling piston JSON to native HA YAML — that is the backend
 - Fetching data from HA directly — always go through the backend
-- Storing piston data permanently — backend writes to Docker volume
+- Storing piston data permanently — backend writes to volume
 - Validating piston logic deeply — backend runs the validation pipeline
-- Writing files to HA — companion integration handles that
+- Writing files to HA — backend + HA REST API handles that
 
 The frontend's job is: render the tree, let the user edit it, send it to the backend on save.
 
@@ -702,15 +624,14 @@ The frontend's job is: render the tree, let the user edit it, send it to the bac
 
 ## Open Items — Not Yet Defined
 
-These affect the frontend but are not yet decided. Do not implement them until they are:
+Do not implement these until they are decided:
 
-1. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 11.
+1. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 31.
 2. **Exact backend API signatures** — to be confirmed with backend developer.
-3. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 26.
-4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 8.6.
-5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 22.
-6. **Debugging UI detail** — what the user sees when a native HA script fails mid-run. v1 trace is run start + log_message statements + run complete. See DESIGN.md Section 15 for the confirmed v1 trace behavior.
-7. **Global variable management UI** — full create/edit/delete flows now defined in DESIGN.md Section 19. Implement from there.
+3. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 31.
+4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 31.
+5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 29.
+6. **Global variable management UI** — create/edit/delete flows defined in DESIGN.md Section 7. Implement from there.
 
 ---
 

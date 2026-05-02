@@ -1,8 +1,8 @@
 # PistonCore Wizard Specification
 
-**Version:** 0.3
+**Version:** 0.4
 **Status:** Draft — For Developer Use
-**Last Updated:** April 2026
+**Last Updated:** May 2026
 
 This document defines the capability-driven wizard in full detail.
 Read DESIGN.md and FRONTEND_SPEC.md first.
@@ -10,6 +10,34 @@ This document closes DESIGN.md Section 8 (Wizard Capability Map).
 
 **Guiding rule:** Match WebCoRE's wizard behavior exactly where possible.
 Deviation requires a specific documented reason.
+
+---
+
+## Wizard Features by Runtime Target
+
+Some wizard options only apply to certain compile targets. The wizard must make this clear rather than silently allowing features that won't work on the current target.
+
+### Available in Both (Native HA Script and PyScript)
+
+All standard triggers, conditions, and actions — device state changes, numeric comparisons, all loop types except break, wait, wait for state, set variable, log message, call another piston (fire-and-forget), control another piston/automation, and all HA service calls.
+
+### PyScript Only — Addon v1 and Docker (permanent)
+
+The following wizard options are only available when the piston compiles to PyScript:
+- `break` — interrupt a loop mid-iteration
+- `cancel_pending_tasks` — cancel async tasks in flight
+- `on_event` — execute a block when a specific event fires inside a running script
+- Task Execution Policy (TEP) and Task Cancellation Policy (TCP) cog options
+- System variables ($currentEventDevice, $previousEventDevice, etc.)
+- Which Interaction — Physical vs Programmatic (PyScript context tracking)
+
+When a user selects a PyScript-only feature and the piston is currently native-script-bound, show the conversion prompt:
+*"This option requires converting your piston to a PyScript piston. Your logic will be preserved. Continue?"*
+`[Yes, convert]` `[No, pick something else]`
+
+### Native Runtime Only — Addon v2+ (future)
+
+The v2 native runtime will replace PyScript for addon users. Wizard features specific to the native runtime will be documented when v2 design begins. No native runtime features are in scope for v1.
 
 ---
 

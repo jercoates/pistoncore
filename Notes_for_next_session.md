@@ -182,6 +182,140 @@ Add a "Test Devices" screen in PistonCore settings:
 
 ---
 
+## UX Improvements — From External Reviews (Grok + Perplexity)
+
+These are not new features — they are polish on existing planned features.
+All fit within v1 scope without expanding what the product does.
+
+### One-Click PyScript Promotion
+
+When the wizard detects a complex pattern (break, cancel_pending_tasks, on_event),
+don't just show a warning banner. Offer a one-click convert button inline:
+
+  "This piston now requires PyScript."  [Convert — one click]
+
+The convert action:
+- Updates compile_target in the piston JSON to "pyscript"
+- Updates the complexity indicator in the editor
+- No other changes — piston logic is identical
+
+This is a UX improvement on the existing PyScript detection flow, not a new feature.
+The detection already exists — make acting on it frictionless.
+
+### Quick Start Wizard — First Piston Experience
+
+New users opening PistonCore for the first time should see a clear entry point.
+Suggested: "New Piston → Quick Start" option that walks through a simple motion
+light in 4 steps using the existing wizard:
+
+1. Pick a motion sensor (trigger — changes to detected)
+2. Pick a light (action — turn on)
+3. Add a wait (5 minutes)
+4. Turn the light off
+
+Result: a working piston built in under 2 minutes using the real wizard.
+This is not a separate tutorial — it is the real wizard with guided prompts.
+Implement after the wizard is solid, not before.
+
+### Example Pistons — Ship With the App
+
+A small set of pre-built example pistons importable from the main menu.
+Low effort, high value for new users learning the format.
+
+Suggested examples (5-6 max):
+- Motion activated light with timeout
+- Sunset/sunrise outdoor lights
+- Low battery notification across multiple devices
+- Door left open alert after X minutes
+- Morning routine (time-based, multiple actions)
+- Presence-based thermostat adjustment
+
+These ship as JSON files in the container at:
+  pistoncore/examples/
+    motion-light.json
+    sunset-lights.json
+    low-battery-alert.json
+    door-open-alert.json
+    morning-routine.json
+
+Accessible from main menu: [Import] → "Browse Examples"
+Uses the existing import flow — no new infrastructure needed.
+Examples use roles only — no entity IDs — so they work for any user on import.
+
+---
+
+## Trace Mode — Revisit After Compiler Stabilizes
+
+Previously assumed full WebCoRE-style trace wasn't possible in HA.
+External review clarified it's closer than thought. Worth proper investment
+after compiler is solid — this was one of WebCoRE's biggest selling points.
+
+What's realistically achievable in v1:
+- HA native script trace UI already captures action execution, timings,
+  condition results — this is free, no extra work needed
+- Custom events (PISTONCORE_LOG with statement IDs) add per-statement visibility
+- variables: action can track state at key points
+- PISTONCORE_RUN_COMPLETE already in the design
+- Combining these gets close to WebCoRE-style trace without PyScript
+
+Action: After compiler stabilizes, dedicate focused time to making Trace
+excellent. Not a moonshot — just deliberate implementation of what's already
+partially designed. This will be a major selling point.
+
+---
+
+## Example Pistons — Target 10-20 Canonical Examples
+
+### Sources (three tiers)
+
+**Tier 1 — Jeremy's own WebCoRE pistons (highest quality, real-world tested)**
+Jeremy has a large library of pistons currently running in WebCoRE.
+Workflow to convert them:
+1. Take a screenshot of a WebCoRE piston backup/editor view
+2. Paste screenshot into Claude with write-a-piston.md prompt
+3. Claude generates piston JSON
+4. Import into PistonCore and test
+5. Fix any format issues found — each one improves the prompt and the importer
+
+This workflow simultaneously:
+- Tests the write-a-piston.md prompt against real complexity
+- Tests the import flow
+- Tests the compiler against real automation logic
+- Produces a real example piston for the library
+- Validates the role-based device mapping on import
+
+**Tier 2 — WebCoRE community library**
+Hundreds of community pistons exist. Same screenshot → JSON → import workflow.
+Stress-tests the format against real-world variety.
+Good source: WebCoRE community forum, SmartThings/Hubitat migration threads.
+
+**Tier 3 — Canonical examples written fresh**
+Simple, clean, well-commented examples covering common use cases:
+- Motion activated light with timeout
+- Sunset/sunrise outdoor lights
+- Low battery notification across device group
+- Door left open alert
+- Morning routine (time-based sequence)
+- Presence-based thermostat
+- Vacation mode (random lights)
+- Smoke detector alert with notification
+
+### Storage
+pistoncore/examples/
+  motion-light.piston
+  sunset-lights.piston
+  low-battery-alert.piston
+  ... etc
+
+All use roles only — no entity IDs. Work for any user on import.
+
+### Double Duty as Compiler Test Cases
+Each example piston is also a golden master compiler test.
+The full test suite basically writes itself once examples exist.
+10-20 examples covers most compiler code paths with real-world logic.
+
+---
+
 ## Docker Native Runtime Option for Docker HA Users
 
 When updating COMPILER_SPEC.md, add as a planned future extensible output target.

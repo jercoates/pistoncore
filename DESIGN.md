@@ -24,7 +24,7 @@ It does not add devices, manage integrations, or extend HA's capabilities in any
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 13.
 * **Compiled files are compiler-owned artifacts.** Files written by PistonCore to HA directories are deployment artifacts, not source files. They may be replaced wholesale on recompile. The piston JSON is always the source of truth — never the compiled HA file. Users who hand-edit compiled files will be warned at next deploy via the hash check.
-* **Piston JSON is the permanent master format.** Pistons are always saved as JSON in PistonCore. The JSON never changes between output targets or deployment types. The same piston JSON produces native HA YAML or PyScript depending on complexity and deployment — the JSON itself is stable. This is a core architectural invariant.
+* **Piston JSON is the permanent master format and IS the editor format.** The JSON stores exactly what the editor displays — friendly names, plain English operators, readable times, role names. No translation layer exists between display and storage. The compiler owns all translation from the editor format to HA YAML. This is a core architectural invariant — there are no `compiled_value` fields pre-stored in the JSON.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message. Import from a URL or paste directly. No account required, no server involved.
 * **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
 * **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
@@ -236,6 +236,47 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 Piston JSON is the permanent, stable master format for every piston. It never changes between output targets or deployment types.
 
+### The Core Rule — JSON IS the Editor Format
+
+**The piston JSON stores exactly what the editor displays to the user. No translation layer exists between display and storage.**
+
+This means:
+* What the user sees in the editor IS what is in the JSON file
+* Friendly names, plain English operators, readable times — stored as-is
+* The compiler's job is ALL translation from human-readable to HA-native
+* Importing a piston JSON opens directly in the editor with no conversion step
+* Sharing a piston JSON is sharing the exact editor representation
+
+**What this means for each consumer:**
+
+| Consumer | Reads | Does |
+|---|---|---|
+| Editor | Piston JSON directly | Renders what it finds — no translation |
+| Compiler | Piston JSON directly | Translates everything to HA YAML |
+| Importer | Piston JSON directly | Loads into editor — user maps roles to devices |
+| AI generator | Writes piston JSON | Must match editor format exactly |
+
+**The compiler owns ALL of these translations — nothing is pre-computed in the JSON:**
+* Friendly label → HA state value ("Detected" → "on", "Open" → "on")
+* Role name → entity ID (resolved via device_map at compile time)
+* Plain English time ("8:00 AM") → 24hr format ("08:00:00")
+* System variable expression ("$sunrise + 30 minutes") → HA template syntax
+* Plain English operator ("is less than") → HA condition syntax
+* Device class + label → correct HA attribute and comparison value
+* Global variable reference ("@SmokeDetectors") → inlined entity ID list
+
+**There are NO `compiled_value` fields in piston JSON.** The JSON stores the display value only. The compiler looks up what it needs. If the compiler needs to know that "Detected" means `"on"` for a motion sensor, it looks that up from its device class table — it does not rely on a pre-stored compiled value in the JSON.
+
+### JSON Format — One Translation Point: Import
+
+The only time translation happens is at import. When a WebCoRE backup or community piston is imported, the importer translates the WebCoRE format into PistonCore editor format once. After that it is native PistonCore JSON forever. The user opens it in the editor, sees familiar logic, maps their devices, deploys.
+
+```
+WebCoRE format → (import translation, once) → PistonCore JSON = editor display
+                                                      ↓ (compiler translation)
+                                                   HA YAML
+```
+
 ### Versioning
 
 Each piston carries two independent version fields:
@@ -249,8 +290,8 @@ Each piston carries two independent version fields:
 }
 ```
 
-* **logic_version** — compiler-facing schema (triggers, conditions, actions tree). Bumped when compiler-side structure changes.
-* **ui_version** — frontend-facing layout data (block positions, editor state). Bumped when editor rendering structure changes.
+* **logic_version** — structure of triggers, conditions, actions. Bumped when the logic schema changes.
+* **ui_version** — editor layout data. Bumped when editor rendering structure changes.
 * These change independently. A drag-and-drop library swap bumps `ui_version` only. A new trigger type bumps `logic_version` only.
 * Separate migration function stacks handle each version independently.
 
@@ -266,72 +307,216 @@ Each piston carries two independent version fields:
 
 * Every piston gets a UUID on creation — **this UUID never changes**, even if the piston is renamed
 * HA automation ID is always `pistoncore_{uuid}`
+* HA automation filename is always `pistoncore_{uuid}.yaml`
+* HA script key and entity ID is always `pistoncore_{uuid}` — so the callable entity is `script.pistoncore_{uuid}`
+* HA script filename is always `pistoncore_{uuid}.yaml`
 * PyScript file is always `pistoncore_{uuid}.py`
+* The piston slug (name-derived) is used ONLY for the automation `alias:` field — the human-readable label shown in HA's UI. It is never used for filenames, entity IDs, or any artifact name.
 * This UUID is the permanent, immutable link between PistonCore and every HA artifact it creates
 * All HA artifact names are derived from UUID, never from piston name — this invariant must not be broken by future contributors
 
-### Example Piston JSON
+### Example Piston JSON — Chicken Lights Lumen Sensor
+
+This example shows the editor-format JSON. Every field is exactly what the editor displays.
+The compiler translates all values to HA YAML — nothing is pre-translated in the JSON.
 
 ```json
 {
   "logic_version": 1,
   "ui_version": 1,
-  "id": "a3f8c2d1",
-  "name": "Driveway Lights at Sunset",
-  "description": "Turns on driveway lights at sunset and off at 11pm",
-  "mode": "single",
+  "id": "c7a3f1b2",
+  "name": "Chicken Lights Lumen Sensor",
+  "description": "On during low light periods around sunrise and sunset. Hard off at 8am and 9pm.",
+  "mode": "restart",
   "compile_target": "native_script",
   "roles": {
-    "driveway_light": {
-      "label": "Driveway Light",
+    "light": {
+      "label": "Chicken Light",
       "domain": "light",
+      "required": true
+    },
+    "lumen_sensor": {
+      "label": "Lumen Sensor",
+      "domain": "sensor",
+      "device_class": "illuminance",
       "required": true
     }
   },
-  "device_map": {
-    "driveway_light": "light.driveway_main"
-  },
+  "device_map": {},
   "variables": [],
   "triggers": [
+    { "type": "sun", "event": "sunrise", "offset": "-30 minutes" },
+    { "type": "sun", "event": "sunset", "offset": "+30 minutes" },
+    { "type": "time", "at": "8:00 AM" },
+    { "type": "time", "at": "9:00 PM" },
     {
-      "type": "sun",
-      "event": "sunset",
-      "offset_minutes": 0
+      "type": "state",
+      "target_role": "lumen_sensor",
+      "attribute": "illuminance",
+      "operator": "drops below",
+      "value": "800 lux"
+    },
+    {
+      "type": "state",
+      "target_role": "lumen_sensor",
+      "attribute": "illuminance",
+      "operator": "rises above",
+      "value": "800 lux"
     }
   ],
   "conditions": [],
   "actions": [
     {
       "id": "stmt_001",
-      "type": "with_block",
-      "target_role": "driveway_light",
-      "tasks": [
+      "type": "if_block",
+      "conditions": [
         {
-          "type": "call_service",
-          "service": "light.turn_on",
-          "data": { "brightness_pct": 100 }
+          "id": "cond_001",
+          "type": "condition",
+          "subject": { "type": "time" },
+          "operator": "is between",
+          "value": "6:00 AM and $sunrise + 30 minutes"
+        },
+        {
+          "id": "cond_002",
+          "type": "condition",
+          "subject": {
+            "type": "device",
+            "role": "lumen_sensor",
+            "attribute": "illuminance"
+          },
+          "aggregation": "any",
+          "operator": "is less than",
+          "value": "800 lux",
+          "group_operator": "and"
+        }
+      ],
+      "then": [
+        {
+          "id": "stmt_002",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn on" }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "id": "stmt_003",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn off" }
+          ]
         }
       ]
     },
     {
-      "id": "stmt_002",
-      "type": "wait",
-      "until": "23:00:00"
-    },
-    {
-      "id": "stmt_003",
-      "type": "with_block",
-      "target_role": "driveway_light",
-      "tasks": [
+      "id": "stmt_004",
+      "type": "if_block",
+      "conditions": [
         {
-          "type": "call_service",
-          "service": "light.turn_off"
+          "id": "cond_003",
+          "type": "condition",
+          "subject": { "type": "time" },
+          "operator": "is between",
+          "value": "$sunset + 30 minutes and 8:00 PM"
+        },
+        {
+          "id": "cond_004",
+          "type": "condition",
+          "subject": {
+            "type": "device",
+            "role": "lumen_sensor",
+            "attribute": "illuminance"
+          },
+          "aggregation": "any",
+          "operator": "is less than",
+          "value": "800 lux",
+          "group_operator": "and"
+        }
+      ],
+      "then": [
+        {
+          "id": "stmt_005",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn on" }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "id": "stmt_006",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn off" }
+          ]
         }
       ]
+    },
+    {
+      "id": "stmt_007",
+      "type": "if_block",
+      "conditions": [
+        {
+          "id": "cond_005",
+          "type": "condition",
+          "subject": { "type": "time" },
+          "operator": "is",
+          "value": "8:00 AM"
+        }
+      ],
+      "then": [
+        {
+          "id": "stmt_008",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn off" }
+          ]
+        }
+      ],
+      "else": []
+    },
+    {
+      "id": "stmt_009",
+      "type": "if_block",
+      "conditions": [
+        {
+          "id": "cond_006",
+          "type": "condition",
+          "subject": { "type": "time" },
+          "operator": "is",
+          "value": "9:00 PM"
+        }
+      ],
+      "then": [
+        {
+          "id": "stmt_010",
+          "type": "with_block",
+          "target_role": "light",
+          "tasks": [
+            { "type": "call_service", "service": "turn off" }
+          ]
+        }
+      ],
+      "else": []
     }
   ]
 }
 ```
+
+**Notice what is NOT in this JSON:**
+* No `compiled_value` anywhere — "800 lux" is stored as the user sees it
+* No 24hr time format — "8:00 AM" and "9:00 PM" exactly as displayed
+* No HA template syntax — "$sunrise + 30 minutes" exactly as displayed
+* No entity IDs — role names only, device_map is empty until user maps on import
+* No HA service names — "turn on" / "turn off" as the user sees them
+* The compiler resolves all of this when the piston is deployed
 
 ---
 
@@ -393,6 +578,11 @@ Defined inside a single piston. Only exist while that piston is running. Compile
 List variants (Dynamic list, Text list, etc.) are deferred to v2.
 
 **Device and Devices variables always show the friendly name, never the entity ID.**
+
+**Variable naming conventions — enforced throughout the UI:**
+- `@variableName` — global variables. The `@` prefix is always shown in the editor, define block, variable picker, and expressions.
+- `$variableName` — local piston variables and system variables. The `$` prefix is always shown.
+- These prefixes are not optional decoration — they are part of the variable name as displayed to the user, matching WebCoRE exactly.
 
 ---
 

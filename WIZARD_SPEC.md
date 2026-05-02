@@ -1,6 +1,6 @@
 # PistonCore Wizard Specification
 
-**Version:** 0.4
+**Version:** 0.5
 **Status:** Draft — For Developer Use
 **Last Updated:** May 2026
 
@@ -736,6 +736,187 @@ The backend provides raw HA data. The frontend applies the map to determine oper
 Binary sensor friendly labels come from the device_class table in this document — not from HA.
 
 ---
+
+---
+
+## "was" vs "stays" — Critical Distinction
+
+This is one of the most important behavioral differences in WebCoRE and must be implemented exactly. The wizard must make the distinction visible.
+
+| | `was` (condition) | `stays` (trigger) |
+|---|---|---|
+| Lightning bolt | No ⚡ | Yes ⚡ |
+| Direction | Looks **backward** in history | Looks **forward** in time |
+| Meaning | "Has this been true for the past X?" | "If this stays true for the next X, fire again" |
+| Use case | Check recent history | Set a forward-looking timer |
+
+**`was`** — evaluates device history. "Was inactive for 15 minutes" means the device has been inactive for the past 15 minutes. This is a CONDITION — no lightning bolt. The piston checks this and continues or stops.
+
+**`stays`** — sets a forward-looking timer. "Stays inactive for 15 minutes" means: start a timer, and if the device is still inactive when the timer fires, run the piston again. This is a TRIGGER — lightning bolt. The piston always continues to the ELSE branch immediately when stays is evaluated. The THEN branch fires later if the state held.
+
+### Duration Row Labels — Different for was vs stays
+
+When a `was`-type operator is selected, show the duration row labeled:
+> "In the last..." `[number]` `[seconds / minutes / hours / days]`
+
+When a `stays`-type operator is selected, show the duration row labeled:
+> "For the next..." `[number]` `[seconds / minutes / hours / days]`
+
+The input widget is the same — only the label differs. This distinction matters because it tells the user which direction in time they are measuring.
+
+### Operators That Show a Duration Row
+
+**`was`-type (backward-looking — CONDITION):**
+`was` / `was any of` / `was not` / `was not any of` / `changed` / `did not change`
+
+**`stays`-type (forward-looking — TRIGGER):**
+`stays` / `stays equal to` / `stays any of` / `stays away from` / `stays away from any of` / `stays unchanged` / `is any and stays any of` / `is away and stays away from`
+
+### HA Compilation — stays
+
+`stays`-type operators compile to `wait_template` with a `timeout` inside the native HA script. If the template becomes false before the timeout, the wait exits early — same behavior as WebCoRE's stays cancelling when state changes. This works in native HA scripts — no PyScript needed.
+
+---
+
+## Virtual Devices — Device Picker Sections
+
+The device picker is not just physical HA devices. It has a virtual devices section at the top that provides system-level subjects for conditions, triggers, and actions. These match WebCoRE's pattern exactly.
+
+### Virtual Device List
+
+| Virtual Device | Purpose | Appears in |
+|---|---|---|
+| Location | System commands (set variable, wait, notify, etc.) | Actions only |
+| System Start | Fires when HA restarts — used with "event occurs" trigger | Triggers only |
+| Time | Time-based conditions and triggers | Conditions, Triggers |
+| Date | Date-based conditions | Conditions only |
+| Mode | Check or trigger on HA input_select / zone mode changes | Conditions, Triggers |
+
+**Location** appears first in the action device picker. When selected, the command list shows system commands (set variable, wait, log, call another piston, etc.) instead of hardware service calls. This is how WebCoRE structured system-level actions and PistonCore follows the same pattern.
+
+**System Start** is the subject for the "event occurs" trigger — fires when HA restarts. User selects System Start as the device, operator is "event occurs", no value needed.
+
+**Time** is the subject for time-based triggers and conditions:
+- Trigger: "happens daily at" `[time value or $sunrise/$sunset with offset]`
+- Condition: "is before", "is after", "is between" with time picker
+
+**Date** is the subject for date-based conditions only:
+- "is before", "is after", "is between" with date picker
+
+**Mode** is the subject for HA mode checks:
+- Reads from HA input_select or zone entities
+- Operators: "is", "is not", "changes to"
+
+### Device Picker Section Order
+
+```
+─ Virtual Devices ──────────────────
+  Location
+  System Start
+  Time
+  Date
+  Mode
+─ Physical Devices ─────────────────
+  [area grouped device list]
+─ Local Variables (Device type) ────
+  [$varName — defined in this piston]
+─ Global Variables (Device type) ───
+  [@globalName]
+─ System Variables ─────────────────
+  [$currentEventDevice]
+  [$device]
+  [$devices]
+```
+
+### $sunrise / $sunset Offset
+
+When a user picks `$sunrise` or `$sunset` as a value anywhere in the wizard, an offset row appears immediately below:
+
+> `[+ / -]` `[number input]` `[minutes / hours]`
+
+This allows expressions like "$sunset + 30 minutes" or "$sunrise - 1 hour".
+
+Store as:
+```json
+{
+  "__type": "system_var",
+  "name": "$sunset",
+  "offset": 30,
+  "offset_unit": "minutes",
+  "offset_direction": "+"
+}
+```
+
+---
+
+## Value Types — Three Modes
+
+The value input in the condition/trigger wizard has three modes, selectable via a dropdown before the value input:
+
+| Mode | When to use | What shows |
+|---|---|---|
+| Value | Simple static value (on, off, 70, "hello") | Dropdown or text input depending on attribute type |
+| Variable | Reference a piston variable or system variable | Two-section picker: piston variables + system variables |
+| Expression | Math, string concat, comparisons | Freeform textarea with result stub below |
+
+**Variable mode** shows two sub-sections:
+- Piston variables — defined in the define block (`$varName`)
+- System variables — `$now`, `$sunrise`, `$sunset`, `$date`, `$time`, `$hour`, `$minute`, `$index`, etc.
+
+When `$sunrise` or `$sunset` is selected in Variable mode, the offset row appears (see above).
+
+**Expression mode** — v1 shows the textarea and a static "Result: (save to evaluate)" stub below. Real-time evaluation is a v2 feature.
+
+---
+
+## System Variables Reference
+
+Available in the Variable picker and in expressions. All are read-only at runtime.
+
+| Variable | Type | Description | HA equivalent |
+|---|---|---|---|
+| $currentEventDevice | device | Device that triggered the piston | Trigger entity_id |
+| $previousEventDevice | device | Device that triggered the previous run | — |
+| $device | device | Same as $currentEventDevice (shorthand) | Trigger entity_id |
+| $devices | device list | All devices matching a condition | — |
+| $now | datetime | Current date and time | `now()` |
+| $date | date | Current date only | `now().date()` |
+| $time | time | Current time only | `now().time()` |
+| $hour | integer | Current hour (0–23) | `now().hour` |
+| $minute | integer | Current minute (0–59) | `now().minute` |
+| $second | integer | Current second (0–59) | `now().second` |
+| $day | integer | Day of month | `now().day` |
+| $month | integer | Month (1–12) | `now().month` |
+| $year | integer | Year | `now().year` |
+| $weekday | integer | Day of week (1=Monday) | `now().isoweekday()` |
+| $sunrise | time | Today's sunrise time | `states.sun.sun.attributes.next_rising` |
+| $sunset | time | Today's sunset time | `states.sun.sun.attributes.next_setting` |
+| $midnight | time | Midnight (00:00:00) | Literal |
+| $noon | time | Noon (12:00:00) | Literal |
+| $index | integer | Loop counter in for/for each loops | Loop variable |
+| $utc | datetime | Current UTC time | `utcnow()` |
+| $longitude | number | Hub location longitude | `zone.home` attribute |
+| $latitude | number | Hub location latitude | `zone.home` attribute |
+
+**Note:** `$currentEventDevice`, `$previousEventDevice`, `$device`, `$devices` are PyScript-only in v1. They require runtime context tracking that native HA scripts cannot provide. If a user references these in a native-script-bound piston, show the PyScript conversion prompt.
+
+---
+
+## Not Building in V1 — Wizard Skip List
+
+These appear in WebCoRE but are explicitly excluded from v1. Do not build them:
+
+| Feature | Reason | Future? |
+|---|---|---|
+| Physical vs Programmatic interaction | PyScript only, sandbox validation needed first | v2 |
+| XOR group operator | Too rare — AND/OR only | Maybe v2 |
+| `FOLLOWED BY` sequence trigger | No HA native equivalent | v2 PyScript |
+| $weather variables | Requires HA weather integration — complex | v2 |
+| $zipCode | No HA equivalent | No |
+| Real-time expression evaluation | v2 feature | v2 |
+| File read/write commands | Hubitat-specific, no HA equivalent | No |
+| isPistonPaused() function | v2 | v2 |
+| TCP/TEP advanced options | Not applicable to HA runtime | v2 |
 
 ## Open Items
 

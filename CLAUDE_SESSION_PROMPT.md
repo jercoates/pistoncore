@@ -1,5 +1,6 @@
 # PistonCore — Claude Session Starter Prompt
-# Session 16 — Updated end of Session 15
+# Session 16 — Architecture Pivot Edition
+# Updated end of Session 15 + major architecture pivot discussion
 
 ---
 
@@ -29,7 +30,181 @@ Real users are watching the GitHub repo.
 
 ---
 
-## Infrastructure
+## ⚠️ ARCHITECTURE PIVOT — Decided Session 16 (Read This First)
+
+The architecture changed significantly in a design discussion this session.
+The design documents in the repo are NOW STALE and need rewriting before coding resumes.
+Do NOT code against the old architecture. Do NOT start coding until DESIGN.md is updated.
+
+### What Changed
+
+**Old architecture:**
+- Single Docker container only
+- PyScript for complex automations
+- HACS companion integration to write files into HA
+- External deployment only (Unraid, NAS, Docker host)
+
+**New architecture:**
+- Primary target: Native HA Addon (HA OS and HA Supervised)
+- Secondary target: Docker container — build later once addon is solid
+- PyScript: KEPT for v1 complex pistons — compiler mostly built, no reason to discard
+- HACS companion integration: GONE entirely
+- Auth: Supervisor token (addon) or long-lived token entered in settings (Docker)
+- File writing: HA REST API directly — no companion needed
+- PistonCore native runtime engine: v2 feature — architecture ready, not built yet
+
+### Why This Is Better
+- PyScript stays for v1 — working code, ship what works
+- Native runtime engine is the long term PyScript replacement — designed in, built in v2
+- Eliminates HACS companion (complex to distribute, significant maintenance burden)
+- HA Addon = proper two-click install from addon store for the majority of HA users
+- Core backend code is the same for both targets — only packaging and auth differ
+- HA OS / Supervised are the dominant HA install types — this is the right primary target
+- Docker HA users (no supervisor) will wait for the Docker version — they understand the limitation
+
+---
+
+## The Two Products (Addon First, Docker Later)
+
+### Product 1: PistonCore Addon (PRIMARY — Build This First)
+- Runs on: HA OS, HA Supervised
+- Install: User adds GitHub repo URL to HA addon store, installs like any other addon
+- What it does: Full hybrid — simple pistons compile to native HA YAML, complex pistons
+  run via PistonCore's own WebSocket runtime
+- Auth: Gets HA supervisor token automatically — zero user setup
+- File writing: Writes directly to /config/automations/, calls automation/reload via REST
+- No companion needed, no HACS needed
+- Distribution: GitHub addon repo
+
+### Product 2: PistonCore Docker (SECONDARY — Build Later)
+- Runs on: Unraid, NAS, any Docker host, Docker-based HA installs
+- Install: Docker Hub / Unraid Community Apps
+- What it does: Compiler only — compiles pistons to native HA YAML, pushes via REST API
+- Complex pistons: Available in editor with warning banner, no runtime execution
+- Auth: Long-lived HA token entered once in PistonCore settings
+- File writing: Calls HA REST API directly with token — no companion needed
+- Distribution: Docker Hub, Unraid Community Apps, GitHub
+
+### Docker HA Users (homeassistant/home-assistant container)
+- Cannot install HA addons — no supervisor
+- Will use Docker version when it's built
+- REST API still works fine for them — same token approach
+- Reasonable to tell them "Docker version coming later"
+
+---
+
+## The Compiler Output Model
+
+### Compiler output targets — extensible list, not hardcoded
+The compiler selects an output target based on piston complexity. This is designed
+as an extensible list so adding new targets in future is an addition not a rewrite.
+
+### v1 Output Targets
+**Simple → Native HA YAML**
+- Basic triggers: state change, time, sun, etc.
+- Basic conditions: state, time, numeric comparisons
+- Basic actions: service calls, delays, notifications
+- Output: Native HA automation YAML — HA fully owns it, traces work, survives restarts
+
+**Complex → PyScript**
+- Variables and math
+- Loops and repeat logic
+- Dynamic conditions
+- Anything needing persistent state
+- Output: PyScript file deployed to HA /config/pyscript/
+- PyScript must be installed in HA as a separate integration (HACS)
+- This is unchanged from original design — compiler mostly built, keep it
+
+### v2 Output Target (architecture ready, not built yet)
+**Complex → PistonCore Native Runtime**
+- Same complex piston features as PyScript
+- Runs inside PistonCore addon via persistent WebSocket connection to HA
+- No PyScript dependency — PistonCore owns the execution engine
+- When built, replaces PyScript as the complex piston target
+- AppDaemon worth evaluating as the foundation — already solves HA WebSocket
+  persistent connection, reconnection, and async execution. Could cut v2 runtime
+  development time significantly. Review before designing from scratch.
+- Piston JSON format does not change between v1 and v2 — same file, different output target
+
+### Piston JSON is the permanent master format
+- Pistons are always saved as JSON in PistonCore storage — never lost
+- JSON is the source of truth for sharing, backup, and recompilation
+- Compiled output (YAML or PyScript) is always regeneratable from the JSON
+- This is a core architectural principle — state it explicitly in DESIGN.md
+
+### What Replaced the HACS Companion
+HA REST API called directly:
+- `POST /api/config/automation/config/{automation_id}` — create/update automation
+- `POST /api/services/automation/reload` — reload automations
+- Addon uses supervisor token. Docker uses long-lived token. That's it.
+- PistonCore never touches HA core files — only files it created itself
+
+---
+
+## Design Documents — Rewrite Needed Before Coding Resumes
+
+ALL of these are stale. Rewrite at the START of the next coding session, before any code changes.
+
+### DESIGN.md — Full rewrite to v1.0
+- Keep PyScript as v1 complex piston output — do NOT remove
+- Remove HACS companion references — replaced by direct REST API calls
+- Add two-product architecture (addon primary, Docker secondary)
+- Add compiler output targets as extensible list (YAML, PyScript for v1; runtime for v2)
+- Add v2 runtime engine section — architecture designed in, not built yet
+- Add note to evaluate AppDaemon as v2 runtime foundation before designing from scratch
+- Add piston JSON as permanent master format — core architectural principle
+- Add deployment target section
+- Update auth model (supervisor token for addon, long-lived token for Docker)
+- Add versioned template folder structure (ha_YYYY.x/) for YAML compiler templates
+- Add versioned ha_api/ folder structure for HA endpoint externalization
+- Add piston JSON schema_version field and migration strategy
+- Add HA version detection at startup sequence
+- Add BASE_URL pattern to frontend architecture section
+- Add compiler error/warning object shape to compiler spec
+- Add global variable naming rules and pistoncore_ prefix convention
+- Update Section 5: "No entity IDs ever visible" — compromise reached in Session 15:
+  show friendly name prominently, append parsed entity suffix to disambiguate
+  ("Basement — Volume"). No raw entity_id shown.
+- Keep all still-valid sections
+
+### FRONTEND_SPEC.md — Update
+- Add complexity indicator UI element
+- Add Docker vs Addon feature availability flags
+- Remove PyScript-related UI elements
+- Everything else stays
+
+### WIZARD_SPEC.md — Minor update
+- Note which wizard features are runtime-only vs compiler
+- Otherwise largely unchanged
+
+### README.md — Rewrite
+- Was flagged stale in Session 13, still stale
+- Two-product install story
+- Feature comparison table (addon vs Docker)
+- Remove all "planned" language for things already built
+
+---
+
+## Open Architecture Questions (Resolve Before Coding)
+
+1. **Complex pistons in Docker version** — show features with warning banner and allow
+   building but block deployment? Or hide complex features entirely in Docker?
+   Current thinking: show with warning, allow building, block deployment.
+
+2. **Global variables in addon runtime** — push to HA input_boolean/input_number helpers,
+   or stay internal to PistonCore only? Has UX implications for HA dashboard use.
+
+3. **Addon ingress vs direct port** — HA addons can expose a port directly OR use ingress
+   (cleaner but adds path prefix). Must decide before building addon UI.
+
+4. **Docker version runtime mode** — if PistonCore Docker is running on the same host as HA,
+   should it ever support runtime mode? Or keep Docker strictly compiler-only forever?
+
+5. **Global variables** — push to HA input helpers or stay internal to PistonCore only?
+
+---
+
+## Infrastructure — Current Dev Setup (Unchanged)
 
 - Unraid server at 192.168.1.226, port 7777
 - Files are copied directly over the network to Unraid — NOT deployed via git pull
@@ -53,13 +228,9 @@ Real users are watching the GitHub repo.
 - Frontend: vanilla JS/HTML/CSS, no framework
 - Backend: Python FastAPI, port 7777
 
----
-
-## Three Pages — Confirmed Layout
-
-1. **List page** — home screen, OK as-is
-2. **Status/Debug page** — land here after saving or clicking a piston
-3. **Editor page** — full width, no centering, fills viewport, continuous document renderer
+Note: Dev environment will stay Docker on Unraid during development. The addon packaging
+is a future step — build and validate the core functionality in Docker first, then package
+as an addon.
 
 ---
 
@@ -74,6 +245,14 @@ Real users are watching the GitHub repo.
 
 ---
 
+## Three Pages — Confirmed Layout
+
+1. **List page** — home screen, OK as-is
+2. **Status/Debug page** — land here after saving or clicking a piston
+3. **Editor page** — full width, no centering, fills viewport, continuous document renderer
+
+---
+
 ## Device Picker — Current State
 
 The condition wizard device panel now:
@@ -85,6 +264,8 @@ The condition wizard device panel now:
 ---
 
 ## Known Bugs — Fix List for Session 16
+
+### ⚠️ Do design doc rewrites BEFORE touching any of these
 
 ### PRIORITY 1 — HA Device List Quality
 
@@ -101,14 +282,8 @@ The condition wizard device panel now:
   2. Let user hide specific entities from the picker (My Device Definitions screen)
   3. Accept it as a known HA limitation and document it
 
-**DESIGN.md note:** Section 5 says "no entity IDs ever visible to the user" — this needs
-to be updated. The compromise reached in Session 15: show friendly name prominently,
-append parsed entity suffix to disambiguate ("Basement — Volume"). No raw entity_id
-shown. Update DESIGN.md Section 5 wording to match this approach before coding.
-
 ### PRIORITY 2 — Wizard: AND/OR prompt between conditions (Add more)
 
-From SESSION_14_5_NOTES:
 - WebCoRE asks how new condition relates to previous one (AND or OR)
 - Currently just stacks conditions with no group_operator set
 - Fix: after first condition is added, prompt for AND/OR before building next one
@@ -137,7 +312,6 @@ From SESSION_14_5_NOTES:
 ## Backend / Compiler Gaps — Fix AFTER Wizard Works End to End
 
 These don't affect the browser UI but matter when Deploy is wired up.
-From SESSION_14_5_NOTES:
 
 1. **Wizard produces `service_call`, compiler expects `with_block`**
    - `_saveDeviceCmd()` produces `{type:"service_call", devices:[entityId]}`
@@ -253,28 +427,18 @@ end if;
 
 ---
 
-## Design Doc Updates Needed (do at start of Session 16)
-
-1. **DESIGN.md Section 5** — "No entity IDs ever visible to the user" needs updating.
-   Compromise: show friendly name + parsed entity suffix to disambiguate
-   ("Basement — Volume"). No raw entity_id shown. Update wording to match.
-
-2. **README.md** — Check if it's stale. It was flagged in Session 13 notes as needing
-   update to reflect: current status, how to run on Unraid, remove "planned" language
-   for things already built. Check before session 16 coding starts.
-
----
-
 ## Future Plans (noted, not blocking)
 
+- Addon packaging (after core is working and validated in Docker dev environment)
+- v2 PistonCore native runtime engine to replace PyScript (evaluate AppDaemon first)
 - AND/OR prompt between conditions (Priority 2 above)
-- Virtual test devices in companion HA app
-- Windows app via PyInstaller
+- Virtual test devices in HA
 - Login system (post-v1)
 - Cloud hosting (after login)
 - "Only show devices in areas" filter toggle for device picker
 - My Device Definitions screen (hide/rename entities from picker)
 - WebCoRE-style toolbar icons
+- Docker product (after addon is solid)
 
 ---
 
@@ -292,16 +456,25 @@ Session 14.5: wizard.js and editor.js structural bug fixes. Step stack, device s
 Session 15: Wizard improvements (larger modal, device search panel, domain caps map,
             context-aware value inputs, agg banner). HA settings page with WebSocket
             connection. Real devices loading. Domain filter + label disambiguator in backend.
+Session 16: Architecture pivot discussion. HACS companion dropped — replaced by direct REST
+            API. Primary target shifted to native HA Addon. Docker version secondary (later).
+            PyScript KEPT for v1 — compiler mostly built, no reason to discard. Native runtime
+            engine planned for v2 — AppDaemon flagged as potential foundation to evaluate.
+            Piston JSON confirmed as permanent master format — core principle. Seven design
+            decisions documented for DESIGN.md rewrite. No code written this session.
 
 ---
 
 ## Next Session — Start Here
 
-1. Read this prompt fully
-2. Update DESIGN.md Section 5 wording (entity ID compromise) — do this BEFORE coding
-3. Check README.md for staleness
-4. Ask Jeremy to upload current wizard.js, ha_client.py, and any other files that need changes
-5. Confirm fix list with Jeremy — Priority 1 is HA device list quality
-6. Work through fix list in priority order
-7. After each fix: give Jeremy the yes/no test checklist, wait for screenshot
-8. Generate updated session prompt at end of session
+1. Read this prompt fully — pay close attention to Architecture Pivot and Compiler Output Model
+2. This is a design document rewrite session — confirm with Jeremy before touching any code
+3. Resolve open architecture questions with Jeremy (listed above)
+4. Rewrite DESIGN.md to v1.0 using the checklist above — this is the priority
+5. Update FRONTEND_SPEC.md (BASE_URL standard, complexity indicator, feature flags)
+6. Update WIZARD_SPEC.md (note PyScript vs runtime for complex features)
+7. Rewrite README.md (two-product story, remove stale planned language)
+8. After documents done: ask Jeremy to upload files and resume bug fix list
+9. Bug fix priority: Priority 1 (device list quality) → Priority 2 (AND/OR) → etc.
+10. After each fix: give Jeremy yes/no test checklist, wait for screenshot
+11. Generate updated session prompt at end of session

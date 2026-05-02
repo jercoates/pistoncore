@@ -457,3 +457,200 @@ Priority order:
 5. Items 12, 13 — piston identity rule, orphan cleanup (core invariants)
 6. Item 14 — v2 runtime direction (sets long term trajectory)
 7. PyScript/runtime/extensible output target section
+
+---
+
+## 15. Test Compile / Preview Mode
+
+### Problem
+Users editing templates or building pistons have no way to see the compiled YAML output
+before deploying to HA. A bad template edit or piston configuration silently breaks
+their automations. With community-editable templates this is a critical gap.
+
+### Decision Needed
+Add a "Test Compile" / Preview mode as a required feature — not optional:
+- Available on every piston from the status page
+- Shows the full compiled YAML (or PyScript) output in a read-only code view
+- Does NOT deploy to HA — purely a preview
+- Compiler errors and warnings shown inline
+- Template editors get live preview as they edit
+
+### What To Do In DESIGN.md
+- Add Test Compile as required feature in compiler spec section
+- Add preview panel to status page spec in FRONTEND_SPEC.md
+- Note that template editing UI must include live preview
+
+---
+
+## 16. PyScript Detection and Setup Prompt
+
+### Problem
+Users installing PistonCore as an addon expect everything to work out of the box.
+Complex pistons require PyScript — a separate HACS integration install. Without
+detection and clear UI guidance, users hit a wall with no explanation.
+
+### Decision Needed
+PistonCore must detect whether PyScript is installed in HA before allowing complex
+piston deployment:
+- On connect, check for PyScript integration via HA REST API
+- If not found and user attempts to deploy a complex piston: show clear setup prompt
+  "Complex pistons require PyScript. Install it via HACS first."
+- Link to PyScript HACS page directly from the prompt
+- Once v2 runtime ships, this prompt goes away entirely
+
+### What To Do In DESIGN.md
+- Add PyScript detection to startup/connect sequence
+- Add setup prompt behavior to complex piston deploy flow
+- Add to WIZARD_SPEC.md — wizard should warn before user builds a complex piston
+  if PyScript is not detected
+
+---
+
+## 17. Template Manifest — Additional Fields
+
+### Problem
+Item 9 defined the basic manifest.json spec. Grok identified two additional fields
+worth including now so the structure doesn't need to change later.
+
+### Decision Needed
+Add to manifest.json spec:
+
+```json
+{
+  "ha_version_min": "2025.1",
+  "ha_version_max": "2025.12",
+  "pistoncore_version_min": "1.0",
+  "description": "Templates for HA 2025.x automation schema",
+  "compatibility_warnings": [
+    "2025.6: service call syntax changed for light.turn_on"
+  ],
+  "checksum": "sha256:abc123"
+}
+```
+
+- compatibility_warnings — array of human-readable notes about subtle behavioral
+  changes that aren't breaking but worth knowing. Shown in PistonCore UI.
+- checksum — sha256 of the template folder contents for community pack validation.
+  Field exists now even if validation is not enforced until post-v1.
+
+### What To Do In DESIGN.md
+- Add compatibility_warnings and checksum to manifest.json spec in item 9
+
+---
+
+## 18. Addon Ingress + Direct Port — Support Both
+
+### Problem
+Choosing only ingress or only direct port locks out valid use cases. Ingress is
+HA-recommended and cleaner for most users. Direct port is needed for Docker dev
+and some advanced setups. Forcing one breaks the other.
+
+### Decision Needed
+Support both as options in addon config:
+- Default: ingress enabled (HA-recommended, auth handled by HA, single port)
+- Option: direct port exposure for users who need it
+- BASE_URL handling (item 4) already covers the path prefix issue
+- Test both paths thoroughly before release — many addons get this wrong
+
+### What To Do In DESIGN.md
+- Add ingress + direct port as dual-support to addon architecture section
+- Note that BASE_URL handles path prefix differences transparently
+- Add to open architecture questions: confirm default (ingress) before building UI
+
+---
+
+## 19. Background Compile / Debounce on Save
+
+### Problem
+With many pistons, compiling and deploying on every save could be noticeably slow.
+If compile blocks the UI thread or hammers HA's API, the editor feels broken.
+
+### Decision Needed
+- Compilation runs as a background job — never blocks the UI
+- Deploy to HA is separate from save — user explicitly deploys, or auto-deploy is debounced
+- Show compile status indicator in UI (compiling / compiled / error)
+- Define debounce window if auto-deploy is used (e.g., 2 seconds after last change)
+
+### What To Do In DESIGN.md
+- Add background compile job to backend architecture section
+- Add compile status indicator to FRONTEND_SPEC.md
+- Define auto-deploy debounce strategy
+
+---
+
+## 20. Token Security and Minimal Privilege
+
+### Problem
+Long-lived tokens and supervisor tokens grant broad HA access. No documented guidance
+on minimal privilege or token rotation means users will use admin tokens unnecessarily
+and never rotate them.
+
+### Decision Needed
+- Document recommended minimal HA token scope in setup UI and docs
+- Recommend users create a dedicated HA user for PistonCore with only necessary permissions
+- Add token rotation guidance to settings page
+- Supervisor token: document that it is handled automatically and never exposed to user
+
+### What To Do In DESIGN.md
+- Add security section covering token scope, rotation, and supervisor token handling
+- Add setup guidance to README.md
+
+---
+
+## Final Summary — All 20 Items for DESIGN.md Rewrite
+
+Original items: 1-7
+Added from Gemini review: 8-14
+Added from Grok review: 15-20
+
+Priority order (unchanged for 1-14, additions at end):
+1. Items 1, 3, 7, 8, 9, 10, 17 — template system + manifest + API externalization
+   (design together — tightly coupled, item 11 replaces item 2)
+2. Item 4 + 18 — BASE_URL and ingress/port decision
+3. Items 5, 19 — compiler contract and background compile
+4. Items 6, 20 — global naming and token security
+5. Items 12, 13 — piston identity and orphan cleanup
+6. Item 14 — v2 runtime direction
+7. Items 15, 16 — test compile preview and PyScript detection
+8. PyScript/runtime/extensible output target section
+
+---
+
+## 21. PyScript as Permanent Docker Output Target
+
+### Problem
+Current documents frame PyScript as a temporary v1 stepping stone that gets deprecated
+everywhere in v2. This is wrong. PyScript is only deprecated for the addon target.
+Docker users are power users who are comfortable with HACS and don't need a native runtime.
+Framing PyScript as temporary everywhere undersells the Docker product and creates
+unnecessary confusion about its long term support.
+
+### Decision Needed
+PyScript is a permanent, long term supported output target for the Docker deployment.
+It is never deprecated for Docker users.
+
+The correct framing by deployment:
+
+Addon target:
+- v1: Simple → YAML, Complex → PyScript (requires HACS install, user prompted)
+- v2: Simple → YAML, Complex → native internal runtime (PyScript no longer needed)
+- v3: PyScript output target removed from addon
+
+Docker target:
+- v1: Simple → YAML, Complex → PyScript (permanent, long term supported)
+- v2: Simple → YAML, Complex → PyScript (unchanged) OR native runtime if user wants it
+- No deprecation planned for Docker PyScript support
+
+This also makes Docker a stronger product in its own right — not a "lite" version
+but a full featured alternative for power users who prefer external deployment,
+run Unraid/NAS, and are comfortable with HACS. That is a real and significant audience.
+
+No addon companion needed for PyScript on Docker. PyScript is a HACS integration
+users install once. PistonCore Docker just generates the files. Low ongoing burden.
+
+### What To Do In DESIGN.md
+- Add explicit statement: PyScript is permanently supported for Docker target
+- Update two-product table to show Docker keeps PyScript long term
+- Update v2 runtime section: native runtime is addon-only, Docker keeps PyScript
+- Remove any language implying PyScript is deprecated everywhere in v2
+- Frame Docker product as full featured power user alternative, not lite version

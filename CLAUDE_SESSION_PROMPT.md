@@ -79,11 +79,15 @@ Do NOT code against the old architecture. Do NOT start coding until DESIGN.md is
 ### Product 2: PistonCore Docker (SECONDARY — Build Later)
 - Runs on: Unraid, NAS, any Docker host, Docker-based HA installs
 - Install: Docker Hub / Unraid Community Apps
-- What it does: Compiler only — compiles pistons to native HA YAML, pushes via REST API
-- Complex pistons: Available in editor with warning banner, no runtime execution
+- Target audience: Power users comfortable with HACS and external Docker deployment
+- What it does: Full featured — simple pistons compile to native YAML, complex pistons
+  compile to PyScript (permanent, long term supported — never deprecated for Docker)
+- PyScript: HACS integration users install once — PistonCore just generates the files
 - Auth: Long-lived HA token entered once in PistonCore settings
 - File writing: Calls HA REST API directly with token — no companion needed
 - Distribution: Docker Hub, Unraid Community Apps, GitHub
+- This is a full product, not a lite version — Docker users lose nothing vs addon users
+  except the v2 native runtime (which they don't need — PyScript covers complex pistons)
 
 ### Docker HA Users (homeassistant/home-assistant container)
 - Cannot install HA addons — no supervisor
@@ -96,48 +100,39 @@ Do NOT code against the old architecture. Do NOT start coding until DESIGN.md is
 ## The Compiler Output Model
 
 ### Compiler output targets — extensible list, not hardcoded
-The compiler selects an output target based on piston complexity. This is designed
-as an extensible list so adding new targets in future is an addition not a rewrite.
+The compiler selects an output target based on piston complexity and deployment type.
+Designed as an extensible list so adding new targets is an addition not a rewrite.
 
-### v1 Output Targets
+### v1 Output Targets (both products)
 **Simple → Native HA YAML**
-- Basic triggers: state change, time, sun, etc.
-- Basic conditions: state, time, numeric comparisons
-- Basic actions: service calls, delays, notifications
+- Basic triggers, conditions, actions
 - Output: Native HA automation YAML — HA fully owns it, traces work, survives restarts
 
 **Complex → PyScript**
-- Variables and math
-- Loops and repeat logic
-- Dynamic conditions
-- Anything needing persistent state
+- Variables, math, loops, dynamic conditions, persistent state
 - Output: PyScript file deployed to HA /config/pyscript/
-- PyScript must be installed in HA as a separate integration (HACS)
-- This is unchanged from original design — compiler mostly built, keep it
+- PyScript must be installed in HA as a HACS integration
+- PistonCore detects whether PyScript is installed and prompts user if not
 
-### v2 Output Target (architecture ready, not built yet)
-**Complex → PistonCore Native Runtime**
-- Same complex piston features as PyScript
-- Runs inside PistonCore addon via persistent WebSocket connection to HA
-- No PyScript dependency — PistonCore owns the execution engine
-- When built, replaces PyScript as the complex piston target
-- AppDaemon worth evaluating as the foundation — already solves HA WebSocket
-  persistent connection, reconnection, and async execution. Could cut v2 runtime
-  development time significantly. Review before designing from scratch.
-- Piston JSON format does not change between v1 and v2 — same file, different output target
+### Long Term Output Targets by Deployment
+
+**Addon (v2+):**
+- Simple → Native YAML (permanent)
+- Complex → PistonCore native internal runtime (replaces PyScript in v2)
+- PyScript deprecated for addon in v2, removed in v3
+
+**Docker (permanent, no deprecation planned):**
+- Simple → Native YAML (permanent)
+- Complex → PyScript (permanent — never deprecated for Docker)
+- Docker users are power users comfortable with HACS — PyScript fits this audience
+- No native runtime planned for Docker — PyScript is the long term complex solution
 
 ### Piston JSON is the permanent master format
-- Pistons are always saved as JSON in PistonCore storage — never lost
-- JSON is the source of truth for sharing, backup, and recompilation
-- Compiled output (YAML or PyScript) is always regeneratable from the JSON
-- This is a core architectural principle — state it explicitly in DESIGN.md
-
-### What Replaced the HACS Companion
-HA REST API called directly:
-- `POST /api/config/automation/config/{automation_id}` — create/update automation
-- `POST /api/services/automation/reload` — reload automations
-- Addon uses supervisor token. Docker uses long-lived token. That's it.
-- PistonCore never touches HA core files — only files it created itself
+- Pistons always saved as JSON in PistonCore — never lost
+- JSON is source of truth for sharing, backup, recompilation
+- Compiled output always regeneratable from JSON
+- Same piston JSON works on both addon and Docker — output target differs, JSON does not
+- Core architectural principle — state explicitly in DESIGN.md
 
 ---
 

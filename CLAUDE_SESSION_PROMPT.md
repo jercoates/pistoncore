@@ -73,7 +73,26 @@ Do NOT re-open closed decisions. Do NOT suggest AppDaemon. Do NOT suggest removi
 - Every piston UUID is immutable from creation — all HA artifact names derive from UUID
 - logic_version and ui_version are separate fields — not a single schema_version
 - Compile target boundary lives in target-boundary.json — not hardcoded in Python
-- Entity IDs are never shown to the user in any screen
+- Entity IDs are never shown to the user in normal flow (see honest status below)
+
+### Entity ID Visibility — Goal With Known Gaps
+
+The goal is that users never see raw entity IDs. This is not fully implemented yet.
+Current honest status by area:
+
+- **Device picker** — mostly working. User picks by friendly name. Entity ID resolved
+  internally. Label disambiguator handles duplicate friendly names.
+- **Capability/attribute display** — backend needs to strip entity IDs from HA responses
+  before they reach the frontend. Not yet done.
+- **HA error messages** — when HA rejects compiled output, errors contain raw entity IDs
+  and YAML field names. error-translations.json handles known patterns but unknown errors
+  will still leak raw HA output. Acceptable for now — flag as known gap.
+- **Test Compile view** — deliberate exception. Raw YAML shown here contains entity IDs.
+  This is intentional — it's a power user feature behind a button, not normal flow.
+
+Do not revert the goal. Do track these as implementation gaps to close progressively.
+When working on ha_client.py for the device list fix, strip entity IDs from all
+capability and attribute responses at the same time — one pass, done.
 
 ---
 
@@ -92,6 +111,15 @@ These were committed to GitHub. All four docs are current.
 
 ---
 
+## Development Sequence — Clarified
+
+Docker is the dev and delivery path for ALL core feature work. The addon is the
+primary product for end users but Docker gets built and validated completely first.
+Addon packaging is a separate phase after the core is solid in Docker.
+
+Do not think of this as "Docker then addon" as two separate builds. It is one build
+that runs in Docker throughout development. Addon packaging is wrapping, not rebuilding.
+
 ## Next Session — Start Here
 
 ### Step 1: COMPILER_SPEC.md Update (before any coding)
@@ -108,30 +136,88 @@ compiler work begins. Key things that changed:
 - Add fat compiler context object spec (DESIGN.md Section 14)
 - Add compiler error/warning contract (DESIGN.md Section 18)
 - Add Test Compile endpoint spec (returns compiled output, does not deploy)
+- Add Docker native runtime as planned future output target (see note below)
 
 ### Step 2: Resume Coding (after COMPILER_SPEC.md is updated)
 
-Bug fix priority from Session 15 (still outstanding):
+**PRIORITY 0 — Device List Clutter (wizard is unusable at scale without this)**
 
-**PRIORITY 1 — HA Device List Quality**
-- Some entities still showing that shouldn't (Sonos auto-discovered media_player entities)
-- "Only show devices in areas" filter toggle — devices without area assigned are often junk
-- Virtual test devices showing wrong state/attributes — verify with real physical devices first
+Jeremy has 179+ Hubitat devices migrated to HA. With HA's entity model, one physical
+device can have 10-20 entities. The wizard currently shows all of them — one row per
+entity — making it completely unusable at scale. This must be fixed before anything else.
 
-**PRIORITY 2 — Wizard: AND/OR prompt between conditions**
+Three-layer fix in ha_client.py:
+
+1. **Filter entity_category flags** — HA marks entities as diagnostic or config in the
+   entity registry. These are firmware versions, signal strength, last seen, update
+   available, memory usage — never useful for automation logic. Filter them out.
+   Field to check: entity_category == "diagnostic" or entity_category == "config"
+   This alone eliminates most of the Sonos/media player clutter.
+
+2. **Group by device not entity** — the picker should show one row per physical device
+   (e.g. "Sonos Living Room" once), not one row per entity (15 Sonos rows).
+   This is the design intent — it needs to be properly implemented.
+   Device grouping data is available from the HA device registry.
+
+3. **"Only show devices in areas" toggle** — user-controlled filter. Devices without
+   an area assigned in HA are usually auto-discovered junk (Sonos found via mDNS,
+   Chromecast, etc.) that the user never deliberately set up. Toggle off by default,
+   user can enable it to hide everything without an area. Store preference in config.json.
+
+Also: auto-discovered devices the user never set up (Sonos, Chromecast, mDNS/SSDP
+discoveries) need a "hide this device" option in My Device Definitions screen so users
+can permanently remove specific devices from the picker without deleting them from HA.
+
+**Device picker vs variable picker — separation is by TYPE, not by variable vs device.**
+
+Device-type variables belong IN the device picker. Non-device variables belong in
+the variable picker. A variable's type determines which picker it appears in.
+
+- Define block wizard: where all variables are created — completely separate UI
+- HA helpers (input_boolean etc.) are variables — created in define block wizard,
+  never appear in device picker
+
+**Device picker shows:**
+- Physical HA devices (grouped by area then name)
+- Device-type global variables (@SmokeDetectors, @AlertLights, @Speakers)
+- Device-type local piston variables ($device, $currentDevice)
+- Virtual devices (Time, Date, Location, System Start)
+- NO scalar/non-device variables
+
+**Variable picker shows:**
+- Non-device local piston variables ($count, $message, $status)
+- Non-device global variables (@BatteryStatus, @AwayMode)
+- System variables ($now, $sunrise, $sunset, $index, $hour, etc.)
+- NO physical devices, NO device-type variables
+
+Device picker section order after grouping fix:
+
+  [Area Name]
+    Device Name              ← one entry per physical device
+  [Another Area]
+    Device Name
+  No Area
+    Device Name              ← unassigned devices, always shown by default
+  Device Variables
+    @SmokeDetectors          ← device-type globals
+    $currentDevice           ← device-type local variables
+  Virtual
+    Time / Date / Location / System Start
+
+**PRIORITY 1 — Wizard: AND/OR prompt between conditions**
 - After first condition added, prompt for AND/OR before building next one
 - Currently just stacks conditions with no group_operator set
 
-**PRIORITY 3 — Wizard: Operator order still wrong**
+**PRIORITY 2 — Wizard: Operator order still wrong**
 - Triggers should appear FIRST with ⚡ prefix
 - Conditions second
 - Currently reversed
 
-**PRIORITY 4 — Wizard: Orange "Any of selected devices" banner**
+**PRIORITY 3 — Wizard: Orange "Any of selected devices" banner**
 - Should appear above compare row when ANY device is selected (not just multi-device)
 - Partially fixed in Session 15 — needs verification with real devices
 
-**PRIORITY 5 — Wizard: Value input for binary/enum from real HA devices**
+**PRIORITY 4 — Wizard: Value input for binary/enum from real HA devices**
 - When real HA device selected, attribute type from API.getCapabilities(entity_id)
 - Value widget not updating correctly for binary/enum types from real devices
 - Works for demo devices — verify with real HA devices after connection confirmed
@@ -243,6 +329,35 @@ end if;
 
 ---
 
+## Variable Naming Conventions — Confirmed
+
+- **`@`** prefix = global variables (`@SmokeDetectors`, `@AlertLights`)
+- **`$`** prefix = local piston variables (`$count`, `$device`, `$now`)
+- System variables also use `$` prefix (`$currentEventDevice`, `$sunrise`)
+- No global variables sidebar — globals managed through dedicated globals screen only
+
+**Variable picker dropdown display format (match WebCoRE exactly):**
+Shows type + name together in one string: "string Battery_Status", "device currentDevice"
+Not just the name alone — type keyword comes first.
+
+**Define block rendering (confirmed from WebCoRE screenshot):**
+```
+device currentDevice;
+device Smoke_CO = Basement Smoke detector, Kitchen Detector;
+string Battery_Status_Smoke;
+```
+Type keyword first, then variable name, then = and value/devices if set, semicolon at end.
+Device globals show their member friendly names inline after the = sign.
+
+**Reference screenshot for next session:**
+Upload the WebCoRE task wizard screenshot (1777693803441_image.png) — shows:
+- Set variable wizard layout with Variable section and Value/Expression section
+- "Only during these modes" orange bar (per-task restriction)
+- Variable picker dropdown showing type + name format
+- Define block rendering in the editor behind the modal
+
+---
+
 ## Wizard — Confirmed Rules
 
 - NEVER two modals open at once
@@ -276,6 +391,34 @@ Session 16: Architecture pivot. Companion dropped, addon primary, Docker seconda
 Session 17: All four repo docs rewritten to v1.0. Data-driven compile boundary added.
             Hybrid-permanent decision locked. AI instruction file system defined.
             write-a-piston.md prompt created. COMPILER_SPEC.md flagged stale. No code written.
+
+---
+
+## Note for Next Session — Docker Native Runtime Option
+
+When updating COMPILER_SPEC.md, add a note about this future Docker capability:
+
+Docker version should eventually support an opt-in native runtime mode as an alternative
+to PyScript for complex pistons. Two reasons this matters:
+
+1. PyScript is a community project — it's well maintained now but depending on it
+   permanently for Docker users carries long term risk if it stops being maintained.
+
+2. Most people running the Docker version of HA put PistonCore on the same machine.
+   The native runtime talking back to HA over localhost is essentially zero latency
+   and zero network risk — arguably cleaner than the addon in some ways.
+
+Implementation is straightforward given the existing architecture:
+- Add runtime_mode: "pyscript" | "native" to Docker config.json
+- Compiler checks deployment_type + runtime_mode and routes accordingly
+- Piston JSON does not change — same file, different output target
+- WebSocket connection to HA already exists for device data — same plumbing
+- Native runtime engine is being built for addon v2 anyway — Docker just reuses it
+
+This fills a real gap: Docker HA users who don't want HACS, or who want full
+execution tracing that PyScript can't provide. Not v1 scope — note it in
+COMPILER_SPEC.md as a planned extensible output target so the routing logic
+is designed to accommodate it from the start.
 
 ---
 

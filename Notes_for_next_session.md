@@ -91,6 +91,42 @@ Not priority — fix device list clutter first. But note for when editor work re
 
 ---
 
+## BASE_URL — Flag for Cousin (Frontend Developer)
+
+FRONTEND_SPEC.md v0.6 now requires BASE_URL for ALL frontend connections.
+Any hardcoded path in frontend JS is a bug that will break under addon ingress.
+
+If the cousin is writing frontend code against the repo right now, he needs to
+know about this before writing any fetch() calls or WebSocket connections.
+
+The fix is simple — one constant in config.js:
+  const BASE_URL = window.PISTONCORE_BASE_URL || '';
+
+Then all calls use:
+  fetch(BASE_URL + '/api/pistons')
+  new WebSocket(BASE_URL.replace('http', 'ws') + '/ws')
+
+Docker dev: BASE_URL is empty string — zero change to current behavior.
+Addon ingress: BASE_URL injected by backend at page serve time.
+
+Make sure this is communicated before any new frontend code is written.
+
+---
+
+## Script Entity ID Format — Now Locked
+
+DESIGN.md updated to explicitly state:
+- Filename: pistoncore_{uuid}.yaml
+- Script entity ID: script.pistoncore_{uuid}
+- Automation alias: (only place slug is used — human readable label in HA UI)
+- Slug collision handling for filenames: no longer needed (UUIDs are unique)
+- Slug collision handling for alias: field: may still be needed — clarify in COMPILER_SPEC.md
+
+The driveway lights example in COMPILER_SPEC.md uses old slug-based format.
+Update that example when rewriting the spec.
+
+---
+
 ## Docker Native Runtime Option for Docker HA Users
 
 When updating COMPILER_SPEC.md, add as a planned future extensible output target.

@@ -133,6 +133,11 @@ compiler work begins. Key things that changed:
 - Add compile target boundary — reads from target-boundary.json, not hardcoded
 - Add HAClient as the auth abstraction for all HA calls
 - Update file paths — pistoncore_{uuid}.yaml not piston name based
+- Lock script entity ID format — script.pistoncore_{uuid} explicitly, not slug-based
+- Slug is ONLY used for automation alias: field (human readable label in HA UI)
+- Remove all slug-based filename/entity ID examples — replace with UUID format
+- Remove slug collision handling for filenames — UUIDs are unique, no collision possible
+  (slug collision handling may still be needed for alias: field — clarify in spec)
 - Add fat compiler context object spec (DESIGN.md Section 14)
 - Add compiler error/warning contract (DESIGN.md Section 18)
 - Add Test Compile endpoint spec (returns compiled output, does not deploy)

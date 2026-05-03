@@ -136,6 +136,52 @@ This is a deliberate improvement over WebCoRE's approach.
 
 ---
 
+## Statement Edit-in-Place — Resolved
+
+Confirmed from WebCoRE "Edit condition" screenshot:
+
+User clicks any statement in the editor → wizard opens pre-populated with
+that statement's current values (aggregation, devices, attribute, operator,
+value all already filled in) → user changes what they want → Save rewrites
+that statement in piston_text.
+
+No statement IDs in piston_text. No line number tracking. No pattern matching.
+The wizard parses the clicked statement text to pre-populate itself.
+The human-readable piston_text format is what makes this possible.
+
+This is the same wizard used for new statements — just pre-populated instead
+of empty. One wizard, two modes: new (empty) and edit (pre-populated from text).
+
+### Two Clickable Zones Per Statement
+
+Each statement has two distinct clickable targets in the editor:
+
+**Click the keyword** (if, with, repeat, etc.) → full statement wizard from
+the top. Lets you change the statement type or work through all fields in sequence.
+
+**Click the condition/action text** → wizard opens pre-populated at exactly
+that level. Skips straight to the condition or action content for fast editing.
+
+Example:
+```
+if                                              ← click = full statement wizard
+  Any of {Doors}'s contact changes to open     ← click = condition wizard direct
+```
+
+Both entry points use the same wizard — just different starting depth.
+The editor must distinguish between keyword click targets and content click targets.
+
+The "read text as you go to get context" principle applies throughout:
+- Click an if condition → wizard reads the condition text, pre-populates
+- Click a with/do action → wizard reads the action text, pre-populates  
+- Click a device variable in define → Edit Variable modal pre-populates
+- Click a set variable statement → wizard reads it, pre-populates
+
+The text is always the source of truth. The wizard is always a reader and writer
+of that text. Nothing is stored separately just for the wizard to read back.
+
+---
+
 ## WebCoRE Reference Screenshots for Next Session
 
 Upload these at session start if working on variable wizard:

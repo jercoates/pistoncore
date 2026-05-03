@@ -71,7 +71,8 @@ Do NOT re-open closed decisions. Do NOT suggest AppDaemon. Do NOT suggest removi
 ### Core Invariants — Never Break
 
 - Every piston UUID is immutable from creation — all HA artifact names derive from UUID
-- logic_version in the wrapper tracks piston text format version — not a single schema_version
+- logic_version and ui_version are separate fields in the wrapper — never collapse into one
+  logic_version = piston text format changes, ui_version = editor layout changes
 - Compile target boundary lives in target-boundary.json — not hardcoded in Python
 - Entity IDs are never shown to the user in normal flow (see honest status below)
 
@@ -283,30 +284,27 @@ Wire up compilation and deployment to HA. Requires COMPILER_SPEC.md done first.
 
 ## Backend / Compiler Gaps — Fix After Wizard Works End to End
 
-1. **Wizard produces service_call, compiler expects with_block — FORMAT DECISION NEEDED**
-   - _saveDeviceCmd() produces {type:"service_call", devices:[entityId]}
-   - Compiler _compile_sequence() has no handler for service_call
-   - This is not just a wizard bug — it is an unresolved format contract question
-   - Decision must be made when COMPILER_SPEC.md is updated:
-     Option A: Fix in wizard — wizard produces with_block, compiler never sees service_call
-     Option B: Fix in compiler — add _normalize_action() to handle both formats
-   - Recommendation: Option A. Piston JSON should be canonical format (with_block).
-     Compiler should never normalize malformed input — clean contract is easier to maintain.
-   - Whatever is decided must be locked in COMPILER_SPEC.md before compiler work starts
+The piston format changed significantly. The backend gaps below need to be
+re-evaluated against the new piston_text model when COMPILER_SPEC.md is updated.
+Do not code against the old structured JSON assumptions.
 
-2. **Entity ID vs Role in device_map**
-   - Wizard stores entity_id on subject but compiler resolves via device_map[role]
-   - Need _entityToRole() in wizard and Editor.registerDeviceRole() to auto-populate
-     piston.roles and piston.device_map when user picks a device
+**New model summary:**
+- Wizard builds and edits piston_text — plain English text exactly as editor displays
+- Compiler reads piston_text and translates to HA YAML
+- wizard_context provides compiler hints (attribute_type, device_class, ha_service)
+- device_map maps role names to entity IDs — filled by user on import
 
-3. **Trigger format mismatch**
-   - Wizard produces {type:"trigger", operator:"changes to", compiled_value:"on"}
-   - Compiler expects {type:"state", target_role:"...", to:"on"}
-   - Fix: add _normalize_trigger() pre-processing step in compiler
+**Gaps that need re-evaluation in COMPILER_SPEC.md session:**
+1. How does the wizard write new statements into piston_text — append, insert, replace?
+2. How does the compiler parse piston_text — line by line, regex, grammar?
+3. How does device_map get populated — wizard writes role name to piston_text,
+   user maps role to entity on import, device_map stores the mapping
+4. When user edits an existing statement, how does wizard find it in piston_text
+   to replace it — by statement ID in wizard_context, or by line number?
 
-4. **Binary sensor compiled_value lookup must live in wizard**
-   - DEVICE_CLASS_LABELS table (door→Open/Closed, motion→Detected/Clear, etc.)
-     must be in wizard so it sets compiled_value correctly before saving
+These are the real gaps to resolve. The old service_call/with_block mismatch,
+trigger format mismatch, and compiled_value issues are no longer relevant
+under the piston_text model.
 
 ---
 

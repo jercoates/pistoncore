@@ -24,7 +24,7 @@ It does not add devices, manage integrations, or extend HA's capabilities in any
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 13.
 * **Compiled files are compiler-owned artifacts.** Files written by PistonCore to HA directories are deployment artifacts, not source files. They may be replaced wholesale on recompile. The piston JSON is always the source of truth — never the compiled HA file. Users who hand-edit compiled files will be warned at next deploy via the hash check.
-* **Piston text is the permanent master format.** The editor saves its own text directly — what the user sees is what is stored. A tiny JSON wrapper holds only the fields the system needs without opening the piston (id, compile_target, device_map, has_missing_devices). The compiler is the only translator — it reads the plain English piston text and produces HA YAML at deploy time. The editor never translates. Nothing drifts.
+* **Piston text is the permanent master format.** The editor saves its own text directly — what the user sees is what is stored, what is stored opens identically in the editor. A JSON wrapper holds the fields the system needs (id, name, compile_target, device_map) plus a `wizard_context` block the wizard maintains internally. Shared/exported pistons contain only the wrapper and `piston_text` — no wizard_context. The compiler is the only translator. Nothing drifts.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message. Import from a URL or paste directly. No account required, no server involved.
 * **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
 * **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
@@ -234,73 +234,85 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 ## 6. Piston JSON — The Permanent Master Format
 
-### The Core Rule — Simple, No Exceptions
+### Two Formats — One Simple Rule Each
 
-**The piston text is saved exactly as the editor displays it. What the user sees is what is stored. What is stored is what opens in the editor. It never drifts.**
+**Shared/Import format:** Plain text — exactly what the editor displays. Easy to share, paste anywhere, import from WebCoRE, generate with AI. User fills in devices after import.
 
-The saved format has two parts:
+**Internal stored format:** The same text PLUS a small `wizard_context` block the wizard maintains. Helps the compiler. Never shared. Stripped on export.
 
-1. **A tiny wrapper** — just what the system needs to manage the piston without opening it
-2. **piston_text** — the exact text content of the editor, including the header block
+### Internal Stored Format
 
 ```json
 {
   "id": "d4e2f9a1",
+  "name": "New Door / Window Chime",
+  "logic_version": 1,
+  "ui_version": 1,
   "compile_target": "pyscript",
   "has_missing_devices": false,
   "device_map": {},
-  "piston_text": "/** New Door / Window Chime */\n/** id: d4e2f9a1 */\n/** mode: restart */\n\ndefine\n  device Doors = Back Door, Front Door, ...;\n  string Message;\nend define;\n\nexecute\n  if\n    Any of {Doors}'s or {Windows}'s contact changes to open\n  then\n    do Set variable {Message} = {\"\"};\n  end if;\nend execute;"
+  "piston_text": "/** New Door / Window Chime */\n/** id: d4e2f9a1 */\n/** mode: restart */\n\ndefine\n  device Doors = Back Door, Front Door, ...;\n  string Message;\nend define;\n\nexecute\n  if\n    Any of {Doors}'s or {Windows}'s contact changes to open\n  then\n    do Set variable {Message} = {\"\"};\n  end if;\nend execute;",
+  "wizard_context": {
+    "stmt_001": { "attribute_type": "binary", "device_class": "door" },
+    "stmt_005": { "domain": "media_player", "ha_service": "media_player.volume_set" }
+  }
 }
 ```
 
-That's it. Nothing else.
+### Shared/Export Format
 
-### Why This Is the Right Model
+When exporting a Snapshot or sharing a piston, `wizard_context` is stripped. What remains is the wrapper plus `piston_text` — plain text anyone can read, share, or import:
 
-* **No drift possible** — the editor saves its own text, reads its own text back. Nothing is reconstructed from parts.
-* **No translation layer** — the editor never translates. Only the compiler translates, once, at deploy time.
-* **New statement types just work** — when a new statement type is added to the editor, it writes to `piston_text` and works immediately. No schema update, no new fields, no migration needed.
-* **Sharing is identical to storage** — there is no separate shareable format. The piston text IS the shareable format. Paste it anywhere.
-* **AI generation is simple** — generate text that looks like the editor display. Import it. Done.
+```json
+{
+  "id": "d4e2f9a1",
+  "name": "New Door / Window Chime",
+  "compile_target": "pyscript",
+  "device_map": {},
+  "piston_text": "/** New Door / Window Chime */\n..."
+}
+```
+
+This is also what AI generators produce and what WebCoRE imports become after translation.
 
 ### What the Wrapper Contains
 
-The wrapper outside `piston_text` contains only what the system needs without parsing the text:
+| Field | Internal | Shared | Purpose |
+|---|---|---|---|
+| `id` | ✅ | ✅ | Immutable UUID — never changes |
+| `name` | ✅ | ✅ | Piston list display — no need to parse text |
+| `logic_version` | ✅ | optional | Piston text format version |
+| `ui_version` | ✅ | optional | Editor layout version — changes independently from logic |
+| `compile_target` | ✅ | ✅ | `"native_script"` or `"pyscript"` |
+| `has_missing_devices` | ✅ | — | ⚠️ flag for piston list |
+| `device_map` | ✅ | ✅ | Role → entity ID, empty until user maps on import |
+| `piston_text` | ✅ | ✅ | Exact editor text — always present |
+| `wizard_context` | ✅ | — | Compiler hints from wizard — stripped on export |
 
-| Field | Purpose |
-|---|---|
-| `id` | Immutable UUID — never changes, never derived from name |
-| `compile_target` | `"native_script"` or `"pyscript"` — for compilation routing |
-| `has_missing_devices` | Flag for ⚠️ indicator on piston list |
-| `device_map` | Role → entity ID mapping, filled on import by user |
+**`logic_version` and `ui_version` are separate and change independently.** A drag-and-drop library swap bumps `ui_version` only. A new statement type bumps `logic_version` only. Never collapse them into one field.
 
-Everything else — name, mode, author, created date, modified date, build number — lives in the header block inside `piston_text`, exactly as WebCoRE stored it.
+### Why piston_text Is the Right Foundation
+
+* **No drift possible** — editor saves its own text, reads it back unchanged
+* **New statement types cost nothing** — editor writes them to text, compiler learns to parse them
+* **Sharing is the text** — strip wizard_context, share piston_text — no translation needed
+* **Import from WebCoRE** — translate once to piston_text format, done forever
+* **wizard_context repopulates from text** — if context is missing or incomplete, the wizard can rebuild it by re-reading the statement text when the user next edits that statement
 
 ### What Each Consumer Does
 
-| Consumer | What it does |
-|---|---|
-| Editor | Reads `piston_text`, displays it directly, writes it back on save |
-| Compiler | Reads `piston_text`, parses it, translates to HA YAML |
-| Importer | Loads `piston_text` into editor, user maps `device_map` roles |
-| AI generator | Generates text matching editor display format |
-| Piston list | Reads wrapper only — never touches `piston_text` |
-
-### The Compiler Is the Only Translator
-
-The compiler reads the plain English piston text and translates everything:
-* Friendly labels → HA state values ("Open" → "on")
-* Role names → entity IDs via `device_map`
-* Plain English times → 24hr format
-* System variable expressions → HA template syntax
-* Plain English operators → HA condition syntax
-* Global variable references → inlined entity ID lists
-
-The editor never translates. The piston list never translates. Only the compiler translates, and only at deploy time.
+| Consumer | Reads | Does |
+|---|---|---|
+| Editor | `piston_text` | Displays directly, writes back on save |
+| Compiler | `piston_text` + `wizard_context` | Prefers context, falls back to parsing text |
+| Importer | `piston_text` | Loads into editor — user maps device_map roles |
+| AI generator | — | Generates `piston_text` matching editor display |
+| Piston list | Wrapper only | Reads `name`, `id`, `has_missing_devices` — never touches `piston_text` |
+| Export/Share | Strips `wizard_context` | Returns wrapper + `piston_text` only |
 
 ### Piston Header Block
 
-Every piston begins with a header block inside `piston_text`. PistonCore extends WebCoRE's header format:
+Every piston begins with a header block inside `piston_text`. PistonCore extends WebCoRE's format:
 
 ```
 /********************************************************/
@@ -315,7 +327,7 @@ Every piston begins with a header block inside `piston_text`. PistonCore extends
 /********************************************************/
 ```
 
-The `id` and `mode` fields in the header are authoritative. The wrapper `id` field matches — it exists only so the system can read the piston ID without parsing the full text.
+`name` and `id` in the wrapper match the header. They exist in the wrapper so the piston list can display them without parsing the full text.
 
 ### Piston Identity Rule — Core Invariant
 
@@ -330,10 +342,28 @@ The `id` and `mode` fields in the header are authoritative. The wrapper `id` fie
 
 ### Versioning
 
-`logic_version` in the wrapper tracks the piston text format version. If the format ever needs a structural change, migration reads the old text and rewrites it to the new format. The `piston_text` stays human readable throughout.
+* `logic_version` — tracks piston text format changes. Bump when statement syntax changes.
+* `ui_version` — tracks editor layout changes. Bump when editor rendering structure changes.
+* These change independently — never collapse into one field
+* If either is missing, treat as v1
+* If either is from the future, warn and refuse to load — never silently corrupt
+* Migration reads old text format and rewrites — `piston_text` stays human readable throughout
 
-* If `logic_version` is missing, treat as v1
-* If `logic_version` is from the future, warn and refuse to load — never silently corrupt
+### Example — Shared Format (Chicken Lights Lumen Sensor)
+
+This is what gets shared, imported, and generated by AI — wrapper plus plain text:
+
+```json
+{
+  "id": "c7a3f1b2",
+  "name": "Chicken Lights Lumen Sensor",
+  "compile_target": "native_script",
+  "device_map": {},
+  "piston_text": "/********************************************************/\n/* Chicken Lights Lumen Sensor                          */\n/********************************************************/\n/* Author   : Jeremy                                    */\n/* id       : c7a3f1b2                                  */\n/* mode     : restart                                   */\n/********************************************************/\n\ndefine\n  device light = {Chicken Light};\n  device lumen_sensor = {Lumen Sensor};\nend define;\n\nexecute\n  if\n    Time is between 6:00 AM and $sunrise + 30 minutes\n    and Any of {lumen_sensor}'s illuminance is less than 800 lux\n  then\n    with {light}\n    do\n      Turn on;\n    end with;\n  else\n    with {light}\n    do\n      Turn off;\n    end with;\n  end if;\n  if\n    Time is between $sunset + 30 minutes and 8:00 PM\n    and Any of {lumen_sensor}'s illuminance is less than 800 lux\n  then\n    with {light}\n    do\n      Turn on;\n    end with;\n  else\n    with {light}\n    do\n      Turn off;\n    end with;\n  end if;\n  if\n    Time is 8:00 AM\n  then\n    with {light}\n    do\n      Turn off;\n    end with;\n  end if;\n  if\n    Time is 9:00 PM\n  then\n    with {light}\n    do\n      Turn off;\n    end with;\n  end if;\nend execute;"
+}
+```
+
+**Notice:** No `wizard_context` — this is the shared format. No compiled values. No entity IDs. No HA syntax. Plain text exactly as the editor displays it. The compiler translates everything at deploy time.
 
 
 ## 7. Variables
@@ -743,6 +773,44 @@ pistoncore-customize/
 * `ha_client.py` loads `endpoints.json` on startup — no hardcoded URLs in Python
 
 **When to implement:** During the `ha_client.py` refactor for HAClient abstraction (Section 4). Not before, not after — at the same time.
+
+---
+
+## 15.5 wizard_context — Internal Compiler Hints
+
+The `wizard_context` block is maintained by the wizard and stored internally. It is never shown to users and never included in shared/exported pistons. The compiler prefers it when present and falls back to parsing the `piston_text` when absent.
+
+### What It Contains
+
+Keyed by statement ID matching the statement in `piston_text`:
+
+```json
+"wizard_context": {
+  "stmt_001": {
+    "attribute_type": "binary | numeric | enum | string",
+    "device_class": "door | motion | illuminance | ...",
+    "unit": "lux | % | °F | ..."
+  },
+  "stmt_005": {
+    "domain": "light | switch | media_player | ...",
+    "ha_service": "light.turn_on | media_player.volume_set | ..."
+  }
+}
+```
+
+Maximum 3-4 fields per statement. Only what the compiler cannot reliably derive from the text alone.
+
+### How It Gets Populated
+
+The wizard already fetches `device_class`, `attribute_type`, and `unit` from HA when the user picks a device and capability. It saves those fields into `wizard_context` at the same time — no extra HA calls needed.
+
+### How It Repopulates
+
+If `wizard_context` is missing or incomplete (shared piston imported, old piston opened), the wizard rebuilds context automatically when the user next edits that statement. The user picks the device, the wizard fetches fresh data from HA, context is written. No manual action needed.
+
+### Enforcement
+
+Missing `wizard_context` = compile may need to parse display text (slower, less reliable). Missing context is never a save error. It may produce a compile warning if the compiler cannot confidently parse a value from text alone.
 
 ---
 

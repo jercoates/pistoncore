@@ -512,17 +512,23 @@ Optional. Only visible in Advanced mode. Labeled: *"Temporary — forgotten when
 
 One or more triggers. Uses the same multi-step wizard as conditions and actions.
 
+**How triggers are stored in piston_text:**
+
+Triggers appear as the conditions inside the first `if` block in the execute section. In the editor they display with a ⚡ indicator to distinguish them from regular conditions. In `piston_text` they look like conditions — the compiler identifies them by position (first if block in execute) and by operator type (trigger operators vs condition operators).
+
+This is intentional — triggers and conditions use the same plain English format. The ⚡ indicator is a display hint, not a stored field. The compiler's trigger detection is based on the operator: `changes to`, `changes from`, `drops below`, `rises above`, `happens daily at`, `gets`, etc. are trigger operators. `is`, `is less than`, `is between`, etc. are condition operators.
+
 Trigger types:
 * Device or entity state change — `changes`, `changes to`, `changes from`, `changes from X to Y`
 * Numeric — `rises above`, `drops below`
 * State with duration — `changes to [value] and stays for [duration]`
 * Button/momentary device — `gets [event]`, `gets any`
-* Time — a specific time of day
-* Sunrise / Sunset with optional offset in minutes
-* Time pattern — every X minutes, every X hours
-* HA event — any Home Assistant event fires
-* Webhook — an incoming webhook call
-* Called by another piston
+* Time — `happens daily at [time]`
+* Sunrise / Sunset — `happens at $sunrise + [offset]` / `happens at $sunset + [offset]`
+* Time pattern — `happens every [X] minutes` / `happens every [X] hours`
+* HA event — `event [event_name] fires`
+* Webhook — `webhook [id] is called`
+* Called by another piston — `is called by another piston`
 * Manual only — only runs when Test is pressed
 
 ### 10.4 Conditions
@@ -535,7 +541,7 @@ Operators are plain English. Device states use native HA values. Multiple condit
 
 Top-to-bottom sequence of statements. The entire action tree is wrapped in an `execute / end execute;` block — this is a rendering wrapper only, not a data node in the JSON.
 
-**execute / end execute is a rendering artifact.** The `actions` array in the piston JSON IS the execute block body. The frontend adds the wrapper rendering only.
+**execute / end execute is a rendering artifact.** The execute block body lives in `piston_text` — the editor renders the `execute` and `end execute;` wrapper lines automatically around the action statements. They are display elements only, not stored as separate data nodes.
 
 Full document structure order when rendered:
 1. Comment header (piston name, author, created, modified, build, version, piston ID)

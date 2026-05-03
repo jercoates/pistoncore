@@ -71,7 +71,7 @@ Do NOT re-open closed decisions. Do NOT suggest AppDaemon. Do NOT suggest removi
 ### Core Invariants — Never Break
 
 - Every piston UUID is immutable from creation — all HA artifact names derive from UUID
-- logic_version and ui_version are separate fields — not a single schema_version
+- logic_version in the wrapper tracks piston text format version — not a single schema_version
 - Compile target boundary lives in target-boundary.json — not hardcoded in Python
 - Entity IDs are never shown to the user in normal flow (see honest status below)
 

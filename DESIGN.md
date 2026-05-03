@@ -24,7 +24,7 @@ It does not add devices, manage integrations, or extend HA's capabilities in any
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 13.
 * **Compiled files are compiler-owned artifacts.** Files written by PistonCore to HA directories are deployment artifacts, not source files. They may be replaced wholesale on recompile. The piston JSON is always the source of truth — never the compiled HA file. Users who hand-edit compiled files will be warned at next deploy via the hash check.
-* **Piston JSON is the permanent master format and IS the editor format.** The JSON stores exactly what the editor displays — friendly names, plain English operators, readable times, role names. No translation layer exists between display and storage. The compiler owns all translation from the editor format to HA YAML. Internally stored pistons include a lightweight `context` block maintained by the wizard — the compiler uses it for reliable translation. Snapshot exports strip the context block to pure display values. This is a core architectural invariant.
+* **Piston text is the permanent master format.** The editor saves its own text directly — what the user sees is what is stored. A tiny JSON wrapper holds only the fields the system needs without opening the piston (id, compile_target, device_map, has_missing_devices). The compiler is the only translator — it reads the plain English piston text and produces HA YAML at deploy time. The editor never translates. Nothing drifts.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message. Import from a URL or paste directly. No account required, no server involved.
 * **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
 * **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
@@ -234,307 +234,107 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 ## 6. Piston JSON — The Permanent Master Format
 
-Piston JSON is the permanent, stable master format for every piston. It never changes between output targets or deployment types.
+### The Core Rule — Simple, No Exceptions
 
-### The Core Rule — JSON IS the Editor Format
+**The piston text is saved exactly as the editor displays it. What the user sees is what is stored. What is stored is what opens in the editor. It never drifts.**
 
-**The piston JSON stores exactly what the editor displays to the user. No translation layer exists between display and storage.**
+The saved format has two parts:
 
-This means:
-* What the user sees in the editor IS what is in the JSON file
-* Friendly names, plain English operators, readable times — stored as-is
-* The compiler's job is ALL translation from human-readable to HA-native
-* Importing a piston JSON opens directly in the editor with no conversion step
-* Sharing a piston JSON is sharing the exact editor representation
-
-**What this means for each consumer:**
-
-| Consumer | Reads | Does |
-|---|---|---|
-| Editor | Piston JSON directly | Renders what it finds — no translation |
-| Compiler | Piston JSON directly | Translates everything to HA YAML |
-| Importer | Piston JSON directly | Loads into editor — user maps roles to devices |
-| AI generator | Writes piston JSON | Must match editor format exactly |
-
-**The compiler owns ALL of these translations — nothing is pre-computed in the JSON:**
-* Friendly label → HA state value ("Detected" → "on", "Open" → "on")
-* Role name → entity ID (resolved via device_map at compile time)
-* Plain English time ("8:00 AM") → 24hr format ("08:00:00")
-* System variable expression ("$sunrise + 30 minutes") → HA template syntax
-* Plain English operator ("is less than") → HA condition syntax
-* Device class + label → correct HA attribute and comparison value
-* Global variable reference ("@SmokeDetectors") → inlined entity ID list
-
-**There are NO `compiled_value` fields in piston JSON.** The JSON stores the display value only. The compiler looks up what it needs. If the compiler needs to know that "Detected" means `"on"` for a motion sensor, it looks that up from its device class table — it does not rely on a pre-stored compiled value in the JSON.
-
-### Two Formats — Same Data, Different Purpose
-
-PistonCore uses two variants of the piston JSON format:
-
-**Shareable format** (Snapshot export, AI generation, community sharing, write-a-piston.md prompt):
-Pure display values only. No context blocks. Clean, human readable, safe to post anywhere.
-What you see is what it is — no hidden fields.
-
-**Internal storage format** (saved to /pistoncore-userdata/pistons/):
-Display values PLUS lightweight context blocks maintained transparently by the wizard.
-The compiler prefers context blocks and falls back to parsing display values when necessary.
-Users never see context blocks — they are an implementation detail.
-
-The only time format translation happens is at import. WebCoRE format or AI-generated
-shareable format → PistonCore internal format once, after role mapping and time review.
-
-```
-WebCoRE / AI shareable format
-         ↓ (import: role mapping + time review)
-PistonCore internal format (display + context)
-         ↓ (compiler: translate to HA)
-HA YAML / PyScript
-```
-
-### Versioning
-
-Each piston carries two independent version fields:
+1. **A tiny wrapper** — just what the system needs to manage the piston without opening it
+2. **piston_text** — the exact text content of the editor, including the header block
 
 ```json
 {
-  "logic_version": 1,
-  "ui_version": 1,
-  "id": "abc123",
-  "name": "My Piston"
+  "id": "d4e2f9a1",
+  "compile_target": "pyscript",
+  "has_missing_devices": false,
+  "device_map": {},
+  "piston_text": "/** New Door / Window Chime */\n/** id: d4e2f9a1 */\n/** mode: restart */\n\ndefine\n  device Doors = Back Door, Front Door, ...;\n  string Message;\nend define;\n\nexecute\n  if\n    Any of {Doors}'s or {Windows}'s contact changes to open\n  then\n    do Set variable {Message} = {\"\"};\n  end if;\nend execute;"
 }
 ```
 
-* **logic_version** — structure of triggers, conditions, actions. Bumped when the logic schema changes.
-* **ui_version** — editor layout data. Bumped when editor rendering structure changes.
-* These change independently. A drag-and-drop library swap bumps `ui_version` only. A new trigger type bumps `logic_version` only.
-* Separate migration function stacks handle each version independently.
+That's it. Nothing else.
 
-### Migration Strategy
+### Why This Is the Right Model
 
-* PistonCore checks both version fields on load
-* If either version is older than current, the appropriate migration function runs before use
-* Migration functions are stackable (v1→v2→v3)
-* If a version field is missing, treat as v1 (legacy)
-* If a version is from the future (unknown), warn the user and refuse to load — never silently corrupt
+* **No drift possible** — the editor saves its own text, reads its own text back. Nothing is reconstructed from parts.
+* **No translation layer** — the editor never translates. Only the compiler translates, once, at deploy time.
+* **New statement types just work** — when a new statement type is added to the editor, it writes to `piston_text` and works immediately. No schema update, no new fields, no migration needed.
+* **Sharing is identical to storage** — there is no separate shareable format. The piston text IS the shareable format. Paste it anywhere.
+* **AI generation is simple** — generate text that looks like the editor display. Import it. Done.
+
+### What the Wrapper Contains
+
+The wrapper outside `piston_text` contains only what the system needs without parsing the text:
+
+| Field | Purpose |
+|---|---|
+| `id` | Immutable UUID — never changes, never derived from name |
+| `compile_target` | `"native_script"` or `"pyscript"` — for compilation routing |
+| `has_missing_devices` | Flag for ⚠️ indicator on piston list |
+| `device_map` | Role → entity ID mapping, filled on import by user |
+
+Everything else — name, mode, author, created date, modified date, build number — lives in the header block inside `piston_text`, exactly as WebCoRE stored it.
+
+### What Each Consumer Does
+
+| Consumer | What it does |
+|---|---|
+| Editor | Reads `piston_text`, displays it directly, writes it back on save |
+| Compiler | Reads `piston_text`, parses it, translates to HA YAML |
+| Importer | Loads `piston_text` into editor, user maps `device_map` roles |
+| AI generator | Generates text matching editor display format |
+| Piston list | Reads wrapper only — never touches `piston_text` |
+
+### The Compiler Is the Only Translator
+
+The compiler reads the plain English piston text and translates everything:
+* Friendly labels → HA state values ("Open" → "on")
+* Role names → entity IDs via `device_map`
+* Plain English times → 24hr format
+* System variable expressions → HA template syntax
+* Plain English operators → HA condition syntax
+* Global variable references → inlined entity ID lists
+
+The editor never translates. The piston list never translates. Only the compiler translates, and only at deploy time.
+
+### Piston Header Block
+
+Every piston begins with a header block inside `piston_text`. PistonCore extends WebCoRE's header format:
+
+```
+/********************************************************/
+/* Piston Name                                          */
+/********************************************************/
+/* Author   : Jeremy                                    */
+/* Created  : 7/12/2025, 7:17:46 AM                    */
+/* Modified : 11/7/2025, 6:22:17 PM                    */
+/* Build    : 3                                         */
+/* id       : d4e2f9a1                                  */
+/* mode     : restart                                   */
+/********************************************************/
+```
+
+The `id` and `mode` fields in the header are authoritative. The wrapper `id` field matches — it exists only so the system can read the piston ID without parsing the full text.
 
 ### Piston Identity Rule — Core Invariant
 
 * Every piston gets a UUID on creation — **this UUID never changes**, even if the piston is renamed
 * HA automation ID is always `pistoncore_{uuid}`
 * HA automation filename is always `pistoncore_{uuid}.yaml`
-* HA script key and entity ID is always `pistoncore_{uuid}` — so the callable entity is `script.pistoncore_{uuid}`
+* HA script key and entity ID is always `pistoncore_{uuid}` — callable as `script.pistoncore_{uuid}`
 * HA script filename is always `pistoncore_{uuid}.yaml`
 * PyScript file is always `pistoncore_{uuid}.py`
-* The piston slug (name-derived) is used ONLY for the automation `alias:` field — the human-readable label shown in HA's UI. It is never used for filenames, entity IDs, or any artifact name.
-* This UUID is the permanent, immutable link between PistonCore and every HA artifact it creates
-* All HA artifact names are derived from UUID, never from piston name — this invariant must not be broken by future contributors
+* The piston slug (name-derived) is used ONLY for the automation `alias:` field
+* All HA artifact names derive from UUID — never from piston name
 
-### Example Piston JSON — Chicken Lights Lumen Sensor
+### Versioning
 
-This example shows the editor-format JSON. Every field is exactly what the editor displays.
-The compiler translates all values to HA YAML — nothing is pre-translated in the JSON.
+`logic_version` in the wrapper tracks the piston text format version. If the format ever needs a structural change, migration reads the old text and rewrites it to the new format. The `piston_text` stays human readable throughout.
 
-```json
-{
-  "logic_version": 1,
-  "ui_version": 1,
-  "id": "c7a3f1b2",
-  "name": "Chicken Lights Lumen Sensor",
-  "description": "On during low light periods around sunrise and sunset. Hard off at 8am and 9pm.",
-  "mode": "restart",
-  "compile_target": "native_script",
-  "roles": {
-    "light": {
-      "label": "Chicken Light",
-      "domain": "light",
-      "required": true
-    },
-    "lumen_sensor": {
-      "label": "Lumen Sensor",
-      "domain": "sensor",
-      "device_class": "illuminance",
-      "required": true
-    }
-  },
-  "device_map": {},
-  "variables": [],
-  "triggers": [
-    { "type": "sun", "event": "sunrise", "offset": "-30 minutes" },
-    { "type": "sun", "event": "sunset", "offset": "+30 minutes" },
-    { "type": "time", "at": "8:00 AM" },
-    { "type": "time", "at": "9:00 PM" },
-    {
-      "type": "state",
-      "target_role": "lumen_sensor",
-      "attribute": "illuminance",
-      "operator": "drops below",
-      "value": "800 lux"
-    },
-    {
-      "type": "state",
-      "target_role": "lumen_sensor",
-      "attribute": "illuminance",
-      "operator": "rises above",
-      "value": "800 lux"
-    }
-  ],
-  "conditions": [],
-  "actions": [
-    {
-      "id": "stmt_001",
-      "type": "if_block",
-      "conditions": [
-        {
-          "id": "cond_001",
-          "type": "condition",
-          "subject": { "type": "time" },
-          "operator": "is between",
-          "value": "6:00 AM and $sunrise + 30 minutes"
-        },
-        {
-          "id": "cond_002",
-          "type": "condition",
-          "subject": {
-            "type": "device",
-            "role": "lumen_sensor",
-            "attribute": "illuminance"
-          },
-          "aggregation": "any",
-          "operator": "is less than",
-          "value": "800 lux",
-          "group_operator": "and"
-        }
-      ],
-      "then": [
-        {
-          "id": "stmt_002",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn on" }
-          ]
-        }
-      ],
-      "else": [
-        {
-          "id": "stmt_003",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn off" }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "stmt_004",
-      "type": "if_block",
-      "conditions": [
-        {
-          "id": "cond_003",
-          "type": "condition",
-          "subject": { "type": "time" },
-          "operator": "is between",
-          "value": "$sunset + 30 minutes and 8:00 PM"
-        },
-        {
-          "id": "cond_004",
-          "type": "condition",
-          "subject": {
-            "type": "device",
-            "role": "lumen_sensor",
-            "attribute": "illuminance"
-          },
-          "aggregation": "any",
-          "operator": "is less than",
-          "value": "800 lux",
-          "group_operator": "and"
-        }
-      ],
-      "then": [
-        {
-          "id": "stmt_005",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn on" }
-          ]
-        }
-      ],
-      "else": [
-        {
-          "id": "stmt_006",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn off" }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "stmt_007",
-      "type": "if_block",
-      "conditions": [
-        {
-          "id": "cond_005",
-          "type": "condition",
-          "subject": { "type": "time" },
-          "operator": "is",
-          "value": "8:00 AM"
-        }
-      ],
-      "then": [
-        {
-          "id": "stmt_008",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn off" }
-          ]
-        }
-      ],
-      "else": []
-    },
-    {
-      "id": "stmt_009",
-      "type": "if_block",
-      "conditions": [
-        {
-          "id": "cond_006",
-          "type": "condition",
-          "subject": { "type": "time" },
-          "operator": "is",
-          "value": "9:00 PM"
-        }
-      ],
-      "then": [
-        {
-          "id": "stmt_010",
-          "type": "with_block",
-          "target_role": "light",
-          "tasks": [
-            { "type": "call_service", "service": "turn off" }
-          ]
-        }
-      ],
-      "else": []
-    }
-  ]
-}
-```
+* If `logic_version` is missing, treat as v1
+* If `logic_version` is from the future, warn and refuse to load — never silently corrupt
 
-**Note:** This is the shareable format — pure display values, no context blocks. The internally stored version includes lightweight context blocks on conditions and tasks populated by the wizard. See Section 15.5 for the context schema.
-
-**Notice what is NOT in this JSON:**
-* No `compiled_value` anywhere — "800 lux" is stored as the user sees it
-* No 24hr time format — "8:00 AM" and "9:00 PM" exactly as displayed
-* No HA template syntax — "$sunrise + 30 minutes" exactly as displayed
-* No entity IDs — role names only, device_map is empty until user maps on import
-* No HA service names — "turn on" / "turn off" as the user sees them
-* The compiler resolves all of this when the piston is deployed
-
----
 
 ## 7. Variables
 
@@ -943,79 +743,6 @@ pistoncore-customize/
 * `ha_client.py` loads `endpoints.json` on startup — no hardcoded URLs in Python
 
 **When to implement:** During the `ha_client.py` refactor for HAClient abstraction (Section 4). Not before, not after — at the same time.
-
----
-
-## 15.5 Piston JSON — Internal Format Details
-
-The internal storage format adds a lightweight `context` block to conditions,
-triggers, and tasks. See Section 6 for the two-format model overview.
-
-### Context Block Schema — 4 Fields Maximum
-
-**Context block — maximum 4 fields, only what the compiler cannot derive from live HA data:**
-
-On conditions and triggers involving device attributes:
-```json
-"context": {
-  "attribute_type": "numeric",
-  "device_class": "illuminance",
-  "unit": "lux"
-}
-```
-
-On service call tasks:
-```json
-"context": {
-  "domain": "light",
-  "ha_service": "light.turn_on"
-}
-```
-
-On time values (confirms the format is normalized):
-```json
-"context": {
-  "value_type": "time"
-}
-```
-
-**Wizard discipline rule — enforced in code:**
-The wizard must populate context when it saves a condition, trigger, or task.
-Missing context on a field the compiler needs = compile blocked, not save blocked.
-Save always works. Deploy checks for required context and shows a plain English
-error naming the exact statement that is incomplete.
-
-### Shareable Format (Snapshot export)
-
-All `context` blocks stripped. Pure display values only. Clean, human readable,
-safe to post anywhere. This is what the write-a-piston.md prompt generates.
-
-Stripping is a simple JSON filter function applied at Snapshot export time.
-Backup export retains context blocks — it is a full internal restore format.
-
-### Import Flow — Time Review Step
-
-After role mapping, before save, PistonCore shows a time review step:
-
-```
-Review times in this piston — most people adjust these on import:
-──────────────────────────────────────────────
-Morning on:      [8:00 AM    ▼]
-Evening off:     [9:00 PM    ▼]
-Sunrise offset:  [30 minutes ▼]
-Sunset offset:   [30 minutes ▼]
-──────────────────────────────────────────────
-[Skip — use as imported]    [Confirm times]
-```
-
-This serves two purposes:
-1. Normalizes any time format inconsistencies from AI generation or WebCoRE import
-   into PistonCore's standard format via the time picker
-2. Good UX — most users want different times than whoever shared the piston
-
-Only surfaces: fixed times, sun offsets, wait durations.
-Not conditions, operators, or device attributes — just the values users most commonly change.
-After this step, all time values are in PistonCore standard format. Compiler parses reliably.
 
 ---
 

@@ -71,6 +71,71 @@ while building expressions — do not auto-close when wizard opens.
 
 ---
 
+## Import Flow — Two Paths, Define Block Is Primary Interface
+
+Confirmed from WebCoRE import sequence screenshots (screens.docx — save this file):
+
+### Two Valid Import Paths
+
+**Simple path** — for pistons with few devices:
+- Automatic "Rebuild piston items" screen shows after import
+- One row per unknown device role, each with a device picker dropdown
+- User maps all roles at once then saves
+- Good for simple pistons with 2-3 device variables
+
+**Complex path** — for pistons with many device groups:
+- Close/skip the automatic rebuild screen
+- Open piston in editor
+- Click each device variable in the define block individually
+- "Edit variable" modal opens for just that variable with full device picker
+- User maps one group at a time with full context visible
+- Better for complex pistons where the automatic list loses context
+
+Both paths must be supported. Neither is optional.
+
+### Define Block Is the Primary Device Management Interface
+
+The define block is not read-only. Every device variable in it is clickable.
+Clicking a device variable opens the Edit Variable modal:
+- Type picker (Device, String, Number, etc.)
+- Variable name field
+- Initial value picker — "Physical device(s)" dropdown with full device picker
+
+This is how import mapping works AND how ongoing editing works. Same flow, same modal.
+No separate "device management" screen needed — the define block IS the device manager.
+
+### Device Picker Three-Section Model (confirmed from WebCoRE image 8)
+
+When the device picker opens from Edit Variable, it shows three sections:
+1. **Physical devices** — real HA devices, searchable, filtered by type-to-search
+2. **Local variables** — device-type variables defined in this piston
+3. **Global variables** — device-type globals (@Door_Contacts_Exterior, etc.)
+
+Checkmarks show currently selected devices. SelectAll / DeselectAll buttons.
+Search filters all three sections simultaneously.
+
+This confirms the device picker separation design — device-type variables 
+appear IN the device picker alongside physical devices, not in the variable picker.
+
+### How device_map Gets Populated
+
+When user picks devices in Edit Variable modal:
+1. PistonCore updates the piston_text — device variable now shows selected friendly names
+2. PistonCore updates device_map — role name → entity IDs mapping
+3. Both happen simultaneously on Save in the modal
+
+This answers the open question from COMPILER_SPEC.md planning:
+"How does device_map get populated?" — through the define block edit flow.
+
+### WebCoRE Internal ID vs PistonCore Role Names
+
+WebCoRE stores device references as {:xxxxxxxxxxxxxxx:} internal IDs in piston text.
+PistonCore uses role names like {Doors} instead — cleaner and more portable.
+The import mapping step writes role names into piston_text, not internal IDs.
+This is a deliberate improvement over WebCoRE's approach.
+
+---
+
 ## WebCoRE Reference Screenshots for Next Session
 
 Upload these at session start if working on variable wizard:

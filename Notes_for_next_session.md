@@ -1,3 +1,16 @@
+
+add the relivant parts of this as not optional in next sesion propmts at the start and end of the prompt:
+For next session I'd suggest a different approach to the notes review. Instead of me giving you a summary, we go through the notes file section by section and for each item ask three questions:
+
+Is this captured in a spec doc with enough detail that Claude could implement it correctly without asking?
+Is this a decision that still needs to be made?
+Is this already handled in the code?
+
+
+
+
+
+
 # Notes for Next Session
 # Created end of Session 18
 # Add these to specs/prompt at start of next session before coding
@@ -592,3 +605,91 @@ Single-device references: If a statement, trigger, condition, or action depends 
 Multi-device references: If a single statement references multiple devices, missing devices are removed from the effective device set and execution continues against the remaining devices.
 
 User communication: The editor and status page must tell the user whether the piston is degraded-but-functional versus broken due to a missing required device.
+this is a reaction from you about this set of notes to here:
+ood — I can see everything. There's a lot of genuinely useful stuff in there. Let me pull out what matters and clean up the notes file so next session Claude can act on it directly rather than wade through raw conversation dumps.
+The most important new things I'm seeing that aren't already captured:
+
+Compile target is ambiguous — DESIGN.md says auto-detection, COMPILER_SPEC says "Convert — one click." That contradiction will cause Claude to implement inconsistently. Needs one clear rule.
+Missing device rule is too broad — The current "never stops for missing device" rule needs to be split into single-device vs multi-device behavior. Perplexity nailed this.
+Condition tree needs a formal AST model — Render from structure as a pure projection, never treat rendered labels as nodes. Important invariant before wizard coding.
+Canonical nested condition group JSON — Not fully locked down. Will explode when AND/OR groups and editing of existing complex conditions is built.
+Background compile race condition — No revision token or monotonic edit version. Stale compile results overwriting fresh status is a real bug waiting to happen.
+localStorage contradiction — Artifacts spec says never use localStorage, but wizard state persistence mentions it. Needs a clear rule.
+i am going to append the breakdown this is a long chat you might not see all of the relivant data in this file right now.  what is your take on all this feedback
+
+10:50 PM
+Claude responded: Honest take:
+Honest take:
+
+The feedback is high quality and mostly right. These AIs are reading your docs carefully and finding real gaps. Nothing they flagged is wrong. But there's an important distinction to make:
+
+Things that are actual problems right now:
+
+Compile target contradiction — auto vs manual convert. This will cause inconsistent code. Fix before coding.
+Missing device rule too broad — Perplexity's split between single vs multi device is exactly right and should go in DESIGN.md now.
+Canonical condition group JSON not locked — this will bite you hard mid-wizard build.
+Things that are real but you're already aware of:
+
+STATEMENT_TYPES.md missing — already in notes
+FRONTEND_SPEC needs update — already flagged
+Code audit needed — already in notes
+Things that are valid concerns but premature:
+
+Background compile race conditions — you don't have background compile fully wired yet
+Global variable immutable IDs — real but v2 territory
+README over-promising — fair but not a coding blocker
+The AST/pure projection invariant — this one from the second AI is actually the most important thing nobody has said clearly before. Every edit operation acts on structure first, rendering is a pure output. If Claude ever treats rendered labels like then or end if as nodes to manipulate, the wizard will keep having insertion and delete bugs. That needs to be written as an explicit rule in FRONTEND_SPEC before wizard coding starts.
+
+My overall take: You're doing exactly the right thing relaxing and cross-checking with multiple AIs. The compile target contradiction and missing device rule are the two things worth fixing in the docs before next session starts. Everything else can be addressed as you hit it.
+
+
+more important info from you:
+globals need a hard look i thought we worked these out with a mix of helpers and for devices in yaml at least they just get added in each yamle automation as the list of devices and live in each yaml and in pistoncore.  most of the other cases can just use the helpers and if over that threshould it goes to pyscript
+
+10:57 PM
+Claude responded: You're right — and that's actually a cleaner model than what the AIs were worrying about.
+You're right — and that's actually a cleaner model than what the AIs were worrying about. Let me make sure I understand it correctly so it gets documented right:
+
+Device-type globals — the entity list lives baked into each compiled YAML file that uses that global. No helper needed. If @SmokeDetectors contains 5 devices, every piston that references it gets those 5 entity IDs compiled inline. PistonCore owns the list in device_map, compiler expands it at deploy time.
+
+Non-device globals (string, number, boolean) — HA input helpers. Simple, clean, well supported.
+
+The race condition concern the AIs raised — doesn't apply to device globals because they're baked at compile time, not read live. For helper-backed globals the race condition is real but unlikely in practice — two pistons deploying simultaneously and both touching the same helper is an edge case, not a common flow.
+
+The "over threshold goes to PyScript" — this is already in target-boundary.json thinking. If a global variable usage pattern can't be expressed cleanly in native YAML, it's a complexity flag.
+
+So the actual model is simpler and more robust than the AIs assumed because they didn't know about the baked-at-compile-time approach for device globals.
+
+Worth adding a clear globals model section to DESIGN.md that spells this out explicitly — device globals baked inline, non-device globals as helpers, threshold to PyScript for edge cases. That would stop future AIs from raising this as a concern every time.
+
+I can add this.  i know we talked about this problem before I keep finding things that did not go into the specs like i thought we did.
+
+10:59 PM
+Claude responded: That's the real problem — decisions get made in conversation, feel resolved, but don't make it into the docs.
+That's the real problem — decisions get made in conversation, feel resolved, but don't make it into the docs. Then they get rediscovered next session or by an external AI and feel like open questions again.
+
+It's happening because sessions are long and by the end you're tired and hitting limits. The spec update happens but sometimes the specific decision that was the KEY insight in the middle of the session doesn't make it in cleanly.
+
+A few things that would help:
+
+During sessions — when a key decision gets made mid-conversation, drop a one-liner in the chat like "CAPTURE: globals model — device globals baked at compile time, non-device globals as helpers." That gives end-of-session Claude a clear list to make sure hits the docs.
+
+The globals model specifically — this isn't the first time it's come up. It needs its own named section in DESIGN.md, not just a mention buried in the compiler section. Something like "Section 7 — Global Variable Model" that is explicit and complete enough that no AI ever questions it again.
+
+For next session — when you do the doc audit at the start, specifically look for decisions that feel resolved in your head but read as ambiguous in the docs. The compile target contradiction and missing device rule are two examples from today. The globals model is another.
+
+The good news is the decisions ARE being made correctly. They're just not getting anchored in the docs completely. That's a documentation discipline problem not an architecture problem. Easier to fix.
+
+is there any more gems in the notes
+
+11:03 PM
+Claude responded: Yes — two more I want to flag that haven't been fully addressed:
+Yes — two more I want to flag that haven't been fully addressed:
+
+The AST/pure projection invariant — buried in the second AI's feedback. The rule is: every edit operation must act on the structured JSON first, rendering is always a pure output from that structure. Rendered labels like then, end if, when true are never treated as editable nodes. This is a fundamental invariant for the wizard and editor that needs to be written explicitly in FRONTEND_SPEC before coding starts. Without it Claude will keep producing insertion and delete bugs because it won't know the rule.
+
+The compile target contradiction — DESIGN.md says auto-detection, compiler owns the decision. COMPILER_SPEC says "Convert — one click" which sounds user-driven. That needs one clear rule written down. Based on what you said earlier Option A is right — compiler always owns it, re-scans on every save, user never manually sets it. The one-click convert button in the editor is just a prompt that explains why the target changed, not a user control.
+
+Everything else in the notes is either already captured, lower priority, or things you've told me are already resolved in your head like the globals model.
+
+Those two are the ones worth making sure hit the docs before coding starts. The AST invariant especially — that one will save hours of debugging.

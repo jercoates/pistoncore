@@ -16,6 +16,15 @@
    - wizard_reference_screenshots.zip — condition builder, operator list, action picker
    - session screenshots from prior session if Jeremy has them
    - Read the ANNOTATIONS.md inside each zip before writing any code
+8. **MANDATORY NOTES REVIEW — do this before anything else every session**
+   Read Notes_for_next_session.md fully. The bottom section contains raw AI
+   conversation dumps — review carefully, do not treat as resolved decisions.
+   Go through the notes section by section and for each item ask:
+   - Is this captured in a spec doc with enough detail that Claude could implement
+     it correctly without asking?
+   - Is this a decision that still needs to be made?
+   - Is this already handled in the code?
+   Present the results to Jeremy before touching any code or specs.
 
 ---
 
@@ -551,10 +560,17 @@ Session 18: Major architecture decision — internal format changed from piston_
 
 ## Next Session Checklist
 
-1. Read this prompt fully — especially the CRITICAL piston format section
-2. Confirm with Jeremy: start with WIZARD_SPEC.md/FRONTEND_SPEC.md updates, or jump to coding?
-3. If coding: ask Jeremy to upload current frontend files before touching any code
-4. Ask Jeremy for WebCoRE reference screenshots if wizard work is on the agenda
-5. Present full fix list before writing any code — wait for go
-6. After each fix: give yes/no test checklist, wait for screenshot
-7. Generate updated session prompt at end of session
+1. **MANDATORY FIRST — Notes review** — read Notes_for_next_session.md fully,
+   go through section by section with the three questions:
+   - Is this captured in a spec doc with enough detail that Claude could implement
+     it correctly without asking?
+   - Is this a decision that still needs to be made?
+   - Is this already handled in the code?
+   Present results to Jeremy. Do not proceed until this is done.
+2. Read this prompt fully — especially the CRITICAL piston format section
+3. Confirm with Jeremy: start with WIZARD_SPEC.md/FRONTEND_SPEC.md updates, or jump to coding?
+4. If coding: ask Jeremy to upload current frontend files before touching any code
+5. Ask Jeremy for WebCoRE reference screenshots if wizard work is on the agenda
+6. Present full fix list before writing any code — wait for go
+7. After each fix: give yes/no test checklist, wait for screenshot
+8. **MANDATORY LAST — Generate updated session prompt and notes file at end of session**

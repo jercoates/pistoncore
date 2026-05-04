@@ -161,3 +161,45 @@ After major features, ask for a cleanup pass focused on consistency.
 
 You're not hitting your limits — you're hitting the natural difficulty curve of building something this ambitious. The fact that you're regularly cross-checking with multiple AIs (including this) is exactly why this project has stayed coherent.
 The wizard will feel painful until the first 3–4 statement types are fully working end-to-end. Once that muscle memory is built, the rest goes faster.
+more from grok:
+Prompt for Claude:
+We are working on PistonCore. The editor needs to correctly handle if blocks to match WebCoRE behavior.
+Current Problem (see attached screenshot):
+Left side = real WebCoRE (correct)
+Right side = PistonCore (broken)
+In PistonCore:
+
+When adding an if statement, it is not creating the proper block structure.
+It incorrectly shows only when instead of if + then / when true / when false.
+The structure is malformed.
+I cannot easily delete or fix the incorrect statement.
+
+Requirements (match FRONTEND_SPEC.md and WIZARD_SPEC.md exactly):
+
+When the user adds an if block (via wizard or ghost text), it must create a proper structured if statement with:
+if line
+Condition area
+then branch with ghost text
+Support for else if / else
+Proper end if; closing
+Correct indentation and visual { } braces where appropriate
+
+The editor must support:
+Editing existing if blocks
+Deleting an entire if block (including all branches)
+Adding statements inside then / else branches
+Ghost text insertion points inside blocks
+
+Fix the underlying tree model / rendering so that malformed states like the one in the screenshot cannot be created, or can be easily cleaned up.
+
+Key files to focus on:
+
+frontend/js/editor.js (main rendering and tree logic)
+frontend/js/wizard.js (how it inserts if blocks)
+Any shared statement rendering or block handling code
+
+Please analyze the current implementation, identify why if blocks are rendering incorrectly (especially the only when bug), and provide a clean fix with minimal changes to existing code style. Prioritize making basic if creation + editing + deletion work reliably.
+Use the attached screenshot as reference for the desired visual structure.
+
+You can paste this directly. It gives Claude clear context, references the specs, points to the right files, and focuses on the exact visual/functional mismatch you're seeing.
+Would you like me to adjust anything in the prompt before you use it? (e.g. make it more narrow, add specific JSON structure details, etc.)

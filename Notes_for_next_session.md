@@ -256,3 +256,87 @@ Handle edge cases (deleting last statement in a branch, deleting root-level stat
 High Priority Architecture Note:
 Check / strengthen the underlying statement tree model and block handling (especially if blocks, nesting, parent/child relationships, delete, and insertion points) before going much deeper on the wizard.
 This is currently the foundation everything else depends on.
+
+from gemini conversation:
+you missed a key thing im doing both in v1. v2 is a possible built in automation engine in case pyscript doesnt keep being updated.
+
+Ah, that’s a crucial distinction. You're building dual-path compilation right out of the gate for V1. That is a much smarter "insurance policy" for the project.
+
+By having the compiler target both Native HA YAML and PyScript simultaneously, you aren't just bridging a gap—you're future-proofing. If a user wants 100% native stability, they take the YAML path. If they need the "webCoRE magic" that HA can't handle natively, they take the PyScript path. And if PyScript ever goes "stale," your V2 engine is already halfway there because you've been practicing the native translation all along.
+
+Since the Wizard is your current focus, here is how that "Dual-Path" strategy changes the JSON cleanup you're doing with Claude:
+
+1. The "Capability Flag" in the JSON
+Since the Wizard doesn't know (and the user shouldn't care) which engine will run the piston, the JSON needs to be "engine-agnostic."
+
+The Strategy: As the Wizard builds the JSON, it should silently flag blocks that require PyScript.
+
+Example: A simple IF light is on THEN turn off stays "Green" (YAML compatible). A loop with a break or a complex task cancellation gets flagged "Yellow" (Requires PyScript).
+
+The Benefit: This allows your UI to eventually tell the user: "This piston is 100% native HA compatible" or "This piston requires PyScript for complex logic."
+
+2. Standardized Service Calls
+Since you're doing both paths, the way the Wizard saves an Action is the most likely spot for a mismatch.
+
+The Check: Ensure the JSON saves the "Action" in the standard HA domain.service format (e.g., light.turn_on).
+
+The Logic:
+
+YAML Path: The compiler writes a standard - service: light.turn_on.
+
+PyScript Path: The compiler writes light.turn_on(entity_id="...").
+
+If the JSON is clean, the same Wizard output feeds both "contractors" (the YAML writer and the PyScript writer) perfectly.
+
+3. The "State" Sync Problem
+If a piston runs in PyScript, it might handle variables differently than an HA native automation.
+
+The Fallout: If you switch a piston from PyScript to YAML later, will it still "remember" its variables?
+
+The Fix: Have Claude ensure that any Variable defined in the Wizard corresponds to a real or virtual "helper" that both engines can see. This keeps the data consistent regardless of which engine is driving the car.
+
+The "V2" Safety Net
+By framing V2 as a "possible built-in engine," you're essentially saying: "I'm going to follow the HA rules as much as possible, but I'm keeping the Python power in my back pocket." Your next prompt for the JSON cleanup should be:
+
+"We are building for two targets in V1: Native HA YAML and PyScript. The JSON we create must contain all the metadata needed for both. Look at the WIZARD_SPEC.md and for every condition, identify if it is 'Native Compatible' or 'PyScript Only.' Make sure the JSON structure supports both paths without losing information."
+
+How is the Wizard handling the "Variable" creation right now? Is it just naming them (e.g., "my_timer"), or is it asking the user to pick a type like string, number, or boolean? Getting those types locked down in the JSON is what makes the "Dual-Path" compilation actually work.
+
+im having claude build a decision tree that flags and notifies the user that it has to use pyscript to make it work. before launch i will have a first use screen come up with all the disclaimers about pyscript and any other possible complications that may bother the end users so i can hopefully not get the what the hell messages or problems from users.
+
+Using a decision tree to flag the "PyScript boundary" is the right move for transparency. In the Home Assistant community, users are generally okay with third-party tools as long as they know why they are using them and what happens if that tool goes away.
+
+Here is how you can structure that first-use screen and the decision tree notifications to keep the "what the hell" messages to a minimum.
+
+1. The Decision Tree Logic
+Claude should flag the PyScript requirement based on "Complexity Triggers." If the piston contains any of the following, the UI should immediately show a small icon (like a Python logo) or a toast notification.
+
+Feature	Why it triggers PyScript	UI Notification Text
+Nested Loops	HA YAML doesn't support "Break" or "Continue" in loops easily.	"Complex loop detected: requires PyScript for execution."
+Variable Math	Complex expressions (e.g., (a + b) / c) are messy in Jinja2.	"Advanced math used: switching to PyScript for accuracy."
+Wait for Change	Tracking if a state stays the same after an automation starts.	"Temporal logic detected: PyScript required for state tracking."
+Custom Persistence	Variables that need to survive a restart without a Helper.	"Advanced variables: using PyScript for state memory."
+2. The "First Use" Disclaimer Screen
+Since you aren't a coder, you want to frame this as a "Power User Choice." Here is a breakdown of what that screen should cover to protect you and inform them:
+
+The "Why": Explain that PistonCore is a translator. It speaks "Native HA" for simple things and "PyScript" for the heavy lifting.
+
+The Dependency: Clearly state that PyScript is a HACS integration. If they don't have it, complex pistons won't run.
+
+The "No Lock-in" Promise: Emphasize that PistonCore compiles to these files. If they delete PistonCore, their automations keep running (as long as PyScript stays).
+
+The Stability Warning: "While we strive for 100% reliability, complex Python logic can occasionally behave differently than native YAML. Use for non-critical systems first."
+
+3. The "Silent Guardrail"
+To help with the cleanup fallout you mentioned earlier, have Claude add a "YAML-Only Mode" toggle in the settings.
+
+If toggled ON: The Wizard will grey out or hide any options that would force a PyScript dependency.
+
+This is perfect for "purist" users who refuse to use third-party engines but still want the WebCoRE editor feel.
+
+Pro-Tip for the Cleanup:
+Since you’re managing the "fallout" of the JSON changes, ensure the decision tree is metadata-driven. This means the "flag" shouldn't be hardcoded in the JavaScript. Instead, the JSON for a loop block should just have a property like "requiresEngine": "pyscript".
+
+This way, if you eventually build that "V2 built-in engine," you just update the metadata from "pyscript" to "v2" and the UI handles the change automatically without you having to touch the decision tree code again.
+
+Are you planning to include a "Check for PyScript" button on that first-use screen to verify they actually have the integration installed? That’s a great way to catch problems before they even write their first piston.

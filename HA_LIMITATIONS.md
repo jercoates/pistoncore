@@ -187,6 +187,18 @@ not re-litigated:
 - **Entity IDs never shown to user** → Device picker + device_map abstraction ✅
 - **HA churn on YAML syntax** → Versioned Jinja2 template system ✅
 - **Minimum HA version** → 2023.1 floor documented and checked on connect ✅
+- **Boolean/state value quoting** → Compiler always quotes state value strings (`"on"`,
+  `"off"`, etc.) in all YAML output. Unquoted boolean-like strings are silently parsed
+  as booleans by HA's YAML parser, causing state checks to never match. Rule is in
+  COMPILER_SPEC.md Section 11. ✅
+- **`wait_for_trigger` timeout** → Compiler always emits `timeout:` and
+  `continue_on_timeout:` on every `wait_for_trigger` block. Default 1 hour with
+  CompilerWarning when user provides none. ✅
+- **`trigger:` vs `platform:` inside wait_for_trigger** → Compiler always uses
+  `trigger:` key inside `wait_for_trigger` blocks. `platform:` is legacy syntax that
+  causes silent reload errors in modern HA. ✅
+- **`continue_on_error` on parallel branches** → Compiler emits `continue_on_error: true`
+  at both the individual action level and the parallel branch sequence level. ✅
 
 ---
 
@@ -200,6 +212,22 @@ These are known gaps without a defined solution yet:
 - Sunrise/sunset negative offset edge cases — needs explicit testing
 - Numeric trigger unknown state behavior — needs explicit testing
 - HA reload failure UX — partial, needs more robustness
+
+### ⚠️ Validation Required — Missing Single-Device Entity Behavior
+
+**Must test before implementing the single-device hard flag in Section 15.6 of DESIGN.md.**
+
+Unknown: what does HA actually do when an automation references a missing entity?
+
+Questions to answer with real testing:
+1. Does HA error on reload and disable the automation, or does it load the automation and error only at runtime?
+2. Does HA behave differently for a missing trigger entity vs a missing condition entity vs a missing action target entity?
+3. Does the behavior differ between native YAML automations and PyScript files?
+4. Is the error surfaced clearly enough to catch in PistonCore's reload error handler, or does it fail silently?
+
+**How to test:** Create a simple test automation in HA that references a known entity. Remove the entity (or rename it so it no longer exists). Reload automations. Observe what HA does — check the HA log, check whether the automation is marked as disabled, check what error (if any) is returned by the reload call.
+
+Results go here and inform the implementation of the hard flag logic in PistonCore. Do not implement the single-device missing deploy block until this is validated.
 
 ---
 

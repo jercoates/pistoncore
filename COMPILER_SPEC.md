@@ -291,6 +291,17 @@ in the piston, not just the first one.
 
 Each trigger object contains all data needed for compilation — no text parsing required.
 
+**Every compiled trigger must include an `id:` field.** The `id` is used by `choose:`
+blocks to identify which trigger fired, and by HA's trace system for debugging.
+Use the condition object's `id` field directly:
+
+```yaml
+- trigger: state
+  id: cond_001
+  entity_id: binary_sensor.front_door
+  to: "on"
+```
+
 #### State trigger
 
 ```json
@@ -455,6 +466,23 @@ Compiles to (for each entity in device_map["Lights"]):
 
 `continue_on_error: true` is added to every service call — a single device failure
 must not stop the piston.
+
+**Parallel sequences:** when an action compiles into a `parallel:` block (multiple
+devices with parallel execution), each branch's `sequence:` wrapper also needs
+`continue_on_error: true` at the branch level. Without it, a single offline device
+in one branch kills the entire parallel block even though individual action calls
+already have `continue_on_error: true`.
+
+```yaml
+- parallel:
+    - alias: "branch_1"
+      continue_on_error: true
+      sequence:
+        - action: light.turn_on
+          target:
+            entity_id: light.living_room
+          continue_on_error: true
+```
 
 #### if block
 
@@ -681,7 +709,25 @@ Duration unit → HA field: seconds → `seconds:`, minutes → `minutes:`, hour
   wait_for_trigger:
     - trigger: time
       at: "23:00:00"
+  timeout: "01:00:00"
+  continue_on_timeout: true
 ```
+
+**Timeout is always required on `wait_for_trigger` blocks.** A `wait_for_trigger` with
+no timeout will hang the piston indefinitely if the trigger never fires — HA will not
+kill it automatically. The compiler always emits `timeout:` and `continue_on_timeout:`
+on every `wait_for_trigger` block.
+
+Default timeout when the user provides none: `"01:00:00"` (1 hour) with
+`continue_on_timeout: true`. Always emit a CompilerWarning when using the default:
+
+> *"No timeout set on wait — defaulting to 1 hour. If the condition never occurs, the
+> piston will resume after 1 hour."*
+
+**Inside `wait_for_trigger` blocks, use `trigger: state` — not `platform: state`.**
+The `platform:` key is legacy syntax and is not valid inside action-level
+`wait_for_trigger` blocks in modern HA. Using it causes a reload error with no clear
+message. Always use `trigger:` as the key inside `wait_for_trigger`.
 
 Always emit a CompilerWarning for time-based waits — see Section 13.
 
@@ -842,6 +888,32 @@ Multiple conditions combined with `condition_operator`:
 - `or` → any condition must be true
 
 Compiled as a single template condition using `and` / `or` in the Jinja2 expression.
+
+### Boolean and State Value Quoting — Required
+
+HA's YAML parser treats unquoted `on`, `off`, `yes`, `no`, `true`, `false` as booleans.
+In state comparisons this silently breaks state checks — the YAML parses without error
+but the condition never evaluates correctly. There is no error message. The automation
+just never fires.
+
+**Rule: every state value string in compiled YAML output must be quoted. No exceptions.**
+
+```yaml
+# Correct
+to: "on"
+to: "off"
+value_template: "{{ states('binary_sensor.front_door') == 'on' }}"
+
+# Wrong — HA parses unquoted 'on' as boolean True, silently breaks the condition
+to: on
+to: off
+```
+
+This applies to: `to:`, `from:`, `state:`, and any value string in a `value_template`
+comparison. The compiler must always quote these values when emitting YAML.
+
+This is one of the most common sources of silent automation failures in HA. The compiler
+handles it — the user never needs to think about it.
 
 ---
 

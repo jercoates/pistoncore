@@ -29,6 +29,68 @@ Deviation from WebCoRE requires a specific documented reason.
 
 ---
 
+## AST / Pure Projection Invariant — Hard Rule
+
+**Every edit operation acts on structured JSON first. Rendering is always a pure
+projection from that structure. This rule has no exceptions.**
+
+The editor never stores display text. It never reads display text. It renders display
+text from structured JSON on every paint using render functions defined in
+STATEMENT_TYPES.md. The same render functions produce the `piston_text` field on
+export — guaranteeing the export always matches exactly what the editor shows.
+
+**Rendered labels are never editable nodes.** Labels like `then`, `end if;`, `end with;`,
+`when true`, `when false`, `end repeat;` are display artifacts produced by render
+functions. They do not exist in the JSON. They cannot be clicked to edit. They cannot
+be deleted. They appear and disappear automatically as the underlying JSON structure
+changes.
+
+**Implications for the editor implementation:**
+- Every insertion, deletion, and edit goes through a JSON mutation function first
+- The editor re-renders the affected portion of the tree after every mutation
+- There is no "parse the display text to find what changed" path anywhere
+- If you find yourself reading display text to determine piston state, that is a bug
+
+This invariant is the single most important rule for preventing editor bugs. Violations
+cause insertion errors, ghost statements, and delete failures — the exact bugs that
+destroyed earlier editor attempts.
+
+### wizard_context — Retired
+
+`wizard_context` is not part of the piston format and does not exist in the codebase.
+Any reference to `wizard_context` in existing code or comments is from an earlier design
+and must be removed. Wizard state is transient UI state held in the wizard modal's own
+JavaScript scope — it is never attached to the piston JSON and never sent to the backend.
+
+---
+
+## AI Import Dialog
+
+The Import button on the piston list page opens an import dialog with two tabs:
+
+**Tab 1 — Standard Import**
+Paste a full piston JSON (internal format or backup format). PistonCore validates the
+JSON and loads it directly. No role mapping needed if device_map is already populated.
+
+**Tab 2 — AI Import**
+Paste the JSON from the "Write a Piston" AI prompt workflow. This JSON contains
+`piston_text` and an empty `device_map`. PistonCore parses the `piston_text` into
+structured JSON and then walks the user through mapping each `{role}` in curly braces
+to a real device from their Home Assistant.
+
+AI Import flow:
+1. User pastes AI-generated JSON
+2. PistonCore validates format and extracts all `{role}` placeholders
+3. For each role, show the device picker — same component used for missing device fix
+4. User maps each role to a real HA device
+5. PistonCore builds the structured JSON and `device_map` from the mappings
+6. Piston is created and user lands on the Status Page
+
+**The AI Import dialog is the only place `piston_text` is ever parsed.** Everywhere
+else in the codebase, `piston_text` is an output format only — never an input.
+
+---
+
 ## BASE_URL Standard — Required for All Connections
 
 HA addon ingress proxies traffic through a path prefix. All frontend connections must use `BASE_URL` so they work correctly under both Docker (no prefix) and addon ingress (prefix injected at serve time).

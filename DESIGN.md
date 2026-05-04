@@ -167,6 +167,12 @@ The output model by piston type is permanent:
 
 Do not re-open the question of routing simple pistons through the native runtime.
 
+### Compile Target Is Always Compiler-Owned — Never User-Controlled
+
+The compiler re-scans the `statements` array on every save and sets `compile_target` automatically based on `target-boundary.json`. The user never manually sets or overrides the compile target. When a statement is added that forces PyScript, the editor shows an informational indicator explaining why the target changed. This indicator is read-only — it is not a button or a user action. Any reference in earlier drafts to a "Convert — one click" button described this indicator only. The one-click action was the compiler detecting the change; the button was just the explanation shown to the user.
+
+If a user later removes the statement that forced PyScript, the compiler re-scans on the next save and automatically restores the native HA Script target if no other PyScript-forcing statements remain. The user is never asked to manually downgrade.
+
 ---
 
 ## 3.2 PyScript Detection and Setup Prompt
@@ -408,6 +414,16 @@ In the internal format, name, id, and mode live in the wrapper — the header is
 ### 7.1 Global Variables
 
 Defined once at the PistonCore level. Available to every piston.
+
+**Global Variable Model — Summary**
+
+PistonCore uses two different mechanisms for global variables depending on type, with PyScript as the fallback for edge cases the native model cannot handle cleanly:
+
+* **Device and Devices globals** — compile-time only. Entity IDs are baked directly into each compiled YAML file that references the global. No runtime lookup, no shared external store. When the global's device list changes, affected pistons are flagged stale and must be redeployed.
+* **Non-device globals** (Text, Number, Yes/No, Date/Time) — backed by HA input helpers with a `pistoncore_` prefix. Compiled pistons read these live via HA template syntax at runtime. PistonCore creates and manages the helpers — the user never touches them directly.
+* **Edge cases over threshold** — if a global variable usage pattern cannot be expressed cleanly in native YAML (e.g., a device global used in a loop with dynamic iteration), the piston is a candidate for PyScript compilation per `target-boundary.json`.
+
+This model was a deliberate decision. Device globals being compile-time eliminates runtime race conditions entirely. Non-device globals being HA helpers means they work in HA's native UI, HA history, and HA automations written outside PistonCore. Do not relitigate this model.
 
 **Storage — two-part model:**
 
@@ -856,24 +872,63 @@ The complete statement type list and their required render patterns are defined 
 
 ## 15.6 Missing Device Handling
 
-### Core Rule — Non-Negotiable
+### Single-Device Statements — Hard Flag, Block Redeploy
 
-**Pistons always run with whatever devices are available.** If a device in a role
-is missing from HA, the piston compiles and runs against the remaining devices.
-Batteries die, sensors get replaced, life happens. A piston that breaks because
-one device out of four is temporarily unavailable is worse than useless.
+If a statement, trigger, condition, or action depends on exactly one device and
+that device is missing from HA, this is a hard error — not a graceful degradation.
+
+**Why:** A single-device trigger with a missing entity may cause HA to error and
+disable the automation entirely. A single-device condition may return unknown state.
+A single-device action will fail at the HA service call. Deploying a piston with a
+known broken single-device reference risks HA errors on every run — which is worse
+than not running at all.
+
+**Behavior:**
+- PistonCore will not redeploy the piston while a single-device role is missing
+- The last successfully deployed version remains active in HA unchanged
+- The piston list shows ⚠️ and the status page shows a hard error banner naming the
+  missing device by its last known friendly name
+- The user is not blocked from building — they are blocked from deploying a
+  known-broken configuration
+
+**⚠️ Validation required before implementation:** Actual HA behavior when an
+automation references a missing entity must be tested before implementing this logic.
+Does HA error and disable the automation? Skip the broken trigger silently? Behave
+differently for triggers vs conditions vs actions? Results go in HA_LIMITATIONS.md
+and may affect how the hard flag is implemented. Do not code this path until tested.
+
+### Multi-Device Statements — Degrade Gracefully
+
+**Pistons with multi-device roles run with whatever devices are available.** If a
+role contains multiple devices and one or more are missing, the piston compiles and
+runs against the remaining devices. Batteries die, sensors get replaced, life happens.
+A piston that breaks because one device out of four is temporarily unavailable is
+worse than useless.
+
+If ALL devices in a multi-device role are missing, treat it as a single-device-missing
+hard flag (see above) — not a silent skip.
+
+### User Communication — Two Different States
+
+Missing device situations must be communicated differently depending on severity:
+
+* **Single device missing** (hard flag) — ⚠️ on piston list, hard error banner on
+  status page, Deploy button disabled, last good deployed version still running.
+  Message: *"[Device name] is missing. Remap this device before redeploying."*
+
+* **Multi-device role partially missing** (degraded-but-functional) — ⚠️ on piston
+  list, warning banner on status page, Deploy button enabled. Message:
+  *"[Device name] is missing from [role]. Piston is running on [N] of [M] devices."*
+
+These are different states. Do not treat them the same in the UI.
 
 ### Detection — V1
 
 On every HA connect, PistonCore checks if any entity in any piston's device_map
 still exists in HA. Simple loop against the entity list already fetched.
 
-If any entity is missing:
-- Set `has_missing_devices: true` flag on the piston record
-- Show ⚠️ icon next to the piston name on the piston list page
-- Show a banner on the status page naming the specific missing device by its
-  last known friendly name — this data already exists in change tracking and
-  debug page storage, no new data model needed
+For each missing entity, PistonCore checks whether the role it belongs to is a
+single-device role or a multi-device role — this determines hard flag vs warning.
 
 ### Fix Flow — Same as Import Role Mapping
 
@@ -895,12 +950,6 @@ replacement. Less code, less to test, less to maintain.
 Last known friendly name for every device in every piston's device_map is
 already stored as part of change tracking and the debug/trace page. Missing
 device notification uses this existing data — it is not stored separately.
-
-### What Never Happens
-
-- A piston never fails to compile because a device is missing
-- A piston never stops running because a device is missing
-- The user is never blocked from deploying — warned, not blocked
 
 ---
 

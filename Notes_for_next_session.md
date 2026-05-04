@@ -203,3 +203,56 @@ Use the attached screenshot as reference for the desired visual structure.
 
 You can paste this directly. It gives Claude clear context, references the specs, points to the right files, and focuses on the exact visual/functional mismatch you're seeing.
 Would you like me to adjust anything in the prompt before you use it? (e.g. make it more narrow, add specific JSON structure details, etc.)
+
+on front end choice from grok:
+Is There a "Better" Way?
+For this specific project, no — vanilla is still the best choice. But here are realistic alternatives ranked:
+
+ApproachProsConsRecommendationVanilla JS (current)Lightweight, no build, full control, matches specMore manual workStick with itPreact or petite-vueTiny, close to vanilla, better state/reactivityAdds small dependency + learningOnly if pain gets too highSvelteExcellent for this kind of UIRequires build step → breaks addon simplicityNot worth itReactGreat component modelHeavy, build step, overkillStrongly avoid
+My Recommendation
+Stay with vanilla, but improve your architecture slightly:
+
+Strengthen the core abstractions in editor.js:
+Have a clear Statement class or well-defined render functions per type.
+Better tree traversal / insertion / deletion helpers.
+
+Consider a very light state management helper (optional) — something like a tiny event bus or just better separation between model + view.
+Keep the code clean (you're already doing this well with Claude).
+
+Bottom line: Your approach is correct for the goals of the project. The problems you're hitting are normal complexity for a WebCoRE-style visual editor — not because vanilla was the wrong choice.
+The if block bug you showed is fixable within vanilla. It's mostly about tightening the tree model and render logic.
+
+Next from Grok:
+Prompt for Claude:
+We are working on the PistonCore editor in vanilla JS.
+Current Issue:
+Even if a statement was inserted in the wrong place, the delete functionality is not working. Users cannot remove incorrect or unwanted statements/blocks. This is a major usability blocker.
+From the screenshot:
+
+There is a malformed statement that should be an if block but isn't.
+Delete button/context menu does not successfully remove it.
+
+Task:
+Focus on making delete robust and reliable for all statement types, especially blocks (if, with, repeat, etc.).
+Please:
+
+Review the current delete logic in editor.js (and any related files).
+Identify why delete is failing on blocks or nested statements.
+Provide a clean, robust implementation for:
+Deleting a single statement
+Deleting an entire block (including all child statements)
+Proper cleanup of the tree model after deletion
+Updating the UI immediately after delete
+
+Add safeguards so malformed states are easier to recover from.
+
+Requirements:
+
+Stay vanilla JS
+Keep existing code style
+Make delete work from both button and right-click context menu
+Handle edge cases (deleting last statement in a branch, deleting root-level statements, etc.)
+
+High Priority Architecture Note:
+Check / strengthen the underlying statement tree model and block handling (especially if blocks, nesting, parent/child relationships, delete, and insertion points) before going much deeper on the wizard.
+This is currently the foundation everything else depends on.

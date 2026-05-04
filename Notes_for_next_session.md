@@ -99,3 +99,65 @@ Decision needed before export/import feature is coded.
 - Validation error contract — which errors block Deploy button vs warning only
 - Orphaned file cleanup (pending_cleanup.json) — needs more detail
 - No testing strategy defined for compiler output against real HA
+random info to look through from other ais
+i have regularly asked multiple ais about this but i find it useful to keep doing this. i use claude for all programing to keep the code as clean as possible but possible fixes are good reference but i dont know if i need that now, that type of stuff is in the folder i had you skip. deeper recommendations is probably the most useful to me at this point. recomendations on how to speed up the wizard developement would be helpfull as wellGot it. Thanks for the context — you're using Claude for heavy lifting on clean code (smart), and you want deeper strategic recommendations rather than tactical code fixes right now. Here's focused advice tailored to where you are.
+Overall Strategy Recommendation
+You're in a good spot: core structure exists, editor + basic wizard are moving, compiler skeleton is there. The biggest risk isn't technical skill — it's scope creep and wizard complexity slowing you down. The wizard is the hardest and most important part.
+Core Philosophy Adjustment:
+
+Prioritize "happy path" first — Get one full end-to-end simple piston (trigger → condition → action → deploy → test) working perfectly before adding advanced features.
+Make the wizard dumber/faster in the short term. You can refine it later.
+
+Deeper Recommendations — Wizard Development
+The wizard is your biggest time sink. Here's how to accelerate it without sacrificing quality:
+
+Narrow Scope Ruthlessly for v1
+Finish Condition Wizard + basic if block first (you're close).
+Then do Action Wizard for the most common cases only: with/do service calls, set_variable, wait, log_message.
+Defer: full groups, advanced aggregation, on_event, TEP/TCP cog, system variables, expressions, multi-device "Any/All" edge cases.
+
+Speed Techniques (Practical)
+Step-by-step wizard as a state machine — Have a single currentStep + wizardState object. Each step is a function that renders the UI and returns next step ID. This is much easier to debug than deeply nested modals.
+Backend-driven steps — Let the backend return the next possible options based on current wizard state. Reduces frontend logic.
+Reuse components aggressively:
+One Device Picker component (used everywhere).
+One Operator Picker (with ⚡ trigger vs condition split).
+One Value Input renderer (based on attribute_type).
+
+Plain English sentence builder — Maintain a simple template array in wizard state and update it on every change. Don't over-engineer this.
+Fake it until you make it — For early testing, hardcode some common device capabilities in frontend so you can iterate wizard UI without waiting on real HA responses.
+
+Wizard Data Flow Optimization
+Cache device capabilities aggressively (backend + frontend).
+Make device picker search fast (local filter after initial load).
+Use debounce on capability fetches.
+
+Testing Workflow That Speeds You Up
+Create 5–6 "golden" test pistons (simple light on motion, time-based, etc.).
+After any wizard change, import one and verify the rendered document + compiled output.
+Use your chicken-lights-lumen.piston example as regression test.
+
+
+Broader Project Recommendations
+Prioritization Order (Next 2–4 Weeks):
+
+BASE_URL + Ingress readiness (addon blocker)
+Full Save → Deploy → Test roundtrip for a simple piston
+Action wizard (basic service calls)
+Status page + logs (makes testing rewarding)
+Polish editor (drag, context menu, ghost text reliability)
+
+Risk Management
+
+Document known limitations openly in README (e.g., "Complex pistons require PyScript", "Some WebCoRE patterns need PyScript").
+Add a "Limitations vs WebCoRE" section — manages user expectations.
+Keep Notes_for_next_session.md religiously updated — it's clearly helping you.
+
+Workflow Tip
+Since you vibe code with Claude:
+
+Give Claude very narrow, concrete prompts: "Implement only the device picker panel as described in lines X-Y of WIZARD_SPEC.md using existing patterns in wizard.js"
+After major features, ask for a cleanup pass focused on consistency.
+
+You're not hitting your limits — you're hitting the natural difficulty curve of building something this ambitious. The fact that you're regularly cross-checking with multiple AIs (including this) is exactly why this project has stayed coherent.
+The wizard will feel painful until the first 3–4 statement types are fully working end-to-end. Once that muscle memory is built, the rest goes faster.

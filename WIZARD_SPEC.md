@@ -13,6 +13,20 @@ Deviation requires a specific documented reason.
 
 ---
 
+## Output Invariant
+
+The wizard writes structured JSON only — it never writes display text or piston_text.
+Every completed wizard flow produces a typed statement or condition object that is
+inserted directly into the piston's statements array.
+
+The wizard's internal state object (selections, sentence, step) is transient UI state.
+It exists only while the wizard is open. It is discarded on Cancel. It is never written
+to the piston JSON on Done — only the final typed output object is written.
+
+This matches DESIGN.md Section 2 and PISTON_FORMAT.md exactly.
+
+---
+
 ## Wizard Features by Runtime Target
 
 Some wizard options only apply to certain compile targets. The wizard must make this clear rather than silently allowing features that won't work on the current target.
@@ -622,6 +636,12 @@ Note the separation of `display_states`/`compiled_states` and `display_value`/`c
 For non-binary entities these pairs are identical. For binary sensors they differ — display uses
 friendly labels, compiled uses `"on"`/`"off"`.
 
+This state object is transient. It exists only while the wizard modal is open.
+It is used to drive the wizard UI — building the sentence, enabling/disabling the
+Next button, populating the next step's options. It is never stored in the piston.
+On Done, only the final condition or statement object is written to the piston JSON.
+On Cancel, this object is discarded entirely.
+
 On Done, this state is converted to a typed statement or condition object and inserted
 into the piston's `statements` array as structured JSON. The editor then renders the
 display text from that structured data using render functions.
@@ -650,6 +670,7 @@ structured data using render functions.
   "compiled_value": "on",
   "duration": null,
   "duration_unit": null,
+  "interaction": "any",
   "group_operator": "and"
 }
 ```
@@ -848,7 +869,7 @@ This allows expressions like "$sunset + 30 minutes" or "$sunrise - 1 hour".
 Store as:
 ```json
 {
-  "__type": "system_var",
+  "type": "system_variable",
   "name": "$sunset",
   "offset": 30,
   "offset_unit": "minutes",
@@ -954,6 +975,11 @@ This is the definitive operator list for PistonCore v1. Pulled from the WebCoRE 
 and confirmed against the operator research done in Session 18. This list drives the
 wizard's operator dropdown — the wizard shows exactly these operators, grouped and ordered
 as specified.
+
+The capability map sections earlier in this document show operators filtered by
+attribute type — this is what the wizard shows the user for a given device.
+This complete reference is the master list the capability map draws from.
+The two lists are consistent — this one is just unfiltered.
 
 ### Condition Operators (no ⚡ — check current state)
 

@@ -653,6 +653,26 @@ The capability map (which operators are valid for which attribute types) lives i
 
 Exact endpoint signatures to be confirmed with the backend developer.
 
+### Friendly Name Resolution on Piston Load
+
+When the editor loads a piston via `GET /api/piston/{id}`, the piston JSON contains
+role names and entity IDs in `device_map` — never friendly names. The editor resolves
+friendly names for display using the device list already fetched from `GET /api/devices`.
+
+Resolution happens in the frontend at load time:
+- Build a lookup map from the `/api/devices` response: entity_id → friendly name
+- For each role in `device_map`, look up the friendly name for each entity ID
+- Pass the resolved friendly names to the render functions alongside the piston JSON
+- Render functions use friendly names for display — they never receive entity IDs
+
+If a friendly name cannot be resolved (device missing from HA):
+- Show the role name in curly braces as fallback: `{driveway_light}`
+- Apply the missing device visual indicator (see DESIGN.md Section 15.6)
+- Never show a raw entity ID to the user
+
+The render functions are pure — they receive data and return display text.
+They never fetch from the backend or HA directly.
+
 ---
 
 ## Visual Style Notes

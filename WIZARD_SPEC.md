@@ -1,6 +1,6 @@
 # PistonCore Wizard Specification
 
-**Version:** 0.5
+**Version:** 0.6
 **Status:** Draft — For Developer Use
 **Last Updated:** May 2026
 
@@ -622,49 +622,58 @@ Note the separation of `display_states`/`compiled_states` and `display_value`/`c
 For non-binary entities these pairs are identical. For binary sensors they differ — display uses
 friendly labels, compiled uses `"on"`/`"off"`.
 
-On Done, this state is converted to a condition object or statement node and inserted into the piston tree.
-On Cancel, this state is discarded.
+On Done, this state is converted to a typed statement or condition object and inserted
+into the piston's `statements` array as structured JSON. The editor then renders the
+display text from that structured data using render functions.
+On Cancel, this state is discarded. Nothing is written to the piston.
 
 ---
 
 ## Condition Object — Final Output of the Wizard
 
-When the wizard completes a condition or trigger, it produces a condition object:
+When the wizard completes a condition or trigger, it produces a typed condition object
+and inserts it into the piston's `statements` array. The wizard writes structured JSON
+directly — it never writes display text. The editor renders display text from the
+structured data using render functions.
 
 ```json
 {
   "id": "cond_001",
-  "type": "trigger | condition",
-  "subject": {
-    "type": "device",
-    "role": "front_door",
-    "capability": "contact",
-    "attribute_type": "binary"
-  },
+  "is_trigger": false,
   "aggregation": "any | all | none | null",
-  "interaction": "any | physical | programmatic",
+  "role": "front_door",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
   "operator": "changes to",
   "display_value": "Open",
   "compiled_value": "on",
   "duration": null,
-  "group_operator": "AND"
+  "duration_unit": null,
+  "group_operator": "and"
 }
 ```
 
-`display_value` — shown in the PistonCore editor and status page read-only view.
-`compiled_value` — used by the compiler when generating HA YAML. For binary sensors this is
-always `"on"` or `"off"`. For all other entity types `display_value` and `compiled_value` are the same.
+**`is_trigger`** — `true` for trigger operators (⚡), `false` for condition operators.
+This flag is how the compiler and editor know a condition is a trigger. Not position,
+not operator name — this flag. The wizard sets it based on which operator group the
+user picked.
 
-The compiler ALWAYS uses `compiled_value`. Never `display_value`.
+**`display_value`** — shown in the PistonCore editor. For binary sensors this is the
+friendly label ("Open", "Detected"). For all other types same as compiled_value.
 
-`type: "trigger"` → ⚡ icon, appears in TRIGGERS section, creates HA event subscription
-`type: "condition"` → no icon, appears in CONDITIONS section or inside if_block.condition
+**`compiled_value`** — used by the compiler when generating HA YAML. For binary sensors
+this is always `"on"` or `"off"`. The compiler ALWAYS uses `compiled_value`. Never `display_value`.
 
-`group_operator` is `AND` or `OR` — applies to this condition's relationship with the next
-condition in the array. Omit on the last condition.
+**`group_operator`** — `"and"` or `"or"`. Applies to this condition's relationship with
+the next condition in the array. Omit on the last condition in a group.
 
-`interaction` defaults to `"any"`. Only relevant for trigger-type conditions on PyScript pistons.
-If omitted or `"any"`, no context filtering is applied.
+**`aggregation`** — applies when multiple devices are selected: `"any"`, `"all"`, `"none"`.
+Null for single device conditions.
+
+**`interaction`** — `"any"`, `"physical"`, `"programmatic"`. Defaults to `"any"`.
+Only relevant for trigger-type conditions on PyScript pistons. If omitted or `"any"`,
+no context filtering is applied.
 
 ---
 
@@ -902,6 +911,136 @@ Available in the Variable picker and in expressions. All are read-only at runtim
 
 ---
 
+## Complete Statement Type Reference
+
+This is the authoritative list of all statement types PistonCore supports in v1.
+Derived from the WebCoRE source code (piston.module.html). Every statement the wizard
+can produce must appear here. The compiler handles exactly this list — no more, no less.
+
+| Statement type | Editor keyword | Description | PyScript only? |
+|---|---|---|---|
+| `action` | `with {devices}` / `do` / `end with` | Execute one or more commands on a device or group | No |
+| `do` | `do` / `end do` | A container block for grouping statements | No |
+| `if` | `if` / `then` / `else if` / `else` / `end if` | Conditional execution with optional else branches | No |
+| `switch` | `switch ({expr})` / `case` / `default` / `end switch` | Compare an expression against a list of values | No |
+| `for` | `for ({start} to {end} step {step})` / `do` / `end for` | Repeat for a fixed number of iterations | No (simplified) |
+| `for_each` | `for each ({var} in {list})` / `do` / `end for each` | Repeat for each device in a device group | No |
+| `while` | `while` / `conditions` / `do` / `end while` | Repeat while a condition is true | No |
+| `repeat` | `repeat` / `do` / `until` / `conditions` / `end repeat` | Repeat until a condition is true | No |
+| `every` | `every {timer}` / `do` / `end every` | Execute on a time interval or schedule | No |
+| `on_event` | `on events from` / `do` / `end on` | Execute when specific events fire inside a running script | **Yes** |
+| `break` | `break` | Exit a loop early | **Yes** |
+| `exit` | `exit {value}` | Stop piston execution, set piston state | No |
+| `set_variable` | `do Set variable {name} = {value}` | Assign a value to a piston or global variable | No |
+| `wait` | `do Wait {duration}` or `do Wait until {time}` | Pause execution | No |
+| `wait_for_state` | `do Wait for state` | Pause until an entity reaches a state, with timeout | No |
+| `log_message` | `do Log message {text}` | Write a message to the piston log | No |
+| `call_piston` | `do Execute piston {name}` | Trigger another piston | No |
+| `cancel_pending_tasks` | `do Cancel all pending tasks` | Cancel async tasks in flight | **Yes** |
+
+**Note on `for` loop:** Native HA script `repeat: count:` supports count-based loops only.
+Start ≠ 1 or step ≠ 1 forces a compiler warning and simplified output. For full for-loop
+control the piston must compile to PyScript.
+
+**Note on `every` statement:** The `every` statement compiles as a trigger in the
+automation wrapper (time_pattern or cron-style trigger), not as a statement in the script
+body. The compiler detects `every` at the top level and routes it to trigger compilation.
+
+---
+
+## Complete Operator Reference
+
+This is the definitive operator list for PistonCore v1. Pulled from the WebCoRE source
+and confirmed against the operator research done in Session 18. This list drives the
+wizard's operator dropdown — the wizard shows exactly these operators, grouped and ordered
+as specified.
+
+### Condition Operators (no ⚡ — check current state)
+
+| Operator | Extra input needed | Notes |
+|---|---|---|
+| is | Value | |
+| is any of | Multi-value | |
+| is not | Value | |
+| is not any of | Multi-value | |
+| is between | Two values | |
+| is not between | Two values | |
+| is even | None | Numeric only |
+| is odd | None | Numeric only |
+| was | Value + duration "In the last..." | |
+| was any of | Multi-value + duration | |
+| was not | Value + duration | |
+| was not any of | Multi-value + duration | |
+| changed | Duration only | |
+| did not change | Duration only | |
+| is equal to | Value | Numeric — same as "is" for non-numeric |
+| is not equal to | Value | |
+| is less than | Value | Numeric only |
+| is less than or equal to | Value | Numeric only |
+| is greater than | Value | Numeric only |
+| is greater than or equal to | Value | Numeric only |
+
+### Trigger Operators (⚡ — subscribe to events)
+
+| Operator | Extra input needed | Notes |
+|---|---|---|
+| ⚡ changes | None | Any state change |
+| ⚡ changes to | Value | |
+| ⚡ changes to any of | Multi-value | |
+| ⚡ changes away from | Value | |
+| ⚡ changes away from any of | Multi-value | |
+| ⚡ drops | None | Numeric — any drop |
+| ⚡ drops below | Value | Numeric only |
+| ⚡ drops to or below | Value | Numeric only |
+| ⚡ rises | None | Numeric — any rise |
+| ⚡ rises above | Value | Numeric only |
+| ⚡ rises to or above | Value | Numeric only |
+| ⚡ stays | Value + duration "For the next..." | |
+| ⚡ stays equal to | Value + duration | |
+| ⚡ stays any of | Multi-value + duration | |
+| ⚡ stays away from | Value + duration | |
+| ⚡ stays away from any of | Multi-value + duration | |
+| ⚡ stays unchanged | Duration only | |
+| ⚡ gets | Value | Button/event — receives a specific event |
+| ⚡ gets any | None | Button/event — any event |
+| ⚡ receives | Value | |
+| ⚡ happens daily at | Time or $sunrise/$sunset + offset | Time virtual device |
+| ⚡ event occurs | None | System Start virtual device |
+| ⚡ is any and stays any of | Value + duration | |
+| ⚡ is away and stays away from | Value + duration | |
+
+### Duration Row Labels
+
+- **`was`-type operators** (backward-looking — CONDITION): label = **"In the last..."**
+- **`stays`-type operators** (forward-looking — TRIGGER): label = **"For the next..."**
+
+This distinction is critical. See the `was` vs `stays` section for full behavioral detail.
+
+---
+
+## Location Virtual Device Commands
+
+When the user selects "Location" in the action device picker, these system commands appear
+instead of HA services. These are PistonCore-defined — not pulled from the HA service registry.
+
+| Command | Parameters | HA native? | PyScript only? |
+|---|---|---|---|
+| Set variable | Variable picker + Value/Expression | ✅ Yes | No |
+| Execute piston | Piston picker + optional Arguments | ✅ Yes | No |
+| Set timezone | Timezone ID text input | ⚠️ Partial | No |
+| Send push notification | Message + optional Title + optional Device | ✅ Yes | No |
+| Log to console | Message + level (info/warn/error) | ✅ Yes | No |
+| Make HTTP request | Method + URL + Content Type + optional Body | ⚠️ Partial | No |
+| Send email | To + Subject + Body | ✅ Yes | No |
+| Wait | Duration (ms/seconds/minutes/hours) | ✅ Yes | No |
+| Set HA mode | Mode picker | ✅ Yes | No |
+| Raise event | Event name + optional data | ✅ Yes | No |
+
+**File system commands (Skip v1 — Hubitat specific):**
+Write to file, Read from file, Append to file, Delete file — do not implement.
+
+---
+
 ## Not Building in V1 — Wizard Skip List
 
 These appear in WebCoRE but are explicitly excluded from v1. Do not build them:
@@ -925,10 +1064,11 @@ These affect the wizard but are not yet decided:
 1. **Which-interaction step feasibility** — requires sandbox validation before implementing. PyScript context tracking needs to be confirmed as reliable. See DESIGN.md Section 8.6.
 2. **Collapse/expand for individual conditions inside an if block** — WebCoRE supported this. Include in v1 or defer?
 3. **System variable availability in native script pistons** — currently defined as PyScript-only. Confirm whether any system variables are expressible in native YAML triggers/templates.
-4. **Timer statement type** — WebCoRE had a Timer statement. May overlap with HA's scheduler. Evaluate before implementing. See DESIGN.md Section 22.
+4. **Timer statement type** — WebCoRE had a Timer statement. May overlap with HA scheduler. Evaluate before implementing. See DESIGN.md Section 22.
 5. **Simulator / step-through dry run** — WebCoRE had this. PistonCore v1 uses Test button. Full step-through is v2.
 6. **"followed by" sequence operator** — excluded from v1 per DESIGN.md. No HA equivalent exists.
 7. **Expression editor for advanced value inputs** — WebCoRE let advanced users type expressions. PistonCore v1 uses structured inputs only. Expression editor is v2.
+8. **WIZARD_SPEC.md needs full update** — wizard output model still partially references old concepts. Full update to reflect structured JSON output model needed before wizard coding resumes.
 
 ---
 

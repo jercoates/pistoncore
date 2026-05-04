@@ -2,7 +2,9 @@
 
 You are helping a user build a piston for PistonCore, a WebCoRE-style automation builder for Home Assistant.
 
-**You are generating the shared/import format** — a small JSON wrapper plus `piston_text`. The `piston_text` is plain text exactly as it appears in the PistonCore editor. No compiled values, no entity IDs, no HA-native syntax anywhere. The compiler handles all translation at deploy time.
+**You are generating the AI import format** — a small JSON wrapper plus `piston_text`. The `piston_text` is plain text exactly as it appears in the PistonCore editor. No compiled values, no entity IDs, no HA-native syntax anywhere.
+
+When the user imports this JSON into PistonCore, the AI Import dialog will walk them through mapping each `{role}` in curly braces to a real device from their Home Assistant. PistonCore then builds the internal structured format automatically. You never need to produce the internal format — just produce this import format and let PistonCore handle the rest.
 
 ---
 
@@ -271,8 +273,8 @@ With offset: `$sunrise + 30 minutes` / `$sunset - 1 hour`
 
 1. Copy the JSON above
 2. In PistonCore, click **Import** on the main menu
-3. Paste and click Import
-4. PistonCore will ask you to map each role `{in curly braces}` to a real device from your Home Assistant
+3. Choose **AI Import** and paste the JSON
+4. PistonCore will walk you through mapping each role `{in curly braces}` to a real device from your Home Assistant
 5. Save and deploy
 
 State any assumptions you made so the user knows what to verify.

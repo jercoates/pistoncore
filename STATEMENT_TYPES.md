@@ -1,0 +1,1078 @@
+# PistonCore — Statement Types Reference
+
+**Version:** 1.0
+**Status:** Authoritative — Required reference before compiler or wizard coding
+**Last Updated:** May 2026
+
+This document defines every statement type PistonCore supports. For each type it specifies:
+1. The structured JSON schema the wizard writes
+2. The display text the editor renders from that JSON
+3. The HA YAML the compiler emits
+
+Source: WebCoRE piston.module.html (ng-template blocks), confirmed against
+COMPILER_SPEC.md and WIZARD_SPEC.md.
+
+Read DESIGN.md Section 6 and COMPILER_SPEC.md before this document.
+
+---
+
+## Rendering Rules — Core Invariant
+
+**Every edit operation acts on structured JSON first. Rendering is always a pure
+projection from that structure. Rendered labels like `then`, `end if`, `when true`,
+`end with` are never treated as editable nodes — they are display artifacts only.**
+
+The editor calls a render function per statement type. The render function receives
+the structured JSON object and returns display text. The same render functions are
+used for editor display AND for generating piston_text on export/snapshot.
+
+---
+
+## 1. action (with/do block)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_001",
+  "type": "action",
+  "async": false,
+  "devices": ["role_name"],
+  "tasks": [
+    {
+      "id": "task_001",
+      "command": "turn_on",
+      "domain": "light",
+      "ha_service": "light.turn_on",
+      "parameters": {
+        "brightness_pct": 75
+      },
+      "mode_restriction": []
+    }
+  ],
+  "description": null,
+  "disabled": false
+}
+```
+
+**Fields:**
+- `async` — boolean, default false. If true renders as `async with`
+- `devices` — array of role names from device_map
+- `tasks` — array of task objects (see task schema below)
+- `mode_restriction` — array of HA mode IDs, empty = no restriction
+
+### Task Schema
+
+```json
+{
+  "id": "task_001",
+  "command": "turn_on",
+  "domain": "light",
+  "ha_service": "light.turn_on",
+  "parameters": {},
+  "description": null
+}
+```
+
+### Editor Render
+
+```
+with {Lights}
+do
+  Turn on;
+end with;
+```
+
+Multi-task:
+```
+with {Announcement_Sonos}
+do
+  Set Volume to 70%;
+  Speak text "{Message}";
+end with;
+```
+
+Single task shorthand (when only one task and no restrictions):
+```
+● do Turn on {Lights};
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_001"
+  action: light.turn_on
+  target:
+    entity_id: light.living_room
+  data:
+    brightness_pct: 75
+  continue_on_error: true
+```
+
+---
+
+## 2. do (grouping block)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_002",
+  "type": "do",
+  "async": false,
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+do
+  [statements]
+end do;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_002"
+  sequence:
+    [compiled statements]
+```
+
+---
+
+## 3. if
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_003",
+  "type": "if",
+  "async": false,
+  "conditions": [],
+  "condition_operator": "and",
+  "then": [],
+  "else_ifs": [
+    {
+      "id": "elseif_001",
+      "conditions": [],
+      "condition_operator": "and",
+      "statements": []
+    }
+  ],
+  "else": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+Simple:
+```
+if
+  [conditions]
+then
+  [statements]
+end if;
+```
+
+With else:
+```
+if
+  [conditions]
+then
+  [statements]
+else
+  [statements]
+end if;
+```
+
+With else if:
+```
+if
+  [conditions]
+then
+  [statements]
+else if
+  [conditions]
+then
+  [statements]
+else
+  [statements]
+end if;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_003"
+  if:
+    - condition: template
+      value_template: "[compiled condition]"
+  then:
+    [compiled then statements]
+  else:
+    [compiled else statements]
+```
+
+---
+
+## 4. switch
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_004",
+  "type": "switch",
+  "async": false,
+  "expression": {
+    "type": "variable",
+    "name": "$count"
+  },
+  "case_traversal_policy": "safe",
+  "cases": [
+    {
+      "id": "case_001",
+      "case_type": "single",
+      "value": 1,
+      "statements": []
+    },
+    {
+      "id": "case_002",
+      "case_type": "range",
+      "value_from": 5,
+      "value_to": 10,
+      "statements": []
+    }
+  ],
+  "default": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+**`case_traversal_policy`:** `"safe"` (auto-break) or `"fallthrough"` (programmer style)
+
+### Editor Render
+
+```
+switch ($count)
+  case 1:
+    [statements]
+  case 5 through 10:
+    [statements]
+  default:
+    [statements]
+end switch;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_004"
+  choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ states('input_number.pistoncore_count') | int == 1 }}"
+      sequence:
+        [compiled case 1 statements]
+    - conditions:
+        - condition: template
+          value_template: "{{ states('input_number.pistoncore_count') | int >= 5 and states('input_number.pistoncore_count') | int <= 10 }}"
+      sequence:
+        [compiled case 2 statements]
+  default:
+    [compiled default statements]
+```
+
+---
+
+## 5. for
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_005",
+  "type": "for",
+  "async": false,
+  "start": 1,
+  "end": 10,
+  "step": 1,
+  "counter_variable": "$count",
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+for ($count = 1 to 10 step 1)
+do
+  [statements]
+end for;
+```
+
+Without counter variable:
+```
+for (1 to 10)
+do
+  [statements]
+end for;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_005"
+  repeat:
+    count: 10
+    sequence:
+      [compiled statements]
+```
+
+**Note:** Emits CompilerWarning if start != 1 or step != 1. Native HA script
+repeat only supports count-based loops.
+
+---
+
+## 6. for_each
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_006",
+  "type": "for_each",
+  "async": false,
+  "variable": "$device",
+  "list_role": "SmokeDetectors",
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+for each ($device in {SmokeDetectors})
+do
+  [statements]
+end for each;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_006"
+  repeat:
+    for_each:
+      - sensor.smoke_detector_basement
+      - sensor.smoke_detector_kitchen
+    sequence:
+      [compiled statements]
+```
+
+---
+
+## 7. while
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_007",
+  "type": "while",
+  "async": false,
+  "conditions": [],
+  "condition_operator": "and",
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+while
+  [conditions]
+do
+  [statements]
+end while;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_007"
+  repeat:
+    while:
+      - condition: template
+        value_template: "[compiled condition]"
+    sequence:
+      [compiled statements]
+```
+
+---
+
+## 8. repeat (do/until)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_008",
+  "type": "repeat",
+  "async": false,
+  "statements": [],
+  "until_conditions": [],
+  "condition_operator": "and",
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+repeat
+do
+  [statements]
+until
+  [conditions]
+end repeat;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_008"
+  repeat:
+    sequence:
+      [compiled statements]
+    until:
+      - condition: template
+        value_template: "[compiled until condition]"
+```
+
+---
+
+## 9. every (timer)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_009",
+  "type": "every",
+  "interval": 5,
+  "interval_unit": "minutes",
+  "at_minute": null,
+  "at_time": null,
+  "only_on_days": [],
+  "only_on_dom": [],
+  "only_on_months": [],
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+**`interval_unit` values:** `"ms"`, `"s"`, `"m"`, `"h"`, `"d"`, `"w"`, `"n"` (month), `"y"`
+
+### Editor Render
+
+```
+every 5 minutes
+do
+  [statements]
+end every;
+```
+
+With constraints:
+```
+every 1 hour at minute 0, only on Mondays and Fridays
+do
+  [statements]
+end every;
+```
+
+### Compiler Output
+
+Compiles as a trigger in the automation wrapper, not as a statement in the script body:
+
+```yaml
+- trigger: time_pattern
+  minutes: "/5"
+```
+
+**Note:** Advanced scheduling (day/month filters) emits CompilerWarning and compiles
+with basic time_pattern only.
+
+---
+
+## 10. on_event (PyScript only)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_010",
+  "type": "on_event",
+  "events": [
+    {
+      "id": "event_001",
+      "role": "Doors",
+      "attribute": "contact",
+      "operator": "changes to",
+      "value": "open"
+    }
+  ],
+  "statements": [],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+on events from
+  Any of {Doors}'s contact changes to Open
+do
+  [statements]
+end on;
+```
+
+### Compiler Output
+
+PyScript only. Forces PyScript compilation via target-boundary.json.
+Native HA script compilation raises CompilerError.
+
+---
+
+## 11. break (PyScript only)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_011",
+  "type": "break",
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+break;
+```
+
+### Compiler Output
+
+PyScript only. Forces PyScript compilation via target-boundary.json.
+Native HA script compilation raises CompilerError.
+
+---
+
+## 12. exit (stop/return)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_012",
+  "type": "exit",
+  "value": {
+    "type": "literal",
+    "data": "true"
+  },
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+exit true;
+```
+
+Without value:
+```
+do Stop;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_012"
+  stop: "exit"
+```
+
+---
+
+## 13. set_variable
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_013",
+  "type": "set_variable",
+  "variable": "$message",
+  "value": {
+    "type": "literal",
+    "data": "Hello"
+  },
+  "description": null,
+  "disabled": false
+}
+```
+
+**Value types:** `"literal"`, `"variable"`, `"expression"`, `"system_variable"`
+
+### Editor Render
+
+```
+do Set variable {message} = {"Hello"};
+```
+
+With expression:
+```
+do Set variable {message} = {"$currentEventDevice Opened"};
+```
+
+With number:
+```
+do Set variable {count} = {0};
+```
+
+### Compiler Output
+
+Piston variable:
+```yaml
+- alias: "stmt_013"
+  variables:
+    message: "Hello"
+```
+
+Global variable:
+```yaml
+- alias: "stmt_013"
+  action: input_text.set_value
+  target:
+    entity_id: input_text.pistoncore_message
+  data:
+    value: "Hello"
+```
+
+---
+
+## 14. wait (duration)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_014",
+  "type": "wait",
+  "wait_type": "duration",
+  "duration": 5,
+  "duration_unit": "minutes",
+  "description": null,
+  "disabled": false
+}
+```
+
+**`duration_unit` values:** `"ms"`, `"s"`, `"m"`, `"h"`, `"d"`, `"w"`
+
+### Editor Render
+
+```
+do Wait 5 minutes;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_014"
+  delay:
+    minutes: 5
+```
+
+---
+
+## 15. wait (until time)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_015",
+  "type": "wait",
+  "wait_type": "until",
+  "until": "23:00:00",
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+do Wait until 11:00 PM;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_015"
+  wait_for_trigger:
+    - trigger: time
+      at: "23:00:00"
+  timeout:
+    minutes: 60
+  continue_on_timeout: true
+```
+
+Always emits CompilerWarning — see COMPILER_SPEC.md Section 13.
+`timeout` defaults to 1 hour if not specified. `continue_on_timeout: true` ensures
+the piston continues rather than stopping if the time is never reached.
+
+---
+
+## 15b. wait_for_state
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_015b",
+  "type": "wait_for_state",
+  "conditions": [],
+  "condition_operator": "and",
+  "timeout_seconds": 300,
+  "continue_on_timeout": true,
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+do Wait for state
+  [conditions]
+  timeout: 5 minutes;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_015b"
+  wait_template: "[compiled condition template]"
+  timeout:
+    seconds: 300
+  continue_on_timeout: true
+```
+
+---
+
+## 16. log_message
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_016",
+  "type": "log_message",
+  "message": {
+    "type": "literal",
+    "data": "Piston ran successfully"
+  },
+  "level": "info",
+  "description": null,
+  "disabled": false
+}
+```
+
+**`level` values:** `"info"`, `"warn"`, `"error"`
+
+### Editor Render
+
+```
+do Log message {"Piston ran successfully"};
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_016"
+  event: PISTONCORE_LOG
+  event_data:
+    piston_id: "a3f8c2d1"
+    message: "Piston ran successfully"
+    level: "info"
+```
+
+---
+
+## 17. call_piston
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_017",
+  "type": "call_piston",
+  "target_piston_id": "b7e2a1f4",
+  "target_piston_name": "Announce Motion",
+  "wait_for_completion": false,
+  "arguments": {},
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+do Execute piston Announce Motion;
+```
+
+### Compiler Output
+
+```yaml
+- alias: "stmt_017"
+  action: script.pistoncore_b7e2a1f4
+```
+
+If `wait_for_completion: true` with native script target → CompilerError.
+
+---
+
+## 18. cancel_pending_tasks (PyScript only)
+
+### JSON Schema
+
+```json
+{
+  "id": "stmt_018",
+  "type": "cancel_pending_tasks",
+  "description": null,
+  "disabled": false
+}
+```
+
+### Editor Render
+
+```
+do Cancel all pending tasks;
+```
+
+### Compiler Output
+
+PyScript only. Forces PyScript compilation via target-boundary.json.
+Native HA script compilation raises CompilerError.
+
+---
+
+## Condition Object Schema
+
+Conditions appear inside `if`, `while`, `repeat`, `on_event` statement types.
+The same schema is used for both triggers (`is_trigger: true`) and conditions
+(`is_trigger: false`).
+
+```json
+{
+  "id": "cond_001",
+  "is_trigger": false,
+  "aggregation": "any",
+  "role": "Doors",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
+  "operator": "changes to",
+  "display_value": "Open",
+  "compiled_value": "on",
+  "duration": null,
+  "duration_unit": null,
+  "group_operator": "and",
+  "subscription_method": "auto"
+}
+```
+
+### Time Condition
+
+```json
+{
+  "id": "cond_002",
+  "is_trigger": false,
+  "subject": "time",
+  "operator": "is between",
+  "value_from": "08:00:00",
+  "value_to": "23:00:00",
+  "only_on_days": [1, 2, 3, 4, 5],
+  "group_operator": "and"
+}
+```
+
+### Condition Group
+
+```json
+{
+  "id": "cond_003",
+  "type": "group",
+  "operator": "and",
+  "negated": false,
+  "conditions": [
+    { ... },
+    { ... }
+  ],
+  "group_operator": "and"
+}
+```
+
+**Nesting:** Groups can contain other groups — nesting is unlimited in the data model.
+In practice, deeply nested groups become unreadable and are rare. The wizard UI supports
+at least two levels of nesting (group within group). There is no enforced maximum depth
+but the compiler and editor must handle arbitrary nesting recursively.
+
+A condition array entry is either a flat condition object (has `is_trigger`, `role`,
+`operator` etc.) or a group object (has `type: "group"`, `operator`, `conditions`).
+The renderer and compiler detect which by checking for the `type: "group"` field.
+```
+
+### Condition Render Examples
+
+Single device trigger:
+```
+⚡ Any of {Doors}'s contact changes to Open
+```
+
+Condition with time:
+```
+Time is between 8:00 AM and 11:00 PM
+```
+
+Condition with days:
+```
+Time is between 8:00 PM and 8:00 AM, but only on Mondays, Tuesdays, Wednesdays, Thursdays, or Fridays
+```
+
+Numeric condition:
+```
+Any of {lumen_sensor}'s illuminance is less than 800 lux
+```
+
+Multiple conditions with AND:
+```
+Time is between 6:00 AM and $sunrise + 30 minutes
+and Any of {lumen_sensor}'s illuminance is less than 800 lux
+```
+
+Multiple conditions with OR:
+```
+Any of {Doors}'s contact changes to Open
+or Any of {Windows}'s contact changes to Open
+```
+
+---
+
+## Operand / Value Schema
+
+Values used in conditions, set_variable, for loop bounds, etc.
+
+```json
+{
+  "type": "literal",
+  "data": "Hello"
+}
+```
+
+```json
+{
+  "type": "variable",
+  "name": "$count"
+}
+```
+
+```json
+{
+  "type": "system_variable",
+  "name": "$sunrise",
+  "offset": 30,
+  "offset_unit": "minutes",
+  "offset_direction": "+"
+}
+```
+
+```json
+{
+  "type": "expression",
+  "expression": "$count + 1"
+}
+```
+
+---
+
+## Statement Common Fields
+
+Every statement object has these fields regardless of type:
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `id` | string | Yes | — | Unique within piston, used for compiler alias and edit-in-place lookup |
+| `type` | string | Yes | — | One of the types defined in this document |
+| `async` | boolean | No | false | If true, statement executes asynchronously |
+| `description` | string | No | null | Optional user note, renders as `/* comment */` |
+| `disabled` | boolean | No | false | If true, statement is greyed out and skipped by compiler |
+
+---
+
+## PyScript-Only Statement Types
+
+These statement types force PyScript compilation. They are detected by
+target-boundary.json, not hardcoded in Python.
+
+| Type | Reason |
+|---|---|
+| `on_event` | No native HA script equivalent for event-conditional blocks inside running script |
+| `break` | No native HA script equivalent for mid-loop interruption |
+| `cancel_pending_tasks` | No native HA script equivalent for cancelling async tasks |
+
+If any of these appear in a piston's statements array, compile_target must be `"pyscript"`.
+The compiler raises CompilerError if it encounters these with `compile_target == "native_script"`.
+
+---
+
+## Statement ID Generation
+
+Statement IDs are generated by the wizard at creation time.
+Format: `stmt_` + 8 character hex: `stmt_a3f8c2d1`
+Condition IDs: `cond_` + 8 character hex: `cond_b7e2f941`
+Task IDs: `task_` + 8 character hex: `task_c1d4e823`
+Case IDs: `case_` + 8 character hex: `case_f2a1b903`
+
+IDs are stable — they never change once assigned, even if the statement is moved,
+edited, or the piston is renamed. The compiler uses them as YAML aliases.
+Edit-in-place uses them to find the correct statement to update.
+
+---
+
+*This document must be kept in sync with WIZARD_SPEC.md (operator list, render patterns)
+and COMPILER_SPEC.md (compiler output). If any statement type is added or changed,
+update all three documents.*

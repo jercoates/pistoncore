@@ -64,30 +64,55 @@ JavaScript scope — it is never attached to the piston JSON and never sent to t
 
 ---
 
-## AI Import Dialog
+## Import Dialog
 
-The Import button on the piston list page opens an import dialog with two tabs:
+The Import button on the piston list page opens a dialog with two tabs:
 
-**Tab 1 — Standard Import**
-Paste a full piston JSON (internal format or backup format). PistonCore validates the
-JSON and loads it directly. No role mapping needed if device_map is already populated.
+**Tab 1 — Paste JSON**
+Paste a full piston JSON (Snapshot or Backup format). PistonCore validates
+the JSON and checks `device_map`. If `device_map` values are all populated,
+loads directly. If any `device_map` values are empty arrays, proceeds to
+the role mapping step.
 
-**Tab 2 — AI Import**
-Paste the JSON from the "Write a Piston" AI prompt workflow. This JSON contains
-`piston_text` and an empty `device_map`. PistonCore parses the `piston_text` into
-structured JSON and then walks the user through mapping each `{role}` in curly braces
-to a real device from their Home Assistant.
+**Tab 2 — From URL**
+Paste a URL to a raw `.piston` or `.json` file. Fetches and processes the
+same as Tab 1.
 
-AI Import flow:
-1. User pastes AI-generated JSON
-2. PistonCore validates format and extracts all `{role}` placeholders
-3. For each role, show the device picker — same component used for missing device fix
-4. User maps each role to a real HA device
-5. PistonCore builds the structured JSON and `device_map` from the mappings
-6. Piston is created and user lands on the Status Page
+### Role Mapping Step
 
-**The AI Import dialog is the only place `piston_text` is ever parsed.** Everywhere
-else in the codebase, `piston_text` is an output format only — never an input.
+Shown automatically when `device_map` has empty arrays. This handles
+AI-generated pistons, community Snapshots, and WebCoRE migrations —
+all use the same path.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Map your devices                               [✕] │
+├─────────────────────────────────────────────────────┤
+│  This piston uses 2 device roles. Map each one      │
+│  to a real device from your Home Assistant.         │
+│                                                     │
+│  {Doors}                                            │
+│  [Pick a device ▾]                    1 of 2        │
+│                                                     │
+│  {Announcement_Sonos}                               │
+│  [Pick a device ▾]                    2 of 2        │
+│                                                     │
+│                          [Cancel] [Import →]        │
+└─────────────────────────────────────────────────────┘
+```
+
+- Each role shows the device picker — same component used throughout the wizard
+- Role name is shown in `{curly braces}` so the user knows what they are mapping
+- `device_map_meta.cardinality` determines whether single or multi-select is shown
+- Import button is disabled until all roles are mapped
+- On Import: `device_map` is populated, new piston ID assigned, piston opens in editor
+
+**Role mapping is skipped entirely** if `device_map` is already populated
+(Backup import or internal copy/duplicate).
+
+**There is no piston_text parser.** `piston_text` is not a v1 format.
+Any reference to piston_text parsing in this codebase is from an earlier
+design and must be removed.
 
 ---
 
@@ -652,26 +677,6 @@ Backend endpoints the frontend uses:
 The capability map (which operators are valid for which attribute types) lives in the frontend. Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA. The backend provides raw HA data. The frontend applies the map.
 
 Exact endpoint signatures to be confirmed with the backend developer.
-
-### Friendly Name Resolution on Piston Load
-
-When the editor loads a piston via `GET /api/piston/{id}`, the piston JSON contains
-role names and entity IDs in `device_map` — never friendly names. The editor resolves
-friendly names for display using the device list already fetched from `GET /api/devices`.
-
-Resolution happens in the frontend at load time:
-- Build a lookup map from the `/api/devices` response: entity_id → friendly name
-- For each role in `device_map`, look up the friendly name for each entity ID
-- Pass the resolved friendly names to the render functions alongside the piston JSON
-- Render functions use friendly names for display — they never receive entity IDs
-
-If a friendly name cannot be resolved (device missing from HA):
-- Show the role name in curly braces as fallback: `{driveway_light}`
-- Apply the missing device visual indicator (see DESIGN.md Section 15.6)
-- Never show a raw entity ID to the user
-
-The render functions are pure — they receive data and return display text.
-They never fetch from the backend or HA directly.
 
 ---
 

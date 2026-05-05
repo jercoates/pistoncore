@@ -141,7 +141,7 @@ const StatusPage = (() => {
 
   // ── Script rendering ─────────────────────────────────────
   function renderScript(piston) {
-    const actions = piston.actions || [];
+    const actions = piston.statements || [];
     const lines = [];
     let stmtNum = 1;
 
@@ -164,45 +164,55 @@ const StatusPage = (() => {
     nodes.forEach(node => {
       const type = node.type;
 
-      if (type === 'if_block') {
+      if (type === 'if') {
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">if</span></span>`));
         (node.conditions || []).forEach(c => {
           lines.push(_scriptLine(stmtNum++, `<span class="indent-${Math.min(depth+1,5)}">${_esc(_conditionText(c))}</span>`));
         });
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">then</span></span>`));
-        stmtNum = _renderScriptNodes(node.then_actions || [], lines, stmtNum, depth + 1);
-        if (node.else_actions?.length) {
+        stmtNum = _renderScriptNodes(node.then || [], lines, stmtNum, depth + 1);
+        if (node.else?.length) {
           lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">else</span></span>`));
-          stmtNum = _renderScriptNodes(node.else_actions, lines, stmtNum, depth + 1);
+          stmtNum = _renderScriptNodes(node.else, lines, stmtNum, depth + 1);
         }
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end if;</span></span>`));
 
-      } else if (type === 'with_block') {
+      } else if (type === 'action') {
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">with</span></span>`));
         (node.devices || []).forEach(d => {
           lines.push(_scriptLine(null, `<span class="indent-${Math.min(depth+1,5)}">(${_esc(d)})</span>`));
         });
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">do</span></span>`));
-        stmtNum = _renderScriptNodes(node.actions || [], lines, stmtNum, depth + 1);
+        stmtNum = _renderScriptNodes(node.tasks || [], lines, stmtNum, depth + 1);
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end with;</span></span>`));
 
-      } else if (type === 'repeat_block') {
+      } else if (type === 'repeat') {
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">repeat</span></span>`));
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">do</span></span>`));
-        stmtNum = _renderScriptNodes(node.actions || [], lines, stmtNum, depth + 1);
+        stmtNum = _renderScriptNodes(node.statements || [], lines, stmtNum, depth + 1);
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">until</span></span>`));
-        if (node.condition) {
-          lines.push(_scriptLine(null, `<span class="indent-${Math.min(depth+1,5)}">${_esc(_conditionText(node.condition))}</span>`));
-        }
+        (node.until_conditions || []).forEach(c => {
+          lines.push(_scriptLine(null, `<span class="indent-${Math.min(depth+1,5)}">${_esc(_conditionText(c))}</span>`));
+        });
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end repeat;</span></span>`));
 
-      } else if (type === 'for_each_block') {
+      } else if (type === 'for_each') {
         const varName = node.variable || '$item';
-        const listName = node.list || '';
+        const listName = node.list_role || '';
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">for each</span> (${_esc(varName)} in {${_esc(listName)}})</span>`));
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">do</span></span>`));
-        stmtNum = _renderScriptNodes(node.actions || [], lines, stmtNum, depth + 1);
+        stmtNum = _renderScriptNodes(node.statements || [], lines, stmtNum, depth + 1);
         lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end for each;</span></span>`));
+
+      } else if (type === 'while') {
+        lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">while</span></span>`));
+        stmtNum = _renderScriptNodes(node.statements || [], lines, stmtNum, depth + 1);
+        lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end while;</span></span>`));
+
+      } else if (type === 'do') {
+        lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">do</span></span>`));
+        stmtNum = _renderScriptNodes(node.statements || [], lines, stmtNum, depth + 1);
+        lines.push(_scriptLine(null, `<span class="${pad}"><span class="kw">end do;</span></span>`));
 
       } else if (type === 'wait') {
         const waitText = _waitText(node);
@@ -212,18 +222,19 @@ const StatusPage = (() => {
              </span>` : '';
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}">${_esc(waitText)}${tooltip};</span>`));
 
-      } else if (type === 'service_call') {
-        const desc = node.description || node.service || 'Call service';
+      } else if (type === 'action') {
+        const task = (node.tasks || [])[0] || {};
+        const desc = node.description || task.command || 'call service';
         lines.push(_scriptLine(stmtNum++, `<span class="${pad}">${_esc(desc)};</span>`));
 
       } else if (type === 'set_variable') {
-        lines.push(_scriptLine(stmtNum++, `<span class="${pad}">Set ${_esc(node.variable || '')} = ${_esc(String(node.value ?? ''))}</span>`));
+        lines.push(_scriptLine(stmtNum++, `<span class="${pad}">Set ${_esc(node.variable || '')} = ${_esc(String(node.value?.data ?? node.value ?? ''))}</span>`));
 
-      } else if (type === 'log') {
-        lines.push(_scriptLine(stmtNum++, `<span class="${pad}">Log: ${_esc(node.message || '')}</span>`));
+      } else if (type === 'log_message') {
+        lines.push(_scriptLine(stmtNum++, `<span class="${pad}">Log: ${_esc(node.message?.data || node.message || '')}</span>`));
 
-      } else if (type === 'stop') {
-        lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">stop</span>${node.reason ? ' — ' + _esc(node.reason) : ''}</span>`));
+      } else if (type === 'exit') {
+        lines.push(_scriptLine(stmtNum++, `<span class="${pad}"><span class="kw">exit</span></span>`));
 
       } else {
         // Unknown node type — show type as fallback

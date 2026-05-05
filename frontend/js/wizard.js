@@ -361,7 +361,7 @@ const Wizard = (() => {
     if (_editNode && _editNode.type === 'set_variable') { _goLocationCmd('set_variable'); return; }
     if (_editNode && _editNode.type === 'wait')          { _goLocationCmd('wait');         return; }
     if (_editNode && _editNode.type === 'log')           { _goLocationCmd('log');          return; }
-    if (_editNode && _editNode.type === 'service_call')  { _goCommandPicker();             return; }
+    if (_editNode && _editNode.type === 'action' && (_editNode.tasks||[]).length)  { _goCommandPicker(); return; }
     if (_editNode && _editNode.type === 'variable')      { _goVariablePicker();            return; }
 
     if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
@@ -905,11 +905,13 @@ const Wizard = (() => {
     const ifBlockId = _extra?.['block-id'];
     if (ifBlockId) {
       const ifNode = {
-        type: 'if_block',
+        type: 'if',
         id: ifBlockId,
         conditions: [node],
-        then_actions: [],
-        else_actions: [],
+        condition_operator: 'and',
+        then: [],
+        else_ifs: [],
+        else: [],
       };
       const ctx = _context;
       close();
@@ -926,11 +928,13 @@ const Wizard = (() => {
     const ifBlockId = _extra?.['block-id'];
     if (ifBlockId) {
       const ifNode = {
-        type: 'if_block',
+        type: 'if',
         id: ifBlockId,
         conditions: [node],
-        then_actions: [],
-        else_actions: [],
+        condition_operator: 'and',
+        then: [],
+        else_ifs: [],
+        else: [],
       };
       Editor.insertStatement(_context, ifNode);
       _sel = { statement_class:'condition' };
@@ -947,34 +951,41 @@ const Wizard = (() => {
 
   function _buildConditionNode() {
     const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
-    // device_id/label are updated live by the combo — _sel is already current
-    const entityId = _sel.device_id;
-    if (!entityId || !op) return null;
+    // role name (device_label) is the stable reference — entity_id goes into device_map only
+    const role = _sel.device_label || _sel.device_id || '';
+    if (!role || !op) return null;
     const attrSel = document.getElementById('wiz-attr-select');
     const attrVal = attrSel ? attrSel.value : (_sel.attribute || '');
     const attrType = attrSel ? (attrSel.selectedOptions[0]?.dataset.type || '') : (_sel.attribute_type || '');
-    const val1 = document.getElementById('wiz-val-1')?.value || '';
-    const val2 = document.getElementById('wiz-val-2')?.value || '';
+
+    // Binary sensor value translation — display_value stays friendly, compiled_value is "on"/"off"
+    const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
+    const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
+    const isBinary = attrType === 'binary';
+    const BINARY_COMPILED = { open:'on', closed:'off', detected:'on', clear:'off',
+      active:'on', inactive:'off', wet:'on', dry:'off', home:'on', away:'off',
+      locked:'off', unlocked:'on', on:'on', off:'off' };
+    const compiledVal1 = isBinary
+      ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
+      : rawVal1;
+
     return {
-      type: isTrigger(op) ? 'trigger' : 'condition',
+      // PISTON_FORMAT.md condition schema
       id: _editNode?.id || _newId(),
-      aggregation: document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
-      subject: {
-        type: _sel.subject_type || 'device',
-        entity_id: entityId,
-        role: _sel.device_label || '',
-        capability: attrVal,
-        attribute_type: attrType,
-      },
-      operator: op,
-      value:         val1,
-      value2:        val2,
-      display_value: val1,
-      compiled_value: val1,
-      duration_amount: parseInt(document.getElementById('wiz-dur-amount')?.value||'1'),
-      duration_unit:   document.getElementById('wiz-dur-unit')?.value || 'minutes',
-      interaction: document.getElementById('wiz-interaction')?.value || 'any',
       is_trigger: isTrigger(op),
+      aggregation: document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
+      role: role,
+      attribute: attrVal,
+      attribute_type: attrType,
+      device_class: _sel.device_class || null,
+      operator: op,
+      display_value: rawVal1,
+      compiled_value: compiledVal1,
+      value_to: rawVal2 || null,
+      duration: parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || null,
+      duration_unit: document.getElementById('wiz-dur-unit')?.value || 'minutes',
+      interaction: document.getElementById('wiz-interaction')?.value || 'any',
+      group_operator: 'and',
     };
   }
 
@@ -1015,12 +1026,12 @@ const Wizard = (() => {
   }
 
   function _handleStatementType(type) {
-    if (type === 'action')       { _goActionDevicePicker(); return; }
-    if (type === 'timer')        { _goTimerPicker(); return; }
-    if (type === 'for_each')     { _goForEachPicker(); return; }
-    if (type === 'repeat_loop')  { _goRepeatPicker(); return; }
+    if (type === 'action')    { _goActionDevicePicker(); return; }
+    if (type === 'every')     { _goTimerPicker(); return; }
+    if (type === 'for_each')  { _goForEachPicker(); return; }
+    if (type === 'repeat')    { _goRepeatPicker(); return; }
 
-    if (type === 'if_block') {
+    if (type === 'if') {
       // Store block-id in _extra — unified mechanism
       _extra = { 'block-id': _newId() };
       _sel.statement_class = 'condition';
@@ -1029,13 +1040,13 @@ const Wizard = (() => {
     }
 
     const skeletons = {
-      switch:     { type:'switch',     id:_newId() },
-      do_block:   { type:'do_block',   id:_newId(), actions:[] },
-      on_event:   { type:'on_event',   id:_newId() },
-      for_loop:   { type:'for_loop',   id:_newId(), actions:[] },
-      while_loop: { type:'while_loop', id:_newId(), conditions:[], actions:[] },
-      break:      { type:'break',      id:_newId() },
-      exit:       { type:'exit',       id:_newId() },
+      switch:      { type:'switch',    id:_newId() },
+      do:          { type:'do',        id:_newId(), statements:[] },
+      on_event:    { type:'on_event',  id:_newId() },
+      for:         { type:'for',       id:_newId(), statements:[] },
+      while:       { type:'while',     id:_newId(), conditions:[], statements:[] },
+      break:       { type:'break',     id:_newId() },
+      exit:        { type:'exit',      id:_newId() },
     };
     if (skeletons[type]) {
       const node = skeletons[type];
@@ -1293,18 +1304,24 @@ const Wizard = (() => {
         duration: document.getElementById('wiz-wait-n')?.value||'1',
         unit:     document.getElementById('wiz-wait-u')?.value||'minutes' };
     } else if (cmd === 'log') {
-      node = { type:'log', id:_editNode?.id||_newId(),
-        message: document.getElementById('wiz-log-msg')?.value||'',
+      node = { type:'log_message', id:_editNode?.id||_newId(),
+        message: { type:'literal', data: document.getElementById('wiz-log-msg')?.value||'' },
         level:   document.getElementById('wiz-log-lvl')?.value||'info' };
     } else if (cmd === 'execute_piston') {
       node = { type:'call_piston', id:_editNode?.id||_newId(),
-        target: document.getElementById('wiz-ep-target')?.value||'' };
+        target_piston_id: document.getElementById('wiz-ep-target')?.value||'',
+        target_piston_name: document.getElementById('wiz-ep-target')?.value||'' };
     } else if (cmd === 'send_notification') {
-      node = { type:'service_call', id:_editNode?.id||_newId(), service:'persistent_notification.create',
-        parameters:{ message: document.getElementById('wiz-notif-msg')?.value||'',
-                     title:   document.getElementById('wiz-notif-title')?.value||'' }};
+      node = { type:'action', id:_editNode?.id||_newId(),
+        devices: ['Location'],
+        tasks: [{ id: _newId(), command:'persistent_notification.create', domain:'notify',
+          ha_service:'persistent_notification.create',
+          parameters:{ message: document.getElementById('wiz-notif-msg')?.value||'',
+                       title:   document.getElementById('wiz-notif-title')?.value||'' }}]};
     } else {
-      node = { type:'service_call', id:_editNode?.id||_newId(), service:`location.${cmd}` };
+      node = { type:'action', id:_editNode?.id||_newId(),
+        devices: ['Location'],
+        tasks: [{ id: _newId(), command: cmd, domain:'location', ha_service:`location.${cmd}`, parameters:{} }] };
     }
     Editor.insertStatement(_context, node);
     close();
@@ -1405,11 +1422,16 @@ const Wizard = (() => {
     const params = {};
     document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
     Editor.insertStatement(_context, {
-      type:'service_call', id:_editNode?.id||_newId(),
-      service: command,
-      devices: _sel.devices || [_sel.device_id],
-      device_label: _sel.device_label,
-      parameters: params,
+      type: 'action',
+      id: _editNode?.id || _newId(),
+      devices: _sel.devices || [_sel.device_label || _sel.device_id],
+      tasks: [{
+        id: _newId(),
+        command: command,
+        domain: (_sel.device_id || '').split('.')[0] || '',
+        ha_service: command,
+        parameters: params,
+      }],
     });
     close();
   }
@@ -1670,7 +1692,7 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-timer-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
-      Editor.insertStatement(_context, { type:'timer', id:_newId(),
+      Editor.insertStatement(_context, { type:'every', id:_newId(),
         interval: parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
         unit: document.getElementById('wiz-timer-u')?.value||'minutes' });
       close();
@@ -1689,8 +1711,8 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-rep-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-rep-save')?.addEventListener('click', () => {
-      Editor.insertStatement(_context, { type:'repeat_loop', id:_newId(),
-        times: parseInt(document.getElementById('wiz-rep-n')?.value||'1'), actions:[] });
+      Editor.insertStatement(_context, { type:'repeat', id:_newId(),
+        statements: [], until_conditions: [] });
       close();
     });
   }
@@ -1699,17 +1721,18 @@ const Wizard = (() => {
     _render('Add a for each loop',
       `<div class="wiz-desc">Executes the same statements for each device in a device list.</div>
        <div class="wiz-row-label">For each device in</div>
-       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list variable..." value="${_esc(_sel.device_list||'')}" />
+       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role..." value="${_esc(_sel.list_role||'')}" />
        <div class="wiz-row-label" style="margin-top:10px">Store current device in variable</div>
-       <input type="text" id="wiz-fe-var" class="wiz-value-input" value="${_esc(_sel.device_var||'$device')}" />`,
+       <input type="text" id="wiz-fe-var" class="wiz-value-input" value="${_esc(_sel.variable||'$device')}" />`,
       `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
        <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">Save</button></div>`
     );
     document.getElementById('wiz-fe-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
       Editor.insertStatement(_context, { type:'for_each', id:_newId(),
-        device_list: document.getElementById('wiz-fe-list')?.value||'',
-        device_var:  document.getElementById('wiz-fe-var')?.value||'$device', actions:[] });
+        variable: document.getElementById('wiz-fe-var')?.value||'$device',
+        list_role: document.getElementById('wiz-fe-list')?.value||'',
+        statements:[] });
       close();
     });
   }
@@ -1724,7 +1747,11 @@ const Wizard = (() => {
   }
 
   // ── Helpers ───────────────────────────────────────────────
-  function _newId() { return 'stmt_' + Math.random().toString(36).slice(2,8); }
+  function _newId() {
+    // PISTON_FORMAT.md: stmt_ + 8 character lowercase hex
+    return 'stmt_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map(b => b.toString(16).padStart(2,'0')).join('');
+  }
   function _esc(s) {
     return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }

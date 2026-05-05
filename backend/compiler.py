@@ -137,7 +137,7 @@ class Compiler:
                 piston.get("conditions", []), device_map, warnings
             )
             compiled_sequence = self._compile_sequence(
-                piston.get("actions", []),
+                piston.get("statements", []),
                 piston,
                 device_map,
                 globals_store,
@@ -236,10 +236,11 @@ class Compiler:
                 ))
 
             elif ttype == "state":
-                entity_id = device_map.get(t.get("target_role", ""))
+                entity_id_list = device_map.get(t.get("role") or t.get("target_role", ""))
+                entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
                 if not entity_id:
                     raise CompilerError(
-                        f"Trigger references role '{t.get('target_role')}' "
+                        f"Trigger references role '{t.get('role') or t.get('target_role')}' "
                         f"but no device is mapped to that role."
                     )
                 tmpl = self.env.get_template("snippets/trigger_state.yaml.j2")
@@ -262,10 +263,11 @@ class Compiler:
                 ))
 
             elif ttype == "numeric_state":
-                entity_id = device_map.get(t.get("target_role", ""))
+                entity_id_list = device_map.get(t.get("role") or t.get("target_role", ""))
+                entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
                 if not entity_id:
                     raise CompilerError(
-                        f"Trigger references role '{t.get('target_role')}' "
+                        f"Trigger references role '{t.get('role') or t.get('target_role')}' "
                         f"but no device is mapped to that role."
                     )
                 tmpl = self.env.get_template("snippets/trigger_numeric.yaml.j2")
@@ -344,13 +346,26 @@ class Compiler:
                 lines.append(f"    {self._compile_single_condition(sub, device_map)}")
             return "\n".join(lines)
 
-        subject = cond.get("subject", {})
-        subject_type = subject.get("type")
+        # Support both new flat format (PISTON_FORMAT.md) and old nested subject format
+        # New: { role, attribute, attribute_type, operator, compiled_value, ... }
+        # Old: { subject: { type, role, capability, attribute_type }, operator, compiled_value }
+        if "role" in cond and "subject" not in cond:
+            # New flat format — normalize to subject object for compiler internals
+            subject = {
+                "type": "device",
+                "role": cond.get("role", ""),
+                "attribute": cond.get("attribute", ""),
+                "attribute_type": cond.get("attribute_type", ""),
+            }
+        else:
+            subject = cond.get("subject", {})
+        subject_type = subject.get("type") or ("device" if subject.get("role") else None)
         operator = cond.get("operator", "is")
         compiled_value = cond.get("compiled_value", cond.get("value", ""))
 
         if subject_type == "device":
-            entity_id = device_map.get(subject.get("role", ""))
+            entity_id_list = device_map.get(subject.get("role", ""))
+            entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
             if not entity_id:
                 raise CompilerError(
                     f"Condition references role '{subject.get('role')}' "
@@ -441,7 +456,7 @@ class Compiler:
                         f"that could not be compiled and was skipped: {e}"
                     ))
 
-            if stmt_type == "with_block":
+            if stmt_type == "action":
                 lines.append(self._compile_with_block(stmt, device_map, warnings))
 
             elif stmt_type == "wait":
@@ -450,31 +465,31 @@ class Compiler:
             elif stmt_type == "wait_for_state":
                 lines.append(self._compile_wait_for_state(stmt, device_map))
 
-            elif stmt_type == "if_block":
+            elif stmt_type == "if":
                 lines.append(self._compile_if_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
                 ))
 
-            elif stmt_type == "repeat_block":
+            elif stmt_type == "repeat":
                 lines.append(self._compile_repeat_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
                 ))
 
-            elif stmt_type == "for_each_block":
+            elif stmt_type == "for_each":
                 lines.append(self._compile_for_each_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
                 ))
 
-            elif stmt_type == "while_block":
+            elif stmt_type == "while":
                 lines.append(self._compile_while_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
                 ))
 
-            elif stmt_type == "for_loop":
+            elif stmt_type == "for":
                 lines.append(self._compile_for_loop(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
@@ -492,16 +507,16 @@ class Compiler:
             elif stmt_type == "control_piston":
                 lines.append(self._compile_control_piston(stmt, known_piston_slugs))
 
-            elif stmt_type == "stop":
+            elif stmt_type == "exit":
                 lines.append(self._compile_stop(stmt))
 
-            elif stmt_type == "switch_block":
+            elif stmt_type == "switch":
                 lines.append(self._compile_switch_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
                 ))
 
-            elif stmt_type == "do_block":
+            elif stmt_type == "do":
                 lines.append(self._compile_do_block(
                     stmt, piston, device_map, globals_store,
                     known_piston_slugs, warnings, indent
@@ -546,8 +561,9 @@ class Compiler:
         continue_on_error: true is always emitted on every service call — matches
         WebCoRE fire-and-forget resilience behavior.
         """
-        target_role = stmt.get("target_role", "")
-        entity_id = device_map.get(target_role)
+        target_role = stmt.get("target_role") or (stmt.get("devices") or [None])[0] or ""
+        entity_id_list = device_map.get(target_role)
+        entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
         if not entity_id:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} references role '{target_role}' "
@@ -557,7 +573,7 @@ class Compiler:
         tasks = stmt.get("tasks", [])
         if not tasks:
             raise CompilerError(
-                f"Statement {stmt.get('id', '?')} (with_block) has no tasks defined."
+                f"Statement {stmt.get('id', '?')} (action) has no tasks defined."
             )
 
         if len(tasks) == 1:
@@ -642,11 +658,12 @@ class Compiler:
 
     def _compile_wait_for_state(self, stmt: dict, device_map: dict) -> str:
         """COMPILER_SPEC Section 8.3."""
-        entity_id = device_map.get(stmt.get("target_role", ""))
+        entity_id_list = device_map.get(stmt.get("role") or stmt.get("target_role", ""))
+        entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
         if not entity_id:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} (wait_for_state) references "
-                f"role '{stmt.get('target_role')}' but no device is mapped."
+                f"role '{stmt.get('role') or stmt.get('target_role')}' but no device is mapped."
             )
         tmpl = self.env.get_template("snippets/wait_for_state.yaml.j2")
         return tmpl.render(
@@ -667,8 +684,8 @@ class Compiler:
     ) -> str:
         """COMPILER_SPEC Section 8.4 — recursive."""
         condition = stmt.get("condition", {})
-        true_branch = stmt.get("true_branch", [])
-        false_branch = stmt.get("false_branch", [])
+        true_branch = stmt.get("then", [])
+        false_branch = stmt.get("else", [])
 
         compiled_condition = self._compile_single_condition(condition, device_map)
         compiled_true = self._compile_sequence(
@@ -1249,31 +1266,33 @@ if __name__ == "__main__":
         "description": "Turns on driveway lights at sunset and off at 11pm",
         "mode": "single",
         "compile_target": "native_script",
-        "roles": {
-            "driveway_light": {"label": "Driveway Light", "domain": "light", "required": True}
+        "device_map": {
+            "driveway_light": ["light.driveway_main"]
         },
         "variables": [],
         "triggers": [{"type": "sun", "event": "sunset", "offset_minutes": 0}],
         "conditions": [],
-        "actions": [
+        "statements": [
             {
                 "id": "stmt_001",
-                "type": "with_block",
-                "target_role": "driveway_light",
-                "tasks": [{"type": "call_service", "service": "light.turn_on",
-                            "data": {"brightness_pct": 100}}],
+                "type": "action",
+                "devices": ["driveway_light"],
+                "tasks": [{"id": "task_001", "command": "turn_on", "domain": "light",
+                            "ha_service": "light.turn_on",
+                            "parameters": {"brightness_pct": 100}}],
             },
-            {"id": "stmt_002", "type": "wait", "until": "23:00:00"},
+            {"id": "stmt_002", "type": "wait", "wait_type": "until", "until": "23:00:00"},
             {
                 "id": "stmt_003",
-                "type": "with_block",
-                "target_role": "driveway_light",
-                "tasks": [{"type": "call_service", "service": "light.turn_off", "data": {}}],
+                "type": "action",
+                "devices": ["driveway_light"],
+                "tasks": [{"id": "task_002", "command": "turn_off", "domain": "light",
+                            "ha_service": "light.turn_off", "parameters": {}}],
             },
         ],
     }
 
-    test_device_map = {"driveway_light": "light.driveway_main"}
+    test_device_map = {"driveway_light": ["light.driveway_main"]}
 
     try:
         compiler = Compiler(template_dir=template_dir)

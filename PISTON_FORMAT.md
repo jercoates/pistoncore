@@ -305,6 +305,7 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
 | `operator` | string | Yes | Operator string (e.g. `"changes to"`, `"is less than"`). Full list in WIZARD_SPEC.md. |
 | `display_value` | string | Yes | Friendly value shown in editor (e.g. `"Open"`). Never `"on"` or `"off"` for binary sensors. |
 | `compiled_value` | string | Yes | HA state string used by compiler (e.g. `"on"`). |
+| `value_to` | string | No | Second value for `"is between"` / `"is not between"` operators. Matches `value_from`/`value_to` pattern used in time conditions. |
 | `duration` | number | No | For `"stays for"` operators. Duration value. |
 | `duration_unit` | string | No | `"seconds"` / `"minutes"` / `"hours"`. |
 | `group_operator` | string | Yes | `"and"` / `"or"`. Operator connecting this condition to the next. |

@@ -161,7 +161,7 @@ const Editor = (() => {
       if (!isSimple) gh('· add a new trigger or condition', 'trigger_or_condition', 2);
     }
 
-    _actionLines(p.actions || [], 1, lines, num, gh);
+    _actionLines(p.statements || [], 1, lines, num, gh);
 
     gh('· add a new statement', 'action', 1);
     ln(`<span class="kw">end execute;</span>`, 0);
@@ -187,56 +187,59 @@ const Editor = (() => {
       const id = node.id || '';
       const t = node.type;
 
-      if (t === 'if_block') {
+      if (t === 'if') {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
         ln(`<span class="kw">then</span>`, pad);
-        _actionLines(node.then_actions || [], depth + 2, lines, num, gh);
+        _actionLines(node.then || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
-        (node.else_if_blocks || []).forEach(eib => {
+        (node.else_ifs || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
           (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
           ln(`<span class="kw">then</span>`, pad);
-          _actionLines(eib.actions || [], depth + 2, lines, num, gh);
+          _actionLines(eib.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
-        if (node.else_actions !== undefined) {
+        if (node.else !== undefined) {
           ln(`<span class="kw">else</span>`, pad);
-          _actionLines(node.else_actions || [], depth + 2, lines, num, gh);
+          _actionLines(node.else || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
         }
         ln(`<span class="kw">end if;</span>`, pad);
 
-      } else if (t === 'with_block') {
+      } else if (t === 'action') {
         ln(`<span class="kw">with</span>`, pad, { id, type: t });
-        (node.devices || []).forEach(d => ln(`    ${_dr(d.label || d.role || d)}`, pad + 1));
+        (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
         _actionLines(node.tasks || [], depth + 2, lines, num, gh);
         gh('· add a new task', 'task', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
-        const dv = node.device_var ? _dv('$', node.device_var) : _dr(node.device_list || '');
-        const lv = node.list_var ? _dv('@', node.list_var) : _dr(node.device_list || '');
+        const dv = node.variable ? _dv('$', node.variable) : _dr(node.list_role || '');
+        const lv = _dr(node.list_role || '');
         ln(`<span class="kw">for each</span> (${dv} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end for each;</span>`, pad);
 
-      } else if (t === 'while_loop') {
+      } else if (t === 'while') {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end while;</span>`, pad);
 
-      } else if (t === 'repeat_loop') {
-        ln(`<span class="kw">repeat</span> ${_esc(String(node.times ?? '?'))} <span class="kw">times</span>`, pad, { id, type: t });
-        _actionLines(node.actions || [], depth + 2, lines, num, gh);
+      } else if (t === 'repeat') {
+        ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">until</span>`, pad);
+        (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'wait') {
@@ -250,23 +253,29 @@ const Editor = (() => {
       } else if (t === 'set_variable') {
         ln(`<span class="kw">set variable</span> ${_dv('$', node.variable)} = ${_val(node.value)};`, pad, { id, type: t });
 
-      } else if (t === 'service_call') {
-        const devLabel = node.device_label || (node.devices || []).join(', ') || '';
-        const params = node.parameters
-          ? Object.entries(node.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
+      } else if (t === 'action') {
+        // single-task action shorthand (written by action wizard directly)
+        const devLabel = (node.devices || []).join(', ') || '';
+        const task = (node.tasks || [])[0] || {};
+        const params = task.parameters
+          ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
           : '';
-        ln(`<span class="kw">with</span> ${_dr(devLabel)} <span class="kw">do</span> ${_esc(node.service||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
+        ln(`<span class="kw">with</span> ${_dr(devLabel)} <span class="kw">do</span> ${_esc(task.command||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
 
-      } else if (t === 'log') {
-        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message||'')}"</span>;`, pad, { id, type: t });
+      } else if (t === 'log_message') {
+        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message?.data||node.message||'')}"</span>;`, pad, { id, type: t });
 
-      } else if (t === 'stop') {
-        ln(`<span class="kw">stop</span>${node.reason ? ' — ' + _esc(node.reason) : ''};`, pad, { id, type: t });
+      } else if (t === 'exit') {
+        ln(`<span class="kw">exit</span>${node.value !== undefined ? ' ' + _val(node.value) : ''};`, pad, { id, type: t });
 
       } else if (t === 'call_piston') {
-        ln(`<span class="kw">execute piston</span> ${_esc(node.target_name||node.target||'')};`, pad, { id, type: t });
+        ln(`<span class="kw">execute piston</span> ${_esc(node.target_piston_name||node.target_piston_id||'')};`, pad, { id, type: t });
 
-      } else {
+      } else if (t === 'do') {
+        ln(`<span class="kw">do</span>`, pad, { id, type: t });
+        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end do;</span>`, pad);
         ln(_esc(node.description || node.label || node.type || '[statement]') + ';', pad, { id, type: t });
       }
     });
@@ -298,8 +307,10 @@ const Editor = (() => {
 
   function _val(v) {
     if (v === null || v === undefined) return '<span class="doc-ph">?</span>';
-    if (typeof v === 'object' && v.__type === 'variable') return _dv('$', v.name || '');
-    if (typeof v === 'object' && v.__type === 'global')   return _dv('@', v.name || '');
+    if (typeof v === 'object' && v.type === 'variable')        return _dv('$', v.name || '');
+    if (typeof v === 'object' && v.type === 'global_variable') return _dv('@', v.name || '');
+    if (typeof v === 'object' && v.type === 'literal')         return _esc(String(v.data ?? ''));
+    if (typeof v === 'object' && v.type === 'system_variable') return _dv('$', v.name || '');
     return _esc(String(v));
   }
 
@@ -354,7 +365,7 @@ const Editor = (() => {
         ...(_piston.triggers||[]),
         ...(_piston.conditions||[]),
         ...(_piston.variables||[]),
-        ..._flattenActions(_piston.actions||[]),
+        ..._flattenActions(_piston.statements||[]),
       ];
       const node = _findNode(all, stmt.dataset.id);
       if (node) _openWizardForEdit(node);
@@ -367,9 +378,9 @@ const Editor = (() => {
       Wizard.open('edit_condition', node, {});
     } else if (t === 'variable') {
       Wizard.open('variable', node, {});
-    } else if (t === 'set_variable' || t === 'wait' || t === 'log' || t === 'service_call' || t === 'call_piston') {
+    } else if (t === 'set_variable' || t === 'wait' || t === 'log_message' || t === 'action' || t === 'call_piston') {
       Wizard.open('task', node, {});
-    } else if (t === 'if_block') {
+    } else if (t === 'if') {
       Wizard.open('if_condition', node.conditions?.[0] || null, { 'block-id': node.id });
     } else {
       Wizard.open(t, node, {});
@@ -380,9 +391,9 @@ const Editor = (() => {
     const result = [];
     (nodes||[]).forEach(n => {
       result.push(n);
-      if (n.then_actions) result.push(..._flattenActions(n.then_actions));
-      if (n.else_actions) result.push(..._flattenActions(n.else_actions));
-      if (n.actions) result.push(..._flattenActions(n.actions));
+      if (n.then) result.push(..._flattenActions(n.then));
+      if (n.else) result.push(..._flattenActions(n.else));
+      if (n.statements) result.push(..._flattenActions(n.statements));
       if (n.conditions) result.push(..._flattenActions(n.conditions));
     });
     return result;
@@ -420,7 +431,7 @@ const Editor = (() => {
       ...(_piston.triggers||[]),
       ...(_piston.conditions||[]),
       ...(_piston.variables||[]),
-      ..._flattenActions(_piston.actions||[]),
+      ..._flattenActions(_piston.statements||[]),
     ];
     const node = _findNode(all, _selectedId);
     if (node) _openWizardForEdit(node);
@@ -428,7 +439,7 @@ const Editor = (() => {
 
   function _copySelected() {
     if (!_selectedId) return;
-    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.actions||[])];
+    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.statements||[])];
     const node = _findNode(all, _selectedId);
     if (node) App.state.clipboard = JSON.parse(JSON.stringify(node));
   }
@@ -447,8 +458,8 @@ const Editor = (() => {
     if (!App.state.clipboard) return;
     const clone = JSON.parse(JSON.stringify(App.state.clipboard));
     clone.id = _nextStmtId();
-    if (_selectedId) { if (!_insertAfter(_piston.actions, _selectedId, clone)) _piston.actions.push(clone); }
-    else _piston.actions.push(clone);
+    if (_selectedId) { if (!_insertAfter(_piston.statements, _selectedId, clone)) _piston.statements.push(clone); }
+    else _piston.statements.push(clone);
     _cutId = null;
     _markUnsaved(true);
     render();
@@ -458,7 +469,7 @@ const Editor = (() => {
     if (!_selectedId) return;
     _removeNode(_piston.triggers, _selectedId) ||
     _removeNode(_piston.conditions, _selectedId) ||
-    _removeNode(_piston.actions, _selectedId);
+    _removeNode(_piston.statements, _selectedId);
     _selectedId = null;
     _markUnsaved(true);
     render();
@@ -552,7 +563,7 @@ const Editor = (() => {
     // Handle if_condition context — add condition to existing if_block
     const blockId = statementData._blockId || null;
     if (context === 'if_condition' && blockId) {
-      const block = _findNode(_piston.actions || [], blockId);
+      const block = _findNode(_piston.statements || [], blockId);
       if (block) {
         block.conditions = block.conditions || [];
         const i = block.conditions.findIndex(c => c.id === statementData.id);
@@ -578,8 +589,8 @@ const Editor = (() => {
       if (i >= 0) _piston.variables[i] = statementData; else _piston.variables.push(statementData);
     } else {
       if (!statementData.id) statementData.id = _nextStmtId();
-      if (_selectedId) { if (!_insertAfter(_piston.actions, _selectedId, statementData)) _piston.actions.push(statementData); }
-      else _piston.actions.push(statementData);
+      if (_selectedId) { if (!_insertAfter(_piston.statements, _selectedId, statementData)) _piston.statements.push(statementData); }
+      else _piston.statements.push(statementData);
     }
     _markUnsaved(true);
     render();
@@ -612,8 +623,8 @@ const Editor = (() => {
     if (!nodes) return null;
     for (const n of nodes) {
       if (n.id === id) return n;
-      const f = _findNode(n.then_actions,id)||_findNode(n.else_actions,id)||
-                _findNode(n.actions,id)||_findNode(n.tasks,id)||_findNode(n.conditions,id);
+      const f = _findNode(n.then,id)||_findNode(n.else,id)||
+                _findNode(n.statements,id)||_findNode(n.tasks,id)||_findNode(n.conditions,id);
       if (f) return f;
     }
     return null;
@@ -624,8 +635,8 @@ const Editor = (() => {
     const i = nodes.findIndex(n => n.id === id);
     if (i !== -1) { nodes.splice(i, 1); return true; }
     for (const n of nodes) {
-      if (_removeNode(n.then_actions,id)||_removeNode(n.else_actions,id)||
-          _removeNode(n.actions,id)||_removeNode(n.tasks,id)) return true;
+      if (_removeNode(n.then,id)||_removeNode(n.else,id)||
+          _removeNode(n.statements,id)||_removeNode(n.tasks,id)) return true;
     }
     return false;
   }
@@ -635,8 +646,8 @@ const Editor = (() => {
     const i = nodes.findIndex(n => n.id === id);
     if (i !== -1) { nodes.splice(i+1, 0, newNode); return true; }
     for (const n of nodes) {
-      if (_insertAfter(n.then_actions,id,newNode)||_insertAfter(n.else_actions,id,newNode)||
-          _insertAfter(n.actions,id,newNode)||_insertAfter(n.tasks,id,newNode)) return true;
+      if (_insertAfter(n.then,id,newNode)||_insertAfter(n.else,id,newNode)||
+          _insertAfter(n.statements,id,newNode)||_insertAfter(n.tasks,id,newNode)) return true;
     }
     return false;
   }
@@ -647,10 +658,10 @@ const Editor = (() => {
       (nodes||[]).forEach(n => {
         const m = parseInt((n.id||'').replace(/\D/g,''))||0;
         if (m > max) max = m;
-        walk(n.then_actions); walk(n.else_actions); walk(n.actions); walk(n.tasks);
+        walk(n.then); walk(n.else); walk(n.statements); walk(n.tasks);
       });
     }
-    walk(piston.triggers); walk(piston.conditions); walk(piston.actions); walk(piston.variables);
+    walk(piston.triggers); walk(piston.conditions); walk(piston.statements); walk(piston.variables);
     return max;
   }
 

@@ -492,8 +492,11 @@ const StatusPage = (() => {
     const copy = JSON.parse(JSON.stringify(piston));
 
     if (mode === 'snapshot') {
-      // Anonymize: strip entity IDs from device_map, keep logic structure
-      delete copy.device_map;
+      // Anonymize: keep device_map role keys but strip entity IDs (empty arrays per spec)
+      if (copy.device_map) {
+        Object.keys(copy.device_map).forEach(role => { copy.device_map[role] = []; });
+      }
+      delete copy.device_map_meta;
       delete copy.id;
       delete copy.log;
       copy._export = 'snapshot';

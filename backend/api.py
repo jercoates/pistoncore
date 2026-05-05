@@ -103,7 +103,7 @@ def _compile(piston: dict) -> dict:
 
 @router.get("/pistons")
 def list_pistons():
-    """List all pistons. Returns name, id, mode, updated_at — not full JSON."""
+    """List all pistons. Returns name, id, mode, modified_at — not full JSON."""
     pistons = storage.list_pistons()
     return [
         {
@@ -112,7 +112,7 @@ def list_pistons():
             "description": p.get("description", ""),
             "mode": p.get("mode", "single"),
             "folder": p.get("folder", ""),
-            "updated_at": p.get("updated_at"),
+            "modified_at": p.get("modified_at"),
             "created_at": p.get("created_at"),
             "deployed": p.get("deployed", False),
             "stale": p.get("stale", False),
@@ -121,12 +121,36 @@ def list_pistons():
     ]
 
 
+CURRENT_LOGIC_VERSION = 1
+CURRENT_UI_VERSION = 1
+
+
 @router.get("/pistons/{piston_id}")
 def get_piston(piston_id: str):
     """Get the full piston JSON for a single piston."""
     piston = storage.get_piston(piston_id)
     if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
+
+    # Spec: if logic_version or ui_version is from the future, refuse to load.
+    # Treat missing version fields as v1 (safe default per spec).
+    logic_v = piston.get("logic_version", 1)
+    ui_v = piston.get("ui_version", 1)
+    if logic_v > CURRENT_LOGIC_VERSION:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Piston '{piston_id}' was created with a newer logic version "
+                   f"({logic_v}) than this PistonCore supports ({CURRENT_LOGIC_VERSION}). "
+                   f"Update PistonCore before opening this piston.",
+        )
+    if ui_v > CURRENT_UI_VERSION:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Piston '{piston_id}' was created with a newer UI version "
+                   f"({ui_v}) than this PistonCore supports ({CURRENT_UI_VERSION}). "
+                   f"Update PistonCore before opening this piston.",
+        )
+
     return piston
 
 
@@ -136,8 +160,22 @@ def create_piston(piston: dict = Body(...)):
     Create a new piston. Assigns an ID and timestamps.
     Returns the saved piston.
     """
-    # Don't allow the client to set an ID on create
+    # Don't allow the client to set an ID or compile_target on create
     piston.pop("id", None)
+    piston.pop("compile_target", None)  # compiler owns this — never user-supplied
+
+    # Apply spec-required defaults for any fields the client omitted
+    piston.setdefault("name", "Untitled Piston")
+    piston.setdefault("description", "")
+    piston.setdefault("folder", None)
+    piston.setdefault("mode", "single")
+    piston.setdefault("enabled", True)
+    piston.setdefault("logic_version", 1)
+    piston.setdefault("ui_version", 1)
+    piston.setdefault("device_map", {})
+    piston.setdefault("device_map_meta", {})
+    piston.setdefault("variables", [])
+    piston.setdefault("statements", [])
     saved = storage.save_piston(piston)
     return saved
 
@@ -154,6 +192,7 @@ def update_piston(piston_id: str, piston: dict = Body(...)):
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
 
     piston["id"] = piston_id  # enforce ID from URL
+    piston.pop("compile_target", None)  # compiler owns this — never user-supplied
     saved = storage.save_piston(piston)
 
     # Run compile check on save (Stage 1 + 2 validation — no HA write)
@@ -318,7 +357,7 @@ def _mark_pistons_stale_for_global(global_id: str):
     """Mark any piston referencing the deleted global as stale."""
     for piston in storage.list_pistons():
         piston_json = str(piston)
-        if global_id in piston_json or f"@" in piston_json:
+        if global_id in piston_json:
             # Simple heuristic — full scan would walk the piston tree
             piston["stale"] = True
             storage.save_piston(piston)

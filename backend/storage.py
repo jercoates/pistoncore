@@ -57,15 +57,15 @@ def get_piston(piston_id: str) -> dict | None:
 def save_piston(piston: dict) -> dict:
     """
     Write a piston to disk. Generates an ID if not present.
-    Updates updated_at timestamp.
+    Updates modified_at timestamp.
     Returns the saved piston dict.
     """
     _ensure_dirs()
     if "id" not in piston or not piston["id"]:
         piston["id"] = str(uuid.uuid4()).replace("-", "")[:8]
-    piston["updated_at"] = datetime.now(timezone.utc).isoformat()
+    piston["modified_at"] = datetime.now(timezone.utc).isoformat()
     if "created_at" not in piston:
-        piston["created_at"] = piston["updated_at"]
+        piston["created_at"] = piston["modified_at"]
 
     path = PISTONS_DIR / f"{piston['id']}.json"
     with open(path, "w") as f:

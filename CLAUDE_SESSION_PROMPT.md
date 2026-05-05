@@ -18,31 +18,37 @@
 
 ---
 
-## Project Status — Session 22 Complete
+## Project Status — Session 23 Complete
 
-### What Was Done This Session (Session 22)
+### What Was Done This Session (Session 23)
 
-Two things: completed the code field name alignment pass started in Session 21,
-and made a major share format architecture decision.
+Full backend audit of api.py against PISTON_FORMAT.md and the session prompt
+known gaps list. Six bugs/gaps fixed across api.py, storage.py, and status.js.
 
-**Code alignment pass — completed:**
-All old type names and field names eliminated from wizard.js, editor.js,
-status.js, compiler.py, api.js. Every file now uses spec-correct names.
-See Session 21 commit for the full change list.
+**storage.py:**
+- `updated_at` renamed to `modified_at` throughout — field name now matches
+  PISTON_FORMAT.md spec
 
-**Share format decision — piston_text retired:**
-piston_text is no longer the v1 share/AI format. Snapshot JSON (structured
-JSON with empty device_map arrays) is now the single share format for
-community sharing, AI generation, and WebCoRE migration. piston_text deferred
-to v2 or dropped entirely.
+**api.py:**
+- `list_pistons()` response key and docstring updated to `modified_at`
+- `get_piston()` now refuses to load a piston whose `logic_version` or
+  `ui_version` is ahead of the current supported version (409 with plain
+  English message). Missing version fields treated as v1 per spec. Two
+  module-level constants added: `CURRENT_LOGIC_VERSION = 1`,
+  `CURRENT_UI_VERSION = 1` — bump these when versions change.
+- `create_piston()` now applies all spec-required defaults for any fields
+  the client omits: name, description, folder, mode, enabled, logic_version,
+  ui_version, device_map, device_map_meta, variables, statements.
+- `create_piston()` and `update_piston()` both strip `compile_target` from
+  incoming body — compiler owns this field, never the user.
+- `_mark_pistons_stale_for_global()` overbroad `or f"@" in piston_json`
+  removed — was marking every piston stale on any global delete.
 
-**Files updated:**
-- `DESIGN.md` — Sections 6.2–6.7 rewritten, dev log updated through Session 22
-- `FRONTEND_SPEC.md` — Import dialog rewritten, piston_text parser removed,
-  role mapping step specced with UI mockup
-- `AI_PROMPT_SPEC.md` — NEW FILE. Specifies requirements for both AI prompt
-  files before they are written. Includes WebCoRE → PistonCore mapping table
-  and test criteria.
+**status.js:**
+- Snapshot export `_exportPiston()` fixed — was doing `delete copy.device_map`
+  which dropped the whole object. Now zeroes each role's array
+  (`device_map[role] = []`) and deletes `device_map_meta`. Role keys are
+  preserved per spec so importers know what roles exist.
 
 ---
 
@@ -67,23 +73,41 @@ This is a significant structural change that touches every part of the
 stack simultaneously. Needs its own dedicated session. Do not attempt
 alongside other work.
 
-**main.py backend audit**
-The backend has not been audited against the updated specs. Known issues:
-- BASE_URL injection (critical — blocks addon ingress)
-- Companion stubs in deploy endpoint (remove)
-- Any piston_text parsing (remove — piston_text is not v1)
-- Statement JSON field names in validation/save logic
-- device_map handling — does it store/return list format per spec?
-- Snapshot export — does it strip entity IDs correctly?
-- Role mapping on import — is it implemented?
-
-Upload main.py at the start of next session for this audit.
-
 **COMPILER_SPEC.md — still flagged as stale**
 Must be updated before any new compiler work begins.
 Written against old architecture. Do not write compiler code against it.
 
-### Priority 2 — Should Do Soon
+### Priority 2 — Backend Gaps (audit findings, not yet implemented)
+
+These were identified in the Session 23 audit. None are blocking but all
+need to be resolved before v1 is solid.
+
+**Snapshot export endpoint — missing**
+No `/pistons/{id}/snapshot` backend endpoint exists. The frontend currently
+does the Snapshot transform client-side in `_exportPiston()`. The spec calls
+for the backend to own this — strip entity IDs, clear piston ID for
+reassignment. Needs a dedicated endpoint.
+
+**Import / role mapping endpoint — missing**
+No import endpoint exists. `POST /pistons` just accepts raw JSON with no
+role mapping step. The role mapping UI (user maps Snapshot roles to their
+own devices on import) has no backend support. Needs spec review of
+FRONTEND_SPEC.md import dialog section before coding.
+
+**`device_map_meta` — not validated on save**
+Field passes through passively if present but is never checked for presence
+or correctness on `create_piston()` or `update_piston()`. The `create_piston()`
+defaults fix from Session 23 initializes it as `{}` but does not validate
+structure. Full validation (each role in `device_map` has a corresponding
+`device_map_meta` entry with valid `cardinality`) still needed.
+
+**Version fields — not validated on save**
+`get_piston()` now guards against future versions on load. But `update_piston()`
+does not prevent a client from writing a `logic_version` or `ui_version` that
+is ahead of `CURRENT_LOGIC_VERSION` / `CURRENT_UI_VERSION`. Should strip or
+reject out-of-range version fields on save.
+
+### Priority 3 — Should Do Soon
 
 **AI prompt files — write-a-piston.md and migrate-from-webcore.md**
 Specced in AI_PROMPT_SPEC.md. Do not write the actual prompts until:
@@ -91,20 +115,17 @@ Specced in AI_PROMPT_SPEC.md. Do not write the actual prompts until:
 2. Role mapping step works correctly in the import dialog
 3. A test piston round-trips cleanly (wizard → JSON → export → import → editor)
 
-**Snapshot export decision — now resolved**
-Snapshot export strips entity IDs from device_map (empty arrays) and clears
-the piston ID for reassignment. This is the same as the current Snapshot
-export behavior — no parser needed. The backend export endpoint just needs
-to implement this correctly.
-
 **PISTON_FORMAT.md — device_map_meta field**
 Added in Session 19. Needs to be:
 - Added to backend piston schema validation
 - Set by wizard on device role creation
 - Read by missing-device handler (DESIGN.md Section 15.6)
 - Preserved in Snapshot export (cardinality info is needed on import)
+  Note: Snapshot export now correctly preserves device_map keys with empty
+  arrays — device_map_meta is stripped on Snapshot (not needed by importer
+  since cardinality is implied by role structure, not entity count).
 
-### Priority 3 — Deferred (Known, Not Blocking)
+### Priority 4 — Deferred (Known, Not Blocking)
 
 - STATEMENT_TYPES.md Section 16 header fix (cosmetic)
 - WebSocket drop during wizard — not yet handled in spec
@@ -117,6 +138,8 @@ Added in Session 19. Needs to be:
 - AI Help modal — second tab for WebCoRE migration (FRONTEND_SPEC.md
   AI Help Modal section needs updating when modal is built)
 - Prompt versioning — how outdated cached prompts are detected
+- `update_piston()` version field validation — prevent client writing
+  future logic_version/ui_version values
 
 ---
 
@@ -143,10 +166,14 @@ Added in Session 19. Needs to be:
 - Statement IDs: `stmt_` + 8 char lowercase hex
 - Statements array is FLAT per spec — child references by ID (not yet
   implemented in code — this is Priority 1 structural work)
+- compile_target is stripped from all client input on create and update —
+  compiler sets it, user never does
+- Missing version fields on load treated as v1 (safe default per spec)
+- Future version fields on load → 409 error, plain English message, refuse to open
 
 ---
 
-## Known Code vs Spec Gaps (Post Session 21 Audit)
+## Known Code vs Spec Gaps (Post Session 23)
 
 **Structural (not yet fixed):**
 - Flat statements array not implemented — code still uses nested objects
@@ -154,13 +181,11 @@ Added in Session 19. Needs to be:
 - wizard.js writes nested objects for control flow blocks
 - compiler.py reads nested structure
 
-**Likely gaps in main.py (not yet audited):**
-- BASE_URL injection
-- Companion stubs
-- piston_text references
-- device_map list format
-- Snapshot export implementation
-- Role mapping on import
+**Backend gaps (identified Session 23, not yet fixed):**
+- No Snapshot export backend endpoint
+- No import / role mapping endpoint
+- device_map_meta not validated on save
+- update_piston() does not reject future version field values
 
 **Minor (low priority):**
 - STATEMENT_TYPES.md Section 16 missing header line

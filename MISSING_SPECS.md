@@ -261,7 +261,200 @@ HA_LIMITATIONS.md Section 3 (entity ID changes).
 
 ---
 
-## DONE — Specs Written
+## 9. PyScript-Forcing Patterns — target-boundary.json Additions
+
+**Blocks:** Correct compile target detection for real-world pistons
+**Needs to be written before:** PyScript compiler spec, any real piston testing
+**Context:** Analysis of four real production pistons (Session 23) revealed patterns
+that force PyScript that are NOT yet in target-boundary.json. These are common
+patterns, not edge cases. Must be added before compiler work begins.
+
+### Patterns Already in target-boundary.json
+- `break` — no native HA equivalent
+- `on_event` — no native HA equivalent
+- `cancel_pending_tasks` — no native HA equivalent
+
+### Patterns That Must Be Added to target-boundary.json
+
+**`repeat_until_state`** — `repeat / until` with a live entity state condition.
+`until All of {Water_Sensors}'s water are dry` — reads live HA state on each
+iteration. Native HA `repeat` supports `count` and `while` with template
+expressions but checking live multi-device state reliably on each iteration
+requires PyScript. Seen in: CO detector, water leak pistons.
+
+**`current_event_device`** — use of `$currentEventDevice` system variable.
+Identifies which specific device fired the trigger in a multi-device group.
+Native HA provides trigger context but accessing it cleanly inside a running
+script sequence requires PyScript. Seen in: door/window chime piston.
+This is heavily used — any piston that says "which door opened?" uses this.
+
+**`dynamic_attribute_access`** — reading an attribute from a loop variable.
+`{[$device:battery]}` or `{$device:carbonMonoxide}` — the entity ID is
+a variable, not a literal. Templating a dynamic entity ID for attribute
+lookup inside a script loop is unreliable in native HA. Seen in: battery
+checker, CO detector, water leak pistons.
+
+**`loop_string_accumulation`** — building a string across loop iterations
+using a variable that persists between iterations. Native HA script variable
+scoping across repeat iterations is unreliable. Seen in: battery checker,
+CO detector, water leak pistons.
+
+### Patterns That Need Compiler Support (Not PyScript-Forcing)
+
+**Day-of-week time conditions** — `Time is between X and Y only on Monday-Friday`.
+COMPILER_SPEC.md currently says "emit warning, compile basic time_pattern only."
+This is too common to skip — seen in door chime piston as core logic, not edge case.
+Must be fully compiled. Uses HA `time` condition with `weekday:` field.
+
+**Multi-role OR triggers** — `Any of {Doors}'s OR {Windows}'s contact changes to open`.
+Two separate device roles combined in one trigger with OR between them. Compiler
+must expand both role arrays and generate one trigger entry per entity across
+both groups. Seen in: door/window chime piston.
+
+**Multiple triggers in one piston** — multiple `if` blocks each acting as a
+separate trigger. Water leak piston has four. Each top-level if block with
+`is_trigger: true` conditions compiles to a separate automation trigger entry.
+Compiler must handle this correctly — it is not one piston per trigger.
+
+---
+
+## 10. Global Variables — Maintenance Strategy (Not Just Reuse)
+
+**Blocks:** Global variable UI priority, sample piston design
+**Context:** Real-world usage (60 pistons on Hubitat) shows globals are primarily
+a **maintenance strategy**, not a convenience feature. When a new device is added
+to a group, updating one global updates all pistons that reference it on next deploy.
+This is how serious users manage scale.
+
+**What this means for the specs:**
+
+**Global management UI moves up in priority.** It is not a power-user feature —
+it is a core workflow for anyone with a real installation. Must be easy to use,
+not buried in settings.
+
+**Standard global naming convention for sample pistons.** The preloaded piston
+library should be built around a standard set of global names so that setting
+up globals once covers all related sample pistons:
+
+| Global Name | Type | Used By |
+|---|---|---|
+| `@Battery_Devices` | Devices | Low Battery Check |
+| `@Smoke_Detectors` | Devices | CO/Smoke Alert |
+| `@Water_Sensors_All` | Devices | Water Leak Shutoff |
+| `@Water_Sensors_Away` | Devices | Water Leak Shutoff |
+| `@Water_Sensors_Always` | Devices | Water Leak Shutoff |
+| `@Presence_Sensors` | Devices | Water Leak, Presence pistons |
+| `@Speakers_All` | Devices | CO Alert, Chime |
+| `@Announcement_Sonos` | Device | Door Chime |
+| `@Notifications_Push` | Device | All alert pistons |
+| `@Notification_Text` | Device | All alert pistons |
+| `@Alert_Lights` | Devices | CO Alert |
+| `@Shut_off_Valve` | Device | Water Leak Shutoff |
+
+**The onboarding story this enables:**
+User creates their globals, maps their devices once. Imports any sample piston.
+Because the sample pistons reference the same global names, no re-mapping needed
+for devices already in globals. One setup step covers all related pistons.
+
+**What needs to be specced:**
+- Global variable creation flow in the UI — must be fast and easy
+- How sample pistons reference globals (role names that match global names)
+- What happens when a global doesn't exist yet at import time — prompt to create it
+- Global name validation — must match the @ prefix convention
+
+---
+
+## 11. Sample Piston Library — MISSING
+
+**Blocks:** Community value, onboarding story, compiler test suite
+**Needs to be written before:** v1 ships
+**Context:** Four real production pistons reviewed in Session 23 are strong candidates
+for a preloaded/community sample library. They are universally useful, exercise
+almost every compiler pattern, and together form a complete test suite.
+
+### Candidate Sample Pistons (from real production use)
+
+**1. Low Battery Check**
+- Checks all battery devices daily, builds status report, sends notification
+- Patterns: for_each, dynamic attribute access, string accumulation, global device group
+- Compile target: PyScript
+- Globals needed: `@Battery_Devices`, `@Notifications_Push`
+
+**2. Door / Window Chime**
+- Announces which door/window opened, different volume by time of day and day of week
+- Patterns: $currentEventDevice, multi-role OR trigger, day-of-week time condition, SSML
+- Compile target: PyScript (due to $currentEventDevice)
+- Globals needed: `@Announcement_Sonos`
+
+**3. Carbon Monoxide / Smoke Alert**
+- Detects CO, loops alerting every 30 seconds until all clear, lights + speakers + push
+- Patterns: repeat/until live state, for_each with dynamic attribute, nested loops, global device group
+- Compile target: PyScript
+- Globals needed: `@Smoke_Detectors`, `@Speakers_All`, `@Notifications_Push`, `@Alert_Lights`
+
+**4. Water Leak Detection and Shutoff**
+- Multiple triggers: away+leak→shutoff, any leak→alert loop, always-on sensors→shutoff
+- Patterns: repeat/until live state, presence condition, multiple triggers, valve control
+- Compile target: PyScript
+- Globals needed: `@Water_Sensors_All`, `@Water_Sensors_Away`, `@Water_Sensors_Always`,
+  `@Presence_Sensors`, `@Shut_off_Valve`, `@Speakers_All`, `@Notifications_Push`
+
+### What SAMPLE_PISTONS.md Must Cover
+- Full Snapshot JSON for each sample piston
+- What globals each piston expects (name and type)
+- Setup instructions: create these globals first, then import
+- What devices each role expects (single vs multi, what domain/capability)
+- Known limitations or HA version requirements per piston
+- Where to find the sample pistons (shipped with PistonCore? GitHub repo? Both?)
+
+### Why These Pistons Are Also the Compiler Test Suite
+All four together exercise:
+- Every PyScript-forcing pattern
+- Multi-device role expansion
+- Global variable resolution at compile time
+- for_each with dynamic attribute access
+- repeat/until with live state
+- Multiple triggers in one piston
+- Day-of-week time conditions
+- String accumulation across loop iterations
+
+If all four compile correctly and deploy to real HA, the compiler is solid for v1.
+
+---
+
+## 12. Best Practices Documentation — MISSING
+
+**Blocks:** Nothing directly — but new users will waste hours without this
+**Needs to be written before:** v1 ships
+**Context:** Three patterns that experienced WebCoRE users know intuitively
+but new users discover slowly and painfully. Documenting them saves hours.
+
+### Pattern 1 — Globals for Cross-Piston Device Management
+Use global device variables for any device or group that appears in more
+than one piston. When you add a new water sensor, update `@Water_Sensors_All`
+and redeploy — every piston that references that global picks up the change.
+Without globals, you hunt through every piston individually.
+
+### Pattern 2 — Define Block for Single-Piston Device References
+Even for devices used only in one piston, define them in the define block
+at the top using a device variable, then reference the role name throughout
+the logic. Keeps all device references in one place. When a device changes,
+update the define block — not every condition and action that references it.
+
+### Pattern 3 — Role Names Beat Hardcoded Devices in Logic
+Conditions and actions should reference role names like `{Doors}` not
+hardcoded entity lists buried in the if/then logic. Readable, maintainable,
+and works correctly with the device picker and missing device handler.
+
+### Where This Documentation Lives
+- In-app: ghost text or tooltip in the define block explaining why roles exist
+- In-app: tooltip on globals explaining the cross-piston maintenance benefit  
+- Docs: BEST_PRACTICES.md in the repo
+- Docs: Onboarding section in the README
+
+**Reference:** SAMPLE_PISTONS.md (role naming), DESIGN.md Sections 7, 8.
+
+---
 
 *(None yet — this tracker was created Session 23)*
 

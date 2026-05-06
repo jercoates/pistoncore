@@ -298,6 +298,10 @@ See MISSING_SPECS.md for full detail on what each spec must cover.
 ### S4-8: Global Variables — Stale Piston Tracking
 **Spec ref:** DESIGN.md Section 7.1
 **Files needed:** api.py, globals_index.json logic
+**What gets built:**
+- Stale piston tracking when Device/Devices global changes
+- globals_index.json maintained on every successful compile
+- Banner on piston list when affected pistons need redeployment
 
 ### S4-9: Run Status Reporting — WebSocket Events
 **Spec ref:** DESIGN.md Section 21
@@ -308,9 +312,42 @@ See MISSING_SPECS.md for full detail on what each spec must cover.
 **Spec ref:** DESIGN.md Section 31, AI_PROMPT_SPEC.md
 **Do not write until:** Import tested, role mapping working, round-trip clean.
 
+### S4-12: target-boundary.json — Add Missing PyScript-Forcing Patterns
+**Spec ref:** MISSING_SPECS.md item 9, DESIGN.md Section 3.1
+**Files needed:** target-boundary.json, COMPILER_SPEC.md
+**What gets added:**
+- `repeat_until_state` — repeat/until with live entity state condition
+- `current_event_device` — use of $currentEventDevice system variable
+- `dynamic_attribute_access` — reading attribute from a loop variable
+- `loop_string_accumulation` — string building across loop iterations
+**Also:** Day-of-week time conditions and multi-role OR triggers must be
+fully compiled (not just warnings) — update COMPILER_SPEC.md accordingly.
+
+---
+
+### S4-13: Sample Piston Library — Write Snapshot JSON
+**Depends on:** S2-4 import flow tested, S3-1 round-trip passing
+**Spec ref:** SAMPLE_PISTONS.md
+**Files needed:** samples/ folder (new), api.py (new /api/samples endpoints)
+**What gets built:**
+- Snapshot JSON for all four sample pistons (Low Battery, Door Chime, CO Alert, Water Leak)
+- `/api/samples` endpoint returning list
+- `/api/samples/{name}` endpoint returning Snapshot JSON
+- "Sample Pistons" tab in Import dialog
+- These four pistons also serve as the primary compiler test suite
+
 ### S4-11: AI-REVIEW-PROMPT.md — Update
 **Spec ref:** DESIGN.md Section 31
 **Files needed:** AI-REVIEW-PROMPT.md only
+
+### S4-14: Best Practices Documentation
+**Spec ref:** MISSING_SPECS.md item 12
+**Files needed:** New BEST_PRACTICES.md, README.md
+**What gets written:**
+- Globals for cross-piston device management
+- Define block for single-piston device references
+- Role names vs hardcoded devices in logic
+- In-app tooltip/ghost text copy for define block and globals
 
 ---
 

@@ -221,6 +221,24 @@ Verify each step passes:
 Once the round-trip works, each session below only needs its own listed files.
 No need to load everything every time.
 
+**Before starting any Stage 4 task, check MISSING_SPECS.md.** If the spec for
+that feature is listed as missing, write the spec first — then code.
+
+### S4-0: Write Missing Specs (as needed, before dependent tasks)
+These spec-writing sessions should happen just before the task that needs them —
+not all at once. Each is a dedicated spec-only session, no code written.
+
+- **WebSocket message protocol** → write before S4-9 (run status reporting)
+- **Settings page frontend spec** → write before settings page is built
+- **Piston list folder management** → write before folder management is built
+- **PyScript compiler spec** → write before any complex piston can deploy
+- **Error states inventory** → write before Stage 4 UI work begins
+- **Test strategy** → write before v1 ships
+
+See MISSING_SPECS.md for full detail on what each spec must cover.
+
+---
+
 ### S4-1: PyScript Detection and Setup Prompt
 **Spec ref:** DESIGN.md Section 3.2
 **Files needed:** ha_client.py, frontend PyScript indicator JS

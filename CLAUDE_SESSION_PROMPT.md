@@ -166,9 +166,36 @@ When specs conflict, this is the resolution order:
 7. HA_LIMITATIONS.md — known HA gotchas
 8. AI_PROMPT_SPEC.md — AI prompt file requirements
 
+## Build Target — Docker Now, Addon Last
+
+**Current build target is Docker.** All development and testing happens in Docker
+on Unraid (port 7777). This is not a compromise — Docker is the right dev environment.
+
+**Addon packaging comes last** — after Docker is solid and fully functional.
+The addon and Docker share the same codebase. Packaging as an addon is a separate
+step that happens at the end, not a parallel track. Do not write addon packaging
+specs or code until Docker is complete.
+
+The addon IS the end goal and primary product. Docker is how we get there cleanly.
+
 ---
 
-## Deploy Commands (Jeremy's Unraid Setup)
+## V1 Definition Rule
+
+**If it is not explicitly deferred to v2 or v3 in the specs, it is v1.**
+
+No separate v1 feature list needed. DESIGN.md Sections 28 and 29 define what is
+in scope and what is deferred. Everything in scope is v1.
+
+---
+
+## Reference Documents
+
+In addition to the spec files, always check:
+- **TASKS.md** — what to work on and in what order
+- **MISSING_SPECS.md** — specs that must be written before certain tasks can be coded
+
+---
 
 ```bash
 cd /mnt/user/appdata/pistoncore-dev

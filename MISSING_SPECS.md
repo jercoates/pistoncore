@@ -176,6 +176,91 @@ That pattern should be repeated for every statement type.
 
 ---
 
+## 7. Storage Architecture — MISSING
+
+**Blocks:** Run logging, device change tracking, compile index, any feature that
+reads or writes data beyond the current JSON files
+**Needs to be written before:** S4-9 run status reporting, S4-2 missing device handler,
+any logging code
+**What it must cover:**
+
+### What Already Has a Defined Home (do not relitigate)
+- Piston JSON files → `/pistoncore-userdata/pistons/{uuid}.json`
+- Global variables list → `/pistoncore-userdata/globals.json`
+- Global variables index → `/pistoncore-userdata/globals_index.json`
+- Custom device definitions → `/pistoncore-userdata/device-definitions/`
+- PistonCore config → `/pistoncore-userdata/config.json`
+- Pending cleanup queue → `/pistoncore-userdata/pending_cleanup.json`
+- All customize volume files → `/pistoncore-customize/`
+
+### What Needs a Defined Home (gaps to resolve)
+
+**SQLite database — recommended for all record-style data**
+File: `/pistoncore-userdata/pistoncore.db`
+Reason: JSON files are right for documents (pistons, config, globals — written
+infrequently, read as a whole). SQLite is right for records (logs, cache, indexes —
+written constantly, queried by field, need trimming/pagination). Python has SQLite
+built in — no new dependency.
+
+Tables to define:
+
+`run_log` — one row per piston run
+- piston_id, run_id (UUID), timestamp, trigger_source, status (success/error/unknown),
+  duration_ms, compile_target
+
+`run_events` — one row per log line within a run
+- run_id, sequence_number, timestamp, event_type (trigger/condition/action/log/error),
+  statement_id, message
+
+`device_state_cache` — last known state of every entity in any piston's device_map
+- entity_id, friendly_name, last_seen (timestamp), last_known_state
+- Used by missing device handler to show "last known name" when entity disappears
+- Updated on every HA connect and on every state_changed event for tracked entities
+- This resolves the device change tracking gap (see item 8 below)
+
+`compile_index` — one row per piston, updated on every successful compile
+- piston_id, compiled_at, compile_target, file_hash, logic_version, ui_version
+- Allows stale piston detection without reading every piston JSON file
+- Replaces the need to scan compiled file headers for hash comparison
+
+**What must be defined in the spec:**
+- Full schema for each table (column names, types, indexes)
+- Retention policy for run_log and run_events (how many runs kept per piston?)
+- Migration strategy if schema changes in a future version
+- Whether SQLite is created on first launch or seeded from a template
+- How the backend accesses the DB (direct sqlite3? SQLAlchemy? raw queries?)
+- What happens if the DB file is corrupt on startup
+
+**Reference:** DESIGN.md Section 21 (logging), Section 15.6 (missing device),
+Section 13 (file hash). Volume structure in DESIGN.md Section 26.
+
+---
+
+## 8. Device Change Tracking Data Shape — MISSING
+
+**Blocks:** S4-2 missing device handler implementation
+**Needs to be written before:** Missing device handler is coded
+**What it must cover:**
+- Exact fields stored per entity in device_state_cache (see item 7 above —
+  this is resolved by the SQLite device_state_cache table)
+- What triggers a cache update:
+  - On every HA connect (full refresh of all tracked entities)
+  - On state_changed WebSocket event for any tracked entity
+  - On successful piston save (new entities added to device_map get added to cache)
+- What the comparison logic looks like on HA connect:
+  - For each entity_id in all piston device_maps, check if it exists in HA entity list
+  - If missing: check device_map_meta cardinality → hard flag (single) or degrade (multi)
+  - Use friendly_name from device_state_cache for the warning message
+- What "exists in HA" means: entity_id present in the entity registry, regardless of
+  whether it is currently available or unavailable
+- How the cache handles entity renames (old entity_id disappears, new one appears —
+  PistonCore cannot automatically detect this is the same physical device)
+
+**Reference:** DESIGN.md Section 15.6. MISSING_SPECS.md item 7 (SQLite schema).
+HA_LIMITATIONS.md Section 3 (entity ID changes).
+
+---
+
 ## DONE — Specs Written
 
 *(None yet — this tracker was created Session 23)*

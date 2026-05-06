@@ -136,6 +136,30 @@ Stage 2 wires them together and verifies they talk to each other correctly.
 
 ---
 
+### S2-0: Storage Architecture Spec + SQLite Setup
+**Why before other Stage 2 work:** Device tracking (S2-2) and run logging (S4-9)
+both need the database to exist. Define the schema first, create the DB on startup,
+then everything that needs it has a stable foundation.
+**Spec ref:** MISSING_SPECS.md item 7, DESIGN.md Section 26
+**This is a two-part session:**
+
+Part 1 — Write the storage architecture spec (no code):
+- Define full SQLite schema: run_log, run_events, device_state_cache, compile_index
+- Define retention policy for logs
+- Define migration strategy for future schema changes
+
+Part 2 — Implement SQLite setup (code):
+- Create `/pistoncore-userdata/pistoncore.db` on first launch if not present
+- Create all four tables with correct indexes
+- Add DB connection to backend startup
+- Seed device_state_cache from current HA entity list on first connect
+
+**Upload:** main.py, storage.py (if exists)
+**Output:** Working SQLite DB created on startup, all tables present, ready for
+device tracking and logging to write into.
+
+---
+
 ### S2-1: HAClient Abstraction + HA API Externalization
 **Spec ref:** DESIGN.md Sections 4, 15
 **Upload:** ha_client.py, main.py

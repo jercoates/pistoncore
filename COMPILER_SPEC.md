@@ -43,10 +43,12 @@ The compiler selects an output target automatically. The user never chooses manu
 The editor shows the current compile target live as the user builds. When any statement
 is added that forces PyScript, the indicator updates immediately and shows:
 
-*"This piston now requires PyScript compilation."*  `[Convert — one click]`
+*"This piston now requires PyScript compilation."*
 
-The one-click convert button updates `compile_target` in the wrapper and the complexity
-indicator. No other changes — piston logic is identical.
+This indicator is read-only. There is no convert button — the compiler owns the compile
+target, not the user. When the statement that forced PyScript is removed, the compiler
+re-scans on the next save and automatically restores native_script if no other
+PyScript-forcing statements remain. See DESIGN.md Section 3.1.
 
 ---
 

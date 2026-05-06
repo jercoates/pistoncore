@@ -20,126 +20,83 @@
 
 ## Project Status — Session 23 Complete
 
-### What Was Done This Session (Session 23)
+### What Was Done in Session 22
 
-Full backend audit of api.py against PISTON_FORMAT.md and the session prompt
-known gaps list. Six bugs/gaps fixed across api.py, storage.py, and status.js.
+Two things: completed the code field name alignment pass started in Session 21,
+and made a major share format architecture decision.
 
-**storage.py:**
-- `updated_at` renamed to `modified_at` throughout — field name now matches
-  PISTON_FORMAT.md spec
+**Code alignment pass — completed:**
+All old type names and field names eliminated from wizard.js, editor.js,
+status.js, compiler.py, api.js. Every file now uses spec-correct names.
+See Session 21 commit for the full change list.
 
-**api.py:**
-- `list_pistons()` response key and docstring updated to `modified_at`
-- `get_piston()` now refuses to load a piston whose `logic_version` or
-  `ui_version` is ahead of the current supported version (409 with plain
-  English message). Missing version fields treated as v1 per spec. Two
-  module-level constants added: `CURRENT_LOGIC_VERSION = 1`,
-  `CURRENT_UI_VERSION = 1` — bump these when versions change.
-- `create_piston()` now applies all spec-required defaults for any fields
-  the client omits: name, description, folder, mode, enabled, logic_version,
-  ui_version, device_map, device_map_meta, variables, statements.
-- `create_piston()` and `update_piston()` both strip `compile_target` from
-  incoming body — compiler owns this field, never the user.
-- `_mark_pistons_stale_for_global()` overbroad `or f"@" in piston_json`
-  removed — was marking every piston stale on any global delete.
+**Share format decision — piston_text retired:**
+piston_text is no longer the v1 share/AI format. Snapshot JSON (structured
+JSON with empty device_map arrays) is now the single share format for
+community sharing, AI generation, and WebCoRE migration. piston_text deferred
+to v2 or dropped entirely.
 
-**status.js:**
-- Snapshot export `_exportPiston()` fixed — was doing `delete copy.device_map`
-  which dropped the whole object. Now zeroes each role's array
-  (`device_map[role] = []`) and deletes `device_map_meta`. Role keys are
-  preserved per spec so importers know what roles exist.
+**Files updated:**
+- `DESIGN.md` — Sections 6.2–6.7 rewritten, dev log updated through Session 22
+- `FRONTEND_SPEC.md` — Import dialog rewritten, piston_text parser removed,
+  role mapping step specced with UI mockup
+- `AI_PROMPT_SPEC.md` — NEW FILE. Specifies requirements for both AI prompt
+  files before they are written. Includes WebCoRE → PistonCore mapping table
+  and test criteria.
+
+---
+
+## What Was Done in Session 23 (Current)
+
+- TASKS.md created — all work organized into Stage 1 through Stage 4 with
+  round-trip verification as the milestone goal
+- COMPILER_SPEC.md reviewed — confirmed already updated, no companion refs,
+  correct field names, target-boundary.json specced. One fix: removed one-click
+  convert button reference from Section 2 (read-only indicator per DESIGN.md 3.1)
+- S1-1 marked done
+- Companion stub identified in api.py (_send_to_companion) and backend/README.md
+  via external Grok review — added to S1-4 cleanup task
+- HA direct write implementation added as S1-5 — replaces companion stub with
+  real REST API deploy flow (write YAML files → call automation.reload + script.reload)
 
 ---
 
 ## What Still Needs to Be Done
 
-### Priority 1 — Must Do Before Any Coding
+All work is now tracked in TASKS.md. Read that file at the start of every session.
+This section is a brief summary only — TASKS.md is the authority.
 
-**Flat statements array — structural change not yet implemented**
-The spec (PISTON_FORMAT.md) defines statements as a flat array with child
-statements referenced by ID:
-  `"then": ["stmt_004", "stmt_005"]`
+**Overall goal:** Clean round-trip on one simple piston before any feature work.
+wizard → JSON → backend → compiler → frontend renders → HA deploy succeeds.
 
-The code still uses nested objects:
-  `"then": [{ "id": "stmt_004", "type": "if", ... }]`
+### Stage 1 — Structural Fixes (current stage, do in order)
 
-The field names were fixed in Session 21 but the nested tree architecture
-is still in place. This affects editor.js (_findNode, _removeNode,
-_insertAfter all recurse into nested children), wizard.js (writes nested
-objects for if/for/while blocks), and compiler.py (reads nested structure).
+- **S1-2:** Flat statements array refactor — wizard.js, editor.js, compiler.py
+  all still use nested objects. Must be converted to flat array + ID references
+  per PISTON_FORMAT.md. Upload all three files. Dedicated session.
+- **S1-3:** Backend audit — upload main.py and api.py, produce written gap list.
+  No code written this session.
+- **S1-4:** Backend cleanup — remove _send_to_companion() stub, remove all
+  companion references from api.py and backend/README.md, remove piston_text
+  parsing, fix field names, fix device_map list format, add BASE_URL injection,
+  add basic /ws endpoint, fix crashing API stubs.
+- **S1-5:** HA direct write — implement real deploy flow replacing the companion
+  stub. Write YAML files to HA config dirs via REST API, call automation.reload
+  and script.reload, handle reload failure gracefully.
 
-This is a significant structural change that touches every part of the
-stack simultaneously. Needs its own dedicated session. Do not attempt
-alongside other work.
+### Stage 2 — Connect the Seams
 
-**COMPILER_SPEC.md — still flagged as stale**
-Must be updated before any new compiler work begins.
-Written against old architecture. Do not write compiler code against it.
+HAClient abstraction, device_map_meta wiring, Snapshot export, import role
+mapping flow, HA version detection. See TASKS.md for full detail.
 
-### Priority 2 — Backend Gaps (audit findings, not yet implemented)
+### Stage 3 — Round-Trip Smoke Test
 
-These were identified in the Session 23 audit. None are blocking but all
-need to be resolved before v1 is solid.
+One testing session. Build one simple piston, walk it all the way through.
+When it passes, work splits into focused single-file module sessions.
 
-**Snapshot export endpoint — missing**
-No `/pistons/{id}/snapshot` backend endpoint exists. The frontend currently
-does the Snapshot transform client-side in `_exportPiston()`. The spec calls
-for the backend to own this — strip entity IDs, clear piston ID for
-reassignment. Needs a dedicated endpoint.
+### Stage 4 — Features
 
-**Import / role mapping endpoint — missing**
-No import endpoint exists. `POST /pistons` just accepts raw JSON with no
-role mapping step. The role mapping UI (user maps Snapshot roles to their
-own devices on import) has no backend support. Needs spec review of
-FRONTEND_SPEC.md import dialog section before coding.
-
-**`device_map_meta` — not validated on save**
-Field passes through passively if present but is never checked for presence
-or correctness on `create_piston()` or `update_piston()`. The `create_piston()`
-defaults fix from Session 23 initializes it as `{}` but does not validate
-structure. Full validation (each role in `device_map` has a corresponding
-`device_map_meta` entry with valid `cardinality`) still needed.
-
-**Version fields — not validated on save**
-`get_piston()` now guards against future versions on load. But `update_piston()`
-does not prevent a client from writing a `logic_version` or `ui_version` that
-is ahead of `CURRENT_LOGIC_VERSION` / `CURRENT_UI_VERSION`. Should strip or
-reject out-of-range version fields on save.
-
-### Priority 3 — Should Do Soon
-
-**AI prompt files — write-a-piston.md and migrate-from-webcore.md**
-Specced in AI_PROMPT_SPEC.md. Do not write the actual prompts until:
-1. Snapshot JSON import flow is tested end-to-end in real PistonCore
-2. Role mapping step works correctly in the import dialog
-3. A test piston round-trips cleanly (wizard → JSON → export → import → editor)
-
-**PISTON_FORMAT.md — device_map_meta field**
-Added in Session 19. Needs to be:
-- Added to backend piston schema validation
-- Set by wizard on device role creation
-- Read by missing-device handler (DESIGN.md Section 15.6)
-- Preserved in Snapshot export (cardinality info is needed on import)
-  Note: Snapshot export now correctly preserves device_map keys with empty
-  arrays — device_map_meta is stripped on Snapshot (not needed by importer
-  since cardinality is implied by role structure, not entity count).
-
-### Priority 4 — Deferred (Known, Not Blocking)
-
-- STATEMENT_TYPES.md Section 16 header fix (cosmetic)
-- WebSocket drop during wizard — not yet handled in spec
-- Ghost text recalculation after mutations — not fully specced
-- Validation error contract between compiler and UI — partial
-- Orphaned file cleanup — specced in DESIGN.md but not coded
-- Compiler testing strategy — no test suite defined yet
-- PyScript compiler — separate spec needed, not started
-- HA missing-device behavior validation — must test in real HA
-- AI Help modal — second tab for WebCoRE migration (FRONTEND_SPEC.md
-  AI Help Modal section needs updating when modal is built)
-- Prompt versioning — how outdated cached prompts are detected
-- `update_piston()` version field validation — prevent client writing
-  future logic_version/ui_version values
+Everything else. Each session needs only its own listed files. See TASKS.md.
 
 ---
 
@@ -166,26 +123,31 @@ Added in Session 19. Needs to be:
 - Statement IDs: `stmt_` + 8 char lowercase hex
 - Statements array is FLAT per spec — child references by ID (not yet
   implemented in code — this is Priority 1 structural work)
-- compile_target is stripped from all client input on create and update —
-  compiler sets it, user never does
-- Missing version fields on load treated as v1 (safe default per spec)
-- Future version fields on load → 409 error, plain English message, refuse to open
 
 ---
 
 ## Known Code vs Spec Gaps (Post Session 23)
 
-**Structural (not yet fixed):**
+**Structural (S1-2 — not yet fixed):**
 - Flat statements array not implemented — code still uses nested objects
 - editor.js tree walking functions assume nested model
 - wizard.js writes nested objects for control flow blocks
 - compiler.py reads nested structure
 
-**Backend gaps (identified Session 23, not yet fixed):**
-- No Snapshot export backend endpoint
-- No import / role mapping endpoint
-- device_map_meta not validated on save
-- update_piston() does not reject future version field values
+**Backend cleanup (S1-4 — not yet done):**
+- _send_to_companion() stub still in api.py — must be removed
+- Companion references still in api.py comments and backend/README.md
+- BASE_URL injection missing
+- piston_text references may exist
+- device_map list format handling unverified
+- Snapshot export not yet correctly implemented
+- Role mapping on import not yet implemented
+- /ws WebSocket endpoint absent (confirmed by external review)
+- duplicate/import API methods missing — frontend calls crash
+
+**Deploy (S1-5 — not yet implemented):**
+- No real HA file write exists — companion stub was placeholder
+- automation.reload and script.reload not yet called from deploy endpoint
 
 **Minor (low priority):**
 - STATEMENT_TYPES.md Section 16 missing header line
@@ -198,7 +160,7 @@ When specs conflict, this is the resolution order:
 1. DESIGN.md — philosophy and architecture decisions
 2. PISTON_FORMAT.md — canonical data format
 3. STATEMENT_TYPES.md — statement-level schemas and render output
-4. COMPILER_SPEC.md — compiler behavior (flagged stale — update before compiler work)
+4. COMPILER_SPEC.md — compiler behavior (updated Session 23 — current)
 5. FRONTEND_SPEC.md — frontend behavior
 6. WIZARD_SPEC.md — wizard behavior
 7. HA_LIMITATIONS.md — known HA gotchas

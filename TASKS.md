@@ -42,22 +42,6 @@ These are the foundation. Nothing built on top of them is trustworthy until they
 
 ---
 
-### S1-1: COMPILER_SPEC.md — Rewrite (Spec Only, No Code)
-**Why first:** Every compiler task depends on this. Writing compiler code against
-the current stale spec produces wrong output that has to be thrown away.
-**Spec ref:** DESIGN.md Section 31
-**Upload:** COMPILER_SPEC.md only
-**What must change:**
-- Remove all companion references (companion was dropped Session 16)
-- Replace `schema_version` with `logic_version` / `ui_version` per PISTON_FORMAT.md
-- Replace hardcoded PyScript boundary with `target-boundary.json` reference (DESIGN.md Section 3.1)
-- Align all statement field names with STATEMENT_TYPES.md
-- Add fat compiler context object contract (DESIGN.md Section 14)
-
-**Output:** Updated COMPILER_SPEC.md. No code written this session.
-
----
-
 ### S1-2: Flat Statements Array — Structural Refactor
 **Why second:** The spec says statements are a flat array with ID references.
 The code uses nested objects. This mismatch means the compiler, editor, and wizard
@@ -96,20 +80,52 @@ partial fixes and missed gaps.
 
 ---
 
-### S1-4: main.py Backend Fixes
-**Why fourth:** Now that the audit is complete, fix everything in one focused session.
-**Spec ref:** Same as S1-3
-**Upload:** main.py, api.py, plus the audit output from S1-3
+### S1-4: main.py / api.py Backend Cleanup
+**Why fourth:** Remove dead code and stubs before adding anything new. Clean slate
+makes the HA write implementation in S1-5 easier to reason about.
+**Spec ref:** DESIGN.md Sections 4, 24, 26
+**Upload:** main.py, api.py, backend/README.md
 **Fix in this order:**
-1. Remove companion stubs
-2. Remove any piston_text parsing
-3. Fix statement field names in save/validation
-4. Fix device_map list format handling
-5. Add BASE_URL injection at page serve time
-6. Add `/ws` WebSocket endpoint (basic — just needs to exist and stay connected)
-7. Add duplicate/import API stubs that return proper errors instead of crashing
+1. Remove `_send_to_companion()` stub function from api.py entirely
+2. Remove all companion references from api.py comments and docstrings
+3. Remove companion references from backend/README.md
+4. Remove any piston_text parsing
+5. Fix statement field names in save/validation logic
+6. Fix device_map handling — must store/return list format per PISTON_FORMAT.md
+7. Add BASE_URL injection at page serve time
+8. Add `/ws` WebSocket endpoint (basic — exists, stays connected, no logic yet)
+9. Add duplicate/import API stubs that return a clean not-yet-implemented error
+   instead of crashing the frontend
 
-**Output:** Backend that matches the spec and does not crash on known frontend calls.
+**Output:** Backend with no dead companion code, no piston_text references,
+correct field names, and no crashing on known frontend calls.
+
+---
+
+### S1-5: HA Direct Write — Deploy Implementation
+**Why fifth:** This is what the companion stub was supposed to do. Now we implement
+it correctly using direct REST API calls from ha_client.py.
+**Spec ref:** DESIGN.md Sections 22, 13, 16
+**Upload:** ha_client.py, api.py
+**What gets built:**
+- Deploy endpoint calls compiler → gets YAML strings back
+- Writes automation YAML to `<ha_config>/automations/pistoncore/pistoncore_{uuid}.yaml`
+- Writes script YAML to `<ha_config>/scripts/pistoncore/pistoncore_{uuid}.yaml`
+- Calls `POST /api/services/automation/reload` via HA REST
+- Calls `POST /api/services/script/reload` via HA REST
+- Catches reload failure — returns error to frontend, old version stays active
+- File write uses token from config.json (Docker) or SUPERVISOR_TOKEN (addon)
+- Every written file includes the signature header (DESIGN.md Section 13)
+
+**Sequence:**
+1. Compile piston → YAML strings in memory
+2. yamllint check on strings before writing
+3. Write files to HA config directories
+4. Call reload endpoints
+5. Return success or structured error per DESIGN.md Section 18
+
+**Output:** A piston that actually deploys to HA. This is the first real end-to-end
+deploy. Test it against a real HA instance before marking done.
 
 ---
 
@@ -287,6 +303,13 @@ in a real sandbox before building the wizard step.
 ---
 
 ## DONE — Completed Sessions
+
+### S1-1: COMPILER_SPEC.md — Rewrite ✅
+Completed during Session 22 update work. Companion references removed, schema_version
+replaced with logic_version/ui_version, target-boundary.json specced in Section 3,
+fat compiler context object in Section 7, statement field names aligned.
+Minor fix applied post-review: one-click convert button removed from Section 2 —
+complexity indicator is read-only per DESIGN.md Section 3.1.
 
 ### Session 21 — Field Name Alignment Pass ✅
 All old type names and field names replaced in wizard.js, editor.js, status.js,

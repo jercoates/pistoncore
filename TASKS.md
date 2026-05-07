@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 22 complete / Session 23 not started
+**Last Updated:** Session 24 complete / Session 25 not started
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -42,20 +42,81 @@ These are the foundation. Nothing built on top of them is trustworthy until they
 
 ---
 
-### S1-2: Flat Statements Array — Structural Refactor
-**Why second:** The spec says statements are a flat array with ID references.
-The code uses nested objects. This mismatch means the compiler, editor, and wizard
-are all working against different assumptions. Fix this before touching any of them.
+### S1-2a: Flat Statements Array — wizard.js Only
+**Why split:** Attempting wizard.js, editor.js, and compiler.py in one session
+risks all three files ending in an inconsistent half-done state. Each sub-task
+is bounded, independently testable, and safe to end a session on.
+**Do this session:** wizard.js only. Do not touch editor.js or compiler.py.
 **Spec ref:** PISTON_FORMAT.md (statements section), DESIGN.md Section 6.1
-**Upload:** wizard.js, editor.js, compiler.py
+**Upload:** wizard.js, PISTON_FORMAT.md
 **What must change:**
-- `wizard.js` — writes nested objects for if/for/while → must write flat array + ID refs
-- `editor.js` — `_findNode`, `_removeNode`, `_insertAfter` recurse into nested children
-  → must build ID lookup map and resolve by ID instead
-- `compiler.py` — reads nested structure → must build lookup map from flat array,
-  resolve child IDs before walking the tree
+- All wizard creation paths that currently write nested child objects must instead
+  write a flat statement object with empty child ID arrays (`then: []`, `else: []`,
+  `statements: []`) and push it to the top-level statements array
+- `_newId()` already generates correct 8-char hex IDs — no change needed
+- When wizard creates an `if` block, it writes the if node flat; child statements
+  added later go into the flat array and their IDs get added to `then`/`else`
+- When wizard creates `do`, `for`, `while`, `repeat`, `for_each` — same pattern:
+  flat node, empty child ID arrays, no nested objects
+- `_commitConditionAndMore` and the `if` path in `_handleStatementType` must
+  write the if node with `then: []` not `then: [conditionNode]`
 
-**Output:** All three files updated. Flat array is the only format in the codebase.
+**Testable output:** Wizard produces JSON where `statements` is a flat array.
+Control flow nodes have `then`, `else`, `statements` as empty arrays or ID arrays —
+never containing embedded statement objects. Can be verified by inspecting the
+piston JSON after wizard saves.
+
+**Note:** editor.js and compiler.py will be broken after this — the round-trip
+won't work until S1-2b and S1-2c are done. That is expected and acceptable.
+
+---
+
+### S1-2b: Flat Statements Array — editor.js Only
+**Do after S1-2a is committed.**
+**Do this session:** editor.js only. Do not touch wizard.js or compiler.py.
+**Spec ref:** PISTON_FORMAT.md (statements section), DESIGN.md Section 6.1
+**Upload:** editor.js, PISTON_FORMAT.md
+**What must change:**
+- Build a statement lookup map from the flat `statements` array at render time:
+  `const stmtMap = Object.fromEntries(piston.statements.map(s => [s.id, s]))`
+- `_actionLines` receives the flat array + lookup map. Resolves child IDs by
+  looking up in the map rather than recursing into nested arrays
+- `_findNode` rebuilt to look up by ID in the flat map — no more recursion
+  into `n.then`, `n.else`, `n.statements`
+- `_removeNode` removes by ID from the flat array — no more recursive search
+- `_insertAfter` inserts into the flat array after finding the target by ID,
+  then adds the new ID to the parent's child array
+- `insertStatement` for nested contexts (adding inside `if.then`, `do.statements`
+  etc.) pushes to flat array AND adds the new ID to the parent's child ID list
+- `_flattenActions` no longer needed — replaced by flat array lookup
+
+**Testable output:** Editor correctly renders a hand-written flat-format piston JSON.
+Write one by hand (use the PISTON_FORMAT.md complete example), load it, verify
+it displays correctly. Add a statement via wizard, verify it appears in the right place.
+
+---
+
+### S1-2c: Flat Statements Array — compiler.py Only
+**Do after S1-2b is committed.**
+**Do this session:** compiler.py only. Do not touch wizard.js or editor.js.
+**Spec ref:** PISTON_FORMAT.md (statements section), COMPILER_SPEC.md Section 10.2
+**Upload:** compiler.py, PISTON_FORMAT.md, COMPILER_SPEC.md
+**What must change:**
+- Build a statement lookup map at the start of `_compile_sequence`:
+  `stmt_map = {s['id']: s for s in piston['statements']}`
+- Pass `stmt_map` into every recursive compile call
+- `_compile_if_block`: resolve `then` and `else` by looking up IDs in stmt_map,
+  not by reading nested objects from the statement itself
+- `_compile_repeat_block`, `_compile_while_block`, `_compile_for_each_block`,
+  `_compile_for_loop`, `_compile_do_block`: same pattern — resolve `statements`
+  child IDs via stmt_map
+- `_compile_switch_block`: resolve `cases[].statements` IDs via stmt_map
+
+**Testable output:** Run the compiler's `__main__` test block against a flat-format
+piston JSON. Verify it produces correct YAML output matching COMPILER_SPEC.md
+Section 18 hand-verification example.
+
+**After S1-2c:** The round-trip is unblocked. Proceed to S1-3.
 
 ---
 
@@ -105,6 +166,9 @@ correct field names, and no crashing on known frontend calls.
 ### S1-5: HA Direct Write — Deploy Implementation
 **Why fifth:** This is what the companion stub was supposed to do. Now we implement
 it correctly using direct REST API calls from ha_client.py.
+**Depends on:** S1-2c complete — compiler must produce correct YAML from flat-format
+pistons before deploy is meaningful. Do not start S1-5 until S1-2c is done and
+the compiler test in S1-2c passes.
 **Spec ref:** DESIGN.md Sections 22, 13, 16
 **Upload:** ha_client.py, api.py
 **What gets built:**
@@ -255,7 +319,7 @@ not all at once. Each is a dedicated spec-only session, no code written.
 - **WebSocket message protocol** → write before S4-9 (run status reporting)
 - **Settings page frontend spec** → write before settings page is built
 - **Piston list folder management** → write before folder management is built
-- **PyScript compiler spec** → write before any complex piston can deploy
+- **PyScript compiler spec** → DONE (Session 24) — PYSCRIPT_COMPILER_SPEC.md complete
 - **Error states inventory** → write before Stage 4 UI work begins
 - **Test strategy** → write before v1 ships
 
@@ -266,6 +330,9 @@ See MISSING_SPECS.md for full detail on what each spec must cover.
 ### S4-1: PyScript Detection and Setup Prompt
 **Spec ref:** DESIGN.md Section 3.2
 **Files needed:** ha_client.py, frontend PyScript indicator JS
+**Important:** Re-read PYSCRIPT_COMPILER_SPEC.md at the start of this session.
+It was written in Session 24 — by the time S4-1 is reached, the native compiler
+may have evolved. Verify the PyScript spec is still aligned before coding.
 
 ### S4-2: Missing Device Handler
 **Depends on:** S2-2 wired, D-1 HA behavior validated first
@@ -313,13 +380,17 @@ See MISSING_SPECS.md for full detail on what each spec must cover.
 **Do not write until:** Import tested, role mapping working, round-trip clean.
 
 ### S4-12: target-boundary.json — Add Missing PyScript-Forcing Patterns
-**Spec ref:** MISSING_SPECS.md item 9, DESIGN.md Section 3.1
+**Spec ref:** MISSING_SPECS.md item 9 (resolved Session 24), DESIGN.md Section 3.1,
+PYSCRIPT_COMPILER_SPEC.md Section 1.1
 **Files needed:** target-boundary.json, COMPILER_SPEC.md
 **What gets added:**
 - `repeat_until_state` — repeat/until with live entity state condition
 - `current_event_device` — use of $currentEventDevice system variable
 - `dynamic_attribute_access` — reading attribute from a loop variable
 - `loop_string_accumulation` — string building across loop iterations
+**Note:** The last three require content analysis detection (not just type checking).
+Detection logic must be written as part of this task — see PYSCRIPT_COMPILER_SPEC.md
+Section 1.1 detection note.
 **Also:** Day-of-week time conditions and multi-role OR triggers must be
 fully compiled (not just warnings) — update COMPILER_SPEC.md accordingly.
 
@@ -389,6 +460,19 @@ replaced with logic_version/ui_version, target-boundary.json specced in Section 
 fat compiler context object in Section 7, statement field names aligned.
 Minor fix applied post-review: one-click convert button removed from Section 2 —
 complexity indicator is read-only per DESIGN.md Section 3.1.
+
+### Session 23 — TASKS.md Created ✅
+All work organized into Stage 1–4. S1-1 marked done. Companion stub identified
+in api.py. S1-5 HA direct write added as a task.
+
+### Session 24 — compiler.py Field Alignment + Spec Work ✅
+compiler.py: all field names aligned to PISTON_FORMAT.md/COMPILER_SPEC.md/STATEMENT_TYPES.md.
+New `_resolve_operand()` helper added.
+PYSCRIPT_COMPILER_SPEC.md: written, all 6 gaps resolved, status READY TO CODE.
+COMPILER_SPEC.md Section 7: global_variables array structure defined.
+STATEMENT_TYPES.md Section 10: on_event fully specced with blocking wait limitation.
+Full spec cleanup: piston_text references, stale COMPILER_SPEC warning, actions→statements
+field name, MISSING_SPECS items 1 and 9 closed.
 
 ### Session 21 — Field Name Alignment Pass ✅
 All old type names and field names replaced in wizard.js, editor.js, status.js,

@@ -86,19 +86,21 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
 
 ### Stage 1 — Structural Fixes (current stage, do in order)
 
-- **S1-2:** Flat statements array refactor — editor.js and compiler.py still
-  use nested objects. Must be converted to flat array + ID references per
-  PISTON_FORMAT.md. wizard.js already writes correct format at creation time —
-  does not need changes. Dedicated session. Upload editor.js and compiler.py.
+- **S1-2a:** Flat statements array — wizard.js only. Wizard creation paths
+  write flat nodes with empty child ID arrays. No nested objects. Do not touch
+  editor.js or compiler.py this session.
+- **S1-2b:** Flat statements array — editor.js only. Build ID lookup map,
+  replace all tree-walking recursion with ID-based lookup. Do not touch
+  wizard.js or compiler.py this session.
+- **S1-2c:** Flat statements array — compiler.py only. Build stmt_map lookup,
+  resolve child IDs before walking the tree. Do not touch wizard.js or
+  editor.js this session.
 - **S1-3:** Backend audit — upload main.py and api.py, produce written gap list.
   No code written this session.
-- **S1-4:** Backend cleanup — remove _send_to_companion() stub, remove all
-  companion references from api.py and backend/README.md, remove piston_text
-  parsing, fix field names, fix device_map list format, add BASE_URL injection,
-  add basic /ws endpoint, fix crashing API stubs.
-- **S1-5:** HA direct write — implement real deploy flow replacing the companion
-  stub. Write YAML files to HA config dirs via REST API, call automation.reload
-  and script.reload, handle reload failure gracefully.
+- **S1-4:** Backend cleanup — remove _send_to_companion() stub, companion
+  references, add BASE_URL injection, add basic /ws endpoint, fix crashing stubs.
+- **S1-5:** HA direct write — implement real deploy flow. **Depends on S1-2c
+  complete** — compiler must produce correct YAML before deploy is meaningful.
 
 ### Stage 2 — Connect the Seams
 
@@ -148,12 +150,13 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 
 ## Known Code vs Spec Gaps (Post Session 24)
 
-**Structural (S1-2 — not yet fixed):**
-- Flat statements array not implemented — code still uses nested objects
+**Structural (S1-2a/b/c — not yet started):**
+- Flat statements array not implemented — all three files still use nested objects
+- wizard.js writes nested child objects for control flow blocks — S1-2a
 - editor.js tree walking functions assume nested model (`_findNode`, `_removeNode`,
-  `_insertAfter`, `_actionLines` all recurse into nested child arrays)
-- compiler.py reads nested structure — when S1-2 is done, compiler needs a
-  lookup map built from the flat array before walking the tree
+  `_insertAfter`, `_actionLines` all recurse into nested child arrays) — S1-2b
+- compiler.py reads nested structure — needs stmt_map lookup approach — S1-2c
+- Round-trip will be broken between each sub-task — that is expected and acceptable
 
 **Backend cleanup (S1-4 — not yet done):**
 - _send_to_companion() stub still in api.py — must be removed
@@ -247,4 +250,7 @@ Jeremy works two jobs and codes in limited sessions. He has no formal
 programming background. Direct and concise. Plain language over technical
 jargon. Show proposed changes as text before writing files. Humor is welcome.
 
-When something is unclear, ask one question — not five.
+When something is unclear, ask one question — not five
+
+## added after by Jeremy
+ask for notes for next sesion and sesion_25handoff the has been changes found in a review by Design Claude

@@ -7,6 +7,28 @@
 
 ---
 
+# Core Mission — Read This First
+
+PistonCore has two equally important goals that must never be confused:
+
+**1. The editor and wizard must feel like WebCoRE.**
+Users coming from WebCoRE on Hubitat must be able to move their pistons over
+without major relearning. Same concepts, same terminology, same workflow, same
+visual structure. If a WebCoRE user has to stop and think "how do I do this in
+PistonCore," that's a failure. Match WebCoRE's UI and behavior exactly unless
+there is a documented reason not to.
+
+**2. The compiler output must produce the same end-result behavior in HA.**
+PistonCore outputs PyScript (complex pistons) or native HA YAML (simple pistons).
+The compiled output does not need to look like WebCoRE's Groovy code. It just
+needs to do the same thing in practice — same triggers, same logic flow, same
+actions, same outcomes. If the piston announced which door opened in WebCoRE,
+it must announce which door opened in HA.
+
+**The tiebreaker for compiler decisions:** does it produce the right behavior in HA?
+**The tiebreaker for UI/wizard decisions:** does it match what WebCoRE users expect?
+
+---
 ## How to Start Every Session
 
 1. Read this file completely before saying anything

@@ -706,6 +706,9 @@ gains update-vs-insert rule and Bug A `if_condition` routing via `_blockId`.
 wizard.js: `_commitConditionAndMore` stamps `_blockId` on bare condition nodes
 when context is `if_condition` (Bug A fix).
 Render-back verification table to be completed by Jeremy during testing.
+Also fixed in same session: `_nextStmtId` now produces `stmt_` + 8-char lowercase
+hex (was sequential counter `stmt_001` — wrong format per spec). `_highestStmtId`
+simplified since it no longer drives ID generation.
 
 ### Session 26 — S1-2a: wizard.js Flat Statements Array ✅
 wizard.js only. No changes to editor.js or compiler.py.
@@ -768,6 +771,57 @@ share/AI/community format. AI_PROMPT_SPEC.md created. DESIGN.md Sections 6.2–6
 rewritten. FRONTEND_SPEC.md import dialog updated. Session prompt updated.
 
 ### Sessions 1–20 — See DESIGN.md Section 33 (Development Log) ✅
+
+---
+
+## Gaps Found Session 27 — Needs Spec Clarification or Separate Session
+
+### GAP-S27-1: action node tasks — embedded objects or flat IDs?
+**Found during:** S1-2b editor.js rewrite
+**Problem:** The flat model spec says control-flow child statements are referenced
+by ID. But `action` node `tasks` are currently embedded objects (not flat-referenced).
+The editor renders them as embedded. The compiler will need to know definitively
+which model tasks use. If tasks ever move to flat IDs, both editor and compiler
+break.
+**What needs to happen:** PISTON_FORMAT.md and STATEMENT_TYPES.md must explicitly
+state whether `tasks` inside an `action` node are embedded objects (not flat) or
+flat-referenced by ID. Whichever is decided, add a note calling it out as a
+deliberate exception (or non-exception) to the flat model rule.
+**Blocks:** S1-2c if compiler assumes wrong model. Verify before or during S1-2c.
+
+### GAP-S27-2: else empty array always renders else branch
+**Found during:** S1-2b editor.js rewrite
+**Problem:** After S1-2a, the wizard always writes `else: []` on new if blocks.
+The editor renders the `else` branch whenever `node.else !== undefined && node.else !== null`.
+An empty array satisfies that check — so every new if block will show an else ghost
+insertion point even if the user never added one. This is a behavior change; the old
+code only showed else when the user explicitly added it.
+**What needs to happen:** Decide: should else render when `else: []` (empty but
+present) or only when `else` has at least one child ID? Update editor.js render
+check and wizard.js skeleton accordingly. Document the decision.
+**Fits in:** A small editor.js fix once the decision is made. Can be done in S1-2c
+session as a side fix or its own mini-session.
+
+### GAP-S27-3: switch case.statements — IDs or embedded objects?
+**Found during:** S1-2b editor.js rewrite
+**Problem:** The switch renderer assumes `case.statements` is an array of flat IDs
+(consistent with the flat model). But the S1-2a wizard skeleton for switch was not
+verified — if it writes embedded objects instead of IDs, the switch renderer will
+produce nothing.
+**What needs to happen:** Check wizard.js `_handleStatementType` switch skeleton.
+Confirm `case.statements` is written as `[]` (empty ID array, flat model) not as
+`[{...}]` (embedded). Fix wizard if wrong. Verify during render-back testing.
+**Fits in:** Render-back verification pass for S1-2b. Fix wizard.js if needed.
+
+### GAP-S27-4: for loop field names — verify wizard skeleton matches renderer
+**Found during:** S1-2b editor.js rewrite
+**Problem:** The `for` renderer expects `node.variable`, `node.from`, `node.to`,
+`node.step`. The S1-2a wizard skeleton for `for` was not verified to use those
+exact field names.
+**What needs to happen:** Check wizard.js `_handleStatementType` for the `for`
+skeleton. Confirm field names match. Fix wizard.js if wrong. Verify during
+render-back testing.
+**Fits in:** Render-back verification pass for S1-2b. Fix wizard.js if needed.
 
 ---
 

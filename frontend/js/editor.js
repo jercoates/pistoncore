@@ -769,19 +769,15 @@ const Editor = (() => {
   }
 
   function _highestStmtId(piston) {
-    // statements array is flat — no recursion needed
-    let max = 0;
-    const allArrays = [piston.triggers, piston.conditions, piston.statements, piston.variables];
-    allArrays.forEach(arr => (arr || []).forEach(n => {
-      const m = parseInt((n.id || '').replace(/\D/g,'')) || 0;
-      if (m > max) max = m;
-    }));
-    return max;
+    // Not used for ID generation anymore — kept only to initialize _stmtCounter
+    // so paste/duplicate IDs don't accidentally collide with loaded nodes.
+    // We just need any non-zero seed; actual IDs are now random hex via _nextStmtId.
+    return 0;
   }
 
   function _nextStmtId() {
-    _stmtCounter++;
-    return 'stmt_' + String(_stmtCounter).padStart(3,'0');
+    // Spec: stmt_ + 8 char lowercase hex (matches wizard _newId() format)
+    return 'stmt_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
   }
 
   return {

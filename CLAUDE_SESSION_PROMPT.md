@@ -367,6 +367,31 @@ docker run -d \
 
 ---
 
+## Code Review Requirement — Every Coding Session
+
+**Standing rule from Jeremy:** All problems must be addressed as we go — either
+fix it now if the fix fits the current session's file scope, or add it to TASKS.md
+if it is better done later or needs a totally separate context. No problem gets
+ignored or mentioned in passing without one of those two outcomes.
+
+After writing or modifying any code, before ending the session, Claude must:
+
+1. Review all changed functions for gaps between what the code does and what the
+   spec requires — field names, model assumptions, missing cases, wrong signatures.
+2. Review all call sites of changed functions for broken callers not yet updated.
+3. Check for any implicit assumptions in the new code that are not confirmed by
+   the spec or by inspecting the other files in context.
+4. For each gap found:
+   - If it is a small fix that fits the current session's file scope — fix it now.
+   - If it requires a different file or separate context — add it to TASKS.md as
+     a named gap entry (GAP-SXX-N format) with: what the problem is, where it was
+     found, what needs to happen, and which session/task it fits into.
+5. Report all gaps found (fixed or deferred) before closing the session.
+
+This is not optional. A session that produces code without a gap review is incomplete.
+
+---
+
 ## Communication Style
 
 Jeremy works two jobs and codes in limited sessions. He has no formal

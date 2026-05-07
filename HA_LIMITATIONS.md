@@ -187,18 +187,9 @@ not re-litigated:
 - **Entity IDs never shown to user** → Device picker + device_map abstraction ✅
 - **HA churn on YAML syntax** → Versioned Jinja2 template system ✅
 - **Minimum HA version** → 2023.1 floor documented and checked on connect ✅
-- **Boolean/state value quoting** → Compiler always quotes state value strings (`"on"`,
-  `"off"`, etc.) in all YAML output. Unquoted boolean-like strings are silently parsed
-  as booleans by HA's YAML parser, causing state checks to never match. Rule is in
-  COMPILER_SPEC.md Section 11. ✅
-- **`wait_for_trigger` timeout** → Compiler always emits `timeout:` and
-  `continue_on_timeout:` on every `wait_for_trigger` block. Default 1 hour with
-  CompilerWarning when user provides none. ✅
 - **`trigger:` vs `platform:` inside wait_for_trigger** → Compiler always uses
   `trigger:` key inside `wait_for_trigger` blocks. `platform:` is legacy syntax that
   causes silent reload errors in modern HA. ✅
-- **`continue_on_error` on parallel branches** → Compiler emits `continue_on_error: true`
-  at both the individual action level and the parallel branch sequence level. ✅
 
 ---
 
@@ -206,6 +197,9 @@ not re-litigated:
 
 These are known gaps without a defined solution yet:
 
+- **State value quoting not enforced at compiler level** — `_compile_single_condition` passes `compiled_value` to templates without normalization. HA silently parses unquoted `on`/`off` as booleans, causing state checks to never match. Spec says handled — code does not enforce it. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
+- **`wait_for_trigger` timeout not emitted** — Compiler passes `stmt_id` and `at_time` to the wait_until template but does not emit `timeout:` or `continue_on_timeout:`. Pistons will hang forever if the time is missed. Spec says handled — code does not emit it. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
+- **Parallel branch `continue_on_error` not emitted at sequence level** — Compiler emits `continue_on_error` per-action only. One offline device kills the whole parallel block. COMPILER_SPEC Section 10.2 explicitly requires it at the branch sequence level. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
 - Entity ID changes breaking device_map — detection exists, migration UX needs work
 - Long-running piston timeouts — not yet handled
 - Global variable helper race conditions on simultaneous deploy — not yet handled

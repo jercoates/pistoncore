@@ -1560,7 +1560,7 @@ against the current spec.
 
 ---
 
-## 32. Standing Questions and Validation Workflow
+## 33. Standing Questions and Validation Workflow
 
 ### Logic Validation Rule — Before Any New Spec or Code
 
@@ -1576,7 +1576,7 @@ When bringing in feedback from other AIs: other AIs can be confidently wrong abo
 
 ---
 
-## 33. Development Log
+## 34. Development Log
 
 ### Sessions 1–7 — April 2026
 Project conceived. Design document written. Backend scaffolded. React frontend replaced with vanilla JS. Full design review. Native HA Script confirmed as primary target. Globals architecture defined. DESIGN.md v0.9, COMPILER_SPEC.md v0.1, WIZARD_SPEC.md v0.3.
@@ -1610,6 +1610,9 @@ Major share format decision: piston_text retired as v1 share/AI format. Snapshot
 
 ### Session 24 — May 2026
 compiler.py field name alignment pass — all field names brought in line with PISTON_FORMAT.md and COMPILER_SPEC.md. Fixed: devices/ha_service/parameters in with_block; duration+duration_unit in wait; conditions array in if/while/repeat/wait_for_state; list_role+variable+statements in for_each; start+end+counter_variable+statements in for; description+statements in do; expression+cases[].statements+default in switch; variable+value operand object in set_variable; message operand object in log_message. New _resolve_operand() helper added. PYSCRIPT_COMPILER_SPEC.md created and all 6 gaps resolved: on_event schema defined (blocking wait — HA limitation documented), global_variables array structure defined in COMPILER_SPEC.md Section 7, list_role/until_conditions/cancel_pending_tasks/switch schemas confirmed. STATEMENT_TYPES.md Section 10 (on_event) rewritten with full schema, limitation notice, wizard warning requirement, and ON_EVENT_BLOCKING compiler warning. Stale piston_text and COMPILER_SPEC stale references cleaned up across DESIGN.md and STATEMENT_TYPES.md.
+
+### Session 25 — May 2026
+Full session of spec and task management. No code written. External Design Claude review (AIReviews5-6-26.md) processed and all action items incorporated. TASKS.md: all Stage 1 and 2 Upload lines updated with required spec files; S1-7 Compiler Bug Fixes (2 sessions) added — session 1 before S1-5 to fix triggers and condition indentation before any HA write; S1-6 Fat Compiler Context Assembly added between S1-5 and S1-7 session 2; S3-2 Deferred Validation Testing added after S3-1; S4-15 Operational Hardening added; S4-0 reordered with Error States Inventory first; S4-10 write-a-piston.md blocker noted; Gap A–G from Grok repo review incorporated. MISSING_SPECS.md: Items 13 (Fat Compiler Context), 14 (Time Condition Compiler Path), 15 (write-a-piston.md) added. PISTON_FORMAT.md: "Two Formats" intro corrected to reference Snapshot JSON; piston_text field added to wrapper table with warning block and "fail loudly on render failure" rule; "What This Format Is Not" updated. HA_LIMITATIONS.md: state value quoting (Bug 11), wait_for_trigger timeout (Bug 3), parallel branch continue_on_error (Bug 12) moved from "already handled" to "known gaps" — were incorrectly marked as handled. DESIGN.md: duplicate Section 32 heading fixed (Standing Questions → Section 33, Development Log → Section 34). STATEMENT_TYPES.md Section 16 header confirmed present — was already fixed, no change needed.
 
 ---
 

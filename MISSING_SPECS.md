@@ -395,6 +395,52 @@ and works correctly with the device picker and missing device handler.
 
 ---
 
+## 13. Fat Compiler Context Assembly — MISSING
+
+**Blocks:** S1-6 coding
+**Needs to be written before:** S1-6 starts (write spec in the same session as the
+code — spec first, then implement)
+**What it must cover:**
+- Which HA endpoints are called, in what order
+- What failure modes abort the deploy vs degrade gracefully
+- Where the assembly code lives (ha_client.py or new context_builder.py — not api.py)
+- Which fields are required vs optional for the compiler to function
+- Full field list: `entity_states`, `services`, `ha_version`, `global_variables`,
+  `piston_variables`, `zones`, `areas`
+
+**Reference:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4
+
+---
+
+## 14. Time Condition Compiler Path — MISSING
+
+**Blocks:** Any piston using time-of-day conditions (extremely common — chicken-lights
+piston uses this)
+**Needs to be written before:** S1-7 session 2 (condition compiler rewrite — Bug 8)
+**What it must cover:**
+- `Time is between X and Y` as a **condition** (not a trigger) — how does this compile?
+- `Time is X` as a condition
+- `$now` operand handling in time conditions
+- `$sunrise` / `$sunset` with offsets in time conditions
+- Day-of-week conditions (coordinate with S4-12 — do not duplicate)
+
+**Reference:** COMPILER_SPEC.md Section 11 (no time-subject condition path exists).
+STATEMENT_TYPES.md Condition Object Schema (time condition JSON is defined there).
+PISTON_FORMAT.md Condition Field Reference (time condition example).
+
+---
+
+## 15. write-a-piston.md Prompt Content — MISSING
+
+**Blocks:** S4-10 (Snapshot import via AI prompt)
+**Needs to be written before:** S4-10 starts
+**Status:** File exists in repo but content is a stub marked "being rewritten."
+**What it must cover:** See AI_PROMPT_SPEC.md for the full requirements.
+**Note:** Do not start S4-10 until this is complete and reviewed against
+AI_PROMPT_SPEC.md.
+
+---
+
 ## DONE
 
 ### Item 1 — PyScript Compiler Spec (Session 24)

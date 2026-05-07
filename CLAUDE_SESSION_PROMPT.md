@@ -254,3 +254,9 @@ When something is unclear, ask one question — not five
 
 ## added after by Jeremy
 ask for notes for next sesion and sesion_25handoff the has been changes found in a review by Design Claude
+## Reference Folder
+
+The repo contains a `reference/` folder with session handoff notes, external 
+design reviews, and captured decisions from past sessions. If working on a 
+feature that might have prior context, ask Jeremy if a relevant reference 
+file exists before starting.

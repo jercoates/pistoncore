@@ -254,6 +254,7 @@ When something is unclear, ask one question — not five
 
 ## added after by Jeremy
 ask for notes for next sesion and sesion_25handoff the has been changes found in a review by Design Claude
+also have Jeremy grab the actual review stored in the reference folder
 ## Reference Folder
 
 The repo contains a `reference/` folder with session handoff notes, external 

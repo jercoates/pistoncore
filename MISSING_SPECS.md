@@ -1,7 +1,7 @@
 # PistonCore — Missing Specs Tracker
 
 **Status:** Living document — add to this when a gap is found, remove when the spec is written
-**Last Updated:** Session 23
+**Last Updated:** Session 24
 **Purpose:** Track spec gaps that will block coding when we reach those features.
            Every item here must be resolved before its dependent task is started.
 
@@ -17,26 +17,11 @@ When a spec is written, move the item from this file to DONE at the bottom.
 
 ---
 
-## 1. PyScript Compiler Spec — MISSING
+## 1. PyScript Compiler Spec — RESOLVED (Session 24)
 
-**Blocks:** Any complex piston deploying (break, cancel_pending_tasks, on_event)
-**Needs to be written before:** S4-4 compiler template system, any complex piston testing
-**What it must cover:**
-- PyScript file structure and imports
-- How each statement type compiles to Python (if/while/for/repeat/break/on_event/cancel)
-- How device_map entity IDs are injected into PyScript
-- How global variables are referenced in PyScript (input helper entity IDs)
-- How piston variables compile to Python local variables
-- How service calls are made from PyScript (hass.services.call)
-- How triggers work in PyScript (@state_trigger, @time_trigger, @event_trigger)
-- How PISTONCORE_RUN_COMPLETE event is fired from PyScript
-- How the pc_globals_used comment header is generated
-- Error handling pattern inside PyScript output
-- The same file signature header format as native YAML
-
-**Reference:** COMPILER_SPEC.md Section 19 explicitly flags this as "not yet designed."
-DESIGN.md Section 3.1 covers when PyScript is used and the permanent PyScript
-target for Docker.
+PYSCRIPT_COMPILER_SPEC.md written and complete. All 6 gaps resolved.
+Status changed to READY TO CODE.
+See PYSCRIPT_COMPILER_SPEC.md for full spec.
 
 ---
 
@@ -261,60 +246,14 @@ HA_LIMITATIONS.md Section 3 (entity ID changes).
 
 ---
 
-## 9. PyScript-Forcing Patterns — target-boundary.json Additions
+## 9. PyScript-Forcing Patterns — RESOLVED (Session 24)
 
-**Blocks:** Correct compile target detection for real-world pistons
-**Needs to be written before:** PyScript compiler spec, any real piston testing
-**Context:** Analysis of four real production pistons (Session 23) revealed patterns
-that force PyScript that are NOT yet in target-boundary.json. These are common
-patterns, not edge cases. Must be added before compiler work begins.
+All seven patterns documented in PYSCRIPT_COMPILER_SPEC.md Section 1.1:
+- Original three: `break`, `on_event`, `cancel_pending_tasks`
+- Added: `repeat_until_state`, `current_event_device`, `dynamic_attribute_access`, `loop_string_accumulation`
 
-### Patterns Already in target-boundary.json
-- `break` — no native HA equivalent
-- `on_event` — no native HA equivalent
-- `cancel_pending_tasks` — no native HA equivalent
-
-### Patterns That Must Be Added to target-boundary.json
-
-**`repeat_until_state`** — `repeat / until` with a live entity state condition.
-`until All of {Water_Sensors}'s water are dry` — reads live HA state on each
-iteration. Native HA `repeat` supports `count` and `while` with template
-expressions but checking live multi-device state reliably on each iteration
-requires PyScript. Seen in: CO detector, water leak pistons.
-
-**`current_event_device`** — use of `$currentEventDevice` system variable.
-Identifies which specific device fired the trigger in a multi-device group.
-Native HA provides trigger context but accessing it cleanly inside a running
-script sequence requires PyScript. Seen in: door/window chime piston.
-This is heavily used — any piston that says "which door opened?" uses this.
-
-**`dynamic_attribute_access`** — reading an attribute from a loop variable.
-`{[$device:battery]}` or `{$device:carbonMonoxide}` — the entity ID is
-a variable, not a literal. Templating a dynamic entity ID for attribute
-lookup inside a script loop is unreliable in native HA. Seen in: battery
-checker, CO detector, water leak pistons.
-
-**`loop_string_accumulation`** — building a string across loop iterations
-using a variable that persists between iterations. Native HA script variable
-scoping across repeat iterations is unreliable. Seen in: battery checker,
-CO detector, water leak pistons.
-
-### Patterns That Need Compiler Support (Not PyScript-Forcing)
-
-**Day-of-week time conditions** — `Time is between X and Y only on Monday-Friday`.
-COMPILER_SPEC.md currently says "emit warning, compile basic time_pattern only."
-This is too common to skip — seen in door chime piston as core logic, not edge case.
-Must be fully compiled. Uses HA `time` condition with `weekday:` field.
-
-**Multi-role OR triggers** — `Any of {Doors}'s OR {Windows}'s contact changes to open`.
-Two separate device roles combined in one trigger with OR between them. Compiler
-must expand both role arrays and generate one trigger entry per entity across
-both groups. Seen in: door/window chime piston.
-
-**Multiple triggers in one piston** — multiple `if` blocks each acting as a
-separate trigger. Water leak piston has four. Each top-level if block with
-`is_trigger: true` conditions compiles to a separate automation trigger entry.
-Compiler must handle this correctly — it is not one piston per trigger.
+Detection note added: the last three require content analysis, not just type checking.
+Detection logic must be written before compile target detection is coded.
 
 ---
 
@@ -456,7 +395,14 @@ and works correctly with the device picker and missing device handler.
 
 ---
 
-*(None yet — this tracker was created Session 23)*
+## DONE
+
+### Item 1 — PyScript Compiler Spec (Session 24)
+PYSCRIPT_COMPILER_SPEC.md written. All 6 gaps resolved. Status: READY TO CODE.
+
+### Item 9 — PyScript-Forcing Patterns (Session 24)
+All seven patterns documented in PYSCRIPT_COMPILER_SPEC.md Section 1.1.
+Detection note added for content-analysis patterns.
 
 ---
 

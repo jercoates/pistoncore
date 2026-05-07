@@ -1,7 +1,7 @@
 # PistonCore — PyScript Compiler Specification
 
 **Version:** 1.0 (Draft — Incomplete)
-**Status:** DO NOT CODE FROM THIS DOCUMENT YET — see Section 0 for what is missing
+**Status:** READY TO CODE — all gaps resolved (Session 24)
 **Last Updated:** May 2026
 
 Read DESIGN.md v1.1, COMPILER_SPEC.md v1.0, PISTON_FORMAT.md v1.0, and WIZARD_SPEC.md v0.6
@@ -12,68 +12,45 @@ the native HA YAML compiler. This document covers the PyScript compiler only.
 
 ## 0. KNOWN GAPS — READ BEFORE USING THIS DOCUMENT
 
-This spec is not complete. The following items are unresolved and must be filled in before
-any compiler coding begins. Each gap is flagged inline with a `⚠ GAP N:` marker so you
-can find them while reading.
-
-Add these to MISSING_SPECS.md as a new item:
-**"PyScript Compiler Spec — Known Gaps (6 items, Section 0)"**
+All gaps resolved in Session 24. This section is preserved as a resolution log.
+The spec is ready to code from.
 
 ---
 
-### GAP 1 — `on_event` statement JSON schema is undefined
-**Blocks:** Section 11.16
-**What's needed:** The full structured JSON schema for an `on_event` statement — what
-fields it has, how the event type is stored, how the filter condition is stored.
-`on_event` is one of the three original PyScript-forcing types and is heavily used.
-The compiler cannot handle it without knowing what JSON it receives.
-WIZARD_SPEC.md lists it as a statement type but defines no JSON schema.
-COMPILER_SPEC.md says it forces PyScript but defines no schema.
-**Where to resolve:** Write the schema in STATEMENT_TYPES.md (not yet created),
-then update Section 11.16 here.
+### GAP 1 — RESOLVED (Session 24)
+`on_event` JSON schema defined in STATEMENT_TYPES.md Section 10.
+Uses standard condition objects (same schema as `if`/`while`/`repeat`) with
+`is_trigger: true`. Compiles to blocking `task.wait_until()` — not truly async.
+See Section 11.16 for full handler and limitation documentation.
 
-### GAP 2 — `cancel_pending_tasks` statement JSON schema is unconfirmed
-**Blocks:** Section 11.17
-**What's needed:** Almost certainly just `{ "id": "stmt_xxx", "type": "cancel_pending_tasks" }`
-with no other fields — but this must be confirmed in STATEMENT_TYPES.md before coding.
-**Where to resolve:** Confirm in STATEMENT_TYPES.md, update Section 11.17.
+### GAP 2 — RESOLVED (Session 24)
+`cancel_pending_tasks` schema confirmed by STATEMENT_TYPES.md Section 18.
+It is exactly `{ "id": "stmt_xxx", "type": "cancel_pending_tasks" }` with no other fields.
+Gap marker removed from Section 11.17.
 
-### GAP 3 — `for_each` field name for the iterated role is unconfirmed
-**Blocks:** Section 11.8
-**What's needed:** COMPILER_SPEC.md Section 10.2 uses `"list_role"` as the field name
-for the role being iterated in a `for_each` statement. This needs confirmation in
-STATEMENT_TYPES.md. If wrong, the compiler will silently fail to find the device list.
-**Where to resolve:** Confirm field name in STATEMENT_TYPES.md, update Section 11.8.
+### GAP 3 — RESOLVED (Session 24)
+`list_role` confirmed as the correct field name by STATEMENT_TYPES.md Section 6.
+Gap marker removed from Section 11.8.
 
-### GAP 4 — `repeat/until` — confirm `until_conditions` uses standard condition schema
-**Blocks:** Section 11.10
-**What's needed:** COMPILER_SPEC.md uses `"until_conditions"` as the field name for the
-until block's condition array. Must confirm these condition objects use the same schema
-as all other conditions — with `compiled_value`, `is_trigger: false`, `role`, etc.
-Assumed yes based on PISTON_FORMAT.md — must be confirmed.
-**Where to resolve:** Confirm in STATEMENT_TYPES.md, update Section 11.10.
+### GAP 4 — RESOLVED (Session 24)
+`until_conditions` confirmed by STATEMENT_TYPES.md Section 8 and PISTON_FORMAT.md.
+These are standard condition objects using the same schema as all other conditions —
+with `compiled_value`, `is_trigger: false`, `role`, `operator`, `aggregation`, etc.
+Gap marker removed from Section 11.10.
 
-### GAP 5 — Global variable helper entity ID format must be confirmed
-**Blocks:** Section 7 (all global variable examples)
-**What's needed:** DESIGN.md Section 7.1 states the helper entity ID is based on the
-variable's internal UUID: `input_text.pistoncore_{uuid}`. Earlier draft specs
-incorrectly used `pistoncore_global_{name}`. The correct format must be confirmed
-against the `global_variables` array in the fat compiler context object
-(COMPILER_SPEC.md Section 7) — that is what the compiler reads at runtime.
-All examples in Section 7 of this spec use `{uuid}` as a placeholder pending this
-confirmation.
-**Where to resolve:** Confirm the `global_variables` array structure in COMPILER_SPEC.md
-Section 7, update all Section 7 examples with the real format.
+### GAP 5 — RESOLVED (Session 24)
+Global variable helper entity ID format confirmed. See COMPILER_SPEC.md Section 7
+for the full `global_variables` array structure. Format is `input_{domain}.pistoncore_{id}`
+where `{id}` is the global variable's own UUID (not the piston UUID).
+Device/Devices globals have `helper_entity_id: null` — compile-time expansion only.
+All Section 7 examples updated with real format.
 
-### GAP 6 — `switch` statement has no complete PyScript handler
-**Blocks:** Section 11.12
-**What's needed:** `switch` is in the statement type list (WIZARD_SPEC.md) and is NOT
-PyScript-only — the PyScript compiler must handle it. In Python it compiles to an
-`if/elif/else` chain. The handler direction is documented in Section 11.12 but the
-full implementation is blocked on confirming the `switch` JSON schema from
-STATEMENT_TYPES.md.
-**Where to resolve:** Define switch JSON schema in STATEMENT_TYPES.md, complete
-Section 11.12.
+### GAP 6 — RESOLVED (Session 24)
+`switch` JSON schema confirmed by STATEMENT_TYPES.md Section 4 and COMPILER_SPEC.md
+Section 10.2. Fields: `expression` (operand object), `cases` (array with `id`, `case_type`,
+`value`/`value_from`/`value_to`, `statements`), `default` (statements array),
+`case_traversal_policy` (`"safe"` or `"fallthrough"`).
+Section 11.12 updated with full handler.
 
 ---
 
@@ -116,6 +93,12 @@ Compiler-Owned).
 | `repeat_until_state` | `type == "repeat"` with `until_conditions` referencing a device role | Native HA `repeat/until` with live multi-device state checks is unreliable |
 | `dynamic_attribute_access` | `type == "for_each"` with attribute access on loop variable | Dynamic entity ID for attribute lookup inside loops is unreliable in native HA templates |
 | `loop_string_accumulation` | String variable assigned with append pattern inside any loop | Native HA script variable scoping across `repeat` iterations is unreliable |
+
+**Detection note:** `repeat_until_state`, `dynamic_attribute_access`, and `loop_string_accumulation`
+are pattern detections — they require the compiler to analyze statement content, not just check
+`type`. The detection logic for these must be written before the compile target detection function
+is coded. See MISSING_SPECS.md item 9 (resolved Session 24) and target-boundary.json format in
+COMPILER_SPEC.md Section 3.
 
 ---
 
@@ -260,23 +243,24 @@ anywhere in the piston — not just the first one (COMPILER_SPEC.md Section 9.3)
 
 ## 7. Global Variables
 
-⚠ **GAP 5 applies to all examples in this section.** The entity ID format shown
-uses `{uuid}` as a placeholder. The real format comes from the `global_variables`
-array in the fat context object — confirm before coding.
-
-PistonCore global variables use two mechanisms depending on type (DESIGN.md Section 7.1):
+PistonCore global variables use two mechanisms depending on type (DESIGN.md Section 7.1).
+The compiler reads global variable definitions from the `global_variables` array in the
+fat context object (COMPILER_SPEC.md Section 7). It looks up globals by `name` after
+stripping the `@` prefix from any reference.
 
 ### 7.1 Device / Devices Globals — Compile-Time Only
 
 Device globals are baked into the compiled file at deploy time. The compiler expands
-entity IDs from `device_map` directly into trigger decorators and service call targets.
-No runtime lookup occurs.
+entity IDs from the global's `entity_ids` array directly into trigger decorators and
+service call targets. No runtime lookup occurs.
 
 ```python
-# Global @Doors — entity IDs baked in from device_map["Doors"] at compile time
-@state_trigger(
-    "binary_sensor.front_door_contact == 'on'",
-    "binary_sensor.back_door_contact == 'on'",
+# Global @announcement_speakers — entity IDs baked in from global entity_ids at compile time
+# global_variables entry: { "name": "announcement_speakers", "type": "Devices",
+#                           "entity_ids": ["media_player.kitchen_sonos", "media_player.living_room_sonos"] }
+media_player.volume_set(
+    entity_id=["media_player.kitchen_sonos", "media_player.living_room_sonos"],
+    volume_level=0.7
 )
 ```
 
@@ -284,32 +268,37 @@ When a device global changes, the piston is flagged stale and must be redeployed
 `pc_globals_used` in the header enables the backend to find all affected pistons
 without a database (DESIGN.md Section 7.1).
 
-### 7.2 Non-Device Globals (Text, Number, Boolean, DateTime) — HA Input Helpers
+### 7.2 Non-Device Globals (Text, Number, Yes/No, Date/Time) — HA Input Helpers
 
-Non-device globals are backed by HA input helpers. The compiler reads the
-`global_variables` array from the fat context object to get the helper entity ID
-for each named global.
+Non-device globals are backed by HA input helpers. The helper entity ID format is
+`input_{domain}.pistoncore_{global_id}` where `{global_id}` is the global variable's
+own UUID from the `global_variables` array — never name-based, so renaming a global
+never breaks deployed pistons.
 
 ```python
-# Read a global text variable  ⚠ GAP 5: confirm entity ID format from fat context
-msg = state.get("input_text.pistoncore_{uuid}")
+# Read a global Text variable
+# global entry: { "name": "message_of_the_day", "type": "Text",
+#                 "helper_entity_id": "input_text.pistoncore_a3f8c2d1" }
+msg = state.get("input_text.pistoncore_a3f8c2d1")
 
 # Write it
 input_text.set_value(
-    entity_id="input_text.pistoncore_{uuid}",   # ⚠ GAP 5
+    entity_id="input_text.pistoncore_a3f8c2d1",
     value="Garage door was left open"
 )
 
-# Read a global number  ⚠ GAP 5
-threshold = float(state.get("input_number.pistoncore_{uuid}") or 0)
+# Read a global Number variable
+# global entry: { "name": "motion_count", "type": "Number",
+#                 "helper_entity_id": "input_number.pistoncore_b7e2f941" }
+threshold = float(state.get("input_number.pistoncore_b7e2f941") or 0)
 ```
 
 **If the helper doesn't exist** (global deleted or not yet created by backend):
 
 ```python
-val = state.get("input_text.pistoncore_{uuid}")   # ⚠ GAP 5
+val = state.get("input_text.pistoncore_a3f8c2d1")
 if val is None:
-    log.error("pistoncore_d4e2f9a1: Global 'message_of_the_day' not found — redeploy may be needed")
+    log.error("pistoncore_d4e2f9a1: Global '@message_of_the_day' not found — redeploy may be needed")
     event.fire("PISTONCORE_RUN_COMPLETE", piston_id="d4e2f9a1", status="error")
     return
 ```
@@ -819,9 +808,6 @@ PyScript (unlike the native YAML compiler which must warn on non-standard start/
 
 ### 11.8 for_each loop
 
-⚠ **GAP 3 applies here.** Field name `"list_role"` is from COMPILER_SPEC.md but
-unconfirmed in STATEMENT_TYPES.md. Handler assumes that field name.
-
 Input:
 ```json
 {
@@ -834,7 +820,7 @@ Input:
 ```
 
 ```python
-# stmt_009 — for_each: device in BatteryDevices  ⚠ GAP 3: confirm list_role field name
+# stmt_009 — for_each: device in BatteryDevices
 # Entity list baked in from device_map["BatteryDevices"] at compile time
 _battery_devices_list = [
     "sensor.front_door_battery",
@@ -872,9 +858,6 @@ For device-state conditions in while: use `state.get()` pattern from Section 11.
 
 ### 11.10 repeat / until (do-while)
 
-⚠ **GAP 4 applies here.** `until_conditions` field name and schema assumed correct —
-must confirm these are standard condition objects with `compiled_value`, `role`, etc.
-
 Input:
 ```json
 {
@@ -882,15 +865,22 @@ Input:
   "type": "repeat",
   "statements": ["stmt_014"],
   "until_conditions": [{
-    "role": "WaterSensors", "attribute": "moisture",
-    "operator": "is", "compiled_value": "off", "aggregation": "all"
+    "id": "cond_001",
+    "is_trigger": false,
+    "role": "WaterSensors",
+    "attribute": "moisture",
+    "attribute_type": "binary",
+    "operator": "is",
+    "compiled_value": "off",
+    "aggregation": "all",
+    "group_operator": "and"
   }],
   "condition_operator": "and"
 }
 ```
 
 ```python
-# stmt_013 — repeat/until: all WaterSensors are Dry  ⚠ GAP 4: confirm until_conditions schema
+# stmt_013 — repeat/until: all WaterSensors are Dry
 while True:
     # [compiled body statements]
     if all(state.get(e) == "off" for e in ["binary_sensor.water_1", "binary_sensor.water_2"]):
@@ -909,22 +899,42 @@ encountered outside a loop context. The compiler tracks loop nesting depth.
 
 ### 11.12 switch
 
-⚠ **GAP 6 — handler not yet fully designed.** JSON schema unconfirmed.
-
 `switch` is NOT PyScript-only. It compiles to a Python `if/elif/else` chain.
-See COMPILER_SPEC.md Section 10.2 for the statement JSON schema (`switch`, `cases`,
-`default` fields) and native YAML `choose:` output. Python equivalent direction:
+
+Input:
+```json
+{
+  "id": "stmt_016",
+  "type": "switch",
+  "expression": { "type": "variable", "name": "$count" },
+  "case_traversal_policy": "safe",
+  "cases": [
+    { "id": "case_001", "case_type": "single", "value": 1, "statements": ["stmt_017"] },
+    { "id": "case_002", "case_type": "range", "value_from": 5, "value_to": 10, "statements": ["stmt_018"] }
+  ],
+  "default": ["stmt_019"]
+}
+```
 
 ```python
-# stmt_016 — switch  ⚠ GAP 6: confirm JSON schema from STATEMENT_TYPES.md
-_switch_val = count   # compile the switch expression to a Python value
+# stmt_016 — switch: $count
+_switch_val = count
 if _switch_val == 1:
-    pass  # [case 1 statements]
-elif _switch_val == 2:
-    pass  # [case 2 statements]
+    # [case 1 statements]
+elif 5 <= _switch_val <= 10:
+    # [case 2 statements — range]
 else:
-    pass  # [default statements]
+    # [default statements]
 ```
+
+**`case_type` handling:**
+- `"single"` → `_switch_val == value`
+- `"range"` → `value_from <= _switch_val <= value_to`
+
+**`case_traversal_policy`:**
+- `"safe"` (default) — each case breaks automatically (standard `if/elif/else`)
+- `"fallthrough"` — emit a note; Python has no native fallthrough. Compiler emits
+  `CompilerWarning` with code `SWITCH_FALLTHROUGH_UNSUPPORTED` and compiles as `"safe"`.
 
 ### 11.13 exit / stop piston
 
@@ -995,35 +1005,71 @@ result = task.wait_until(
 
 ### 11.16 on_event
 
-⚠ **GAP 1 — JSON schema undefined. This handler cannot be written yet.**
+**HA Limitation — Blocking Wait, Not Async**
 
-`on_event` nested inside logic body (not as primary trigger) compiles to
-`task.wait_until` with an `event_trigger`. The output direction is correct —
-the input JSON schema that drives it is undefined.
+`on_event` in PistonCore compiles to a **blocking** `task.wait_until()`. The piston
+pauses at this point until one of the specified device events fires. True async behavior
+(piston body continues running while listening in background) is not possible in HA.
+This is an HA platform limitation, not a PistonCore limitation.
 
-When GAP 1 is resolved, implement:
-```python
-# stmt_020 — on_event  ⚠ GAP 1: input JSON schema unknown
-result = task.wait_until(
-    event_trigger=["EVENT_TYPE_FROM_JSON", "filter_expression_from_JSON"],
-    timeout=300    # timeout from JSON, or default
-)
+**Always emit** `CompilerWarning` with code `ON_EVENT_BLOCKING` when compiling this
+statement type. This warning must also surface in the wizard UI and user documentation.
+
+Input:
+```json
+{
+  "id": "stmt_020",
+  "type": "on_event",
+  "conditions": [{
+    "id": "cond_001",
+    "is_trigger": true,
+    "aggregation": "any",
+    "role": "Doors",
+    "attribute": "contact",
+    "attribute_type": "binary",
+    "operator": "changes to",
+    "compiled_value": "on",
+    "group_operator": "and"
+  }],
+  "condition_operator": "and",
+  "statements": ["stmt_021"]
+}
 ```
 
-Until GAP 1 is resolved: raise `CompilerError` with code `ON_EVENT_SCHEMA_MISSING`
-if this statement type is encountered.
+```python
+# stmt_020 — on_event: any of Doors changes to Open
+# ⚠ BLOCKING: piston pauses here until event fires (HA limitation — not truly async)
+result = task.wait_until(
+    state_trigger=[
+        "binary_sensor.front_door_contact == 'on' and binary_sensor.front_door_contact.old != 'on'",
+        "binary_sensor.back_door_contact == 'on' and binary_sensor.back_door_contact.old != 'on'"
+    ],
+    timeout=None
+)
+var_name = result.get("var_name")
+value = result.get("value")
+
+# [compiled child statements]
+# $currentEventDevice → var_name
+# $currentEventValue  → value
+```
+
+**Building the state_trigger expression** follows the same logic as `@state_trigger`
+decorator compilation (Section 10.1) — expand all entity IDs from `device_map[role]`,
+build one expression string per entity, pass as a list to `task.wait_until()`.
+
+**`condition_operator`** with multiple conditions: build expressions for each condition
+and pass all as separate strings (PyScript OR's them — any firing resumes the wait).
 
 ### 11.17 cancel_pending_tasks
 
-⚠ **GAP 2 — JSON schema unconfirmed.** Assumed trivial — no extra fields.
-
-Input (assumed):
+Input:
 ```json
 { "id": "stmt_021", "type": "cancel_pending_tasks" }
 ```
 
 ```python
-# stmt_021 — cancel_pending_tasks  ⚠ GAP 2: confirm no extra fields
+# stmt_021 — cancel_pending_tasks
 task.unique("pistoncore_{uuid}", kill_me=True)
 ```
 
@@ -1089,7 +1135,9 @@ definitions, error code conventions, and base error codes.
 | `BREAK_OUTSIDE_LOOP` | error | `break` statement outside a loop context |
 | `EVERY_INSIDE_BODY` | warning | `every` statement nested inside logic, not as piston trigger |
 | `WAIT_UNTIL_PAST_TIME` | warning | `wait until [time]` with no user timeout — defaulting to 1 hour |
-| `ON_EVENT_SCHEMA_MISSING` | error | `on_event` encountered — GAP 1 not resolved, cannot compile |
+| `ON_EVENT_SCHEMA_MISSING` | error | `on_event` encountered — GAP 1 not resolved, cannot compile (retired — GAP 1 resolved Session 24) |
+| `ON_EVENT_BLOCKING` | warning | `on_event` compiled as blocking wait — always emitted. True async not available in HA. |
+| `SWITCH_FALLTHROUGH_UNSUPPORTED` | warning | `switch` with `case_traversal_policy: "fallthrough"` — Python has no native fallthrough, compiled as safe (auto-break) |
 | `PYSCRIPT_REQUIRED` | error | PyScript-forcing statement in a native_script piston — should not happen in normal flow, treat as bug |
 
 ---
@@ -1214,5 +1262,4 @@ def pistoncore_d4e2f9a1(trigger_type=None, var_name=None, value=None, old_value=
 
 *End of PYSCRIPT_COMPILER_SPEC.md*
 
-*Gaps to resolve before coding: see Section 0 — six items.*
-*When all gaps are resolved, remove the "DO NOT CODE" status line at the top of this document.*
+*All gaps resolved Session 24. Spec is ready to code from.*

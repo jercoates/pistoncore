@@ -1094,7 +1094,7 @@ These affect the wizard but are not yet decided:
 5. **Simulator / step-through dry run** — WebCoRE had this. PistonCore v1 uses Test button. Full step-through is v2.
 6. **"followed by" sequence operator** — excluded from v1 per DESIGN.md. No HA equivalent exists.
 7. **Expression editor for advanced value inputs** — WebCoRE let advanced users type expressions. PistonCore v1 uses structured inputs only. Expression editor is v2.
-8. **WIZARD_SPEC.md needs full update** — wizard output model still partially references old concepts. Full update to reflect structured JSON output model needed before wizard coding resumes.
+8. **on_event wizard warning required** — when a user adds an `on_event` block, the wizard must display a clear warning explaining that it compiles to a blocking wait, not true async behavior. See STATEMENT_TYPES.md Section 10 for the required warning text and DESIGN.md Section 32 open item 7. This is the one remaining wizard behavior not yet implemented.
 
 ---
 

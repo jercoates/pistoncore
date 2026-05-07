@@ -934,7 +934,10 @@ Render functions live entirely in the frontend JavaScript. The backend never ren
 
 ### Render Functions Are Also Used for Export
 
-When exporting a piston as a Snapshot (shared format), the backend calls the same render logic to produce the `piston_text` field. This guarantees the shared format always matches exactly what the editor displays — they use the same render path.
+When exporting a piston as a Snapshot (shared format), the frontend render functions
+produce the display text shown in the Snapshot preview. The Snapshot itself is structured
+JSON — not piston_text. Render functions are used for display only, not as the export format.
+piston_text is retired as a v1 format — see Section 6.2.
 
 ### Reference
 
@@ -1535,22 +1538,25 @@ Write the prompts only after the Snapshot JSON import flow is tested end-to-end.
 - Help an AI write a PyScript template
 - Help an AI explain what an existing piston does
 
-### COMPILER_SPEC.md and AI-REVIEW-PROMPT.md — Stale, Must Update
+### COMPILER_SPEC.md — Current (updated through Session 24)
 
-**COMPILER_SPEC.md** was written against the old architecture (references companion, uses old schema_version, assumes hardcoded compile target boundary). It is the primary blocker for compiler coding. It must be updated before any compiler work begins. Do not write compiler code against the current COMPILER_SPEC.md.
-
-**AI-REVIEW-PROMPT.md** references the old single-Docker architecture. It should be updated to reflect the two-product architecture and the closed decisions from the 28-item list so external AI reviewers don't relitigate them.
+COMPILER_SPEC.md has been updated through Session 24. Field names, global_variables
+structure, and output format are current. The companion references and old schema_version
+fields noted as stale in earlier sessions have been removed. Compiler coding proceeds
+against the current spec.
 
 ---
 
 ## 32. Open Items Blocking Coding
 
-1. **COMPILER_SPEC.md** — must be updated before compiler work begins. See Section 31 for what is stale.
+1. **COMPILER_SPEC.md** — current as of Session 24. No longer blocking.
 2. **AI-REVIEW-PROMPT.md** — update to reflect current architecture before next external review.
-3. **settings / end settings block contents** — research WebCoRE behavior, define before implementing
-4. **AI Prompt feature** — write-a-piston.md content, UI modal (see FRONTEND_SPEC.md)
-5. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step
-6. **Timer statement** — evaluate overlap with HA scheduler before including in v1
+3. **settings / end settings block contents** — research WebCoRE behavior, define before implementing.
+4. **AI Prompt feature** — write-a-piston.md content, UI modal (see FRONTEND_SPEC.md).
+5. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step.
+6. **Timer statement** — evaluate overlap with HA scheduler before including in v1.
+7. **on_event wizard warning** — wizard must display blocking behavior warning when user adds on_event block. See STATEMENT_TYPES.md Section 10.
+8. **on_event user documentation** — "PistonCore can't do this because HA can't do it" section needed in user docs covering on_event async limitation.
 
 ---
 
@@ -1601,6 +1607,9 @@ Full code audit against specs. Major field name alignment pass across wizard.js,
 
 ### Session 22 — May 2026
 Major share format decision: piston_text retired as v1 share/AI format. Snapshot JSON (structured JSON with empty device_map) is now the single share format for community sharing, AI generation, and WebCoRE migration. Reasons: (1) eliminates the fragile piston_text parser on import, (2) large LLMs generate structured JSON reliably when given a clear schema, (3) Snapshot JSON is already the internal format — no conversion needed on import, only role mapping. piston_text deferred to v2 as a possible human-writable convenience format. Two AI prompt files planned: write-a-piston.md (generate new piston) and migrate-from-webcore.md (convert WebCoRE screenshot). Both target Snapshot JSON output. AI_PROMPT_SPEC.md created to define requirements before prompts are written. DESIGN.md Sections 6.2–6.7 rewritten. FRONTEND_SPEC.md import dialog updated. Session prompt updated.
+
+### Session 24 — May 2026
+compiler.py field name alignment pass — all field names brought in line with PISTON_FORMAT.md and COMPILER_SPEC.md. Fixed: devices/ha_service/parameters in with_block; duration+duration_unit in wait; conditions array in if/while/repeat/wait_for_state; list_role+variable+statements in for_each; start+end+counter_variable+statements in for; description+statements in do; expression+cases[].statements+default in switch; variable+value operand object in set_variable; message operand object in log_message. New _resolve_operand() helper added. PYSCRIPT_COMPILER_SPEC.md created and all 6 gaps resolved: on_event schema defined (blocking wait — HA limitation documented), global_variables array structure defined in COMPILER_SPEC.md Section 7, list_role/until_conditions/cancel_pending_tasks/switch schemas confirmed. STATEMENT_TYPES.md Section 10 (on_event) rewritten with full schema, limitation notice, wizard warning requirement, and ON_EVENT_BLOCKING compiler warning. Stale piston_text and COMPILER_SPEC stale references cleaned up across DESIGN.md and STATEMENT_TYPES.md.
 
 ---
 

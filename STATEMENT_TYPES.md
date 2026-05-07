@@ -24,7 +24,8 @@ projection from that structure. Rendered labels like `then`, `end if`, `when tru
 
 The editor calls a render function per statement type. The render function receives
 the structured JSON object and returns display text. The same render functions are
-used for editor display AND for generating piston_text on export/snapshot.
+used for editor display AND for the Snapshot preview on export. piston_text is retired
+as a v1 format — render functions produce display text only, not an export format.
 
 ---
 
@@ -523,41 +524,115 @@ with basic time_pattern only.
 
 ## 10. on_event (PyScript only)
 
+### HA Limitation — Read Before Using
+
+**`on_event` in PistonCore compiles to a blocking wait, not a true async listener.**
+
+In WebCoRE (Hubitat), `on_event` ran as a genuinely asynchronous background listener —
+the piston body continued executing while `on_event` watched for device activity
+independently. **Home Assistant cannot replicate this behavior.**
+
+In PistonCore, `on_event` compiles to `task.wait_until()` in PyScript — the piston
+**pauses at that point** until one of the specified device events fires, then runs the
+statements and continues. The rest of the piston does not run in parallel.
+
+**What this means in practice:**
+- Tracking last-active time, capturing `$currentEventDevice`, reacting to the next
+  device event — these all work correctly.
+- A piston that does other work while simultaneously watching for device events in the
+  background — **this cannot be done in HA**. It is an HA platform limitation, not a
+  PistonCore limitation.
+
+**Required wizard warning:** When a user adds an `on_event` block, the wizard must
+display a clear warning explaining the blocking behavior and that true async listening
+is not available in HA. This must also be documented in the PistonCore user docs under
+a "PistonCore can't do this — because HA can't do it" section.
+
+**Required compiler warning:** `CompilerWarning` with code `ON_EVENT_BLOCKING` must
+always be emitted when compiling an `on_event` statement, regardless of context.
+
+---
+
 ### JSON Schema
 
 ```json
 {
   "id": "stmt_010",
   "type": "on_event",
-  "events": [
+  "conditions": [
     {
-      "id": "event_001",
+      "id": "cond_001",
+      "is_trigger": true,
+      "aggregation": "any",
       "role": "Doors",
       "attribute": "contact",
+      "attribute_type": "binary",
+      "device_class": "door",
       "operator": "changes to",
-      "value": "open"
+      "display_value": "Open",
+      "compiled_value": "on",
+      "group_operator": "and"
     }
   ],
+  "condition_operator": "and",
   "statements": [],
   "description": null,
   "disabled": false
 }
 ```
 
+**Fields:**
+- `conditions` — standard condition objects (same schema as `if`, `while`, `repeat`).
+  `is_trigger: true` on these conditions — they watch for device state changes.
+- `condition_operator` — `"and"` / `"or"` connecting multiple conditions
+- `statements` — child statement IDs (flat array, ID references per PISTON_FORMAT.md)
+
+**System variables available inside `on_event` statements:**
+
+| Variable | Meaning | PyScript source |
+|---|---|---|
+| `$currentEventDevice` | Entity ID of the device that fired | `var_name` from kwargs |
+| `$currentEventValue` | New state value that fired | `value` from kwargs |
+| `$currentEventAttribute` | Attribute that changed | derived from condition |
+
 ### Editor Render
 
 ```
-on events from
-  Any of {Doors}'s contact changes to Open
+on events
+  ⚡ Any of {Doors}'s contact changes to Open
 do
   [statements]
 end on;
 ```
 
+With blocking warning shown inline in the editor:
+```
+⚠ Blocks until event fires — not async
+```
+
 ### Compiler Output
 
 PyScript only. Forces PyScript compilation via target-boundary.json.
-Native HA script compilation raises CompilerError.
+Native HA script compilation raises CompilerError with code `PYSCRIPT_REQUIRED`.
+
+```python
+# stmt_010 — on_event: any of Doors changes to Open
+# ⚠ BLOCKING: piston pauses here until event fires (HA limitation — not truly async)
+result = task.wait_until(
+    state_trigger=[
+        "binary_sensor.front_door_contact == 'on' and binary_sensor.front_door_contact.old != 'on'",
+        "binary_sensor.back_door_contact == 'on' and binary_sensor.back_door_contact.old != 'on'"
+    ],
+    timeout=None   # waits indefinitely by default — user can set timeout via description field
+)
+var_name = result.get("var_name")
+value = result.get("value")
+# [compiled child statements — $currentEventDevice resolves to var_name]
+```
+
+**Timeout:** `on_event` has no user-facing timeout field in v1. It waits indefinitely.
+This is intentional — adding a timeout UI is a v2 feature. The compiler emits
+`CompilerWarning` with code `ON_EVENT_BLOCKING` on every compile.
 
 ---
 

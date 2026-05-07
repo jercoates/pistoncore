@@ -18,41 +18,14 @@
 
 ---
 
-## Project Status — Session 23 Complete
+## Project Status — Session 24 Complete
 
-### What Was Done in Session 22
-
-Two things: completed the code field name alignment pass started in Session 21,
-and made a major share format architecture decision.
-
-**Code alignment pass — completed:**
-All old type names and field names eliminated from wizard.js, editor.js,
-status.js, compiler.py, api.js. Every file now uses spec-correct names.
-See Session 21 commit for the full change list.
-
-**Share format decision — piston_text retired:**
-piston_text is no longer the v1 share/AI format. Snapshot JSON (structured
-JSON with empty device_map arrays) is now the single share format for
-community sharing, AI generation, and WebCoRE migration. piston_text deferred
-to v2 or dropped entirely.
-
-**Files updated:**
-- `DESIGN.md` — Sections 6.2–6.7 rewritten, dev log updated through Session 22
-- `FRONTEND_SPEC.md` — Import dialog rewritten, piston_text parser removed,
-  role mapping step specced with UI mockup
-- `AI_PROMPT_SPEC.md` — NEW FILE. Specifies requirements for both AI prompt
-  files before they are written. Includes WebCoRE → PistonCore mapping table
-  and test criteria.
-
----
-
-## What Was Done in Session 23 (Current)
+### What Was Done in Session 23
 
 - TASKS.md created — all work organized into Stage 1 through Stage 4 with
   round-trip verification as the milestone goal
 - COMPILER_SPEC.md reviewed — confirmed already updated, no companion refs,
-  correct field names, target-boundary.json specced. One fix: removed one-click
-  convert button reference from Section 2 (read-only indicator per DESIGN.md 3.1)
+  correct field names, target-boundary.json specced
 - S1-1 marked done
 - Companion stub identified in api.py (_send_to_companion) and backend/README.md
   via external Grok review — added to S1-4 cleanup task
@@ -61,9 +34,51 @@ to v2 or dropped entirely.
 
 ---
 
+## What Was Done in Session 24 (Current)
+
+**compiler.py field name alignment — completed:**
+All field names in compiler.py brought in line with PISTON_FORMAT.md,
+COMPILER_SPEC.md, and STATEMENT_TYPES.md. Every method now reads spec-correct
+field names. New `_resolve_operand()` helper added to handle the PISTON_FORMAT.md
+operand object schema. See Session 24 commit for full change list.
+
+**PYSCRIPT_COMPILER_SPEC.md — written and complete:**
+New spec file. All 6 gaps resolved this session:
+- GAP 1: `on_event` schema defined — blocking wait (HA limitation, not truly async)
+- GAP 2: `cancel_pending_tasks` schema confirmed — trivial, no extra fields
+- GAP 3: `list_role` field name confirmed by STATEMENT_TYPES.md
+- GAP 4: `until_conditions` confirmed as standard condition object array
+- GAP 5: `global_variables` array structure defined in COMPILER_SPEC.md Section 7
+- GAP 6: `switch` schema confirmed, full PyScript handler written
+Status: READY TO CODE.
+
+**COMPILER_SPEC.md — Section 7 expanded:**
+`global_variables` array structure fully defined. Fields: `id`, `name`,
+`display_name`, `type`, `helper_entity_id` (null for Device/Devices), `entity_ids`
+(Device/Devices only). Type→helper domain mapping table added.
+
+**STATEMENT_TYPES.md — Section 10 (on_event) rewritten:**
+Full schema using standard condition objects. Blocking wait limitation documented.
+Wizard warning requirement added. `ON_EVENT_BLOCKING` compiler warning code defined.
+System variables table added (`$currentEventDevice`, `$currentEventValue`,
+`$currentEventAttribute`).
+
+**Spec cleanup across all documents:**
+- DESIGN.md: stale COMPILER_SPEC warning removed, piston_text render reference
+  fixed, Session 24 dev log added, open items 7 and 8 added (on_event wizard
+  warning, on_event user docs)
+- FRONTEND_SPEC.md: piston_text reference fixed, `actions` → `statements`
+  field name fixed
+- WIZARD_SPEC.md: open item 8 updated — spec is current, one remaining item
+  is on_event wizard warning implementation
+- STATEMENT_TYPES.md: piston_text render reference fixed
+- MISSING_SPECS.md: items 1 and 9 marked resolved, DONE section added
+
+---
+
 ## What Still Needs to Be Done
 
-All work is now tracked in TASKS.md. Read that file at the start of every session.
+All work is tracked in TASKS.md. Read that file at the start of every session.
 This section is a brief summary only — TASKS.md is the authority.
 
 **Overall goal:** Clean round-trip on one simple piston before any feature work.
@@ -71,9 +86,10 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
 
 ### Stage 1 — Structural Fixes (current stage, do in order)
 
-- **S1-2:** Flat statements array refactor — wizard.js, editor.js, compiler.py
-  all still use nested objects. Must be converted to flat array + ID references
-  per PISTON_FORMAT.md. Upload all three files. Dedicated session.
+- **S1-2:** Flat statements array refactor — editor.js and compiler.py still
+  use nested objects. Must be converted to flat array + ID references per
+  PISTON_FORMAT.md. wizard.js already writes correct format at creation time —
+  does not need changes. Dedicated session. Upload editor.js and compiler.py.
 - **S1-3:** Backend audit — upload main.py and api.py, produce written gap list.
   No code written this session.
 - **S1-4:** Backend cleanup — remove _send_to_companion() stub, remove all
@@ -110,7 +126,8 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
   with empty device_map arrays and role name placeholders
 - AI prompts target Snapshot JSON output — no text parsing on import
 - Device globals baked at compile time (no runtime lookup)
-- Non-device globals as HA input helpers
+- Non-device globals as HA input helpers backed by UUID-based entity IDs
+- Global variables use `@` prefix, piston variables use `$` prefix
 - Frontend never calls HA directly — always through backend
 - BASE_URL required on every connection — no hardcoded paths
 - UUID-based file naming — never slug-based
@@ -122,23 +139,26 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 - device_map values are always arrays, even for single-device roles
 - Statement IDs: `stmt_` + 8 char lowercase hex
 - Statements array is FLAT per spec — child references by ID (not yet
-  implemented in code — this is Priority 1 structural work)
+  implemented in code — this is S1-2 structural work)
+- `on_event` compiles to blocking wait in PyScript — true async is not possible
+  in HA. This is an HA platform limitation. Wizard must warn users. See
+  STATEMENT_TYPES.md Section 10.
 
 ---
 
-## Known Code vs Spec Gaps (Post Session 23)
+## Known Code vs Spec Gaps (Post Session 24)
 
 **Structural (S1-2 — not yet fixed):**
 - Flat statements array not implemented — code still uses nested objects
-- editor.js tree walking functions assume nested model
-- wizard.js writes nested objects for control flow blocks
-- compiler.py reads nested structure
+- editor.js tree walking functions assume nested model (`_findNode`, `_removeNode`,
+  `_insertAfter`, `_actionLines` all recurse into nested child arrays)
+- compiler.py reads nested structure — when S1-2 is done, compiler needs a
+  lookup map built from the flat array before walking the tree
 
 **Backend cleanup (S1-4 — not yet done):**
 - _send_to_companion() stub still in api.py — must be removed
 - Companion references still in api.py comments and backend/README.md
 - BASE_URL injection missing
-- piston_text references may exist
 - device_map list format handling unverified
 - Snapshot export not yet correctly implemented
 - Role mapping on import not yet implemented
@@ -148,6 +168,11 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 **Deploy (S1-5 — not yet implemented):**
 - No real HA file write exists — companion stub was placeholder
 - automation.reload and script.reload not yet called from deploy endpoint
+
+**Wizard (deferred):**
+- on_event wizard warning not yet implemented — must warn users that on_event
+  is a blocking wait, not true async. See STATEMENT_TYPES.md Section 10 and
+  DESIGN.md Section 32 open item 7.
 
 **Minor (low priority):**
 - STATEMENT_TYPES.md Section 16 missing header line
@@ -160,11 +185,14 @@ When specs conflict, this is the resolution order:
 1. DESIGN.md — philosophy and architecture decisions
 2. PISTON_FORMAT.md — canonical data format
 3. STATEMENT_TYPES.md — statement-level schemas and render output
-4. COMPILER_SPEC.md — compiler behavior (updated Session 23 — current)
-5. FRONTEND_SPEC.md — frontend behavior
-6. WIZARD_SPEC.md — wizard behavior
-7. HA_LIMITATIONS.md — known HA gotchas
-8. AI_PROMPT_SPEC.md — AI prompt file requirements
+4. COMPILER_SPEC.md — compiler behavior (updated Session 24 — current)
+5. PYSCRIPT_COMPILER_SPEC.md — PyScript compiler (written Session 24 — current)
+6. FRONTEND_SPEC.md — frontend behavior (updated Session 24 — current)
+7. WIZARD_SPEC.md — wizard behavior (updated Session 24 — current)
+8. HA_LIMITATIONS.md — known HA gotchas
+9. AI_PROMPT_SPEC.md — AI prompt file requirements
+
+---
 
 ## Build Target — Docker Now, Addon Last
 

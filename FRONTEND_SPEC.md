@@ -36,8 +36,9 @@ projection from that structure. This rule has no exceptions.**
 
 The editor never stores display text. It never reads display text. It renders display
 text from structured JSON on every paint using render functions defined in
-STATEMENT_TYPES.md. The same render functions produce the `piston_text` field on
-export — guaranteeing the export always matches exactly what the editor shows.
+STATEMENT_TYPES.md. The same render functions produce the Snapshot preview on export —
+guaranteeing the preview always matches exactly what the editor shows. The Snapshot
+export format is structured JSON, not piston_text. piston_text is not a v1 format.
 
 **Rendered labels are never editable nodes.** Labels like `then`, `end if;`, `end with;`,
 `when true`, `when false`, `end repeat;` are display artifacts produced by render
@@ -516,7 +517,7 @@ If the WebSocket connection to HA drops:
 
 This is the core of the editor. It renders the piston's action tree as a structured document.
 
-The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the frontend. **execute and end execute are not data nodes in the JSON.** The JSON `actions` array is the execute body.
+The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the frontend. **execute and end execute are not data nodes in the JSON.** The JSON `statements` array is the execute body.
 
 ### Visual Rules — Match WebCoRE Exactly
 

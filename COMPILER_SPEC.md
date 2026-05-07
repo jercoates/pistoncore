@@ -201,12 +201,72 @@ HA calls of its own.
     "services":           { ... },   # available services for referenced domains
     "ha_version":         "2025.6",  # detected HA version string
     "pistoncore_version": "1.0",
-    "global_variables":   [ ... ],   # all defined globals with type and helper entity_id
+    "global_variables":   [ ... ],   # all defined globals — see structure below
     "piston_variables":   [ ... ],   # variables defined in this piston's variables[] array
     "areas":              { ... },   # area_id → area name
     "zones":              [ ... ],   # all HA zones
 }
 ```
+
+### global_variables Array Structure
+
+Each entry in `global_variables` describes one PistonCore global variable. The compiler
+looks globals up by `name` after stripping the `@` prefix from a reference like `@message_of_the_day`.
+
+```json
+"global_variables": [
+  {
+    "id": "a3f8c2d1",
+    "name": "message_of_the_day",
+    "display_name": "Message of the Day",
+    "type": "Text",
+    "helper_entity_id": "input_text.pistoncore_a3f8c2d1"
+  },
+  {
+    "id": "b7e2f941",
+    "name": "motion_count",
+    "display_name": "Motion Count",
+    "type": "Number",
+    "helper_entity_id": "input_number.pistoncore_b7e2f941"
+  },
+  {
+    "id": "c1d4e823",
+    "name": "announcement_speakers",
+    "display_name": "Announcement Speakers",
+    "type": "Devices",
+    "helper_entity_id": null,
+    "entity_ids": ["media_player.kitchen_sonos", "media_player.living_room_sonos"]
+  }
+]
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | 8-char hex UUID. Stable — never changes even if variable is renamed. |
+| `name` | string | Bare name without `@`. Lowercase, underscores only. This is the lookup key. |
+| `display_name` | string | Shown in the UI. Can contain spaces and capitals. |
+| `type` | string | `"Text"`, `"Number"`, `"Yes/No"`, `"Date/Time"`, `"Device"`, `"Devices"` |
+| `helper_entity_id` | string or null | Full HA entity ID of the backing input helper. Format: `input_{domain}.pistoncore_{id}`. `null` for Device/Devices globals — those are compile-time expansion only, no runtime helper. |
+| `entity_ids` | array or null | Present only for `Device` and `Devices` types. List of HA entity IDs baked in at compile time. `null` for all other types. |
+
+**Type → HA input helper domain mapping:**
+
+| `type` | HA helper domain | `helper_entity_id` format |
+|---|---|---|
+| `Text` | `input_text` | `input_text.pistoncore_{id}` |
+| `Number` | `input_number` | `input_number.pistoncore_{id}` |
+| `Yes/No` | `input_boolean` | `input_boolean.pistoncore_{id}` |
+| `Date/Time` | `input_datetime` | `input_datetime.pistoncore_{id}` |
+| `Device` | — (compile-time only) | `null` |
+| `Devices` | — (compile-time only) | `null` |
+
+**Device/Devices globals** are expanded at compile time from `entity_ids` — no runtime
+lookup occurs. When a device global changes, all pistons referencing it must be redeployed.
+The `pc_globals_used` header line enables the backend to find all affected pistons.
+
+**Non-device globals** use HA input helpers as backing store. The compiler reads or writes
+them via the appropriate HA service call. The `helper_entity_id` is always UUID-based —
+never name-based — so renaming a global never breaks deployed pistons.
 
 Templates receive all of this on every compile. They use what they need and ignore the rest.
 

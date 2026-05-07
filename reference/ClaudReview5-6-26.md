@@ -336,3 +336,80 @@ The current compiler will not produce working HA output. The bugs are not subtle
 The good news: every one of these bugs is fixable with localized changes. None require architectural rework. The compiler structure (Jinja2 templates, dispatch by statement type, fat context idea) is sound. It's the implementation of individual statement compilers and the trigger-source assumption that's wrong.
 
 The honest news: S1-2 + S1-3 + S1-4 + S1-5 as currently scoped won't get you to working compiled output. There's a missing stage — call it S1-6 or fold it into S2 — that's specifically "fix the compiler output bugs identified by code review against COMPILER_SPEC v1.0." That's probably 3-5 sessions of focused work, not one. The chicken-lights piston is a great forcing function: until it compiles to YAML that HA accepts on reload and behaves correctly, the compiler is not done.
+
+
+What's Good
+Section 1 (TASKS.md Upload Lines) is exactly right. The Upload-line policy with always-load + per-task spec files removes a real source of wasted session time. The mapping table is correct.
+
+Section 2 captures all four of my Design Claude points accurately. S1-2c verification step, write-a-piston.md tracking, Error States priority bump, day-of-week confirmation — all addressed.
+
+Section 5 (S1-6 fat compiler context) is well scoped. Failure-handling rules are specific (abort vs degrade by data type), location is decided (not in api.py), and it's properly gated behind S1-5. Good.
+
+Section 7 (S1-7 compiler bugs) captures the inventory faithfully. All 28 bugs present, severity tiers preserved, fix order matches what I recommended. The "S1-2 is necessary but not sufficient" framing is correct and important.
+
+Section 8 (Editor Render-Back) is the most important addition in this whole document. The forward/backward round-trip framing is correct, and the verification table for S1-2b is the right discipline. The "silent failures are not acceptable" rule with the visible error placeholder is the right call. This single section probably saves a future session of mystery debugging.
+
+Section 10 (Wizard Pre-Population Bugs A/B/C) is real, specific, and fixable. These three bugs together explain a known render-back failure mode. Good that they're captured with concrete code fixes.
+
+Concerns
+9a. piston_text safety net — sound idea, but the rule needs one more line
+Section 9 reintroduces piston_text as a temporary safety net. The rules are right — JSON wins, never parsed, frontend-only, removed after S3-1 verification. Good.
+
+But add one more rule: "If the editor fails to render a statement, piston_text for that piston is not regenerated until the render is fixed." Otherwise, you get a piston where JSON has 18 statements, editor renders 17, and piston_text shows 17 — and the user thinks the missing one was deleted. The safety net should fail loudly when render fails, not silently mask the problem.
+
+Also worth being explicit: piston_text is generated post-render, from what the editor actually rendered, not from a parallel render path. If editor and piston_text use different render code, they will drift.
+
+9b. Bug 15 verification claim is overstated
+Section 7 Bug 15 says "Check that _compile_switch_block and _compile_do_block pass _append_completion_event=False." I flagged this as unverified because the file truncated. The handoff treats it as a confirmed bug. It might be fine in the actual code. Mark it "verify, fix if broken" — not a confirmed bug to fix.
+
+9c. S1-7 sequencing has a hidden dependency
+S1-7 fixes are listed as "after S1-6, before S2-0." But Bug 1 (triggers from is_trigger conditions in statements) cannot be fixed correctly until S1-2 lands — because the trigger compiler walks the statements array, and the statements array structure changes in S1-2. So the fix order is really:
+
+S1-2a/b/c (statements array) → S1-7 session 1 (trigger compiler depends on flat array) → S1-5 (deploy can write something correct) → S1-6 (real context) → S1-7 session 2 (template conditions) → S2-0
+
+The handoff orders it S1-5 → S1-6 → S1-7. That means S1-5 will write empty-trigger automations to a real HA instance. Worth flipping S1-5/S1-6 and S1-7 session 1 — fix triggers and condition indentation before writing anything to HA, even for testing.
+
+9d. Item 14 (Time Condition Compiler Path) is missing scope detail
+Section 7 mentions adding Item 14 to MISSING_SPECS.md but doesn't define what the spec needs to cover. At minimum:
+
+Time is between X and Y as a condition (no trigger)
+Time is X as a condition
+$now operand handling in time conditions
+$sunrise/$sunset with offsets in time conditions
+Day-of-week conditions (overlaps with S4-12)
+Without scope, the spec when written might miss cases. Worth a one-line bullet list under Item 14 in MISSING_SPECS.md.
+
+9e. Section 3a (STATEMENT_TYPES.md Section 16 missing header) — already known, no change
+This is the third time it's been listed as "fix anytime, takes 30 seconds." It's been carried for two sessions. Either fix it as the literal first line of Session 25 or stop listing it — the to-do drag is real.
+
+9f. The handoff is missing an item: Bug 18 ($currentEventDevice) and on_event spec interaction
+Bug 18 says native compiler must error if $currentEventDevice appears. STATEMENT_TYPES.md Section 10 says on_event is PyScript-only. So $currentEventDevice should be unreachable from a native compile target. But the chicken-lights piston in the repo uses it as a trigger context — which means a native automation referencing $currentEventDevice from a state trigger should actually work (HA exposes trigger.entity_id).
+
+So Bug 18's fix is more nuanced: $currentEventDevice resolves to:
+
+{{ trigger.entity_id }} in a native automation (when used inside an action triggered by a state trigger)
+var_name in PyScript on_event handlers
+ERROR if used outside any trigger context in a native compile
+The current Bug 18 description says "raise CompilerError if it appears in a native script piston" — that's wrong for automations. Worth refining before S1-7.
+
+What's Missing
+A test-piston inventory section. S1-7 says "chicken-lights is the forcing function." But what about:
+
+A piston that uses every condition operator
+A piston that uses every wait variant
+A piston that uses parallel + with-block + multi-device role
+A piston with deeply nested if/while/repeat
+You can't prove the compiler works on the broad surface with one test case. The handoff should call out that S1-7 needs a small test-piston suite (5-6 hand-written JSON files), and adding them is part of S1-7 session 1, not deferred.
+
+A note about deferred validation tests in HA_LIMITATIONS. D-1, D-5, D-6, D-7 are deferred-validation items that need real HA testing. The handoff doesn't say when those get scheduled. If they sit forever, S3-1 will pass on paper but real users will hit those edge cases. Worth one line in TASKS.md saying "S3-2: Deferred validation testing — work through HA_LIMITATIONS deferred items against real HA."
+
+Bottom Line
+The handoff is solid and Session 25 is well-prepared. Six small refinements would make it tighter:
+
+Add the "piston_text doesn't regenerate when render fails" rule to Section 9
+Mark Bug 15 as "verify, fix if needed" — not confirmed
+Reorder so triggers + condition indentation are fixed before any HA write (move part of S1-7 session 1 ahead of S1-5)
+Add scope bullets to MISSING_SPECS.md Item 14
+Refine Bug 18 to handle the native-trigger case properly
+Add a test-piston suite as part of S1-7 session 1
+None of these are blockers. They're all tightening, not redirection. Session 25 can start S1-2a as planned.

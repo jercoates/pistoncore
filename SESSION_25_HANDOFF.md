@@ -106,9 +106,9 @@ No new action needed — just confirming it was not missed.
 These were identified during Session 24 but not actioned:
 
 ### 3a. STATEMENT_TYPES.md Section 16 Missing Header Line
-Still present as a known minor issue. Fix it anytime — takes 30 seconds.
-Load STATEMENT_TYPES.md, find Section 16 (log_message), add the missing
-header line. Commit with the next batch of changes.
+**Fix this as the literal first action of Session 25, before anything else.**
+Load STATEMENT_TYPES.md, find Section 16 (log_message), add the missing header
+line. Commit it. Done. Do not carry this into Session 26.
 
 ### 3b. AI-REVIEW-PROMPT.md Still References Old Architecture
 DESIGN.md Section 32 open item 2 flags this. Not urgent — only needed
@@ -272,10 +272,10 @@ slug changes and every piston that calls it has a dead reference.
 **Bug 14 — Filename generation is also slug-based**
 Same issue as Bug 13 — filenames should be `pistoncore_{uuid}.yaml` not slug-based.
 
-**Bug 15 — Completion event may fire inside switch/do branches**
+**Bug 15 — Completion event may fire inside switch/do branches (VERIFY)**
 Check that `_compile_switch_block` and `_compile_do_block` pass
-`_append_completion_event=False` in recursive calls. A completion event inside
-a case block would fire mid-piston.
+`_append_completion_event=False` in recursive calls. Flagged as unverified —
+file truncated during review. May already be correct. Verify first, fix if broken.
 
 **Bug 16 — for_loop variable substitution is fragile text-replace**
 `compiled_body.replace(f"{{{{ {var_name} }}}}", ...)` — breaks if template
@@ -286,11 +286,19 @@ uses `{{var_name}}` (no spaces) or `{{ var_name|int }}` (with filter).
 — `state_attr` returns a string, not a datetime. Can't add timedelta to a string.
 Correct pattern: `as_datetime(state_attr('sun.sun', 'next_rising'))`.
 
-**Bug 18 — $currentEventDevice emits literal `var_name` in native YAML**
-`"$currentEventDevice": "var_name"` in the system variable map. This emits
-`{{ var_name }}` literally into compiled YAML. This is PyScript-only — compiler
-must check `compile_target` and raise CompilerError if it appears in a native
-script piston.
+**Bug 18 — $currentEventDevice resolution is wrong for native YAML**
+Current: emits `{{ var_name }}` literally — wrong in all contexts.
+The correct behavior depends on context:
+- In a native automation action triggered by a state trigger →
+  compiles to `{{ trigger.entity_id }}` (HA exposes this natively)
+- In a PyScript on_event handler → compiles to `var_name` (from kwargs)
+- Outside any trigger context in a native compile → CompilerError
+
+Current Bug 18 description "raise CompilerError if it appears in a native
+script piston" is too broad — it would break valid native automations that
+reference which entity triggered them. Fix must be context-aware, not a
+blanket error. Requires knowing whether the reference is inside a triggered
+action sequence or a general expression context.
 
 **Bug 19 — Yes/No global write has malformed YAML indentation**
 `default:` block in the `choose:` output is at wrong indent level. HA reload will fail.
@@ -351,6 +359,12 @@ addition before any piston using time conditions can compile correctly.
 
 Add to MISSING_SPECS.md: **Item 14 — Time Condition Compiler Path**
 Blocks: any piston using time-of-day conditions (very common).
+Must cover:
+- `Time is between X and Y` as a condition (not a trigger)
+- `Time is X` as a condition
+- `$now` operand handling in time conditions
+- `$sunrise`/`$sunset` with offsets in time conditions
+- Day-of-week conditions (overlaps with S4-12 — coordinate)
 
 ---
 
@@ -367,7 +381,12 @@ Move these out of "already handled" and into "known gaps" in HA_LIMITATIONS.md.
 
 ### Recommended Fix Order (After S1-2 Complete)
 
-**Before any HA write attempt (S1-7 session 1):**
+**Important sequencing note:** Bug 1 (trigger compilation) depends on the flat
+statements array from S1-2 being in place — the trigger compiler walks statements
+looking for `is_trigger: true`. Fix triggers BEFORE writing anything to HA.
+The correct order is:
+
+**S1-7 session 1 (before S1-5 — before any HA write):**
 1. Fix trigger compilation — read from `is_trigger: true` in statements
 2. Fix condition indentation in if/while/repeat/AND/OR
 3. Switch entity IDs and filenames from slug to UUID
@@ -376,7 +395,10 @@ Move these out of "already handled" and into "known gaps" in HA_LIMITATIONS.md.
 6. Add wait_for_trigger timeout fallback
 7. Add continue_on_error at parallel branch sequence level
 
-**Then (S1-7 session 2):**
+**Then S1-5 (HA direct write) — now writes something correct**
+**Then S1-6 (fat context assembly) — real data into compiler**
+
+**S1-7 session 2:**
 8. Build template-condition compiler per Section 11
 9. Add aggregation handling
 10. Multi-device with-blocks
@@ -390,10 +412,26 @@ Move these out of "already handled" and into "known gaps" in HA_LIMITATIONS.md.
 S1-2 is necessary but not sufficient. Even after the flat-array refactor,
 the compiler produces invalid HA output. A new stage is needed:
 
-**Add S1-7: Compiler Bug Fixes to TASKS.md** (after S1-6, before S2-0)
-3-5 sessions. Use this inventory as the task list. The chicken-lights piston
-is the forcing function — until it compiles to YAML that HA accepts on reload
-and behaves correctly, the compiler is not done.
+**Add S1-7: Compiler Bug Fixes to TASKS.md** (S1-7 session 1 before S1-5, S1-7 session 2 after S1-6)
+3-5 sessions. Use this inventory as the task list.
+
+**S1-7 session 1 must also include: build a test-piston suite.**
+The chicken-lights piston alone is not sufficient to prove the compiler works.
+Add 5-6 hand-written flat-format piston JSON files to a `tests/pistons/` folder:
+- A piston using every condition operator
+- A piston using every wait variant (duration, until, wait_for_state)
+- A piston using parallel + with-block + multi-device role
+- A piston with deeply nested if/while/repeat
+- A piston using for_each with dynamic attribute access
+- The chicken-lights piston itself
+
+These are the compiler test suite. All six must compile to valid HA YAML before
+S1-7 is marked done. Add building this suite as part of S1-7 session 1, not deferred.
+
+**Also add to TASKS.md:** S3-2: Deferred Validation Testing
+Work through D-1, D-5, D-6, D-7 from the DEFERRED section against real HA.
+Without this, S3-1 passes on paper but real users hit edge cases that were
+known risks and never tested. Schedule S3-2 immediately after S3-1 passes.
 
 
 ---
@@ -481,6 +519,14 @@ Remove after S3-1 round-trip testing confirms the editor renders reliably.
 - piston_text is never used to reconstruct a piston
 - It is human-readable only — a safety net so a user can read what their
   piston does even if the editor fails to render it
+- **piston_text is NOT regenerated if the editor fails to render any statement.**
+  If render fails, piston_text from the previous successful save is preserved.
+  A piston with 18 statements in JSON that only renders 17 must NOT produce a
+  piston_text with 17 statements — that would make the user think one was deleted.
+  The safety net must fail loudly, not silently mask the problem.
+- **piston_text is generated from the same render functions the editor uses —
+  not a parallel render path.** If editor and piston_text use different render
+  code they will drift. One render function, two consumers.
 
 ### Where It Lives
 

@@ -941,6 +941,11 @@ const Wizard = (() => {
       _context = 'if_condition';
       _extra = { 'block-id': ifBlockId };
     } else {
+      // Bug A fix: stamp _blockId on condition so editor can route it to the
+      // correct if block when context is if_condition on subsequent adds.
+      if (_context === 'if_condition' && _extra?.['block-id']) {
+        node._blockId = _extra['block-id'];
+      }
       Editor.insertStatement(_context, node);
       _sel = { statement_class:'condition' };
     }

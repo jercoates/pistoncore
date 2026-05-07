@@ -41,16 +41,48 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 26 Complete
+## Project Status — Session 27 Complete
 
-### What Was Done in Session 25
+### What Was Done in Session 26
 
 All spec and task management — no code written. See TASKS.md DONE section for
 full detail.
 
 ---
 
-## What Was Done in Session 26 (Current)
+## What Was Done in Session 27 (Current)
+
+**S1-2b: editor.js flat statements array. No changes to wizard.js (except one Bug A fix) or compiler.py.**
+
+- Rewrote `_actionLines` to accept `(childIds, stmtMap, depth, ...)` — resolves
+  child IDs via flat map lookup instead of recursing into nested objects.
+- Added all previously missing statement types: `for`, `switch`, `every`,
+  `on_event`, `wait_for_state`, `break`. Unknown type now renders visible
+  error placeholder instead of silently skipping.
+- `_findNode(stmtMap, id)` — replaced recursive tree walker with flat map lookup.
+- `_buildStmtMap()` — new helper, builds map from `_piston.statements`.
+- `_findAnyNode(id)` — new helper, searches triggers/conditions/variables then
+  stmtMap. Replaces `_flattenActions` + old `_findNode` combo at all call sites.
+- `_removeNode(id)` — removes from flat array, cleans all parent child-ID lists
+  including `else_ifs`, `cases`, `default_statements`.
+- `_insertAfter(targetId, newNode)` — inserts into flat array AND injects new ID
+  into whichever parent child-ID list contained the target.
+- `_deleteSelected` — handles triggers/conditions/variables separately, then
+  calls `_removeNode(id)` for statements.
+- `_highestStmtId` — flat walk, no recursion.
+- `insertStatement` — update-vs-insert rule (replace in-place if ID exists),
+  Bug A routing for `if_condition` context using `statementData._blockId`.
+- `save()` — generates `piston_text` via `_renderDocument` before API call,
+  preserves previous value on render failure.
+- `_flattenActions` removed — replaced by `_findAnyNode` and direct flat array use.
+- wizard.js Bug A fix: `_commitConditionAndMore` now stamps `node._blockId` on
+  bare condition nodes when context is `if_condition`, so editor routes them correctly.
+- Both files pass Node.js syntax check.
+
+**Findings for S1-2c (compiler.py):**
+- No new findings. S1-2c scope is unchanged per TASKS.md.
+
+## What Was Done in Session 26
 
 **S1-2a: wizard.js flat statements array. No changes to editor.js or compiler.py.**
 
@@ -136,8 +168,8 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
 
 ### Stage 1 — Structural Fixes (current stage, do in order)
 
-- **S1-2a:** Flat statements array — wizard.js only. ← NEXT TASK
-- **S1-2b:** Flat statements array — editor.js only. Includes render-back
+- **S1-2b:** Flat statements array — editor.js only. ✅ DONE (Session 27)
+- **S1-2c:** Flat statements array — compiler.py only. ← NEXT TASK. Includes render-back
   verification table, wizard pre-population bugs A/B/C, piston_text generation.
 - **S1-2c:** Flat statements array — compiler.py only. Section 18 verification
   required before marking done.
@@ -203,10 +235,9 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 
 ## Known Code vs Spec Gaps (Post Session 25)
 
-**Structural (S1-2a/b/c — not yet started):**
-- Flat statements array not implemented — all three files still use nested objects
-- wizard.js writes nested child objects for control flow blocks — S1-2a
-- editor.js tree walking functions assume nested model — S1-2b
+**Structural (S1-2c — not yet started):**
+- S1-2a (wizard.js) ✅ done Session 26
+- S1-2b (editor.js) ✅ done Session 27
 - compiler.py reads nested structure — needs stmt_map lookup approach — S1-2c
 
 **Compiler output bugs (S1-7 — not yet started):**

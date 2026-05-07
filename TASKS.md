@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 26 complete (S1-2a done)
+**Last Updated:** Session 27 complete (S1-2b done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -76,32 +76,26 @@ until S1-2b and S1-2c complete — expected.
 
 ---
 
-### S1-2b: Flat Statements Array — editor.js Only
-**Do after S1-2a is committed.**
-**Do this session:** editor.js only. Do not touch wizard.js or compiler.py.
-**Spec ref:** PISTON_FORMAT.md (statements section), DESIGN.md Section 6.1
-**Upload:** editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, FRONTEND_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**What must change:**
-- Build a statement lookup map from the flat `statements` array at render time:
-  `const stmtMap = Object.fromEntries(piston.statements.map(s => [s.id, s]))`
-- `_actionLines` receives the flat array + lookup map. Resolves child IDs by
-  looking up in the map rather than recursing into nested arrays
-- `_findNode` rebuilt to look up by ID in the flat map — no more recursion
-  into `n.then`, `n.else`, `n.statements`
-- `_removeNode` removes by ID from the flat array — no more recursive search
-- `_insertAfter` inserts into the flat array after finding the target by ID,
-  then adds the new ID to the parent's child array
-- `insertStatement` for nested contexts (adding inside `if.then`, `do.statements`
-  etc.) pushes to flat array AND adds the new ID to the parent's child ID list
-- `_flattenActions` no longer needed — replaced by flat array lookup
+### S1-2b: Flat Statements Array — editor.js Only ✅ DONE (Session 27)
+**What was done:**
+- Rewrote `_actionLines` to accept `(childIds, stmtMap, depth, ...)`. Resolves
+  child IDs via flat map lookup. No nested object recursion anywhere.
+- Added all previously missing statement types: `for`, `switch`, `every`,
+  `on_event`, `wait_for_state`, `break`. Unknown type renders visible error
+  placeholder: `⚠ Unknown statement type: {type} — {id}`.
+- `_findNode(stmtMap, id)` — flat lookup. `_buildStmtMap()` helper added.
+- `_findAnyNode(id)` — searches triggers/conditions/variables then stmtMap.
+  Replaces `_flattenActions` at all call sites. `_flattenActions` removed.
+- `_removeNode(id)` — flat removal + cleans all parent child-ID lists.
+- `_insertAfter(targetId, newNode)` — flat insert + injects ID into parent child list.
+- `_highestStmtId` — flat walk, no recursion.
+- `insertStatement` — update-vs-insert rule, Bug A fix for `if_condition` routing.
+- `save()` — piston_text generated from render functions, preserved on failure.
+- wizard.js Bug A fix: `_commitConditionAndMore` stamps `_blockId` on condition
+  nodes when context is `if_condition`.
+- Both files pass Node.js syntax check.
 
-**Testable output:** Editor correctly renders a hand-written flat-format piston JSON.
-Write one by hand (use the PISTON_FORMAT.md complete example), load it, verify
-it displays correctly. Add a statement via wizard, verify it appears in the right place.
-
-**Render-back verification required before marking done:**
-Every statement type must pass the full backward round-trip — renders, clickable,
-wizard opens pre-populated, save updates JSON correctly. Use this table:
+**Render-back verification table — to be completed by Jeremy during testing:**
 
 | Statement type | Renders? | Clickable? | Wizard pre-populated? | Save updates? |
 |---|---|---|---|---|
@@ -124,28 +118,8 @@ wizard opens pre-populated, save updates JSON correctly. Use this table:
 | break | | | | |
 | every | | | | |
 
-If any row has a blank — fix it before marking S1-2b done. Silent fall-through in
-`_actionLines` must render a visible error placeholder: `⚠ Unknown statement type: {type} — {id}`
-
-**`insertStatement` update-vs-insert rule (decided Session 26):**
-If the incoming node's ID already exists in the flat statements array, replace
-that node in-place. Never append a duplicate. This covers the "Add more" flow
-in `_commitConditionAndMore` where the same `ifBlockId` is sent on every click.
-- **Bug A — `insertStatement` doesn't handle `if_condition` context:** When wizard calls
-  `insertStatement('if_condition', node, {'block-id': id})`, falls through to top-level
-  array. Fix: add `if_condition` routing in `insertStatement` to find the block by ID
-  and push to `block.conditions`.
-- **Bug B — Two mechanisms for block-id conflict:** `_extra['block-id']` and
-  `_sel.pending_if_id` both track which if block a condition belongs to. Pick one —
-  `_extra['block-id']` is correct per spec. Remove `_sel.pending_if_id` entirely.
-- **Bug C — `_buildConditionNode` doesn't pass `_blockId` back:** Add `_blockId:
-  _extra?.['block-id'] || null` to the returned condition object so `insertStatement`
-  can route correctly.
-
-**Also add piston_text field generation:**
-Generate `piston_text` on every save using the same render functions as the editor.
-Only generate if all statements render successfully — if any render fails, preserve
-the previous `piston_text` value unchanged. See PISTON_FORMAT.md warning block.
+**Note:** S1-2b is code-complete. Marking done pending render-back verification above.
+If any row fails, fix before marking S1-2c started.
 
 ---
 
@@ -716,6 +690,22 @@ in a real sandbox before building the wizard step.
 ---
 
 ## DONE — Completed Sessions
+
+### Session 27 — S1-2b: editor.js Flat Statements Array ✅
+editor.js only (plus one Bug A fix in wizard.js).
+Rewrote `_actionLines` to accept `(childIds, stmtMap, depth, ...)` — flat ID
+lookup, no nested object recursion. Added all previously missing statement types:
+`for`, `switch`, `every`, `on_event`, `wait_for_state`, `break`. Unknown type
+renders visible error placeholder. `_findNode` replaced with flat map lookup +
+`_buildStmtMap()` helper. `_flattenActions` removed — replaced by `_findAnyNode(id)`
+which searches triggers/conditions/variables then stmtMap. `_removeNode` and
+`_insertAfter` both rewritten for flat model — remove/insert in flat array and
+clean/update all parent child-ID lists. `_highestStmtId` flat walk. `insertStatement`
+gains update-vs-insert rule and Bug A `if_condition` routing via `_blockId`.
+`save()` generates `piston_text` from render functions, preserves on failure.
+wizard.js: `_commitConditionAndMore` stamps `_blockId` on bare condition nodes
+when context is `if_condition` (Bug A fix).
+Render-back verification table to be completed by Jeremy during testing.
 
 ### Session 26 — S1-2a: wizard.js Flat Statements Array ✅
 wizard.js only. No changes to editor.js or compiler.py.

@@ -161,7 +161,8 @@ const Editor = (() => {
       if (!isSimple) gh('· add a new trigger or condition', 'trigger_or_condition', 2);
     }
 
-    _actionLines(p.statements || [], 1, lines, num, gh);
+    const stmtMap = Object.fromEntries((p.statements || []).map(s => [s.id, s]));
+    _actionLines((p.statements || []).map(s => s.id), stmtMap, 1, lines, num, gh);
 
     gh('· add a new statement', 'action', 1);
     ln(`<span class="kw">end execute;</span>`, 0);
@@ -169,8 +170,12 @@ const Editor = (() => {
     return lines.join('\n');
   }
 
-  // ── Recursive action renderer ────────────────────────────
-  function _actionLines(nodes, depth, lines, num, gh) {
+
+
+  // ── Flat action renderer ─────────────────────────────────
+  // childIds: array of statement IDs to render at this level
+  // stmtMap:  Object.fromEntries of the flat statements array
+  function _actionLines(childIds, stmtMap, depth, lines, num, gh) {
     const pad = Math.min(depth, 7);
 
     const ln = (html, indent, opts = {}) => {
@@ -183,7 +188,9 @@ const Editor = (() => {
       lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
     };
 
-    nodes.forEach(node => {
+    (childIds || []).forEach(cid => {
+      const node = stmtMap[cid];
+      if (!node) return; // dangling reference — skip silently
       const id = node.id || '';
       const t = node.type;
 
@@ -192,18 +199,18 @@ const Editor = (() => {
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
         ln(`<span class="kw">then</span>`, pad);
-        _actionLines(node.then || [], depth + 2, lines, num, gh);
+        _actionLines(node.then || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
         (node.else_ifs || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
           (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
           ln(`<span class="kw">then</span>`, pad);
-          _actionLines(eib.statements || [], depth + 2, lines, num, gh);
+          _actionLines(eib.statements || [], stmtMap, depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
-        if (node.else !== undefined) {
+        if (node.else !== undefined && node.else !== null) {
           ln(`<span class="kw">else</span>`, pad);
-          _actionLines(node.else || [], depth + 2, lines, num, gh);
+          _actionLines(node.else || [], stmtMap, depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
         }
         ln(`<span class="kw">end if;</span>`, pad);
@@ -212,7 +219,13 @@ const Editor = (() => {
         ln(`<span class="kw">with</span>`, pad, { id, type: t });
         (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.tasks || [], depth + 2, lines, num, gh);
+        // tasks are task objects embedded in the action node, not flat stmt IDs
+        (node.tasks || []).forEach(task => {
+          const params = task.parameters
+            ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
+            : '';
+          ln(`${_esc(task.service || task.command || 'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
+        });
         gh('· add a new task', 'task', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end with;</span>`, pad);
 
@@ -221,7 +234,7 @@ const Editor = (() => {
         const lv = _dr(node.list_role || '');
         ln(`<span class="kw">for each</span> (${dv} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end for each;</span>`, pad);
 
@@ -229,54 +242,99 @@ const Editor = (() => {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end while;</span>`, pad);
 
       } else if (t === 'repeat') {
         ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">until</span>`, pad);
         (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">end repeat;</span>`, pad);
 
+      } else if (t === 'for') {
+        const varPart = node.variable ? _dv('$', node.variable) : '<span class="doc-ph">$i</span>';
+        const fromPart = node.from !== undefined ? _esc(String(node.from)) : '<span class="doc-ph">from</span>';
+        const toPart   = node.to   !== undefined ? _esc(String(node.to))   : '<span class="doc-ph">to</span>';
+        const stepPart = node.step !== undefined && node.step !== 1 ? ` step ${_esc(String(node.step))}` : '';
+        ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end for;</span>`, pad);
+
+      } else if (t === 'do') {
+        ln(`<span class="kw">do</span>`, pad, { id, type: t });
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end do;</span>`, pad);
+
+      } else if (t === 'switch') {
+        const subjPart = node.variable ? _dv('$', node.variable) : (node.role ? _dr(node.role) : '<span class="doc-ph">[subject]</span>');
+        ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
+        (node.cases || []).forEach(c => {
+          ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
+          _actionLines(c.statements || [], stmtMap, depth + 3, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id });
+        });
+        if (node.default_statements !== undefined) {
+          ln(`<span class="kw">default:</span>`, pad + 1);
+          _actionLines(node.default_statements || [], stmtMap, depth + 3, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id });
+        }
+        ln(`<span class="kw">end switch;</span>`, pad);
+
+      } else if (t === 'every') {
+        const interval = node.interval !== undefined ? _esc(String(node.interval)) : '<span class="doc-ph">?</span>';
+        const unit = _esc(node.interval_unit || '');
+        ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end every;</span>`, pad);
+
+      } else if (t === 'on_event') {
+        const evtPart = node.event_name ? _esc(node.event_name) : '<span class="doc-ph">[event]</span>';
+        ln(`<span class="kw">on event</span> ${evtPart}`, pad, { id, type: t });
+        ln(`<span class="kw">do</span>`, pad);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
+        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        ln(`<span class="kw">end on event;</span>`, pad);
+
       } else if (t === 'wait') {
         const w = node.wait_type === 'duration'
-          ? `<span class="kw">wait</span> ${_esc(node.duration||'')} ${_esc(node.unit||'')};`
+          ? `<span class="kw">wait</span> ${_esc(String(node.duration||''))} ${_esc(node.duration_unit||node.unit||'')};`
           : node.wait_type === 'time'
           ? `<span class="kw">wait until</span> ${_esc(node.time||'')};`
+          : node.wait_type === 'state'
+          ? `<span class="kw">wait for state</span> ${_condLine(node.condition || {})};`
           : `<span class="kw">wait</span>;`;
         ln(w, pad, { id, type: t });
 
-      } else if (t === 'set_variable') {
-        ln(`<span class="kw">set variable</span> ${_dv('$', node.variable)} = ${_val(node.value)};`, pad, { id, type: t });
+      } else if (t === 'wait_for_state') {
+        ln(`<span class="kw">wait for state</span> ${_condLine(node.condition || {})};`, pad, { id, type: t });
 
-      } else if (t === 'action') {
-        // single-task action shorthand (written by action wizard directly)
-        const devLabel = (node.devices || []).join(', ') || '';
-        const task = (node.tasks || [])[0] || {};
-        const params = task.parameters
-          ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
-          : '';
-        ln(`<span class="kw">with</span> ${_dr(devLabel)} <span class="kw">do</span> ${_esc(task.command||'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad, { id, type: t });
+      } else if (t === 'set_variable') {
+        ln(`<span class="kw">set variable</span> ${_dv('$', node.variable || '')} = ${_val(node.value)};`, pad, { id, type: t });
 
       } else if (t === 'log_message') {
-        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message?.data||node.message||'')}"</span>;`, pad, { id, type: t });
+        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message?.data || node.message || '')}"</span>;`, pad, { id, type: t });
 
       } else if (t === 'exit') {
         ln(`<span class="kw">exit</span>${node.value !== undefined ? ' ' + _val(node.value) : ''};`, pad, { id, type: t });
 
-      } else if (t === 'call_piston') {
-        ln(`<span class="kw">execute piston</span> ${_esc(node.target_piston_name||node.target_piston_id||'')};`, pad, { id, type: t });
+      } else if (t === 'break') {
+        ln(`<span class="kw">break</span>;`, pad, { id, type: t });
 
-      } else if (t === 'do') {
-        ln(`<span class="kw">do</span>`, pad, { id, type: t });
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
-        ln(`<span class="kw">end do;</span>`, pad);
-        ln(_esc(node.description || node.label || node.type || '[statement]') + ';', pad, { id, type: t });
+      } else if (t === 'call_piston') {
+        ln(`<span class="kw">execute piston</span> ${_esc(node.target_piston_name || node.target_piston_id || '')};`, pad, { id, type: t });
+
+      } else {
+        // Unknown type — render a visible error placeholder, never silently skip
+        ln(`<span class="doc-err">⚠ Unknown statement type: ${_esc(t || '?')} — ${_esc(id)}</span>`, pad, { id, type: t || 'unknown' });
       }
     });
   }
@@ -361,13 +419,7 @@ const Editor = (() => {
     const stmt = e.target.closest('.doc-stmt');
     if (stmt) {
       _selectStmt(stmt.dataset.id);
-      const all = [
-        ...(_piston.triggers||[]),
-        ...(_piston.conditions||[]),
-        ...(_piston.variables||[]),
-        ..._flattenActions(_piston.statements||[]),
-      ];
-      const node = _findNode(all, stmt.dataset.id);
+      const node = _findAnyNode(stmt.dataset.id);
       if (node) _openWizardForEdit(node);
     }
   }
@@ -387,16 +439,15 @@ const Editor = (() => {
     }
   }
 
-  function _flattenActions(nodes) {
-    const result = [];
-    (nodes||[]).forEach(n => {
-      result.push(n);
-      if (n.then) result.push(..._flattenActions(n.then));
-      if (n.else) result.push(..._flattenActions(n.else));
-      if (n.statements) result.push(..._flattenActions(n.statements));
-      if (n.conditions) result.push(..._flattenActions(n.conditions));
-    });
-    return result;
+  // Search triggers, conditions, variables, and the flat statements array.
+  // Use this anywhere you need to find a node by ID regardless of which section it lives in.
+  function _findAnyNode(id) {
+    if (!id) return null;
+    const inArr = arr => (arr || []).find(n => n.id === id) || null;
+    return inArr(_piston.triggers) ||
+           inArr(_piston.conditions) ||
+           inArr(_piston.variables) ||
+           _findNode(_buildStmtMap(), id);
   }
 
   function _handleContextMenu(e) {
@@ -427,20 +478,13 @@ const Editor = (() => {
 
   function _editSelected() {
     if (!_selectedId) return;
-    const all = [
-      ...(_piston.triggers||[]),
-      ...(_piston.conditions||[]),
-      ...(_piston.variables||[]),
-      ..._flattenActions(_piston.statements||[]),
-    ];
-    const node = _findNode(all, _selectedId);
+    const node = _findAnyNode(_selectedId);
     if (node) _openWizardForEdit(node);
   }
 
   function _copySelected() {
     if (!_selectedId) return;
-    const all = [...(_piston.triggers||[]), ...(_piston.conditions||[]), ...(_piston.statements||[])];
-    const node = _findNode(all, _selectedId);
+    const node = _findAnyNode(_selectedId);
     if (node) App.state.clipboard = JSON.parse(JSON.stringify(node));
   }
 
@@ -458,8 +502,8 @@ const Editor = (() => {
     if (!App.state.clipboard) return;
     const clone = JSON.parse(JSON.stringify(App.state.clipboard));
     clone.id = _nextStmtId();
-    if (_selectedId) { if (!_insertAfter(_piston.statements, _selectedId, clone)) _piston.statements.push(clone); }
-    else _piston.statements.push(clone);
+    if (_selectedId) _insertAfter(_selectedId, clone);
+    else (_piston.statements = _piston.statements || []).push(clone);
     _cutId = null;
     _markUnsaved(true);
     render();
@@ -467,9 +511,18 @@ const Editor = (() => {
 
   function _deleteSelected() {
     if (!_selectedId) return;
-    _removeNode(_piston.triggers, _selectedId) ||
-    _removeNode(_piston.conditions, _selectedId) ||
-    _removeNode(_piston.statements, _selectedId);
+    // Also handle triggers/conditions/variables (not in flat statements)
+    const tryRemoveFromArr = (arr, id) => {
+      if (!arr) return false;
+      const i = arr.findIndex(n => n.id === id);
+      if (i !== -1) { arr.splice(i, 1); return true; }
+      return false;
+    };
+    if (!tryRemoveFromArr(_piston.triggers, _selectedId) &&
+        !tryRemoveFromArr(_piston.conditions, _selectedId) &&
+        !tryRemoveFromArr(_piston.variables, _selectedId)) {
+      _removeNode(_selectedId);
+    }
     _selectedId = null;
     _markUnsaved(true);
     render();
@@ -529,6 +582,15 @@ const Editor = (() => {
     const btn = document.getElementById('btn-save');
     if (btn) { btn.textContent = '💾 Saving...'; btn.disabled = true; }
 
+    // Generate piston_text from render functions — only if render succeeds.
+    // If any statement fails to render, preserve the previous value unchanged.
+    try {
+      _piston.piston_text = _renderDocument(_piston, false);
+    } catch(e) {
+      // Render threw — preserve existing piston_text, do not overwrite
+      console.warn('piston_text generation failed, preserving previous value:', e);
+    }
+
     try {
       const result = await API.savePiston(_piston.id, _piston);
       _piston = result.piston || _piston;
@@ -559,38 +621,57 @@ const Editor = (() => {
   }
 
   // ── insertStatement — called by wizard ───────────────────
+  // Update-vs-insert rule: if statementData.id already exists in the flat
+  // statements array, replace in-place. Never append a duplicate.
   function insertStatement(context, statementData) {
-    // Handle if_condition context — add condition to existing if_block
-    const blockId = statementData._blockId || null;
-    if (context === 'if_condition' && blockId) {
-      const block = _findNode(_piston.statements || [], blockId);
-      if (block) {
-        block.conditions = block.conditions || [];
-        const i = block.conditions.findIndex(c => c.id === statementData.id);
-        if (i >= 0) block.conditions[i] = statementData;
-        else block.conditions.push(statementData);
-        _markUnsaved(true);
-        render();
-        return;
+    // Bug A fix: if_condition context — route condition to parent if block
+    // Wizard sets _blockId on the condition node when adding conditions to an
+    // existing if block (e.g. from _commitConditionAndMore).
+    if (context === 'if_condition') {
+      const blockId = statementData._blockId || null;
+      if (blockId) {
+        const stmtMap = _buildStmtMap();
+        const block = _findNode(stmtMap, blockId);
+        if (block) {
+          block.conditions = block.conditions || [];
+          const ci = block.conditions.findIndex(c => c.id === statementData.id);
+          if (ci >= 0) block.conditions[ci] = statementData;
+          else block.conditions.push(statementData);
+          _markUnsaved(true);
+          render();
+          return;
+        }
       }
+      // No blockId or block not found — fall through to statement insert
     }
 
     if (context === 'trigger' || statementData.type === 'trigger' || statementData.is_trigger) {
       _piston.triggers = _piston.triggers || [];
       const i = _piston.triggers.findIndex(t => t.id === statementData.id);
       if (i >= 0) _piston.triggers[i] = statementData; else _piston.triggers.push(statementData);
+
     } else if (context === 'condition' || statementData.type === 'condition') {
       _piston.conditions = _piston.conditions || [];
       const i = _piston.conditions.findIndex(c => c.id === statementData.id);
       if (i >= 0) _piston.conditions[i] = statementData; else _piston.conditions.push(statementData);
+
     } else if (context === 'variable') {
       _piston.variables = _piston.variables || [];
       const i = _piston.variables.findIndex(v => v.id === statementData.id);
       if (i >= 0) _piston.variables[i] = statementData; else _piston.variables.push(statementData);
+
     } else {
       if (!statementData.id) statementData.id = _nextStmtId();
-      if (_selectedId) { if (!_insertAfter(_piston.statements, _selectedId, statementData)) _piston.statements.push(statementData); }
-      else _piston.statements.push(statementData);
+      _piston.statements = _piston.statements || [];
+      // Update-vs-insert: replace in-place if ID already exists
+      const existing = _piston.statements.findIndex(s => s.id === statementData.id);
+      if (existing >= 0) {
+        _piston.statements[existing] = statementData;
+      } else if (_selectedId) {
+        _insertAfter(_selectedId, statementData);
+      } else {
+        _piston.statements.push(statementData);
+      }
     }
     _markUnsaved(true);
     render();
@@ -619,49 +700,82 @@ const Editor = (() => {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function _findNode(nodes, id) {
-    if (!nodes) return null;
-    for (const n of nodes) {
-      if (n.id === id) return n;
-      const f = _findNode(n.then,id)||_findNode(n.else,id)||
-                _findNode(n.statements,id)||_findNode(n.tasks,id)||_findNode(n.conditions,id);
-      if (f) return f;
-    }
-    return null;
+  // Flat lookup — stmtMap is built from _piston.statements.
+  // For triggers/conditions/variables (not in stmtMap), callers search their
+  // own arrays directly before calling this.
+  function _findNode(stmtMap, id) {
+    if (!stmtMap || !id) return null;
+    return stmtMap[id] || null;
   }
 
-  function _removeNode(nodes, id) {
-    if (!nodes) return false;
-    const i = nodes.findIndex(n => n.id === id);
-    if (i !== -1) { nodes.splice(i, 1); return true; }
-    for (const n of nodes) {
-      if (_removeNode(n.then,id)||_removeNode(n.else,id)||
-          _removeNode(n.statements,id)||_removeNode(n.tasks,id)) return true;
-    }
-    return false;
+  function _buildStmtMap() {
+    return Object.fromEntries((_piston.statements || []).map(s => [s.id, s]));
   }
 
-  function _insertAfter(nodes, id, newNode) {
-    if (!nodes) return false;
-    const i = nodes.findIndex(n => n.id === id);
-    if (i !== -1) { nodes.splice(i+1, 0, newNode); return true; }
-    for (const n of nodes) {
-      if (_insertAfter(n.then,id,newNode)||_insertAfter(n.else,id,newNode)||
-          _insertAfter(n.statements,id,newNode)||_insertAfter(n.tasks,id,newNode)) return true;
+  // Flat removal — removes from statements array and cleans all parent child-ID lists
+  function _removeNode(id) {
+    const stmts = _piston.statements || [];
+    const idx = stmts.findIndex(s => s.id === id);
+    if (idx !== -1) stmts.splice(idx, 1);
+    const childKeys = ['then', 'else', 'statements', 'tasks'];
+    stmts.forEach(s => {
+      childKeys.forEach(k => {
+        if (Array.isArray(s[k])) s[k] = s[k].filter(cid => cid !== id);
+      });
+      (s.else_ifs || []).forEach(eib => {
+        if (Array.isArray(eib.statements)) eib.statements = eib.statements.filter(cid => cid !== id);
+      });
+      (s.cases || []).forEach(c => {
+        if (Array.isArray(c.statements)) c.statements = c.statements.filter(cid => cid !== id);
+      });
+      if (Array.isArray(s.default_statements)) s.default_statements = s.default_statements.filter(cid => cid !== id);
+    });
+  }
+
+  // Flat insertAfter — adds node to statements array after target, and injects
+  // new ID into whatever parent child-ID list contains the target ID.
+  function _insertAfter(targetId, newNode) {
+    const stmts = _piston.statements || [];
+    // Push to flat array
+    const tIdx = stmts.findIndex(s => s.id === targetId);
+    if (tIdx !== -1) stmts.splice(tIdx + 1, 0, newNode);
+    else stmts.push(newNode);
+    // Inject ID into parent child list after targetId
+    const childKeys = ['then', 'else', 'statements', 'tasks'];
+    for (const s of stmts) {
+      for (const k of childKeys) {
+        if (Array.isArray(s[k])) {
+          const ci = s[k].indexOf(targetId);
+          if (ci !== -1) { s[k].splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      for (const eib of (s.else_ifs || [])) {
+        if (Array.isArray(eib.statements)) {
+          const ci = eib.statements.indexOf(targetId);
+          if (ci !== -1) { eib.statements.splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      for (const c of (s.cases || [])) {
+        if (Array.isArray(c.statements)) {
+          const ci = c.statements.indexOf(targetId);
+          if (ci !== -1) { c.statements.splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      if (Array.isArray(s.default_statements)) {
+        const ci = s.default_statements.indexOf(targetId);
+        if (ci !== -1) { s.default_statements.splice(ci + 1, 0, newNode.id); return; }
+      }
     }
-    return false;
   }
 
   function _highestStmtId(piston) {
+    // statements array is flat — no recursion needed
     let max = 0;
-    function walk(nodes) {
-      (nodes||[]).forEach(n => {
-        const m = parseInt((n.id||'').replace(/\D/g,''))||0;
-        if (m > max) max = m;
-        walk(n.then); walk(n.else); walk(n.statements); walk(n.tasks);
-      });
-    }
-    walk(piston.triggers); walk(piston.conditions); walk(piston.statements); walk(piston.variables);
+    const allArrays = [piston.triggers, piston.conditions, piston.statements, piston.variables];
+    allArrays.forEach(arr => (arr || []).forEach(n => {
+      const m = parseInt((n.id || '').replace(/\D/g,'')) || 0;
+      if (m > max) max = m;
+    }));
     return max;
   }
 

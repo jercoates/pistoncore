@@ -7,36 +7,9 @@ Is this a decision that still needs to be made?
 Is this already handled in the code?
 
 
-we need to figure out what needs to be saved in pistoncore devices so we can compare what changed to flag problems.  the share format should be json.  
-
-
-
-where can we get the information needed to make the pyscript compiler
-
-7:16 PM
-Claude responded: Good question.
-Good question. PyScript for HA is well-documented. Here's where to get what you need:
-
-Primary sources:
-
-PyScript HACS integration docs https://hacs-pyscript.readthedocs.io/en/latest/ This is the main reference. Covers trigger decorators, service calls, state access, event firing, and the full Python API available inside PyScript scripts. This is what the compiler needs to emit.
-
-PyScript GitHub repo https://github.com/custom-components/pyscript The source code and examples. The apps/ and scripts/ folder examples show real working PyScript files — exactly the output format the compiler needs to produce.
-
-HA Community PyScript thread https://community.home-assistant.io/t/pyscript-python-scripting/174636 Long-running thread with real-world examples of every trigger type, state access pattern, and service call pattern. Good for edge cases the docs don't cover.
-
-What to pull from those sources for the spec:
-
-@state_trigger — how device state triggers compile
-@time_trigger — how time and cron triggers compile
-@event_trigger — how HA event triggers compile
-hass.services.call() — how service calls (with/do blocks) compile
-state.get() / state.set() — how condition checks compile
-task.sleep() — how wait statements compile
-task.wait_until() — how wait_for_state compiles
-pyscript.fire_event() — how the PISTONCORE_RUN_COMPLETE event fires
-How local variables and loops work (just standard Python)
-How break works in loops (just standard Python break)
-The good news: Break, cancel, and on_event — the three things that force PyScript — are all just standard Python. The hard part is the trigger decorators and HA service call syntax, which the docs cover well.
-
-When you're ready to write that spec, pull up those three sources and we'll work through it section by section. It's probably a two-hour spec session, not a week.
+Add to CLAUDE_SESSION_PROMPT.md — Project Context section, after Core Mission:
+Jeremy is a Hubitat user first. HA is a backup/bridge, not a migration target. PistonCore exists so his pistons can run in HA if Hubitat ever has serious problems, and because he likes HA's local voice pipeline.
+V1 bar is "most real pistons work correctly" — not "perfect parity with every WebCoRE edge case." Complex pistons that don't migrate perfectly are acceptable. Don't over-engineer for rare cases.
+PyScript for complex pistons is locked for V1. No debate, don't relitigate it.
+The four sample pistons (Low Battery, Door Chime, CO Alert, Water Leak) are the real V1 test. If those work, V1 is meaningful.
+HA has real limitations compared to Hubitat. That's known and accepted. Document them, work around them where possible, warn users clearly where not. Don't pretend HA can do things it can't.

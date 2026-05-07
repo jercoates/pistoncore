@@ -413,3 +413,69 @@ Add scope bullets to MISSING_SPECS.md Item 14
 Refine Bug 18 to handle the native-trigger case properly
 Add a test-piston suite as part of S1-7 session 1
 None of these are blockers. They're all tightening, not redirection. Session 25 can start S1-2a as planned.
+
+from grok
+Here are the key potential gaps and risks I identified in the pistoncore repo that could cause runtime problems, deployment issues, or UX surprises. These are not explicitly called out in MISSING_SPECS.md, DESIGN.md, HA_LIMITATIONS.md, or the README (as of the current main branch). I pulled and reviewed the full structure, key Python files (via raw views), frontend layout, specs, and Docker setup.
+1. Deployment/Companion Stub is Incomplete (Critical for "Deploy" Flow)
+
+In backend/api.py, _send_to_companion() is a full stub that always returns success: False with a TODO message. The /deploy endpoint compiles successfully but never actually writes files to HA or triggers reloads.
+storage.py and compiler handle JSON/YAML fine, but the end-to-end "compile + deploy to HA" path (the main promised workflow) is non-functional.
+Risk: Users can save pistons and preview YAML (via /compile), but "Deploy" fails silently or with the stub message. No file signature/hash checks or cleanup on HA side yet. This matches the "HA compilation and deployment are being wired up" note in README, but it's a live gap that will break user expectations immediately.
+Recommendation: Prioritize the companion integration (or direct REST writes for Docker) as it's the bridge between compiler output and HA.
+
+2. No WebSocket / Real-Time HA State or Logging Implementation
+
+ha_client.py has solid WebSocket code for initial device/capability fetching (_ws_call, caching, etc.), but there's no persistent WS connection for live state updates, triggers, or piston tracing/logs.
+MISSING_SPECS.md notes the protocol, but the actual /ws endpoint and event forwarding (PISTONCORE_LOG, run complete, HA reconnects) aren't in main.py or api.py.
+Risks:
+Editor wizards and condition previews may work on load but stale quickly (cache TTLs are short but no background refresh).
+No live run tracing/status page (listed as "being built").
+HA disconnects/reconnects could leave the UI in inconsistent states without graceful handling.
+
+Frontend (vanilla JS in /frontend) likely polls or has placeholders that will fail.
+
+3. Security and Config Token Handling
+
+Long-lived HA token stored in plaintext JSON (/pistoncore-userdata/config.json) with no encryption or rotation UI beyond basic settings.
+API key (PISTONCORE_API_KEY) is optional (dev convenience) and checked via header — fine for local/Docker but risky if port 7777 is exposed publicly.
+Risk: Token leakage via volume mounts, backups, or misconfigured Docker. No mention of best practices (e.g., secrets, least-privilege token scopes) in README/Docker docs. Addon version (supervisor token) is safer but not yet built.
+
+4. Compiler and Output Edge Cases
+
+Slug collisions: Handled with a warning + ID prefix, but get_all_slugs() in storage.py loads every piston on every call (and instantiates a Compiler). Scales poorly with dozens/hundreds of pistons.
+Globals scanning (_scan_globals): Regex-based + key checks. Could miss complex nested expressions or false-positive on non-global @ strings.
+PyScript path: Detection stubbed; complex piston handling relies on target-boundary.json (customize volume), but no full PyScript compiler output yet.
+Error recovery: Compiler catches CompilerError gracefully, but broader exceptions (e.g., Jinja template missing, YAML dump failures) could crash the endpoint.
+No yamllint/validation on output before "deploy" (mentioned in MISSING_SPECS error inventory but not enforced in code).
+
+5. Docker/Volume and Startup Issues
+
+Dockerfile: Copies frontend/backend/defaults but relies on docker-entrypoint.sh for volume population (customize templates, userdata dirs). If entrypoint fails or volumes are mis-mounted, templates or pistons are missing.
+No .dockerignore visible (risk of bloating image with screenshots/zips).
+requirements.txt pins versions nicely, but no uvicorn workers/reload config for production (single-process default).
+Risk: First-run volume setup race conditions; missing dirs or defaults not copied reliably. Addon packaging will differ significantly.
+
+6. Frontend and Editor Gaps (Potential Runtime/UX)
+
+Frontend is vanilla (index.html + js/css) — served statically from backend (recent fix in main.py).
+No obvious error boundaries for HA disconnects during editing, wizard failures, or large piston rendering (continuous document style).
+Risks:
+Device mapping drift (missing device handler is in MISSING_SPECS but partially implemented in ha_client).
+Version skew (logic/ui_version checks in api.py are good, but forward-compatibility limited).
+Dark mode, simple/advanced mode toggles, and insertion points ("ghost text") could have JS state bugs not caught in static review.
+
+
+7. Minor/Operational
+
+No logging setup beyond basic (ha_client has a logger but no central config in main.py).
+Test data/demo devices exist, but no automated tests or comprehensive round-trip examples beyond COMPILER_SPEC.
+Global variable deletion marks pistons stale (good), but no auto-recompile or bulk update flow.
+HA version check is referenced in specs but minimally enforced.
+
+Overall Assessment: The core editor, piston JSON model, compiler (for simple native YAML), and HA client foundation are solid and well-structured per the DESIGN/COMPILER specs. The biggest unlisted risks are around the incomplete deploy pipeline, real-time WS, and production Docker/volume reliability — these will cause immediate "it builds but doesn't run in HA" problems for users.
+Next Steps Suggestion:
+
+Implement/flesh out the companion (or direct file writes for Docker).
+Add persistent WS + logging.
+Expand error handling and add basic integration tests.
+Document token security and volume best practices.

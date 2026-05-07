@@ -626,5 +626,66 @@ the render-back reliability problem. Fix all three in S1-2b.
 
 ---
 
+## 11. New Gaps Found — Grok Repo Review
+
+Grok reviewed the actual repo code (not just specs). These items are not
+captured anywhere in MISSING_SPECS.md, TASKS.md, or the handoff note yet.
+Add them to MISSING_SPECS.md and TASKS.md at the start of Session 25.
+
+---
+
+**Gap A — get_all_slugs() instantiates Compiler on every call**
+`storage.py` `get_all_slugs()` loads every piston file AND instantiates a
+Compiler object on every call. Called on every save to check for slug collisions.
+Scales badly with dozens or hundreds of pistons — will become a noticeable
+delay. Fix: cache slug list, invalidate on save. Add to TASKS.md as a
+performance task in Stage 4.
+
+**Gap B — No .dockerignore**
+Docker image likely includes screenshots, zip files, dev artifacts, and other
+non-production files. Bloats the image unnecessarily. Fix: add `.dockerignore`
+to repo. Simple fix — do it anytime. Add to Minor/Cosmetic section of TASKS.md.
+
+**Gap C — Single-process uvicorn, no worker config**
+`main.py` runs single-process uvicorn with no worker configuration. Fine for
+development but not production-grade. Under load (multiple users, concurrent
+device picker requests) will bottleneck. Fix: document recommended uvicorn
+worker config in README and Docker run command. Add to TASKS.md as a
+pre-v1-release operational task.
+
+**Gap D — docker-entrypoint.sh volume population race conditions**
+First-run volume setup (copying customize templates, creating userdata dirs)
+could fail silently if volumes are mis-mounted or entrypoint errors mid-run.
+Leaves the container in a partially-initialized state with missing templates
+or pistons. Fix: add startup validation that checks required dirs and files
+exist before starting FastAPI, fails loudly with a clear message if not.
+Add to TASKS.md — important for reliability before v1 ships.
+
+**Gap E — No central logging config in main.py**
+`ha_client.py` has a logger but there's no central logging configuration in
+`main.py`. Log output is inconsistent — some paths log, others don't.
+Fix: add logging config at startup (level, format, output). Add to S1-4
+backend cleanup task — low effort, high value for debugging.
+
+**Gap F — Token security not documented**
+Long-lived HA token stored in plaintext `config.json` in the userdata volume.
+No guidance in README or Docker docs about:
+- Keeping the volume secure
+- Using least-privilege token scopes
+- Token rotation
+- Risks of exposing port 7777 publicly without auth
+Fix: add a security section to README. Not a code change — documentation only.
+Add to TASKS.md pre-v1 documentation tasks.
+
+**Gap G — _scan_globals regex may false-positive**
+`_scan_globals` in compiler.py uses regex `@([A-Za-z_]\w*)` to find global
+variable references in expression strings. Could false-positive on email
+addresses, Twitter handles, or any other `@word` pattern in string literals.
+Fix: tighten the scan to only match known global variable contexts, or add
+a validation step that checks found names against the actual globals list.
+Add to S1-7 compiler fixes.
+
+---
+
 *Load this file at the start of Session 25. Process it before starting S1-2a.
 Delete from repo after Session 25 is complete.*

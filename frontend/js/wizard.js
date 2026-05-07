@@ -1026,12 +1026,12 @@ const Wizard = (() => {
   }
 
   function _handleStatementType(type) {
-    if (type === 'action')    { _goActionDevicePicker(); return; }
-    if (type === 'every')     { _goTimerPicker(); return; }
-    if (type === 'for_each')  { _goForEachPicker(); return; }
-    if (type === 'repeat')    { _goRepeatPicker(); return; }
+    if (type === 'action')                           { _goActionDevicePicker(); return; }
+    if (type === 'timer'  || type === 'every')       { _goTimerPicker();        return; }
+    if (type === 'for_each')                         { _goForEachPicker();      return; }
+    if (type === 'repeat' || type === 'repeat_loop') { _goRepeatPicker();       return; }
 
-    if (type === 'if') {
+    if (type === 'if' || type === 'if_block') {
       // Store block-id in _extra — unified mechanism
       _extra = { 'block-id': _newId() };
       _sel.statement_class = 'condition';
@@ -1039,17 +1039,60 @@ const Wizard = (() => {
       return;
     }
 
-    const skeletons = {
-      switch:      { type:'switch',    id:_newId() },
-      do:          { type:'do',        id:_newId(), statements:[] },
-      on_event:    { type:'on_event',  id:_newId() },
-      for:         { type:'for',       id:_newId(), statements:[] },
-      while:       { type:'while',     id:_newId(), conditions:[], statements:[] },
-      break:       { type:'break',     id:_newId() },
-      exit:        { type:'exit',      id:_newId() },
-    };
-    if (skeletons[type]) {
-      const node = skeletons[type];
+    // Skeletons for statement types that need no sub-wizard.
+    // All fields match STATEMENT_TYPES.md schemas exactly.
+    // _newId() is called inside the factory so each skeleton gets a fresh ID.
+    const _sk = () => ({
+      // PISTON_FORMAT.md common fields present on every statement
+      switch: {
+        type:'switch', id:_newId(), async:false,
+        expression:null, case_traversal_policy:'safe',
+        cases:[], default:[],
+        description:null, disabled:false,
+      },
+      // 'do_block' picker alias → type:'do'
+      do: {
+        type:'do', id:_newId(), async:false,
+        statements:[],
+        description:null, disabled:false,
+      },
+      on_event: {
+        type:'on_event', id:_newId(), async:false,
+        conditions:[], condition_operator:'and',
+        statements:[],
+        description:null, disabled:false,
+      },
+      // 'for_loop' picker alias → type:'for'
+      for: {
+        type:'for', id:_newId(), async:false,
+        start:1, end:10, step:1, counter_variable:null,
+        statements:[],
+        description:null, disabled:false,
+      },
+      // 'while_loop' picker alias → type:'while'
+      while: {
+        type:'while', id:_newId(), async:false,
+        conditions:[], condition_operator:'and',
+        statements:[],
+        description:null, disabled:false,
+      },
+      break: {
+        type:'break', id:_newId(),
+        description:null, disabled:false,
+      },
+      exit: {
+        type:'exit', id:_newId(),
+        value:null,
+        description:null, disabled:false,
+      },
+    });
+
+    // Normalize picker card type aliases to canonical skeleton keys
+    const skeletons = _sk();
+    const skeletons_alias = { do_block:'do', for_loop:'for', while_loop:'while' };
+    const resolvedKey = skeletons_alias[type] || type;
+    if (skeletons[resolvedKey]) {
+      const node = skeletons[resolvedKey];
       const ctx = _context;
       close();
       Editor.insertStatement(ctx, node);
@@ -1692,9 +1735,16 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-timer-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
-      Editor.insertStatement(_context, { type:'every', id:_newId(),
+      // STATEMENT_TYPES.md Section 9 — field is interval_unit, not unit
+      Editor.insertStatement(_context, {
+        type:'every', id:_newId(), async:false,
         interval: parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
-        unit: document.getElementById('wiz-timer-u')?.value||'minutes' });
+        interval_unit: document.getElementById('wiz-timer-u')?.value||'minutes',
+        at_minute:null, at_time:null,
+        only_on_days:[], only_on_dom:[], only_on_months:[],
+        statements:[],
+        description:null, disabled:false,
+      });
       close();
     });
   }
@@ -1711,8 +1761,11 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-rep-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-rep-save')?.addEventListener('click', () => {
-      Editor.insertStatement(_context, { type:'repeat', id:_newId(),
-        statements: [], until_conditions: [] });
+      Editor.insertStatement(_context, {
+        type:'repeat', id:_newId(), async:false,
+        statements:[], until_conditions:[], condition_operator:'and',
+        description:null, disabled:false,
+      });
       close();
     });
   }
@@ -1729,10 +1782,13 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-fe-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
-      Editor.insertStatement(_context, { type:'for_each', id:_newId(),
+      Editor.insertStatement(_context, {
+        type:'for_each', id:_newId(), async:false,
         variable: document.getElementById('wiz-fe-var')?.value||'$device',
         list_role: document.getElementById('wiz-fe-list')?.value||'',
-        statements:[] });
+        statements:[],
+        description:null, disabled:false,
+      });
       close();
     });
   }

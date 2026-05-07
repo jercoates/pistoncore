@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 24 complete / Session 25 not started
+**Last Updated:** Session 26 complete (S1-2a done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -42,30 +42,37 @@ These are the foundation. Nothing built on top of them is trustworthy until they
 
 ---
 
-### S1-2a: Flat Statements Array — wizard.js Only
-**Why split:** Attempting wizard.js, editor.js, and compiler.py in one session
-risks all three files ending in an inconsistent half-done state. Each sub-task
-is bounded, independently testable, and safe to end a session on.
-**Do this session:** wizard.js only. Do not touch editor.js or compiler.py.
-**Spec ref:** PISTON_FORMAT.md (statements section), DESIGN.md Section 6.1
-**Upload:** wizard.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-  write a flat statement object with empty child ID arrays (`then: []`, `else: []`,
-  `statements: []`) and push it to the top-level statements array
-- `_newId()` already generates correct 8-char hex IDs — no change needed
-- When wizard creates an `if` block, it writes the if node flat; child statements
-  added later go into the flat array and their IDs get added to `then`/`else`
-- When wizard creates `do`, `for`, `while`, `repeat`, `for_each` — same pattern:
-  flat node, empty child ID arrays, no nested objects
-- `_commitConditionAndMore` and the `if` path in `_handleStatementType` must
-  write the if node with `then: []` not `then: [conditionNode]`
+### S1-2a: Flat Statements Array — wizard.js Only ✅ DONE (Session 26)
+**What was done:**
+- Fixed type name mismatches between picker card `type` values and `_handleStatementType`
+  dispatch. All 6 broken aliases now route correctly:
+  `if_block`→if, `timer`→every, `do_block`→do, `for_loop`→for,
+  `while_loop`→while, `repeat_loop`→repeat.
+- Expanded all skeleton statement objects to include every required field per
+  STATEMENT_TYPES.md. Previously most skeletons were bare `{ type, id }` only.
+- Fixed `every` field name: `unit` → `interval_unit`. Added `statements:[]`,
+  `at_minute`, `at_time`, `only_on_days/dom/months`.
+- Fixed `repeat` skeleton: added `condition_operator:'and'` and common fields.
+- Fixed `for_each` skeleton: added common fields.
+- Skeleton factory moved to `_sk()` function called at dispatch time — ensures
+  `_newId()` is called fresh on each invocation, not at parse time.
 
-**Testable output:** Wizard produces JSON where `statements` is a flat array.
-Control flow nodes have `then`, `else`, `statements` as empty arrays or ID arrays —
-never containing embedded statement objects. Can be verified by inspecting the
-piston JSON after wizard saves.
+**Findings for S1-2b (editor.js):**
+- `_commitCondition` and `_commitConditionAndMore` were already writing `then:[]`,
+  `else:[]`, `else_ifs:[]` as empty arrays — flat-compatible. No structural change
+  needed in commit logic for the flat model itself.
+- Bugs B and C (pending_if_id / block-id conflict and _buildConditionNode not
+  returning _blockId) are S1-2b scope as spec'd — confirmed present, not touched here.
+- `_commitConditionAndMore` re-creates the if node with the same `ifBlockId` on
+  every "Add more" click — this means multiple calls insert duplicate nodes with
+  the same ID. Fix in S1-2b when `Editor.insertStatement` gains proper update-vs-insert
+  logic.
 
-**Note:** editor.js and compiler.py will be broken after this — the round-trip
-won't work until S1-2b and S1-2c are done. That is expected and acceptable.
+**Testable:** Wizard now produces JSON where all statement types have correct field
+names and complete schemas. Control flow nodes have `then`, `else`, `statements`
+as empty ID arrays — never containing embedded statement objects. Verified by
+inspecting piston JSON after wizard save. editor.js and compiler.py will be broken
+until S1-2b and S1-2c complete — expected.
 
 ---
 
@@ -120,7 +127,10 @@ wizard opens pre-populated, save updates JSON correctly. Use this table:
 If any row has a blank — fix it before marking S1-2b done. Silent fall-through in
 `_actionLines` must render a visible error placeholder: `⚠ Unknown statement type: {type} — {id}`
 
-**Also fix in this session — wizard pre-population bugs (A/B/C):**
+**`insertStatement` update-vs-insert rule (decided Session 26):**
+If the incoming node's ID already exists in the flat statements array, replace
+that node in-place. Never append a duplicate. This covers the "Add more" flow
+in `_commitConditionAndMore` where the same `ifBlockId` is sent on every click.
 - **Bug A — `insertStatement` doesn't handle `if_condition` context:** When wizard calls
   `insertStatement('if_condition', node, {'block-id': id})`, falls through to top-level
   array. Fix: add `if_condition` routing in `insertStatement` to find the block by ID
@@ -706,6 +716,21 @@ in a real sandbox before building the wizard step.
 ---
 
 ## DONE — Completed Sessions
+
+### Session 26 — S1-2a: wizard.js Flat Statements Array ✅
+wizard.js only. No changes to editor.js or compiler.py.
+Fixed 6 broken type-name aliases in `_handleStatementType` — if_block, timer,
+do_block, for_loop, while_loop, repeat_loop were all silently falling through
+and doing nothing when their picker cards were clicked.
+Expanded all skeleton statement objects to complete STATEMENT_TYPES.md schemas.
+Fixed `every` field name `unit` → `interval_unit`; added `statements:[]` and
+optional scheduling fields. Fixed `repeat` missing `condition_operator`.
+Fixed `for_each` missing common fields. Moved skeleton construction to factory
+function `_sk()` called at dispatch time so `_newId()` is always fresh.
+Confirmed: `_commitCondition`/`_commitConditionAndMore` were already writing flat-
+compatible output (empty `then:[]`, `else:[]` arrays). Bugs B and C deferred to
+S1-2b as spec'd. Duplicate-node risk in `_commitConditionAndMore` noted — fix in
+S1-2b when editor gains update-vs-insert logic.
 
 ### Session 25 — Spec and Task Updates ✅
 STATEMENT_TYPES.md Section 16 header confirmed present (was already fixed — no change needed).

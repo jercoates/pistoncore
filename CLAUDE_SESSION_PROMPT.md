@@ -41,25 +41,39 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 25 Complete
+## Project Status — Session 26 Complete
 
-### What Was Done in Session 24
+### What Was Done in Session 25
 
-- compiler.py field name alignment — all field names brought in line with
-  PISTON_FORMAT.md, COMPILER_SPEC.md, STATEMENT_TYPES.md. New `_resolve_operand()`
-  helper added.
-- PYSCRIPT_COMPILER_SPEC.md written — all 6 gaps resolved. Status: READY TO CODE.
-- COMPILER_SPEC.md Section 7 expanded — global_variables array structure defined.
-- STATEMENT_TYPES.md Section 10 rewritten — on_event fully specced with blocking
-  wait limitation, wizard warning requirement, ON_EVENT_BLOCKING compiler warning.
-- Full spec cleanup across DESIGN.md, FRONTEND_SPEC.md, WIZARD_SPEC.md,
-  STATEMENT_TYPES.md, MISSING_SPECS.md.
+All spec and task management — no code written. See TASKS.md DONE section for
+full detail.
 
 ---
 
-## What Was Done in Session 25 (Current)
+## What Was Done in Session 26 (Current)
 
-**All spec and task management. No code written.**
+**S1-2a: wizard.js flat statements array. No changes to editor.js or compiler.py.**
+
+- Fixed 6 broken type-name aliases in `_handleStatementType` — `if_block`, `timer`,
+  `do_block`, `for_loop`, `while_loop`, `repeat_loop` were silently falling through
+  and doing nothing when picker cards were clicked.
+- Expanded all skeleton statement objects to complete schemas per STATEMENT_TYPES.md.
+  Previously most were bare `{ type, id }` only.
+- Fixed `every` field name `unit` → `interval_unit`. Added `statements:[]` and
+  optional scheduling fields (`at_minute`, `at_time`, `only_on_days/dom/months`).
+- Fixed `repeat` skeleton: added `condition_operator:'and'` and common fields.
+- Fixed `for_each` skeleton: added common fields.
+- Moved skeleton construction to factory function `_sk()` called at dispatch time
+  so `_newId()` is always fresh per invocation.
+- Confirmed `_commitCondition` / `_commitConditionAndMore` were already writing
+  flat-compatible output (`then:[]`, `else:[]`, `else_ifs:[]`). No structural
+  change needed there for the flat model.
+- Bugs B and C (pending_if_id / block-id conflict, _buildConditionNode not returning
+  _blockId) confirmed present — deferred to S1-2b as spec'd.
+- Duplicate-node risk in `_commitConditionAndMore` noted — same `ifBlockId` reused
+  on every "Add more" click. Fix in S1-2b when editor gains update-vs-insert logic.
+- TASKS.md updated: S1-2a marked done, findings documented for S1-2b, Session 26
+  added to DONE.
 
 **TASKS.md — major updates:**
 - All Stage 1 and 2 Upload lines updated to include required spec files plus

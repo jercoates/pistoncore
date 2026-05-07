@@ -561,7 +561,9 @@ class Compiler:
         continue_on_error: true is always emitted on every service call — matches
         WebCoRE fire-and-forget resilience behavior.
         """
-        target_role = stmt.get("target_role") or (stmt.get("devices") or [None])[0] or ""
+        # PISTON_FORMAT.md: devices is an array of role names
+        devices = stmt.get("devices") or []
+        target_role = devices[0] if devices else ""
         entity_id_list = device_map.get(target_role)
         entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
         if not entity_id:
@@ -581,9 +583,9 @@ class Compiler:
             tmpl = self.env.get_template("snippets/with_block.yaml.j2")
             return tmpl.render(
                 stmt_id=stmt["id"],
-                service=task["service"],
+                service=task.get("ha_service") or task.get("command", ""),
                 entity_id=entity_id,
-                data=task.get("data") or None,
+                data=task.get("parameters") or None,
             )
         else:
             # Multiple tasks → parallel block
@@ -593,9 +595,9 @@ class Compiler:
             for task in tasks:
                 rendered = inner_tmpl.render(
                     stmt_id=None,
-                    service=task["service"],
+                    service=task.get("ha_service") or task.get("command", ""),
                     entity_id=entity_id,
-                    data=task.get("data") or None,
+                    data=task.get("parameters") or None,
                 )
                 task_blocks.append(rendered)
 
@@ -628,15 +630,21 @@ class Compiler:
             tmpl = self.env.get_template("snippets/wait_until.yaml.j2")
             return tmpl.render(stmt_id=stmt["id"], at_time=at_time)
 
-        elif "duration_seconds" in stmt:
-            delay_yaml = self._format_delay(stmt["duration_seconds"])
+        elif "duration" in stmt and stmt["duration"] is not None:
+            # PISTON_FORMAT.md: duration + duration_unit fields
+            # Convert to seconds for _format_delay
+            duration = int(stmt["duration"])
+            unit = stmt.get("duration_unit", "seconds")
+            unit_map = {"seconds": 1, "s": 1, "minutes": 60, "m": 60, "hours": 3600, "h": 3600}
+            seconds = duration * unit_map.get(unit, 1)
+            delay_yaml = self._format_delay(seconds)
             tmpl = self.env.get_template("snippets/wait_duration.yaml.j2")
             return tmpl.render(stmt_id=stmt["id"], delay_yaml=delay_yaml)
 
         else:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} (wait) has neither 'until' "
-                f"nor 'duration_seconds' defined."
+                f"nor 'duration' defined."
             )
 
     def _format_delay(self, seconds: int) -> str:
@@ -658,18 +666,25 @@ class Compiler:
 
     def _compile_wait_for_state(self, stmt: dict, device_map: dict) -> str:
         """COMPILER_SPEC Section 8.3."""
-        entity_id_list = device_map.get(stmt.get("role") or stmt.get("target_role", ""))
+        # PISTON_FORMAT.md: conditions array with standard condition objects
+        conditions = stmt.get("conditions", [])
+        if not conditions:
+            raise CompilerError(
+                f"Statement {stmt.get('id', '?')} (wait_for_state) has no conditions defined."
+            )
+        cond = conditions[0]
+        entity_id_list = device_map.get(cond.get("role", ""))
         entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
         if not entity_id:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} (wait_for_state) references "
-                f"role '{stmt.get('role') or stmt.get('target_role')}' but no device is mapped."
+                f"role '{cond.get('role')}' but no device is mapped."
             )
         tmpl = self.env.get_template("snippets/wait_for_state.yaml.j2")
         return tmpl.render(
             stmt_id=stmt["id"],
             entity_id=entity_id,
-            to_state=stmt.get("compiled_value", stmt.get("value", "")),
+            to_state=cond.get("compiled_value", ""),
             timeout_seconds=stmt.get("timeout_seconds", 60),
         )
 
@@ -683,11 +698,18 @@ class Compiler:
         warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.4 — recursive."""
-        condition = stmt.get("condition", {})
+        # PISTON_FORMAT.md: conditions is an array; compile all, join with condition_operator
+        conditions = stmt.get("conditions", [])
         true_branch = stmt.get("then", [])
         false_branch = stmt.get("else", [])
 
-        compiled_condition = self._compile_single_condition(condition, device_map)
+        # Compile all conditions and join — for now compile first condition only
+        # (full multi-condition support requires condition template builder, coming in S2)
+        if conditions:
+            compiled_condition = self._compile_single_condition(conditions[0], device_map)
+        else:
+            compiled_condition = "- condition: template\n  value_template: \"{{ true }}\""
+
         compiled_true = self._compile_sequence(
             true_branch, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
@@ -728,9 +750,11 @@ class Compiler:
         warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.6 — repeat/do/until."""
-        condition = stmt.get("condition", {})
-        body = stmt.get("body", [])
+        # PISTON_FORMAT.md: until_conditions array + statements array
+        until_conditions = stmt.get("until_conditions", [])
+        body = stmt.get("statements", [])
 
+        condition = until_conditions[0] if until_conditions else {}
         compiled_condition = self._compile_single_condition(condition, device_map)
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
@@ -762,9 +786,10 @@ class Compiler:
         COMPILER_SPEC Section 8.7.
         Devices globals are compile-time literal lists — not runtime group lookups.
         """
-        collection_role = stmt.get("collection_role", "")
-        loop_var = stmt.get("variable_name", "$device").lstrip("$")
-        body = stmt.get("body", [])
+        # PISTON_FORMAT.md: list_role, variable, statements
+        collection_role = stmt.get("list_role", "")
+        loop_var = stmt.get("variable", "$device").lstrip("$")
+        body = stmt.get("statements", [])
 
         entity_ids = self._resolve_collection(collection_role, device_map)
 
@@ -818,9 +843,11 @@ class Compiler:
         warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.8."""
-        condition = stmt.get("condition", {})
-        body = stmt.get("body", [])
+        # PISTON_FORMAT.md: conditions array + statements array
+        conditions = stmt.get("conditions", [])
+        body = stmt.get("statements", [])
 
+        condition = conditions[0] if conditions else {}
         compiled_condition = self._compile_single_condition(condition, device_map)
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
@@ -853,11 +880,12 @@ class Compiler:
         Simple (from 0 or 1, step 1) → repeat count: directly.
         Complex (other from/step) → variables: block at top of sequence.
         """
-        from_val = stmt.get("from", 1)
-        to_expr = stmt.get("to_expression", "10")
+        # PISTON_FORMAT.md: start, end, step, counter_variable, statements
+        from_val = stmt.get("start", 1)
+        to_expr = stmt.get("end", "10")
         step = stmt.get("step", 1)
-        var_name = stmt.get("variable_name", "$i").lstrip("$")
-        body = stmt.get("body", [])
+        var_name = stmt.get("counter_variable", "$i").lstrip("$")
+        body = stmt.get("statements", [])
 
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
@@ -915,11 +943,15 @@ class Compiler:
             { "away_mode": { "display_name": "Away Mode", "type": "Yes/No",
                              "helper_entity_id": "input_boolean.pistoncore_away_mode" } }
         """
-        var_name_raw = stmt.get("variable_name", "")
+        # PISTON_FORMAT.md: variable is the name string, value is an operand object
+        var_name_raw = stmt.get("variable", "")
 
         if var_name_raw.startswith("@"):
             var_name = var_name_raw.lstrip("@")
-            value_expr = stmt.get("value_expression", "")
+            # Resolve the value operand
+            value_obj = stmt.get("value", {})
+            value_expr = self._resolve_operand(value_obj)
+
             global_def = globals_store.get(var_name, {})
             helper_entity = global_def.get("helper_entity_id", "")
             global_type = global_def.get("type", "Text")
@@ -947,14 +979,12 @@ class Compiler:
             service, field = type_map.get(global_type, ("input_text.set_value", "value"))
 
             if global_type == "Yes/No":
-                # input_boolean uses turn_on / turn_off — value must be truthy/falsy
-                # We emit a choose: block to handle both cases cleanly.
                 if "{{" in str(value_expr):
                     val_template = value_expr
                 elif str(value_expr).lower() in ("true", "yes", "on", "1"):
                     val_template = "true"
                 else:
-                    val_template = value_expr  # let it be evaluated at runtime
+                    val_template = value_expr
                 return "\n".join([
                     f"- alias: \"{stmt['id']}\"",
                     "  choose:",
@@ -973,7 +1003,6 @@ class Compiler:
                     "      continue_on_error: true",
                 ])
 
-            # Format the value expression
             if "{{" in str(value_expr):
                 formatted_value = f'"{value_expr}"'
             elif isinstance(value_expr, str):
@@ -991,8 +1020,10 @@ class Compiler:
                 "  continue_on_error: true",
             ])
 
+        # Piston variable ($ prefix or bare name)
         var_name = var_name_raw.lstrip("$")
-        value_expr = stmt.get("value_expression", "")
+        value_obj = stmt.get("value", {})
+        value_expr = self._resolve_operand(value_obj)
 
         if "{{" in str(value_expr):
             value = value_expr
@@ -1008,17 +1039,74 @@ class Compiler:
         ])
 
     # -----------------------------------------------------------------------
-    # Section 8.12 — log_message
+    # Operand resolver — PISTON_FORMAT.md Operand/Value Schema
     # -----------------------------------------------------------------------
+
+    def _resolve_operand(self, value_obj: Any) -> Any:
+        """
+        Resolve a PISTON_FORMAT.md operand object to a Python value or Jinja2 expression.
+        Handles: literal, variable, global_variable, system_variable, expression.
+        """
+        if not isinstance(value_obj, dict):
+            # Raw value (legacy or bare string/number)
+            return value_obj
+
+        vtype = value_obj.get("type", "literal")
+
+        if vtype == "literal":
+            return value_obj.get("data", "")
+
+        if vtype == "variable":
+            name = value_obj.get("name", "").lstrip("$")
+            return f"{{{{ {name} }}}}"
+
+        if vtype == "global_variable":
+            name = value_obj.get("name", "").lstrip("@")
+            # Will be resolved to helper entity at runtime — emit as template
+            return f"{{{{ states('input_text.pistoncore_{name}') }}}}"
+
+        if vtype == "system_variable":
+            sys_map = {
+                "$now": "now()",
+                "$sunrise": "state_attr('sun.sun', 'next_rising')",
+                "$sunset": "state_attr('sun.sun', 'next_setting')",
+                "$hour": "now().hour",
+                "$minute": "now().minute",
+                "$second": "now().second",
+                "$index": "repeat.index",
+                "$weekday": "now().isoweekday()",
+                "$currentEventDevice": "var_name",
+            }
+            name = value_obj.get("name", "")
+            expr = sys_map.get(name, name.lstrip("$"))
+            offset = value_obj.get("offset", 0)
+            if offset:
+                unit = value_obj.get("offset_unit", "minutes")
+                direction = value_obj.get("offset_direction", "+")
+                offset_map = {"minutes": "timedelta(minutes=", "hours": "timedelta(hours=", "seconds": "timedelta(seconds="}
+                td = offset_map.get(unit, "timedelta(minutes=")
+                return f"{{{{ {expr} {direction} {td}{offset}) }}}}"
+            return f"{{{{ {expr} }}}}"
+
+        if vtype == "expression":
+            return value_obj.get("expression", "")
+
+        return value_obj.get("data", "")
+
+    # -----------------------------------------------------------------------
+
 
     def _compile_log_message(self, stmt: dict, piston_id: str) -> str:
         """COMPILER_SPEC Section 8.12."""
         tmpl = self.env.get_template("snippets/log_message.yaml.j2")
+        # PISTON_FORMAT.md: message is an operand object
+        message_obj = stmt.get("message", {})
+        message = self._resolve_operand(message_obj) if isinstance(message_obj, dict) else str(message_obj)
         return tmpl.render(
             stmt_id=stmt["id"],
             piston_id=piston_id,
             level=stmt.get("level", "info"),
-            message=stmt.get("message", ""),
+            message=message,
         )
 
     # -----------------------------------------------------------------------
@@ -1110,34 +1198,41 @@ class Compiler:
         warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.10 — compiles to HA choose:"""
-        subject = stmt.get("subject", {})
+        # PISTON_FORMAT.md: expression object, cases array (with statements), default array
+        expression = stmt.get("expression", {})
         cases = stmt.get("cases", [])
-        default_body = stmt.get("default_body", [])
+        default_stmts = stmt.get("default", [])
 
-        entity_id = device_map.get(subject.get("role", ""), "")
-        attribute = subject.get("attribute")
+        # Resolve expression to entity_id for state comparison if it's a device role
+        entity_id = ""
+        if expression.get("type") == "variable":
+            # Variable expression — will be used in template
+            var_name = expression.get("name", "").lstrip("$@")
+        else:
+            var_name = ""
 
         lines = [f"- alias: \"{stmt['id']}\"", "  choose:"]
         for case in cases:
+            case_val = case.get("value", "")
             lines.append("    - conditions:")
-            lines.append("        - condition: state")
-            lines.append(f"          entity_id: {entity_id}")
-            if attribute:
-                lines.append(f"          attribute: {attribute}")
-            lines.append(f"          state: \"{case['value']}\"")
+            lines.append("        - condition: template")
+            if var_name:
+                lines.append(f"          value_template: \"{{{{ {var_name} == {repr(case_val)} }}}}\"")
+            else:
+                lines.append(f"          value_template: \"{{{{ false }}}}\"")
             lines.append("      sequence:")
             compiled = self._compile_sequence(
-                case.get("body", []), piston, device_map, globals_store,
+                case.get("statements", []), piston, device_map, globals_store,
                 known_piston_slugs, warnings, indent + 2,
                 _append_completion_event=False,
             )
             for line in compiled.splitlines():
                 lines.append(f"        {line}")
 
-        if default_body:
+        if default_stmts:
             lines.append("  default:")
             compiled = self._compile_sequence(
-                default_body, piston, device_map, globals_store,
+                default_stmts, piston, device_map, globals_store,
                 known_piston_slugs, warnings, indent + 2,
                 _append_completion_event=False,
             )
@@ -1156,8 +1251,9 @@ class Compiler:
         warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.11 — inline comment + body."""
-        label = stmt.get("label", "")
-        body = stmt.get("body", [])
+        # PISTON_FORMAT.md: description field, statements array
+        label = stmt.get("description", "") or ""
+        body = stmt.get("statements", [])
         header = f"# do_block: {label} ({stmt['id']})" if label else f"# do_block ({stmt['id']})"
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,

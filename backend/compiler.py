@@ -421,7 +421,7 @@ class Compiler:
 
     def _compile_sequence(
         self,
-        actions: list,
+        child_ids: list,
         piston: dict,
         device_map: dict,
         globals_store: dict,
@@ -429,15 +429,44 @@ class Compiler:
         warnings: list,
         indent: int = 4,
         _append_completion_event: bool = True,
+        stmt_map: dict = None,
     ) -> str:
         """
-        Main statement dispatcher. Walks the actions array and compiles
-        each statement. Appends the PISTONCORE_RUN_COMPLETE event at end
-        of the top-level sequence only.
+        Main statement dispatcher. Walks the child_ids list, resolves each ID
+        to a statement object via stmt_map, and compiles each statement.
+        Appends the PISTONCORE_RUN_COMPLETE event at end of the top-level
+        sequence only.
         COMPILER_SPEC Section 7.2.
+        Flat model: child_ids is a list of statement ID strings. Each is looked
+        up in stmt_map. stmt_map is built once at the top-level call and passed
+        through all recursive calls. PISTON_FORMAT.md: statements is a flat
+        array; control-flow nodes reference children by ID only.
         """
+        # Build stmt_map at the top-level call; recursive calls receive it pre-built.
+        if stmt_map is None:
+            stmt_map = {s['id']: s for s in piston.get('statements', [])}
+
+        # Resolve child_ids to statement objects.
+        # Each item should be a string ID in the flat model. The embedded-object
+        # fallback handles legacy data or the top-level call from compile_piston
+        # which still passes the raw statements list (list of dicts).
+        stmts = []
+        for item in child_ids:
+            if isinstance(item, str):
+                s = stmt_map.get(item)
+                if s is None:
+                    warnings.append(CompilerWarning(
+                        f"Statement ID '{item}' referenced in a child list "
+                        f"was not found in piston.statements — skipped."
+                    ))
+                    continue
+                stmts.append(s)
+            else:
+                # Embedded object (top-level call passes dicts directly, or legacy data)
+                stmts.append(item)
+
         lines = []
-        for stmt in actions:
+        for stmt in stmts:
             stmt_type = stmt.get("type")
 
             # only_when — COMPILER_SPEC Section 8.16
@@ -468,31 +497,31 @@ class Compiler:
             elif stmt_type == "if":
                 lines.append(self._compile_if_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "repeat":
                 lines.append(self._compile_repeat_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "for_each":
                 lines.append(self._compile_for_each_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "while":
                 lines.append(self._compile_while_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "for":
                 lines.append(self._compile_for_loop(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "set_variable":
@@ -513,13 +542,13 @@ class Compiler:
             elif stmt_type == "switch":
                 lines.append(self._compile_switch_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "do":
                 lines.append(self._compile_do_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent
+                    known_piston_slugs, warnings, indent, stmt_map
                 ))
 
             elif stmt_type in ("break", "cancel_pending_tasks", "on_event"):
@@ -695,7 +724,7 @@ class Compiler:
     def _compile_if_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.4 — recursive."""
         # PISTON_FORMAT.md: conditions is an array; compile all, join with condition_operator
@@ -714,6 +743,7 @@ class Compiler:
             true_branch, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         ) if true_branch else "[]"
 
         compiled_else = None
@@ -722,6 +752,7 @@ class Compiler:
                 false_branch, piston, device_map, globals_store,
                 known_piston_slugs, warnings, indent + 2,
                 _append_completion_event=False,
+                stmt_map=stmt_map,
             )
 
         lines = [
@@ -747,7 +778,7 @@ class Compiler:
     def _compile_repeat_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.6 — repeat/do/until."""
         # PISTON_FORMAT.md: until_conditions array + statements array
@@ -760,6 +791,7 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         )
 
         lines = [
@@ -780,7 +812,7 @@ class Compiler:
     def _compile_for_each_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """
         COMPILER_SPEC Section 8.7.
@@ -797,6 +829,7 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         )
         # Substitute loop variable reference with repeat.item
         compiled_body = compiled_body.replace(f"{{{{ {loop_var} }}}}", "{{ repeat.item }}")
@@ -840,7 +873,7 @@ class Compiler:
     def _compile_while_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.8."""
         # PISTON_FORMAT.md: conditions array + statements array
@@ -853,6 +886,7 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         )
 
         lines = [
@@ -873,7 +907,7 @@ class Compiler:
     def _compile_for_loop(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """
         COMPILER_SPEC Section 8.9.
@@ -891,6 +925,7 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent + 2,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         )
 
         simple = (from_val in (0, 1)) and (step == 1)
@@ -1195,7 +1230,7 @@ class Compiler:
     def _compile_switch_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.10 — compiles to HA choose:"""
         # PISTON_FORMAT.md: expression object, cases array (with statements), default array
@@ -1225,6 +1260,7 @@ class Compiler:
                 case.get("statements", []), piston, device_map, globals_store,
                 known_piston_slugs, warnings, indent + 2,
                 _append_completion_event=False,
+                stmt_map=stmt_map,
             )
             for line in compiled.splitlines():
                 lines.append(f"        {line}")
@@ -1235,6 +1271,7 @@ class Compiler:
                 default_stmts, piston, device_map, globals_store,
                 known_piston_slugs, warnings, indent + 2,
                 _append_completion_event=False,
+                stmt_map=stmt_map,
             )
             for line in compiled.splitlines():
                 lines.append(f"    {line}")
@@ -1248,7 +1285,7 @@ class Compiler:
     def _compile_do_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_slugs: dict,
-        warnings: list, indent: int,
+        warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.11 — inline comment + body."""
         # PISTON_FORMAT.md: description field, statements array
@@ -1259,6 +1296,7 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_slugs, warnings, indent,
             _append_completion_event=False,
+            stmt_map=stmt_map,
         )
         return f"{header}\n{compiled_body}"
 
@@ -1368,18 +1406,35 @@ if __name__ == "__main__":
         "variables": [],
         "triggers": [{"type": "sun", "event": "sunset", "offset_minutes": 0}],
         "conditions": [],
+        # Flat statements array — Section 18 format.
+        # then/else/statements fields contain ID strings, not embedded objects.
         "statements": [
             {
                 "id": "stmt_001",
+                "type": "if",
+                "conditions": [
+                    {
+                        "id": "cond_001",
+                        "is_trigger": True,
+                        "subject": "time",
+                        "operator": "happens daily at",
+                        "value": {"preset": "sunset", "offset": 0},
+                    }
+                ],
+                "then": ["stmt_002", "stmt_003", "stmt_004"],
+                "else": [],
+            },
+            {
+                "id": "stmt_002",
                 "type": "action",
                 "devices": ["driveway_light"],
                 "tasks": [{"id": "task_001", "command": "turn_on", "domain": "light",
                             "ha_service": "light.turn_on",
                             "parameters": {"brightness_pct": 100}}],
             },
-            {"id": "stmt_002", "type": "wait", "wait_type": "until", "until": "23:00:00"},
+            {"id": "stmt_003", "type": "wait", "wait_type": "until", "until": "23:00:00"},
             {
-                "id": "stmt_003",
+                "id": "stmt_004",
                 "type": "action",
                 "devices": ["driveway_light"],
                 "tasks": [{"id": "task_002", "command": "turn_off", "domain": "light",

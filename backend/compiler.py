@@ -1,8 +1,10 @@
 # pistoncore/backend/compiler.py
 #
-# Matches COMPILER_SPEC.md v0.2 exactly.
-# # Started from Grok's skeleton — fixed and completed by Claude (Sessions 8-9).
+# Matches COMPILER_SPEC.md Section 8 entry point and Section 13 result contract.
+# Started from Grok's skeleton — fixed and completed by Claude (Sessions 8-9).
 # Session 10: five bug fixes — hash, globals writes, _scan_globals, only_when, for_loop substitution.
+# Session 28: S1-2c flat statements array — stmt_map lookup, all control-flow methods updated.
+# Session 28: S1-7 session 1 — Bugs 1-7, 11, 13, 14, 19, 22, 23, 24 fixed.
 #
 # This file is designed to be easy for anyone + Claude to maintain.
 # Each method references the COMPILER_SPEC section it implements.
@@ -11,40 +13,67 @@
 #
 # Usage:
 #   compiler = Compiler(template_dir="path/to/native-script/")
-#   auto_yaml, script_yaml, warnings, errors = compiler.compile_piston(
-#       piston, device_map, globals_store, app_version="0.9"
-#   )
+#   result = compiler.compile_piston(context)
+#   # context is the fat compiler context object — COMPILER_SPEC Section 7
+#   # result is a CompilerResult — COMPILER_SPEC Section 13
 
 import re
 import hashlib
+from dataclasses import dataclass, field
 from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
 # ---------------------------------------------------------------------------
-# Compiler result types
+# Compiler result types — COMPILER_SPEC Section 13
 # ---------------------------------------------------------------------------
+
+@dataclass
+class CompilerMessage:
+    """
+    A single compiler error or warning.
+    level:   "error" | "warning" | "info"
+    code:    SCREAMING_SNAKE_CASE identifier — used by frontend and tests
+    message: plain English, shown directly to user
+    context: which statement caused this (optional)
+    COMPILER_SPEC Section 13.
+    """
+    level: str
+    code: str
+    message: str
+    context: str | None = None
+
+    def __str__(self):
+        return f"[{self.code}] {self.message}"
+
+
+@dataclass
+class CompilerResult:
+    """
+    Return value from compile_piston().
+    automation_yaml: automation file content, or None if omitted/error
+    script_yaml:     script file content, or None on error
+    errors:          list of CompilerMessage with level="error"
+    warnings:        list of CompilerMessage with level="warning"
+    COMPILER_SPEC Section 13.
+    """
+    automation_yaml: str | None = None
+    script_yaml: str | None = None
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
 
 class CompilerError(Exception):
     """
-    Fatal error — compilation cannot continue.
-    Message must be plain English. Never show a stack trace to the user.
-    COMPILER_SPEC Section 14.
+    Raised internally to abort compilation on unrecoverable problems.
+    Always caught in compile_piston() and converted to a CompilerMessage.
+    Never propagates to the caller — caller always receives a CompilerResult.
+    COMPILER_SPEC Section 13.
     """
-    pass
-
-
-class CompilerWarning:
-    """
-    Non-fatal — compilation continues but user should be informed.
-    Shown in the PistonCore validation banner after save.
-    COMPILER_SPEC Section 14.
-    """
-    def __init__(self, message: str):
-        self.message = message
-
-    def __str__(self):
-        return self.message
+    def __init__(self, message: str, code: str = "COMPILER_ERROR", context: str | None = None):
+        super().__init__(message)
+        self.code = code
+        self.context = context
 
 
 # ---------------------------------------------------------------------------
@@ -84,83 +113,124 @@ class Compiler:
     # Section 5 — Main entry point
     # -----------------------------------------------------------------------
 
-    def compile_piston(
-        self,
-        piston: dict,
-        device_map: dict,
-        globals_store: dict,
-        app_version: str,
-        known_piston_slugs: dict | None = None,
-    ) -> tuple[str, str, list, list]:
-        """
-        Main entry point. Returns (automation_yaml, script_yaml, warnings, errors).
+    # -----------------------------------------------------------------------
+    # Section 8 — Main entry point
+    # -----------------------------------------------------------------------
 
-        piston             — the full piston JSON dict
-        device_map         — maps role names to HA entity IDs or lists of IDs
-                             e.g. {"driveway_light": "light.driveway_main"}
-        globals_store      — maps global variable IDs to their definitions
-                             e.g. {"uuid_abc": {"display_name": "Away Mode", "type": "Text"}}
-        app_version        — PistonCore version string for the file header
-        known_piston_slugs — maps piston IDs to their slugs, for call_piston compilation
-
-        COMPILER_SPEC Section 5.
+    def compile_piston(self, context: dict) -> CompilerResult:
         """
-        warnings: list[CompilerWarning] = []
-        errors: list[str] = []
+        Main entry point. Accepts fat compiler context object, returns CompilerResult.
+
+        context keys (COMPILER_SPEC Section 7):
+          piston             — full piston JSON dict (includes device_map, statements)
+          global_variables   — list of global variable definition objects
+          known_piston_ids   — maps piston IDs to themselves (for call_piston resolution)
+          pistoncore_version — version string for file header
+
+        COMPILER_SPEC Section 8.
+        """
+        result = CompilerResult()
 
         try:
+            piston           = context["piston"]
+            device_map       = piston.get("device_map", {})
+            globals_store    = {
+                g["name"]: g
+                for g in context.get("global_variables", [])
+                if "name" in g
+            }
+            known_piston_ids = context.get("known_piston_ids", {})
+            app_version      = context.get("pistoncore_version", "1.0")
+
             slug = self.slugify(piston["name"])
 
-            # Slug collision check — COMPILER_SPEC Section 4
-            if known_piston_slugs:
-                for pid, pslug in known_piston_slugs.items():
-                    if pslug == slug and pid != piston["id"]:
+            # Slug collision check — alias field only, COMPILER_SPEC Section 4
+            if known_piston_ids:
+                other_names = {
+                    pid: p.get("name", "") if isinstance(p, dict) else ""
+                    for pid, p in known_piston_ids.items()
+                    if pid != piston["id"]
+                }
+                for pid, other_name in other_names.items():
+                    if self.slugify(other_name) == slug:
                         slug = f"{slug}_{piston['id'][:4]}"[:50]
-                        warnings.append(CompilerWarning(
-                            f"Piston name '{piston['name']}' produces the same slug as another "
-                            f"piston. Appended piston ID prefix to disambiguate: '{slug}'."
+                        result.warnings.append(CompilerMessage(
+                            level="warning",
+                            code="SLUG_COLLISION",
+                            message=(
+                                f"Piston name '{piston['name']}' produces the same alias slug "
+                                f"as another piston. Appended piston ID prefix to disambiguate: '{slug}'."
+                            ),
                         ))
                         break
 
             globals_used = self._scan_globals(piston)
 
-            # called_by_piston trigger — no automation file generated
+            # Build stmt_map for flat array lookups
+            stmt_map = {s["id"]: s for s in piston.get("statements", [])}
+
+            # Collect triggers — condition objects with is_trigger:true
+            # COMPILER_SPEC Section 9.3
+            trigger_conditions = self._collect_triggers(piston, stmt_map)
+
+            # called_by_piston — no automation file generated
             omit_automation = any(
-                t.get("type") == "called_by_piston"
-                for t in piston.get("triggers", [])
+                c.get("subject") == "called_by_piston"
+                for c in trigger_conditions
             )
 
+            # manual_only — automation file gets empty trigger list, no error
+            manual_only = any(
+                c.get("subject") == "manual_only"
+                for c in trigger_conditions
+            )
+
+            # NO_TRIGGERS validation — COMPILER_SPEC Section 13
+            if not trigger_conditions and not omit_automation and not manual_only:
+                raise CompilerError(
+                    "This piston has no triggers defined. It will never run automatically. "
+                    "Add at least one trigger in the Triggers section.",
+                    code="NO_TRIGGERS",
+                )
+
             compiled_triggers = self._compile_triggers(
-                piston.get("triggers", []), device_map
+                trigger_conditions, device_map, result.warnings
             )
             compiled_conditions = self._compile_conditions(
-                piston.get("conditions", []), device_map, warnings
+                piston.get("conditions", []), device_map, result.warnings
             )
             compiled_sequence = self._compile_sequence(
                 piston.get("statements", []),
                 piston,
                 device_map,
                 globals_store,
-                known_piston_slugs or {},
-                warnings,
+                known_piston_ids,
+                result.warnings,
+                stmt_map=stmt_map,
             )
 
             if omit_automation:
-                automation_yaml = ""
+                result.automation_yaml = ""
             else:
-                automation_yaml = self._render_automation(
+                result.automation_yaml = self._render_automation(
                     piston, slug, compiled_triggers, compiled_conditions, app_version
                 )
 
-            script_yaml = self._render_script(
+            result.script_yaml = self._render_script(
                 piston, slug, compiled_sequence, globals_used, app_version
             )
 
-            return automation_yaml, script_yaml, warnings, errors
-
         except CompilerError as e:
-            errors.append(str(e))
-            return "", "", warnings, errors
+            result.errors.append(CompilerMessage(
+                level="error",
+                code=e.code,
+                message=str(e),
+                context=e.context,
+            ))
+            result.automation_yaml = None
+            result.script_yaml = None
+
+        return result
 
     # -----------------------------------------------------------------------
     # Section 5 — scan_globals
@@ -204,101 +274,154 @@ class Compiler:
         return sorted(found) if found else ["(none)"]
 
     # -----------------------------------------------------------------------
-    # Section 6.3 — Trigger compilation
+    # Section 9.3 — Trigger collection and compilation
     # -----------------------------------------------------------------------
 
-    def _compile_triggers(self, triggers: list, device_map: dict) -> str:
+    def _collect_triggers(self, piston: dict, stmt_map: dict) -> list:
         """
-        Compile each trigger in the piston.triggers array.
+        Walk the flat statements array and collect every condition object
+        where is_trigger is True. Triggers can appear in any if block
+        anywhere in the piston — not just the top level.
+        COMPILER_SPEC Section 9.3.
+        """
+        found = []
+        for stmt in piston.get("statements", []):
+            for cond in stmt.get("conditions", []):
+                if cond.get("is_trigger"):
+                    found.append(cond)
+        return found
+
+    def _compile_triggers(
+        self, trigger_conditions: list, device_map: dict, warnings: list
+    ) -> str:
+        """
+        Compile collected trigger condition objects to YAML trigger blocks.
+        Each trigger gets an id: field injected as line 2 of the template output.
+        All trigger templates start with '- trigger: X' — id: goes on line 2.
         Returns pre-indented YAML string (4 spaces).
-        COMPILER_SPEC Section 6.3.
+        COMPILER_SPEC Section 9.3.
         """
-        if not triggers:
+        if not trigger_conditions:
             return "    []"
 
-        # manual_only → empty trigger list
-        if any(t.get("type") == "manual_only" for t in triggers):
-            return "    []"
-
-        # called_by_piston → automation omitted entirely; return empty
-        if any(t.get("type") == "called_by_piston" for t in triggers):
+        if any(c.get("subject") in ("manual_only", "called_by_piston")
+               for c in trigger_conditions):
             return "    []"
 
         lines = []
-        for t in triggers:
-            ttype = t.get("type")
+        for cond in trigger_conditions:
+            subject  = cond.get("subject", "")
+            operator = cond.get("operator", "")
+            role     = cond.get("role", "")
+            value    = cond.get("value")
+            cond_id  = cond.get("id", "")
 
-            if ttype == "sun":
-                tmpl = self.env.get_template("snippets/trigger_sun.yaml.j2")
-                lines.append(tmpl.render(
-                    event=t["event"],
-                    offset=self._format_offset(t.get("offset_minutes", 0)),
-                ))
-
-            elif ttype == "state":
-                entity_id_list = device_map.get(t.get("role") or t.get("target_role", ""))
-                entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
-                if not entity_id:
-                    raise CompilerError(
-                        f"Trigger references role '{t.get('role') or t.get('target_role')}' "
-                        f"but no device is mapped to that role."
+            if subject == "time" and operator == "happens daily at":
+                if isinstance(value, dict) and "preset" in value:
+                    preset    = value.get("preset", "sunset")
+                    offset    = value.get("offset", 0)
+                    direction = value.get("offset_direction", "+")
+                    unit      = value.get("offset_unit", "minutes")
+                    offset_minutes = offset if unit == "minutes" else offset * 60
+                    if direction == "-":
+                        offset_minutes = -offset_minutes
+                    tmpl = self.env.get_template("snippets/trigger_sun.yaml.j2")
+                    rendered = tmpl.render(
+                        event=preset,
+                        offset=self._format_offset(offset_minutes),
                     )
-                tmpl = self.env.get_template("snippets/trigger_state.yaml.j2")
-                lines.append(tmpl.render(
-                    entity_id=entity_id,
-                    to=t.get("to"),
-                    from_state=t.get("from"),
-                    for_seconds=t.get("for_seconds"),
-                ))
+                else:
+                    at_time = value if isinstance(value, str) else cond.get("compiled_value", "")
+                    tmpl = self.env.get_template("snippets/trigger_time.yaml.j2")
+                    rendered = tmpl.render(at_time=at_time)
+                lines.append(self._inject_trigger_id(rendered, cond_id))
 
-            elif ttype == "time":
-                tmpl = self.env.get_template("snippets/trigger_time.yaml.j2")
-                lines.append(tmpl.render(at_time=t["at"]))
+            elif subject == "system_start":
+                tmpl = self.env.get_template("snippets/trigger_homeassistant.yaml.j2")
+                rendered = tmpl.render(event="start")
+                lines.append(self._inject_trigger_id(rendered, cond_id))
 
-            elif ttype == "time_pattern":
-                tmpl = self.env.get_template("snippets/trigger_time_pattern.yaml.j2")
-                lines.append(tmpl.render(
-                    minutes=t.get("minutes"),
-                    hours=t.get("hours"),
-                ))
-
-            elif ttype == "numeric_state":
-                entity_id_list = device_map.get(t.get("role") or t.get("target_role", ""))
-                entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
-                if not entity_id:
-                    raise CompilerError(
-                        f"Trigger references role '{t.get('role') or t.get('target_role')}' "
-                        f"but no device is mapped to that role."
+            elif role and operator in ("changes to", "changes from", "changes"):
+                entity_ids = self._resolve_role_entities(role, device_map, cond_id)
+                compiled_value = cond.get("compiled_value", value or "")
+                for entity_id in entity_ids:
+                    tmpl = self.env.get_template("snippets/trigger_state.yaml.j2")
+                    rendered = tmpl.render(
+                        entity_id=entity_id,
+                        to=compiled_value if operator in ("changes to", "changes") else None,
+                        from_state=cond.get("from_state"),
+                        for_seconds=cond.get("for_seconds"),
                     )
-                tmpl = self.env.get_template("snippets/trigger_numeric.yaml.j2")
-                lines.append(tmpl.render(
-                    entity_id=entity_id,
-                    above=t.get("above"),
-                    below=t.get("below"),
-                ))
+                    lines.append(self._inject_trigger_id(rendered, cond_id))
 
-            elif ttype == "event":
-                tmpl = self.env.get_template("snippets/trigger_event.yaml.j2")
-                lines.append(tmpl.render(
-                    event_type=t["event_type"],
-                    event_data=t.get("event_data", {}),
-                ))
-
-            elif ttype == "webhook":
-                tmpl = self.env.get_template("snippets/trigger_webhook.yaml.j2")
-                lines.append(tmpl.render(webhook_id=t["webhook_id"]))
+            elif role and operator in ("drops below", "rises above"):
+                entity_ids = self._resolve_role_entities(role, device_map, cond_id)
+                compiled_value = cond.get("compiled_value", value)
+                for entity_id in entity_ids:
+                    tmpl = self.env.get_template("snippets/trigger_numeric.yaml.j2")
+                    rendered = tmpl.render(
+                        entity_id=entity_id,
+                        above=compiled_value if operator == "rises above" else None,
+                        below=compiled_value if operator == "drops below" else None,
+                    )
+                    lines.append(self._inject_trigger_id(rendered, cond_id))
 
             else:
-                raise CompilerError(
-                    f"Unknown trigger type: '{ttype}'. "
-                    f"This trigger type may not be implemented yet."
-                )
+                warnings.append(CompilerMessage(
+                    level="warning",
+                    code="UNKNOWN_TRIGGER",
+                    message=(
+                        f"Trigger condition '{cond_id}' has subject='{subject}' "
+                        f"operator='{operator}' which is not yet implemented. "
+                        f"This trigger was skipped."
+                    ),
+                    context=cond_id,
+                ))
 
-        indented = "\n".join("    " + line for line in "\n".join(lines).splitlines())
+        if not lines:
+            return "    []"
+
+        indented = "\n".join(
+            "    " + line for line in "\n".join(lines).splitlines()
+        )
         return indented
 
+    def _inject_trigger_id(self, rendered: str, cond_id: str) -> str:
+        """
+        Insert id: as the second line of a rendered trigger template block.
+        All trigger templates start with '- trigger: something' on line 1.
+        The id: field is injected immediately after, indented to match.
+        This is correct HA YAML — id: is a sibling key under the list item,
+        not a nested structure.
+        COMPILER_SPEC Section 9.3 (Bug 2 fix).
+        """
+        template_lines = rendered.rstrip("\n").splitlines()
+        if not template_lines:
+            return rendered
+        return "\n".join(
+            [template_lines[0], f'  id: "{cond_id}"'] + template_lines[1:]
+        )
+
+    def _resolve_role_entities(
+        self, role: str, device_map: dict, context_id: str = ""
+    ) -> list:
+        """
+        Resolve a role name to a list of entity IDs.
+        Raises CompilerError with UNMAPPED_ROLE if role not in device_map.
+        """
+        entity_ids = device_map.get(role)
+        if not entity_ids:
+            raise CompilerError(
+                f"Role '{role}' is referenced but no device is mapped to that role.",
+                code="UNMAPPED_ROLE",
+                context=context_id,
+            )
+        if isinstance(entity_ids, str):
+            return [entity_ids]
+        return list(entity_ids)
+
     def _format_offset(self, minutes: int) -> str:
-        """COMPILER_SPEC Section 6.3 — sun trigger offset formatting."""
+        """COMPILER_SPEC Section 9.3 — sun trigger offset formatting."""
         if minutes == 0:
             return "00:00:00"
         sign = "+" if minutes > 0 else "-"
@@ -316,6 +439,7 @@ class Compiler:
         """
         Compile top-level piston conditions.
         Returns "[]" if no conditions.
+        Each compiled condition gets a leading "- " prepended here.
         COMPILER_SPEC Section 6.4 and 8.5.
         """
         if not conditions:
@@ -323,34 +447,42 @@ class Compiler:
 
         lines = []
         for cond in conditions:
-            lines.append(self._compile_single_condition(cond, device_map))
+            body = self._compile_single_condition(cond, device_map)
+            # _compile_single_condition returns body WITHOUT leading "- "
+            # Add it here for the top-level conditions list
+            lines.append("- " + body)
         return "\n".join(lines)
 
     def _compile_single_condition(self, cond: dict, device_map: dict) -> str:
         """
         Compile one condition object to a HA condition YAML block.
-        COMPILER_SPEC Section 8.5.
+        Returns the YAML body WITHOUT a leading "- " dash.
+        Callers are responsible for prepending "- " where needed.
+        This prevents the double-dash bug (- - condition: state).
+        Bug 4/5 fix — COMPILER_SPEC Section 8.5.
+
+        Bug 11 fix: boolean state values (on/off/true/false) are always
+        quoted in YAML output to prevent HA from misreading them as booleans.
         """
         ctype = cond.get("type")
 
-        # AND / OR groups
+        # AND / OR groups — Bug 4/5: sub-conditions also get "- " prepended here
         if ctype == "and":
-            lines = ["- condition: and", "  conditions:"]
+            lines = ["condition: and", "  conditions:"]
             for sub in cond.get("conditions", []):
-                lines.append(f"    {self._compile_single_condition(sub, device_map)}")
+                sub_body = self._compile_single_condition(sub, device_map)
+                lines.append("    - " + sub_body)
             return "\n".join(lines)
 
         if ctype == "or":
-            lines = ["- condition: or", "  conditions:"]
+            lines = ["condition: or", "  conditions:"]
             for sub in cond.get("conditions", []):
-                lines.append(f"    {self._compile_single_condition(sub, device_map)}")
+                sub_body = self._compile_single_condition(sub, device_map)
+                lines.append("    - " + sub_body)
             return "\n".join(lines)
 
-        # Support both new flat format (PISTON_FORMAT.md) and old nested subject format
-        # New: { role, attribute, attribute_type, operator, compiled_value, ... }
-        # Old: { subject: { type, role, capability, attribute_type }, operator, compiled_value }
-        if "role" in cond and "subject" not in cond:
-            # New flat format — normalize to subject object for compiler internals
+        # Flat format (PISTON_FORMAT.md): role at top level, no nested subject object
+        if "role" in cond and not isinstance(cond.get("subject"), dict):
             subject = {
                 "type": "device",
                 "role": cond.get("role", ""),
@@ -359,42 +491,44 @@ class Compiler:
             }
         else:
             subject = cond.get("subject", {})
+
         subject_type = subject.get("type") or ("device" if subject.get("role") else None)
         operator = cond.get("operator", "is")
         compiled_value = cond.get("compiled_value", cond.get("value", ""))
 
+        # Bug 11 — quote boolean state strings so YAML doesn't interpret them as booleans
+        BOOLEAN_STATES = {"on", "off", "true", "false", "yes", "no", "home", "not_home"}
+        def _quote_state(val):
+            if isinstance(val, str) and val.lower() in BOOLEAN_STATES:
+                return f'"{val}"'
+            return val
+
         if subject_type == "device":
-            entity_id_list = device_map.get(subject.get("role", ""))
-            entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
-            if not entity_id:
-                raise CompilerError(
-                    f"Condition references role '{subject.get('role')}' "
-                    f"but no device is mapped to that role."
-                )
+            role = subject.get("role", "")
+            entity_ids = self._resolve_role_entities(role, device_map, cond.get("id", ""))
+            entity_id = entity_ids[0]
             attribute_type = subject.get("attribute_type", "")
 
             if attribute_type == "numeric" or "greater" in operator or "less" in operator:
                 above = compiled_value if ("greater" in operator or "above" in operator) else None
                 below = compiled_value if ("less" in operator or "below" in operator) else None
                 tmpl = self.env.get_template("snippets/condition_numeric.yaml.j2")
-                return tmpl.render(entity_id=entity_id, above=above, below=below)
+                return self._strip_leading_dash(tmpl.render(entity_id=entity_id, above=above, below=below))
             else:
-                # State condition (binary or named state)
-                # Always use compiled_value — never display_value (COMPILER_SPEC Section 11)
                 tmpl = self.env.get_template("snippets/condition_state.yaml.j2")
-                return tmpl.render(
+                return self._strip_leading_dash(tmpl.render(
                     entity_id=entity_id,
-                    state=compiled_value,
-                    attribute=subject.get("attribute"),
-                )
+                    state=_quote_state(compiled_value),
+                    attribute=subject.get("attribute") or None,
+                ))
 
         elif subject_type == "time":
             tmpl = self.env.get_template("snippets/condition_time.yaml.j2")
-            return tmpl.render(
+            return self._strip_leading_dash(tmpl.render(
                 after=cond.get("after"),
                 before=cond.get("before"),
                 weekday=cond.get("weekday"),
-            )
+            ))
 
         elif subject_type == "variable":
             tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
@@ -409,11 +543,27 @@ class Compiler:
                 template_expr = f"{{{{ {var_name} {op} '{compiled_value}' }}}}"
             else:
                 template_expr = f"{{{{ {var_name} {op} {compiled_value} }}}}"
-            return tmpl.render(template_expression=template_expr)
+            return self._strip_leading_dash(tmpl.render(template_expression=template_expr))
 
         raise CompilerError(
-            f"Cannot compile condition — unknown subject type '{subject_type}'."
+            f"Cannot compile condition — unknown subject type '{subject_type}'.",
+            code="UNKNOWN_CONDITION_TYPE",
         )
+
+    def _strip_leading_dash(self, rendered: str) -> str:
+        """
+        Remove the leading '- ' from a rendered condition template.
+        All condition templates start with '- condition: X'.
+        _compile_single_condition returns body WITHOUT the leading dash.
+        Callers prepend '- ' where needed (in _compile_conditions,
+        _compile_if_block, _compile_repeat_block, _compile_while_block).
+        This prevents the double-dash bug (- - condition: state).
+        Bug 4/5 fix.
+        """
+        stripped = rendered.rstrip("\n")
+        if stripped.startswith("- "):
+            stripped = stripped[2:]
+        return stripped
 
     # -----------------------------------------------------------------------
     # Section 7.2 — Statement dispatcher
@@ -425,7 +575,7 @@ class Compiler:
         piston: dict,
         device_map: dict,
         globals_store: dict,
-        known_piston_slugs: dict,
+        known_piston_ids: dict,
         warnings: list,
         indent: int = 4,
         _append_completion_event: bool = True,
@@ -455,9 +605,13 @@ class Compiler:
             if isinstance(item, str):
                 s = stmt_map.get(item)
                 if s is None:
-                    warnings.append(CompilerWarning(
-                        f"Statement ID '{item}' referenced in a child list "
-                        f"was not found in piston.statements — skipped."
+                    warnings.append(CompilerMessage(
+                        level="warning",
+                        code="MISSING_STATEMENT_ID",
+                        message=(
+                            f"Statement ID '{item}' referenced in a child list "
+                            f"was not found in piston.statements — skipped."
+                        ),
                     ))
                     continue
                 stmts.append(s)
@@ -475,14 +629,20 @@ class Compiler:
             # runtime if the condition is not met.
             if "only_when" in stmt and stmt["only_when"]:
                 try:
-                    compiled_only_when = self._compile_single_condition(
+                    # _compile_single_condition returns body without "- "; prepend it here
+                    cond_body = self._compile_single_condition(
                         stmt["only_when"], device_map
                     )
-                    lines.append(compiled_only_when)
+                    lines.append("- " + cond_body)
                 except CompilerError as e:
-                    warnings.append(CompilerWarning(
-                        f"Statement {stmt.get('id', '?')} has an only_when condition "
-                        f"that could not be compiled and was skipped: {e}"
+                    warnings.append(CompilerMessage(
+                        level="warning",
+                        code="ONLY_WHEN_COMPILE_FAILED",
+                        message=(
+                            f"Statement {stmt.get('id', '?')} has an only_when condition "
+                            f"that could not be compiled and was skipped: {e}"
+                        ),
+                        context=stmt.get("id"),
                     ))
 
             if stmt_type == "action":
@@ -497,31 +657,31 @@ class Compiler:
             elif stmt_type == "if":
                 lines.append(self._compile_if_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "repeat":
                 lines.append(self._compile_repeat_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "for_each":
                 lines.append(self._compile_for_each_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "while":
                 lines.append(self._compile_while_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "for":
                 lines.append(self._compile_for_loop(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "set_variable":
@@ -531,10 +691,10 @@ class Compiler:
                 lines.append(self._compile_log_message(stmt, piston["id"]))
 
             elif stmt_type == "call_piston":
-                lines.append(self._compile_call_piston(stmt, known_piston_slugs))
+                lines.append(self._compile_call_piston(stmt, known_piston_ids))
 
             elif stmt_type == "control_piston":
-                lines.append(self._compile_control_piston(stmt, known_piston_slugs))
+                lines.append(self._compile_control_piston(stmt, known_piston_ids))
 
             elif stmt_type == "exit":
                 lines.append(self._compile_stop(stmt))
@@ -542,26 +702,33 @@ class Compiler:
             elif stmt_type == "switch":
                 lines.append(self._compile_switch_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type == "do":
                 lines.append(self._compile_do_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_slugs, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent, stmt_map
                 ))
 
             elif stmt_type in ("break", "cancel_pending_tasks", "on_event"):
                 raise CompilerError(
                     f"Statement type '{stmt_type}' requires PyScript compilation. "
                     f"This piston should have been flagged as PyScript-only before "
-                    f"reaching the compiler. Check the compile_target field."
+                    f"reaching the compiler. Check the compile_target field.",
+                    code="PYSCRIPT_REQUIRED",
+                    context=stmt.get("id"),
                 )
 
             else:
-                warnings.append(CompilerWarning(
-                    f"Statement type '{stmt_type}' (statement {stmt.get('id', '?')}) "
-                    f"is not yet implemented in the compiler. This statement was skipped."
+                warnings.append(CompilerMessage(
+                    level="warning",
+                    code="UNIMPLEMENTED_STATEMENT",
+                    message=(
+                        f"Statement type '{stmt_type}' (statement {stmt.get('id', '?')}) "
+                        f"is not yet implemented in the compiler. This statement was skipped."
+                    ),
+                    context=stmt.get("id"),
                 ))
                 continue
 
@@ -585,42 +752,43 @@ class Compiler:
     ) -> str:
         """
         COMPILER_SPEC Section 8.1.
-        Single task → simple action block with continue_on_error: true.
-        Multiple tasks → parallel block, each with continue_on_error: true.
-        continue_on_error: true is always emitted on every service call — matches
-        WebCoRE fire-and-forget resilience behavior.
+        Bug 7 fix: compile for ALL entities in the role, not just devices[0]/entity_ids[0].
+        Single entity + single task → simple action block.
+        Multiple entities or multiple tasks → parallel block, each branch with
+        continue_on_error: true at both the branch and action level.
+        continue_on_error: true is always emitted — matches WebCoRE fire-and-forget behavior.
         """
         # PISTON_FORMAT.md: devices is an array of role names
         devices = stmt.get("devices") or []
         target_role = devices[0] if devices else ""
-        entity_id_list = device_map.get(target_role)
-        entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
-        if not entity_id:
-            raise CompilerError(
-                f"Statement {stmt.get('id', '?')} references role '{target_role}' "
-                f"but no device is mapped to that role."
-            )
+        entity_ids = self._resolve_role_entities(target_role, device_map, stmt.get("id", ""))
 
         tasks = stmt.get("tasks", [])
         if not tasks:
             raise CompilerError(
-                f"Statement {stmt.get('id', '?')} (action) has no tasks defined."
+                f"Statement {stmt.get('id', '?')} (action) has no tasks defined.",
+                code="NO_TASKS",
+                context=stmt.get("id"),
             )
 
-        if len(tasks) == 1:
+        inner_tmpl = self.env.get_template("snippets/with_block.yaml.j2")
+
+        # Simple case: one entity, one task → flat action block
+        if len(entity_ids) == 1 and len(tasks) == 1:
             task = tasks[0]
-            tmpl = self.env.get_template("snippets/with_block.yaml.j2")
-            return tmpl.render(
+            return inner_tmpl.render(
                 stmt_id=stmt["id"],
                 service=task.get("ha_service") or task.get("command", ""),
-                entity_id=entity_id,
+                entity_id=entity_ids[0],
                 data=task.get("parameters") or None,
             )
-        else:
-            # Multiple tasks → parallel block
-            # COMPILER_SPEC Section 8.1
-            inner_tmpl = self.env.get_template("snippets/with_block.yaml.j2")
-            task_blocks = []
+
+        # Complex case: multiple entities or multiple tasks → parallel block.
+        # Each branch gets continue_on_error: true at the sequence level so a
+        # single offline device doesn't kill the whole parallel block.
+        # COMPILER_SPEC Section 8.1 (parallel sequences note).
+        branches = []
+        for entity_id in entity_ids:
             for task in tasks:
                 rendered = inner_tmpl.render(
                     stmt_id=None,
@@ -628,13 +796,16 @@ class Compiler:
                     entity_id=entity_id,
                     data=task.get("parameters") or None,
                 )
-                task_blocks.append(rendered)
+                branches.append(rendered)
 
-            lines = [f"- alias: \"{stmt['id']}\"", "  parallel:"]
-            for block in task_blocks:
-                for line in block.splitlines():
-                    lines.append(f"    {line}")
-            return "\n".join(lines)
+        lines = [f"- alias: \"{stmt['id']}\"", "  parallel:"]
+        for branch in branches:
+            branch_lines = branch.splitlines()
+            lines.append("    - continue_on_error: true")
+            lines.append("      sequence:")
+            for line in branch_lines:
+                lines.append(f"        {line}")
+        return "\n".join(lines)
 
     # -----------------------------------------------------------------------
     # Section 8.2 — wait
@@ -643,21 +814,33 @@ class Compiler:
     def _compile_wait(self, stmt: dict, warnings: list) -> str:
         """
         COMPILER_SPEC Section 8.2.
-        wait until time → wait_for_trigger, always emits CompilerWarning (past-time hang).
+        wait until time → wait_for_trigger, always emits WAIT_UNTIL_PAST_TIME warning.
         wait duration   → delay block.
         """
         if "until" in stmt and stmt["until"] is not None:
             at_time = stmt["until"]
-            # Always emit past-time warning — COMPILER_SPEC Section 8.2 and 14
-            warnings.append(CompilerWarning(
-                f"'Wait until {at_time}' will pause until that time today. "
-                f"If this step is reached after {at_time} has already passed, "
-                f"the piston will wait until {at_time} tomorrow. This is expected "
-                f"HA behavior — structure your piston so this step is reached before "
-                f"the target time, or use a fixed duration delay instead."
+            # Always emit past-time warning — COMPILER_SPEC Section 8.2, code WAIT_UNTIL_PAST_TIME
+            warnings.append(CompilerMessage(
+                level="warning",
+                code="WAIT_UNTIL_PAST_TIME",
+                message=(
+                    f"'Wait until {at_time}' will pause until that time today. "
+                    f"If this step is reached after {at_time} has already passed, "
+                    f"the piston will wait until {at_time} tomorrow. Structure your "
+                    f"piston so this step is reached before the target time, or use "
+                    f"a fixed duration delay instead."
+                ),
+                context=stmt.get("id"),
             ))
+            # Bug 3 fix: emit timeout (default 1 hour) and continue_on_timeout
+            timeout_seconds = stmt.get("timeout_seconds", 3600)
             tmpl = self.env.get_template("snippets/wait_until.yaml.j2")
-            return tmpl.render(stmt_id=stmt["id"], at_time=at_time)
+            return tmpl.render(
+                stmt_id=stmt["id"],
+                at_time=at_time,
+                timeout_seconds=timeout_seconds,
+                continue_on_timeout=stmt.get("continue_on_timeout", True),
+            )
 
         elif "duration" in stmt and stmt["duration"] is not None:
             # PISTON_FORMAT.md: duration + duration_unit fields
@@ -673,7 +856,9 @@ class Compiler:
         else:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} (wait) has neither 'until' "
-                f"nor 'duration' defined."
+                f"nor 'duration' defined.",
+                code="INVALID_WAIT",
+                context=stmt.get("id"),
             )
 
     def _format_delay(self, seconds: int) -> str:
@@ -699,20 +884,18 @@ class Compiler:
         conditions = stmt.get("conditions", [])
         if not conditions:
             raise CompilerError(
-                f"Statement {stmt.get('id', '?')} (wait_for_state) has no conditions defined."
+                f"Statement {stmt.get('id', '?')} (wait_for_state) has no conditions defined.",
+                code="INVALID_WAIT_FOR_STATE",
+                context=stmt.get("id"),
             )
         cond = conditions[0]
-        entity_id_list = device_map.get(cond.get("role", ""))
-        entity_id = entity_id_list[0] if isinstance(entity_id_list, list) else entity_id_list
-        if not entity_id:
-            raise CompilerError(
-                f"Statement {stmt.get('id', '?')} (wait_for_state) references "
-                f"role '{cond.get('role')}' but no device is mapped."
-            )
+        entity_ids = self._resolve_role_entities(
+            cond.get("role", ""), device_map, stmt.get("id", "")
+        )
         tmpl = self.env.get_template("snippets/wait_for_state.yaml.j2")
         return tmpl.render(
             stmt_id=stmt["id"],
-            entity_id=entity_id,
+            entity_id=entity_ids[0],
             to_state=cond.get("compiled_value", ""),
             timeout_seconds=stmt.get("timeout_seconds", 60),
         )
@@ -723,7 +906,7 @@ class Compiler:
 
     def _compile_if_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.4 — recursive."""
@@ -732,16 +915,21 @@ class Compiler:
         true_branch = stmt.get("then", [])
         false_branch = stmt.get("else", [])
 
-        # Compile all conditions and join — for now compile first condition only
-        # (full multi-condition support requires condition template builder, coming in S2)
-        if conditions:
-            compiled_condition = self._compile_single_condition(conditions[0], device_map)
+        # Compile all conditions and join — for now compile first non-trigger condition only
+        # (full multi-condition support requires condition template builder, S1-7 session 2)
+        # Skip is_trigger conditions — those compiled as automation triggers, not if conditions
+        non_trigger = [c for c in conditions if not c.get("is_trigger")]
+        if non_trigger:
+            # _compile_single_condition returns body WITHOUT "- "; prepend it here (Bug 4 fix)
+            cond_body = self._compile_single_condition(non_trigger[0], device_map)
+            compiled_condition = "- " + cond_body
         else:
+            # No conditions (trigger-only if block) — always true in script context
             compiled_condition = "- condition: template\n  value_template: \"{{ true }}\""
 
         compiled_true = self._compile_sequence(
             true_branch, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent + 2,
+            known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         ) if true_branch else "[]"
@@ -750,7 +938,7 @@ class Compiler:
         if false_branch:
             compiled_else = self._compile_sequence(
                 false_branch, piston, device_map, globals_store,
-                known_piston_slugs, warnings, indent + 2,
+                known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
                 stmt_map=stmt_map,
             )
@@ -758,7 +946,7 @@ class Compiler:
         lines = [
             f"- alias: \"{stmt['id']}\"",
             f"  if:",
-            f"    - {compiled_condition}",
+            f"    {compiled_condition}",
             f"  then:",
         ]
         for line in compiled_true.splitlines():
@@ -777,7 +965,7 @@ class Compiler:
 
     def _compile_repeat_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.6 — repeat/do/until."""
@@ -786,10 +974,11 @@ class Compiler:
         body = stmt.get("statements", [])
 
         condition = until_conditions[0] if until_conditions else {}
-        compiled_condition = self._compile_single_condition(condition, device_map)
+        # Bug 4/5 fix: _compile_single_condition returns body without "- "; prepend here
+        cond_body = self._compile_single_condition(condition, device_map)
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent + 2,
+            known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
@@ -802,7 +991,7 @@ class Compiler:
         for line in compiled_body.splitlines():
             lines.append(f"      {line}")
         lines.append("    until:")
-        lines.append(f"      - {compiled_condition}")
+        lines.append(f"      - {cond_body}")
         return "\n".join(lines)
 
     # -----------------------------------------------------------------------
@@ -811,28 +1000,34 @@ class Compiler:
 
     def _compile_for_each_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """
         COMPILER_SPEC Section 8.7.
-        Devices globals are compile-time literal lists — not runtime group lookups.
+        Bug 6 fix: body actions targeting the loop role must use {{ repeat.item }}
+        as the entity_id at runtime. Compile the body with a sentinel device_map
+        entry for the loop role that maps to {{ repeat.item }}, so action
+        compilation resolves correctly. Text substitution on compiled output is
+        unreliable — instead we inject the sentinel before compiling the body.
         """
         # PISTON_FORMAT.md: list_role, variable, statements
         collection_role = stmt.get("list_role", "")
-        loop_var = stmt.get("variable", "$device").lstrip("$")
         body = stmt.get("statements", [])
 
         entity_ids = self._resolve_collection(collection_role, device_map)
 
+        # Bug 6 fix: override device_map for body compilation so the loop role
+        # resolves to the repeat.item sentinel, not a baked entity_id list.
+        body_device_map = dict(device_map)
+        body_device_map[collection_role] = ["{{ repeat.item }}"]
+
         compiled_body = self._compile_sequence(
-            body, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent + 2,
+            body, piston, body_device_map, globals_store,
+            known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
-        # Substitute loop variable reference with repeat.item
-        compiled_body = compiled_body.replace(f"{{{{ {loop_var} }}}}", "{{ repeat.item }}")
 
         lines = [
             f"- alias: \"{stmt['id']}\"",
@@ -855,7 +1050,8 @@ class Compiler:
         if value is None:
             raise CompilerError(
                 f"for_each references role '{role}' but no device collection "
-                f"is mapped to that role."
+                f"is mapped to that role.",
+                code="UNMAPPED_ROLE",
             )
         if isinstance(value, list):
             return value
@@ -863,7 +1059,8 @@ class Compiler:
             return [value]
         raise CompilerError(
             f"Role '{role}' resolved to an unexpected value type. "
-            f"Expected a list of entity IDs."
+            f"Expected a list of entity IDs.",
+            code="UNMAPPED_ROLE",
         )
 
     # -----------------------------------------------------------------------
@@ -872,7 +1069,7 @@ class Compiler:
 
     def _compile_while_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.8."""
@@ -881,10 +1078,11 @@ class Compiler:
         body = stmt.get("statements", [])
 
         condition = conditions[0] if conditions else {}
-        compiled_condition = self._compile_single_condition(condition, device_map)
+        # Bug 4/5 fix: _compile_single_condition returns body without "- "; prepend here
+        cond_body = self._compile_single_condition(condition, device_map)
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent + 2,
+            known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
@@ -893,7 +1091,7 @@ class Compiler:
             f"- alias: \"{stmt['id']}\"",
             "  repeat:",
             "    while:",
-            f"      - {compiled_condition}",
+            f"      - {cond_body}",
             "    sequence:",
         ]
         for line in compiled_body.splitlines():
@@ -906,7 +1104,7 @@ class Compiler:
 
     def _compile_for_loop(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """
@@ -923,7 +1121,7 @@ class Compiler:
 
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent + 2,
+            known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
@@ -992,10 +1190,15 @@ class Compiler:
             global_type = global_def.get("type", "Text")
 
             if not helper_entity:
-                warnings.append(CompilerWarning(
-                    f"Global variable '{var_name_raw}' is referenced in statement "
-                    f"{stmt.get('id', '?')} but has no helper entity ID in globals_store. "
-                    f"Deploy the companion integration and define this global before deploying."
+                warnings.append(CompilerMessage(
+                    level="warning",
+                    code="UNRESOLVED_GLOBAL",
+                    message=(
+                        f"Global variable '{var_name_raw}' is referenced in statement "
+                        f"{stmt.get('id', '?')} but has no helper entity ID in globals_store. "
+                        f"Define this global in PistonCore and redeploy."
+                    ),
+                    context=stmt.get("id"),
                 ))
                 # Emit a safe no-op comment so the file is still valid YAML
                 return "\n".join([
@@ -1014,6 +1217,7 @@ class Compiler:
             service, field = type_map.get(global_type, ("input_text.set_value", "value"))
 
             if global_type == "Yes/No":
+                # Bug 19 fix: correct indentation for choose/default block
                 if "{{" in str(value_expr):
                     val_template = value_expr
                 elif str(value_expr).lower() in ("true", "yes", "on", "1"):
@@ -1024,15 +1228,15 @@ class Compiler:
                     f"- alias: \"{stmt['id']}\"",
                     "  choose:",
                     "    - conditions:",
-                    f"        - condition: template",
+                    "        - condition: template",
                     f"          value_template: \"{{{{ {val_template} | bool }}}}\"",
                     "      sequence:",
-                    f"        - action: input_boolean.turn_on",
+                    "        - action: input_boolean.turn_on",
                     "          target:",
                     f"            entity_id: {helper_entity}",
                     "          continue_on_error: true",
                     "  default:",
-                    f"    - action: input_boolean.turn_off",
+                    "    - action: input_boolean.turn_off",
                     "      target:",
                     f"        entity_id: {helper_entity}",
                     "      continue_on_error: true",
@@ -1148,47 +1352,56 @@ class Compiler:
     # Section 8.13 — call_piston
     # -----------------------------------------------------------------------
 
-    def _compile_call_piston(self, stmt: dict, known_piston_slugs: dict) -> str:
-        """COMPILER_SPEC Section 8.13."""
+    def _compile_call_piston(self, stmt: dict, known_piston_ids: dict) -> str:
+        """
+        COMPILER_SPEC Section 8.13.
+        Bug 13 fix: script entity ID uses piston UUID, not slug.
+        Format: script.pistoncore_{target_piston_id}
+        """
         target_id = stmt.get("target_piston_id", "")
-        target_slug = known_piston_slugs.get(target_id)
-        if not target_slug:
+        if not target_id or target_id not in known_piston_ids:
             raise CompilerError(
                 f"Statement {stmt.get('id', '?')} calls piston '{target_id}' "
-                f"but that piston was not found. It may have been deleted."
+                f"but that piston was not found. It may have been deleted.",
+                code="CALLED_PISTON_NOT_FOUND",
+                context=stmt.get("id"),
             )
 
         if stmt.get("wait_for_completion", False):
             return "\n".join([
                 f"- alias: \"{stmt['id']}\"",
-                f"  action: script.pistoncore_{target_slug}",
+                f"  action: script.pistoncore_{target_id}",
             ])
         else:
             return "\n".join([
                 f"- alias: \"{stmt['id']}\"",
                 "  action: script.turn_on",
                 "  target:",
-                f"    entity_id: script.pistoncore_{target_slug}",
+                f"    entity_id: script.pistoncore_{target_id}",
             ])
 
     # -----------------------------------------------------------------------
     # Section 8.14 — control_piston
     # -----------------------------------------------------------------------
 
-    def _compile_control_piston(self, stmt: dict, known_piston_slugs: dict) -> str:
-        """COMPILER_SPEC Section 8.14."""
+    def _compile_control_piston(self, stmt: dict, known_piston_ids: dict) -> str:
+        """
+        COMPILER_SPEC Section 8.14.
+        Bug 13 fix: uses piston UUID for entity ID, not slug.
+        """
         target_type = stmt.get("target_type", "piston")
         action = stmt.get("action", "trigger")
 
         if target_type == "piston":
             target_id = stmt.get("target_id", "")
-            target_slug = known_piston_slugs.get(target_id)
-            if not target_slug:
+            if not target_id or target_id not in known_piston_ids:
                 raise CompilerError(
                     f"Statement {stmt.get('id', '?')} controls piston '{target_id}' "
-                    f"but that piston was not found."
+                    f"but that piston was not found.",
+                    code="CALLED_PISTON_NOT_FOUND",
+                    context=stmt.get("id"),
                 )
-            entity_id = f"script.pistoncore_{target_slug}"
+            entity_id = f"script.pistoncore_{target_id}"
             service_map = {
                 "trigger": "script.turn_on",
                 "start":   "script.turn_on",
@@ -1229,7 +1442,7 @@ class Compiler:
 
     def _compile_switch_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.10 — compiles to HA choose:"""
@@ -1258,7 +1471,7 @@ class Compiler:
             lines.append("      sequence:")
             compiled = self._compile_sequence(
                 case.get("statements", []), piston, device_map, globals_store,
-                known_piston_slugs, warnings, indent + 2,
+                known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
                 stmt_map=stmt_map,
             )
@@ -1269,7 +1482,7 @@ class Compiler:
             lines.append("  default:")
             compiled = self._compile_sequence(
                 default_stmts, piston, device_map, globals_store,
-                known_piston_slugs, warnings, indent + 2,
+                known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
                 stmt_map=stmt_map,
             )
@@ -1284,7 +1497,7 @@ class Compiler:
 
     def _compile_do_block(
         self, stmt: dict, piston: dict, device_map: dict,
-        globals_store: dict, known_piston_slugs: dict,
+        globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
         """COMPILER_SPEC Section 8.11 — inline comment + body."""
@@ -1294,7 +1507,7 @@ class Compiler:
         header = f"# do_block: {label} ({stmt['id']})" if label else f"# do_block ({stmt['id']})"
         compiled_body = self._compile_sequence(
             body, piston, device_map, globals_store,
-            known_piston_slugs, warnings, indent,
+            known_piston_ids, warnings, indent,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
@@ -1337,11 +1550,18 @@ class Compiler:
         """
         Render the automation wrapper file using automation.yaml.j2.
         Hash covers only the YAML body below the comment header.
-        COMPILER_SPEC Section 6.
+        COMPILER_SPEC Section 9 (Bug 14 fix).
+
+        Template variable guide:
+          piston_id — piston UUID. Used for: automation id:, action script entity_id,
+                      filename (pistoncore_{piston_id}.yaml). NEVER use slug here.
+          slug      — name-derived slug. Used ONLY for alias: (human label in HA UI).
+          piston    — full piston dict (piston.name, piston.description, piston.mode etc.)
         """
         tmpl = self.env.get_template("automation.yaml.j2")
         content = tmpl.render(
             piston=piston,
+            piston_id=piston["id"],
             slug=slug,
             compiled_triggers=compiled_triggers,
             compiled_conditions=compiled_conditions,
@@ -1362,12 +1582,19 @@ class Compiler:
         """
         Render the script body file using script.yaml.j2.
         Hash covers only the YAML body below the comment header.
-        COMPILER_SPEC Section 7.
+        COMPILER_SPEC Section 10 (Bug 14 fix).
+
+        Template variable guide:
+          piston_id — piston UUID. Used for: script key name (pistoncore_{piston_id}:),
+                      filename (pistoncore_{piston_id}.yaml). NEVER use slug here.
+          slug      — name-derived slug. Used ONLY for alias: (human label in HA UI).
+          piston    — full piston dict.
         """
         globals_str = ", ".join(globals_used) if globals_used != ["(none)"] else "(none)"
         tmpl = self.env.get_template("script.yaml.j2")
         content = tmpl.render(
             piston=piston,
+            piston_id=piston["id"],
             slug=slug,
             compiled_sequence=compiled_sequence,
             globals_used=globals_str,
@@ -1394,7 +1621,6 @@ if __name__ == "__main__":
     )
 
     test_piston = {
-        "pistoncore_version": "1.0",
         "id": "a3f8c2d1",
         "name": "Driveway Lights at Sunset",
         "description": "Turns on driveway lights at sunset and off at 11pm",
@@ -1404,10 +1630,10 @@ if __name__ == "__main__":
             "driveway_light": ["light.driveway_main"]
         },
         "variables": [],
-        "triggers": [{"type": "sun", "event": "sunset", "offset_minutes": 0}],
         "conditions": [],
-        # Flat statements array — Section 18 format.
-        # then/else/statements fields contain ID strings, not embedded objects.
+        # Flat statements array — COMPILER_SPEC Section 18 format.
+        # Trigger is a condition object with is_trigger:True inside the if block.
+        # then/else contain statement ID strings, not embedded objects.
         "statements": [
             {
                 "id": "stmt_001",
@@ -1418,10 +1644,13 @@ if __name__ == "__main__":
                         "is_trigger": True,
                         "subject": "time",
                         "operator": "happens daily at",
-                        "value": {"preset": "sunset", "offset": 0},
+                        "value": {"preset": "sunset", "offset": 0,
+                                  "offset_unit": "minutes", "offset_direction": "+"},
                     }
                 ],
+                "condition_operator": "and",
                 "then": ["stmt_002", "stmt_003", "stmt_004"],
+                "else_ifs": [],
                 "else": [],
             },
             {
@@ -1443,32 +1672,35 @@ if __name__ == "__main__":
         ],
     }
 
-    test_device_map = {"driveway_light": ["light.driveway_main"]}
+    # Fat compiler context — COMPILER_SPEC Section 7
+    test_context = {
+        "piston": test_piston,
+        "global_variables": [],
+        "known_piston_ids": {},
+        "pistoncore_version": "0.9",
+        "entity_states": {},
+        "ha_version": "unknown",
+    }
 
     try:
         compiler = Compiler(template_dir=template_dir)
-        auto_yaml, script_yaml, warnings, errors = compiler.compile_piston(
-            piston=test_piston,
-            device_map=test_device_map,
-            globals_store={},
-            app_version="0.9",
-        )
+        result = compiler.compile_piston(test_context)
 
-        if errors:
+        if result.errors:
             print("ERRORS:")
-            for e in errors:
-                print(f"  {e}")
+            for e in result.errors:
+                print(f"  [{e.code}] {e.message}")
             sys.exit(1)
 
-        if warnings:
+        if result.warnings:
             print("WARNINGS:")
-            for w in warnings:
-                print(f"  ⚠  {w}")
+            for w in result.warnings:
+                print(f"  ⚠  [{w.code}] {w.message}")
 
         print("=== AUTOMATION FILE ===")
-        print(auto_yaml)
+        print(result.automation_yaml)
         print("\n=== SCRIPT FILE ===")
-        print(script_yaml)
+        print(result.script_yaml)
         print("\nCompiler ran successfully.")
 
     except Exception as e:

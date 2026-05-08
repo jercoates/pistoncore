@@ -1,0 +1,7 @@
+- alias: "{{ stmt_id }}"
+  wait_for_trigger:
+    - trigger: time
+      at: "{{ at_time }}"
+  timeout:
+    seconds: {{ timeout_seconds }}
+  continue_on_timeout: {{ continue_on_timeout | lower }}

@@ -1,0 +1,8 @@
+- trigger: event
+  event_type: {{ event_type }}
+{% if event_data %}
+  event_data:
+{% for key, value in event_data.items() %}
+    {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}

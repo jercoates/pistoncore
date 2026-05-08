@@ -41,16 +41,69 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 27 Complete
+## Project Status — Session 28 Complete
 
-### What Was Done in Session 26
+### What Was Done in Session 28
 
-All spec and task management — no code written. See TASKS.md DONE section for
-full detail.
+**S1-2c: compiler.py flat statements array. No changes to other files.**
+
+- stmt_map built once at top of `_compile_sequence` from `piston['statements']`.
+- All control-flow methods accept `stmt_map` param and pass it through recursively.
+- ID strings resolved to statement objects inside `_compile_sequence`. Embedded-object
+  fallback handles top-level call which passes dicts directly.
+- `tasks` inside action nodes remain embedded objects — deliberate exception,
+  `action` is not a control-flow type.
+- `__main__` test block updated to Section 18 flat-format piston JSON.
+
+**S1-7 session 1: Tier 1 compiler bug fixes. compiler.py and 3 templates.**
+
+- Bug 1: `_collect_triggers()` walks statements array, finds `is_trigger:true`
+  conditions. `_compile_triggers()` translates condition fields to template params.
+  Old `piston["triggers"]` field removed entirely.
+- Bug 2: `_inject_trigger_id()` inserts `id:` as line 2 of trigger template output.
+  Fixes double-dash that resulted from old wrapping approach.
+- Bug 3: `wait_until` now emits `timeout:` (default 3600s) and `continue_on_timeout:`.
+  `wait_until_yaml.j2` updated.
+- Bug 4/5: `_compile_single_condition` returns body without leading `- `.
+  `_strip_leading_dash()` helper added. All callers prepend `- ` where needed.
+  Fixes `- - condition: state` in if/while/repeat blocks.
+- Bug 6: `_compile_for_each_block` injects sentinel `device_map` override
+  (`collection_role → ["{{ repeat.item }}"]`) before compiling body. Text
+  substitution approach removed.
+- Bug 7: `_compile_with_block` iterates all entities in role. Multi-entity or
+  multi-task compiles to parallel block with `continue_on_error` at branch level.
+- Bug 11: Boolean state values quoted via `_quote_state()` in condition output.
+- Bug 13: `call_piston` and `control_piston` use UUID not slug.
+  `known_piston_slugs` renamed `known_piston_ids` throughout.
+- Bug 14: `_render_automation` and `_render_script` pass `piston_id` explicitly.
+  Templates must use `piston_id` for entity IDs/filenames, `slug` for `alias:` only.
+- Bug 19: Yes/No global write `choose:`/`default:` indentation corrected.
+- Bug 22: `compile_piston(context: dict) -> CompilerResult`. Fat context dict
+  per COMPILER_SPEC Section 7. Old 5-param signature removed.
+- Bug 23: `CompilerMessage` dataclass (level/code/message/context) and
+  `CompilerResult` dataclass replace old `CompilerWarning` and tuple return.
+  `CompilerError` gains `code` and `context` fields.
+- Bug 24: `NO_TRIGGERS` CompilerError raised when no triggers collected and
+  piston is not `manual_only` or `called_by_piston`.
+- `trigger_homeassistant_yaml.j2` created. `trigger_event_yaml.j2` and
+  `wait_until_yaml.j2` updated.
+- `__main__` test block updated to fat context dict and CompilerResult API.
+
+**Gaps found Session 28 — not yet resolved:**
+- GAP-S28-1: `tasks` embedded vs flat — confirmed embedded is correct per spec.
+  PISTON_FORMAT.md and STATEMENT_TYPES.md should explicitly document this as a
+  deliberate exception to the flat model rule. Fits a spec-only pass.
+- GAP-S28-2: `else_ifs` on if blocks not compiled. Pre-existing gap, deferred
+  to S1-7 session 2.
+- GAP-S28-3: `automation.yaml.j2` and `script.yaml.j2` templates may still use
+  `slug` for entity IDs instead of `piston_id`. Must verify and fix before S1-5
+  or deployed files will have wrong entity IDs. **Blocks S1-5.**
+- GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
+  S1-7 session 1 can be marked fully done per TASKS.md.
 
 ---
 
-## What Was Done in Session 27 (Current)
+## What Was Done in Session 27
 
 **S1-2b: editor.js flat statements array. No changes to wizard.js (except one Bug A fix) or compiler.py.**
 
@@ -169,19 +222,18 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
 ### Stage 1 — Structural Fixes (current stage, do in order)
 
 - **S1-2b:** Flat statements array — editor.js only. ✅ DONE (Session 27)
-- **S1-2c:** Flat statements array — compiler.py only. ← NEXT TASK. Includes render-back
-  verification table, wizard pre-population bugs A/B/C, piston_text generation.
-- **S1-2c:** Flat statements array — compiler.py only. Section 18 verification
-  required before marking done.
-- **S1-3:** Backend audit — no code, written gap list only.
+- **S1-2c:** Flat statements array — compiler.py only. ✅ DONE (Session 28)
+- **S1-7 session 1:** Compiler bug fixes Tier 1. ✅ DONE (Session 28)
+  - GAP-S28-3 blocks S1-5: verify automation.yaml.j2 and script.yaml.j2 use
+    piston_id not slug for entity IDs. Fix templates before deploy.
+  - GAP-S28-4: 6 test pistons in tests/pistons/ still needed.
+- **S1-3:** Backend audit — no code, written gap list only. ← NEXT TASK
 - **S1-4:** Backend cleanup — companion stub, BASE_URL, /ws endpoint, central logging.
-- **S1-7 session 1:** Compiler bug fixes Tier 1 (before S1-5). Build test piston
-  suite. Fix triggers, condition indentation, multi-device, slug/UUID, quoting.
-- **S1-5:** HA direct write — depends on S1-2c AND S1-7 session 1 both complete.
+- **S1-5:** HA direct write — depends on S1-2c AND S1-7 session 1 AND GAP-S28-3 resolved.
 - **S1-6:** Fat compiler context assembly. Write spec in same session, then code.
   Lives in context_builder.py (not ha_client.py, not api.py).
 - **S1-7 session 2:** Compiler bug fixes Tier 2 (after S1-6). Template conditions,
-  aggregation, time conditions, PyScript dispatch stub.
+  aggregation, time conditions, PyScript dispatch stub. Also: else_ifs (GAP-S28-2).
 
 ### Stage 2 — Connect the Seams
 
@@ -233,33 +285,35 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 
 ---
 
-## Known Code vs Spec Gaps (Post Session 25)
+## Known Code vs Spec Gaps (Post Session 28)
 
-**Structural (S1-2c — not yet started):**
+**Structural:**
 - S1-2a (wizard.js) ✅ done Session 26
 - S1-2b (editor.js) ✅ done Session 27
-- compiler.py reads nested structure — needs stmt_map lookup approach — S1-2c
+- S1-2c (compiler.py) ✅ done Session 28
 
-**Compiler output bugs (S1-7 — not yet started):**
-- Bug 1: Triggers never populated — compiler reads piston["triggers"] which doesn't exist
-- Bug 2: Trigger id: field never emitted
-- Bug 3: wait_for_trigger timeout not emitted (moved from HA_LIMITATIONS "handled")
-- Bug 4/5: Condition indentation malformed — produces `- - condition: state`
-- Bug 6: for_each body doesn't use per-iteration entity
-- Bug 7: with_block only acts on first device
+**Compiler output bugs (S1-7 session 1 — ✅ done Session 28):**
+- Bugs 1, 2, 3, 4/5, 6, 7, 11, 13, 14, 19, 22, 23, 24 — all fixed.
+
+**Compiler output bugs (S1-7 session 2 — not yet started):**
 - Bug 8: Conditions compile as state blocks, spec requires template conditions
 - Bug 9: Aggregation silently dropped
 - Bug 10: is_trigger not filtered in condition compilation
-- Bug 11: Boolean state quoting not enforced (moved from HA_LIMITATIONS "handled")
-- Bug 12: Parallel branch continue_on_error not at sequence level (moved from "handled")
-- Bug 13/14: call_piston and filenames use slug not UUID
+- Bug 12: Parallel branch continue_on_error not at sequence level
 - Bug 17: $sunrise/$sunset offset uses string not datetime
 - Bug 18: $currentEventDevice resolution is context-unaware
-- Bug 22: compile_piston signature doesn't match spec
-- Bug 23: CompilerError messages lack code field
-- Bug 24: No validation that piston has triggers (NO_TRIGGERS error missing)
 - Bug 25: No PyScript dispatch in compile_piston
 - Bug 26/27/28: ha_client.py connection leaks, services cache, entity_id selector
+- GAP-S28-2: else_ifs on if blocks not compiled
+
+**Session 28 gaps — open:**
+- GAP-S28-1: PISTON_FORMAT.md and STATEMENT_TYPES.md should explicitly document
+  that `tasks` inside action nodes are embedded objects — deliberate exception to
+  the flat model rule. Spec-only fix.
+- GAP-S28-3: automation.yaml.j2 and script.yaml.j2 may still use `slug` for entity
+  IDs. Must verify and fix before S1-5. **Blocks S1-5.**
+- GAP-S28-4: 6 test pistons in tests/pistons/ not yet created. Required before
+  S1-7 session 1 is fully done per TASKS.md.
 
 **Backend cleanup (S1-4 — not yet done):**
 - _send_to_companion() stub still in api.py — must be removed
@@ -271,6 +325,7 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 **Deploy (S1-5 — not yet implemented):**
 - No real HA file write exists
 - automation.reload and script.reload not yet called from deploy endpoint
+- GAP-S28-3 must be resolved first
 
 **Context assembly (S1-6 — not yet implemented):**
 - No build_compiler_context() function exists

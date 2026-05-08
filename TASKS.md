@@ -278,7 +278,31 @@ No more stub context. Compiler warnings about missing entity data are now meanin
 **Note:** Read MISSING_SPECS.md Item 14 (Time Condition Compiler Path) before
 starting Bug 8. That spec must be written before the template-condition compiler
 is coded. Write it in this session if not already done.
-**Upload:** compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Upload:** compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md,
+PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+**REQUIRED DESIGN DECISION BEFORE CODING — PyScript templates (GAP-S28-5):**
+PyScript has occasional API changes (decorator names, `task.unique()` syntax,
+`service.call()` signature, `state_trigger` argument format). The native YAML
+compiler uses Jinja2 templates for exactly this reason. The PyScript compiler
+must make the same decision before being coded.
+
+Decision to make at start of this session:
+- **Option A:** Use Jinja2 templates for PyScript boilerplate — same customize
+  volume pattern as native YAML. Templates: `pyscript_state_trigger.j2`,
+  `pyscript_service_call.j2`, `pyscript_task_unique.j2`,
+  `pyscript_completion_event.j2`, `pyscript_time_trigger.j2`. Body logic
+  (if/while/for/set_variable) remains Python string generation — templates
+  are only for the structural boilerplate that PyScript changes version to version.
+- **Option B:** Pure Python string generation throughout. Accept that PyScript
+  API changes require compiler.py edits.
+
+Recommended: Option A. The boilerplate lines are small, self-contained, and
+appear in predictable places — exactly the right fit for templates. Body logic
+stays as Python string generation because indentation is semantic.
+
+Write the template design into PYSCRIPT_COMPILER_SPEC.md (new Section 4.1)
+before writing any PyScript compiler code. Then create the template files.
 
 **Fix in this session (Tier 2 — output looks valid but behaves wrong):**
 8. **Bug 8 — Conditions compiled as state blocks, spec says template:** Build
@@ -819,7 +843,24 @@ verify they use `piston_id` for all stable identifiers and `slug` only for `alia
 Fix if wrong. Do this before S1-5.
 **Fits in:** Start of S1-5 session — upload templates alongside ha_client.py and api.py.
 
-### GAP-S28-4: 6 test pistons in tests/pistons/ not yet created
+### GAP-S28-5: PyScript compiler template decision not made ⚠ BLOCKS S1-7 SESSION 2
+**Found during:** Post-session review of PYSCRIPT_COMPILER_SPEC.md
+**Problem:** The native YAML compiler uses Jinja2 templates so HA YAML syntax
+changes only require template edits, not compiler code changes. PyScript also has
+occasional API changes (decorator names, `task.unique()` syntax, `service.call()`
+signature, `state_trigger` argument format). The PyScript compiler spec was written
+assuming pure Python string generation throughout — this decision was never explicitly
+made and was never compared against the template approach used for native YAML.
+Coding the PyScript compiler without resolving this will either lock in the wrong
+approach or require a rewrite when the first PyScript API change hits.
+**What needs to happen:** At the start of S1-7 session 2, make the explicit design
+decision and document it in PYSCRIPT_COMPILER_SPEC.md Section 4.1 before any
+PyScript compiler code is written. Recommended: Jinja2 templates for structural
+boilerplate (decorators, service calls, task.unique, completion event), pure Python
+string generation for body logic (if/while/for/set_variable) where indentation
+is semantic and templates would be painful.
+**Fits in:** First thing in S1-7 session 2. Upload PYSCRIPT_COMPILER_SPEC.md
+alongside the other files for that session.
 **Found during:** S1-7 session 1 — TASKS.md required them before marking done
 **Problem:** The 6 compiler test piston JSON files were not created this session.
 They are needed to prove the compiler produces correct output as bugs are fixed.

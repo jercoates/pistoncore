@@ -100,10 +100,11 @@ it must announce which door opened in HA.
   or deployed files will have wrong entity IDs. **Blocks S1-5.**
 - GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
   S1-7 session 1 can be marked fully done per TASKS.md.
-
----
-
-## What Was Done in Session 27
+- GAP-S28-5: PyScript compiler template decision not made. Native YAML compiler
+  uses Jinja2 templates so HA syntax changes only need template edits. PyScript
+  also has occasional API changes — this must be resolved before S1-7 session 2
+  starts. **Blocks S1-7 session 2.** See TASKS.md S1-7 session 2 for the full
+  decision spec. Upload PYSCRIPT_COMPILER_SPEC.md for that session.
 
 **S1-2b: editor.js flat statements array. No changes to wizard.js (except one Bug A fix) or compiler.py.**
 
@@ -234,6 +235,8 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
   Lives in context_builder.py (not ha_client.py, not api.py).
 - **S1-7 session 2:** Compiler bug fixes Tier 2 (after S1-6). Template conditions,
   aggregation, time conditions, PyScript dispatch stub. Also: else_ifs (GAP-S28-2).
+  **Requires GAP-S28-5 resolved first** — PyScript template design decision must
+  be made and documented in PYSCRIPT_COMPILER_SPEC.md before any PyScript code.
 
 ### Stage 2 — Connect the Seams
 
@@ -314,6 +317,8 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
   IDs. Must verify and fix before S1-5. **Blocks S1-5.**
 - GAP-S28-4: 6 test pistons in tests/pistons/ not yet created. Required before
   S1-7 session 1 is fully done per TASKS.md.
+- GAP-S28-5: PyScript compiler template decision not made. **Blocks S1-7 session 2.**
+  Must decide before coding PyScript compiler — see TASKS.md S1-7 session 2.
 
 **Backend cleanup (S1-4 — not yet done):**
 - _send_to_companion() stub still in api.py — must be removed

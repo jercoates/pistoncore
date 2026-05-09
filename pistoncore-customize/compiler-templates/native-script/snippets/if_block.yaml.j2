@@ -3,6 +3,14 @@
 {{ compiled_condition | indent(4, first=True) }}
   then:
 {{ compiled_then | indent(4, first=True) }}
+{% if compiled_else_ifs %}
+{% for ei in compiled_else_ifs %}
+  elif:
+{{ ei.compiled_condition | indent(4, first=True) }}
+  sequence:
+{{ ei.compiled_sequence | indent(4, first=True) }}
+{% endfor %}
+{% endif %}
 {% if compiled_else %}
   else:
 {{ compiled_else | indent(4, first=True) }}

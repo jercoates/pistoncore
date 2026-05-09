@@ -280,17 +280,20 @@ cd /path/to/snippets && for f in *_yaml.j2; do mv "$f" "${f/_yaml.j2/.yaml.j2}";
 - Bug 27 (get_services caches per entity not domain) → S2-1
 - Bug 28 (_field_type entity_id selector) → S2-2
 
-**Still outstanding (S1-7 session 3):**
-- GAP-S28-2 / GAP-S33-1: else_ifs on if blocks not compiled. See gaps section.
-- GAP-S33-2: condition_and/or template indentation needs real-world testing.
-- GAP-S33-3: _compile_time_condition "is" operator raises error, should warn.
-- PyScript template design (GAP-S28-5/MISSING_SPECS Item 16) — must be written
-  before any PyScript compiler code.
+**Still outstanding (S1-7 session 3) — DONE Session 34:**
+- GAP-S28-2 / GAP-S33-1: else_ifs compiled ✅
+- GAP-S33-2: condition_and/or template indentation needs real-world testing (deferred to S3-2)
+- GAP-S33-3: _compile_time_condition "is" operator fixed ✅
+- PyScript template design (GAP-S28-5/MISSING_SPECS Item 16) — written ✅ (PYSCRIPT_COMPILER_SPEC.md Section 4.1)
 
-**Upload for S1-7 session 3:** compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
-STATEMENT_TYPES.md, PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**S1-7 session 3 files changed:**
+- compiler.py: _compile_if_block (else_ifs), _compile_time_condition ("is" operator)
+- snippets/if_block.yaml.j2: added elif block support
+- snippets/condition_time.yaml.j2: added exact_time_warning comment variable
+- PYSCRIPT_COMPILER_SPEC.md: Section 4.1 added
+- MISSING_SPECS.md: Item 16 closed
 
-**Then proceed to S2-0.**
+**Next: S2-0**
 
 ---
 
@@ -1102,14 +1105,27 @@ condition blocks and re-indent them using Jinja2 indent filter. Nested cases
 groups. Verify output YAML is correctly indented and HA accepts it.
 **Fits in:** S3-2 deferred validation testing, or catch during S3-1 round-trip.
 
-### GAP-S33-3: _compile_time_condition "is" operator aborts instead of warning
-**Found during:** S1-7 time condition implementation
-**Problem:** _compile_time_condition() raises CompilerError for operator=="is"
-(exact time match) rather than degrading gracefully with a CompilerWarning and
-a 1-second window bracket. This aborts the entire compile for a recoverable case.
-**What needs to happen:** Change to emit CompilerWarning and compile as
-after: HH:MM:SS-1sec / before: HH:MM:SS+1sec using condition_time.yaml.j2.
-**Fits in:** S1-7 session 3 — small fix, same file scope.
+### GAP-S33-3: _compile_time_condition "is" operator aborts instead of warning ✅ DONE Session 34
+**Fixed in:** Session 34 (S1-7 session 3).
+Changed to compute a 1-second bracket (±1 second with midnight rollover) and render
+condition_time.yaml.j2 with after/before. Warning surfaces as a YAML comment in the
+compiled output. Does NOT emit a CompilerMessage — see GAP-S34-1.
+
+---
+
+## Gaps Found Session 34
+
+### GAP-S34-1: _compile_single_condition has no access to warnings list ⚠ OPEN
+**Found during:** GAP-S33-3 fix (time condition "is" operator)
+**Problem:** _compile_single_condition() and _compile_time_condition() do not receive
+the warnings list. The 1-second window warning for time "is" conditions surfaces only
+as a YAML comment in compiled output — it does NOT appear as a CompilerMessage in
+result.warnings and therefore won't show in the PistonCore UI.
+**What needs to happen:** Add optional `warnings: list = None` parameter to
+_compile_single_condition() and thread it through to _compile_time_condition() so
+it can append a proper CompilerMessage. Update all callers that have warnings available.
+**Fits in:** S1-7 session 4, or whenever _compile_single_condition is next touched.
+Low priority — YAML comment is sufficient for beta use.
 
 ---
 

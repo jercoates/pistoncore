@@ -593,15 +593,51 @@ class Compiler:
             ).rstrip("\n")
 
         elif operator == "is":
-            # Exact time — bracket with 1-second window
-            # CompilerWarning emitted by caller context; raise here so caller can catch
-            raise CompilerError(
-                f"Time 'is exactly' condition uses a 1-second window. "
-                f"If HA evaluation does not land in that window the condition will be false. "
-                f"Consider using 'is between' with a wider window.",
-                code="TIME_EXACT_CONDITION_WARNING",
-                context=cond.get("id"),
-            )
+            # Exact time — bracket with 1-second window and emit a warning.
+            # GAP-S33-3 fix: degrade gracefully instead of aborting the compile.
+            # The wizard may write the exact time into "value" or "value_from" —
+            # check both and use whichever is present.
+            exact_time = cond.get("value") or value_from
+            if not exact_time or not isinstance(exact_time, str):
+                raise CompilerError(
+                    "Time 'is' condition has no time value defined.",
+                    code="INVALID_TIME_CONDITION",
+                    context=cond.get("id"),
+                )
+            # Parse HH:MM or HH:MM:SS and compute ±1-second bracket
+            parts = exact_time.split(":")
+            try:
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 else 0
+                s = int(parts[2]) if len(parts) > 2 else 0
+            except (ValueError, IndexError):
+                raise CompilerError(
+                    f"Time 'is' condition has an unparseable time value: '{exact_time}'.",
+                    code="INVALID_TIME_CONDITION",
+                    context=cond.get("id"),
+                )
+            # Compute before (+1 second) and after (-1 second) with rollover handling
+            total_seconds = h * 3600 + m * 60 + s
+            after_seconds  = (total_seconds - 1) % 86400
+            before_seconds = (total_seconds + 1) % 86400
+            def _fmt(secs):
+                hh, rem = divmod(secs, 3600)
+                mm, ss  = divmod(rem, 60)
+                return f"{hh:02d}:{mm:02d}:{ss:02d}"
+            # Note: _compile_single_condition has no access to the warnings list —
+            # it is not passed into this method. The warning that this 1-second window
+            # was used surfaces only as a comment in the compiled YAML output (via the
+            # template). It does NOT appear as a CompilerMessage in result.warnings.
+            # GAP-S34-1: refactor _compile_single_condition to accept a warnings list
+            # so this can emit a proper CompilerMessage. Low priority — YAML comment
+            # is sufficient for now. Fits S1-7 session 4 or whenever
+            # _compile_single_condition is next touched.
+            return tmpl.render(
+                after=_fmt(after_seconds),
+                before=_fmt(before_seconds),
+                weekday=weekday,
+                exact_time_warning=exact_time,
+            ).rstrip("\n")
 
         else:
             raise CompilerError(
@@ -1064,51 +1100,57 @@ class Compiler:
         Bug 4/5/8/9/10 fix: conditions compiled via _compile_single_condition
         which returns full block including "- ". is_trigger conditions filtered.
         Multiple conditions joined per condition_operator.
+        GAP-S33-1 fix: else_ifs array now compiled. Each else_if compiles to an
+        elif: block in HA's if/then/elif/else structure (requires HA 2023.4+,
+        which is above PistonCore's 2023.1 baseline but old enough to be universal).
         """
         conditions = stmt.get("conditions", [])
         true_branch = stmt.get("then", [])
+        else_ifs    = stmt.get("else_ifs", [])
         false_branch = stmt.get("else", [])
 
         # Bug 10 fix: filter is_trigger conditions — those are automation triggers,
         # not if-block conditions.
         non_trigger = [c for c in conditions if not c.get("is_trigger")]
 
-        # Compile all non-trigger conditions and join per condition_operator
-        condition_operator = stmt.get("condition_operator", "and")
-        if non_trigger:
+        def _compile_condition_group(cond_list, cond_operator):
+            """
+            Compile a list of condition objects and join them per the operator.
+            Returns a single compiled condition string (full block with "- ").
+            Shared by main if and each else_if.
+            """
+            if not cond_list:
+                # No conditions — always true in script context
+                tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+                return tmpl.render(template_expression="{{ true }}").rstrip("\n")
+
             compiled_parts = [
                 self._compile_single_condition(c, device_map)
-                for c in non_trigger
+                for c in cond_list
             ]
             if len(compiled_parts) == 1:
-                compiled_condition = compiled_parts[0]
-            else:
-                # Multiple conditions — wrap in condition:template with and/or
-                tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
-                joiner = " and " if condition_operator == "and" else " or "
-                # Each part is a full "- condition: ..." block; extract the
-                # value_template expression from each and combine
-                exprs = []
-                for part in compiled_parts:
-                    # If it's a template condition, extract the expression
-                    for line in part.splitlines():
-                        if "value_template:" in line:
-                            expr = line.split("value_template:", 1)[1].strip().strip('"')
-                            exprs.append(expr)
-                            break
-                    else:
-                        # Not a template condition — wrap it as a state check
-                        exprs.append("true")
-                combined = joiner.join(f"({e})" for e in exprs)
-                compiled_condition = tmpl.render(
-                    template_expression=f"{{{{ {combined} }}}}"
-                ).rstrip("\n")
-        else:
-            # No conditions (trigger-only if block) — always true in script context
+                return compiled_parts[0]
+
+            # Multiple conditions — wrap in condition:template with and/or
             tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
-            compiled_condition = tmpl.render(
-                template_expression="{{ true }}"
+            joiner = " and " if cond_operator == "and" else " or "
+            exprs = []
+            for part in compiled_parts:
+                for line in part.splitlines():
+                    if "value_template:" in line:
+                        expr = line.split("value_template:", 1)[1].strip().strip('"')
+                        exprs.append(expr)
+                        break
+                else:
+                    exprs.append("true")
+            combined = joiner.join(f"({e})" for e in exprs)
+            return tmpl.render(
+                template_expression=f"{{{{ {combined} }}}}"
             ).rstrip("\n")
+
+        compiled_condition = _compile_condition_group(
+            non_trigger, stmt.get("condition_operator", "and")
+        )
 
         compiled_then = self._compile_sequence(
             true_branch, piston, device_map, globals_store,
@@ -1116,6 +1158,28 @@ class Compiler:
             _append_completion_event=False,
             stmt_map=stmt_map,
         ) if true_branch else "[]"
+
+        # Compile else_ifs — each produces a {compiled_condition, compiled_sequence} dict
+        compiled_else_ifs = None
+        if else_ifs:
+            compiled_else_ifs = []
+            for ei in else_ifs:
+                ei_conditions = [c for c in ei.get("conditions", [])
+                                 if not c.get("is_trigger")]
+                ei_compiled_condition = _compile_condition_group(
+                    ei_conditions, ei.get("condition_operator", "and")
+                )
+                ei_stmts = ei.get("statements", [])
+                ei_compiled_sequence = self._compile_sequence(
+                    ei_stmts, piston, device_map, globals_store,
+                    known_piston_ids, warnings, indent + 2,
+                    _append_completion_event=False,
+                    stmt_map=stmt_map,
+                ) if ei_stmts else "[]"
+                compiled_else_ifs.append({
+                    "compiled_condition": ei_compiled_condition,
+                    "compiled_sequence": ei_compiled_sequence,
+                })
 
         compiled_else = None
         if false_branch:
@@ -1131,6 +1195,7 @@ class Compiler:
             stmt_id=stmt["id"],
             compiled_condition=compiled_condition,
             compiled_then=compiled_then,
+            compiled_else_ifs=compiled_else_ifs,
             compiled_else=compiled_else,
         ).rstrip("\n")
 

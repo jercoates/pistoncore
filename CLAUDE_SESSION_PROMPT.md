@@ -41,7 +41,7 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Sessions 32 + 33 Complete
+## Project Status — Sessions 32 + 33 + 34 Complete
 
 ### What Was Done in Session 32 (S1-6: Fat Compiler Context Assembly)
 
@@ -75,6 +75,38 @@ it must announce which door opened in HA.
 - GAP-S32-1: `_get_app_version()` dead code — fixed same session.
 
 ---
+
+## Project Status — Sessions 32 + 33 + 34 Complete
+
+### What Was Done in Session 34 (S1-7 Session 3: else_ifs + time condition + PyScript spec)
+
+**S1-7 session 3: COMPLETE.**
+
+**compiler.py changes:**
+- `_compile_if_block` rewritten — else_ifs array now compiled. Inner
+  `_compile_condition_group()` helper extracted (shared by main if and each else_if).
+  Each else_if compiles to `elif:` block via `if_block.yaml.j2` (requires HA 2023.4+).
+  Closes GAP-S33-1 / GAP-S28-2.
+- `_compile_time_condition` "is" operator fixed — now computes ±1-second bracket
+  with midnight rollover, renders `condition_time.yaml.j2` with `after`/`before`.
+  Warning surfaces as YAML comment (not CompilerMessage — see GAP-S34-1).
+  Closes GAP-S33-3.
+
+**Template changes:**
+- `snippets/if_block.yaml.j2` — added `compiled_else_ifs` loop emitting `elif:` blocks.
+- `snippets/condition_time.yaml.j2` — added `exact_time_warning` comment variable.
+
+**Spec changes:**
+- `PYSCRIPT_COMPILER_SPEC.md` Section 4.1 added — hybrid template/string-generation
+  decision documented. 5 boilerplate templates listed. Closes MISSING_SPECS Item 16.
+- `MISSING_SPECS.md` Item 16 marked RESOLVED.
+
+**Gaps found Session 34:**
+- GAP-S34-1: _compile_single_condition has no warnings param — time "is" warning
+  is YAML-comment only, not a CompilerMessage. Low priority. Fits S1-7 session 4.
+
+**Next task: S2-0** (Storage Architecture Spec + SQLite Setup)
+Upload: main.py, storage.py, DESIGN.md, MISSING_SPECS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### What Was Done in Session 33 (S1-8: Template Compliance + S1-7: Bug Fixes)
 

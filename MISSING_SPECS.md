@@ -430,35 +430,15 @@ AI_PROMPT_SPEC.md.
 
 ---
 
-## 16. PyScript Compiler Template Design — MISSING
+## 16. PyScript Compiler Template Design — RESOLVED (Session 34)
 
-**Blocks:** S1-7 session 2 (PyScript compiler coding)
-**Needs to be written before:** Any PyScript compiler code is written
-**Context:** The native YAML compiler uses Jinja2 templates stored in the customize
-volume so HA YAML syntax changes only require template edits, not compiler code
-changes. PyScript also has occasional API changes — decorator names, `task.unique()`
-syntax, `service.call()` signature, `state_trigger` argument format have all changed
-across PyScript versions. The PyScript compiler spec (PYSCRIPT_COMPILER_SPEC.md)
-was written assuming pure Python string generation throughout. This decision was
-never explicitly made or compared against the template approach.
-**What it must cover:**
-- Explicit decision: Jinja2 templates for boilerplate vs pure string generation
-- If templates: which specific patterns get templates and which stay as strings
-  (recommended split: templates for structural boilerplate that changes with
-  PyScript versions; pure string generation for body logic where indentation
-  is semantic)
-- Proposed template list:
-  - `pyscript_state_trigger.j2` — `@state_trigger(...)` decorator block
-  - `pyscript_time_trigger.j2` — `@time_trigger(...)` decorator block
-  - `pyscript_task_unique.j2` — `task.unique(...)` mode enforcement block
-  - `pyscript_service_call.j2` — `service.call(...)` pattern
-  - `pyscript_completion_event.j2` — `event.fire("PISTONCORE_RUN_COMPLETE", ...)`
-- Template location in customize volume: same pattern as native YAML templates
-- How body logic (if/while/for/set_variable) is generated — pure Python strings,
-  not templates, because indentation is load-bearing
-**Where this spec lives:** New Section 4.1 in PYSCRIPT_COMPILER_SPEC.md
-**Reference:** PYSCRIPT_COMPILER_SPEC.md Section 4, COMPILER_SPEC.md Section 3
-(customize volume template approach for native YAML)
+**Resolved:** Section 4.1 added to PYSCRIPT_COMPILER_SPEC.md.
+**Decision:** Hybrid approach — Jinja2 templates for the 5 boilerplate patterns
+that change with PyScript API versions (`pyscript_state_trigger.j2`,
+`pyscript_time_trigger.j2`, `pyscript_task_unique.j2`, `pyscript_service_call.j2`,
+`pyscript_completion_event.j2`). Pure Python string generation for all body logic
+because Python indentation is load-bearing and templates cannot know nesting depth.
+Templates stored in `compiler-templates/pyscript/snippets/` in the customize volume.
 
 ---
 

@@ -1,3 +1,8 @@
+{% if exact_time_warning %}
+# WARNING: Time 'is exactly {{ exact_time_warning }}' uses a 1-second window ({{ after }}–{{ before }}).
+# If HA evaluates this condition outside that window it will be false.
+# Consider using 'is between' with a wider window for reliability.
+{% endif %}
 - condition: time
 {% if after %}
   after: "{{ after }}"

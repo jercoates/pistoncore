@@ -23,14 +23,13 @@
 #   GET    /device/{entity_id}/services    — domain services with field schema
 
 import os
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Security, Body
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
-from typing import Any
 
 import storage
-from compiler import Compiler, CompilerError
+from compiler import Compiler
 import ha_client
 from ha_client import HAClientError
 
@@ -71,30 +70,81 @@ def _get_app_version() -> str:
 
 def _compile(piston: dict) -> dict:
     """
-    Run the compiler against a piston and its device_map.
-    Returns a dict with automation_yaml, script_yaml, warnings, errors.
+    Run the compiler against a piston and return a structured result.
+    Builds the fat context dict per COMPILER_SPEC Section 7.
+    Returns a dict with automation_yaml, script_yaml, warnings, errors, success.
+
+    Stub fields (entity_states, services, ha_version, zones, areas) are populated
+    with empty defaults until S1-6 implements context_builder.py.
     """
     compiler = _get_compiler()
-    device_map = piston.get("device_map", {})
-    globals_store = storage.load_globals()
-    known_slugs = storage.get_all_slugs()
-    app_version = _get_app_version()
+    context = {
+        "piston":           piston,
+        "device_map":       piston.get("device_map", {}),
+        "globals_store":    storage.load_globals(),
+        "known_piston_ids": storage.get_all_slugs(),   # {piston_id: slug}
+        "app_version":      _get_app_version(),
+        # Stub fields — real values assembled in S1-6 (context_builder.py)
+        "entity_states":    {},
+        "services":         {},
+        "ha_version":       "unknown",
+        "zones":            [],
+        "areas":            [],
+    }
 
-    auto_yaml, script_yaml, warnings, errors = compiler.compile_piston(
-        piston=piston,
-        device_map=device_map,
-        globals_store=globals_store,
-        app_version=app_version,
-        known_piston_slugs=known_slugs,
-    )
+    try:
+        result = compiler.compile_piston(context)
+    except Exception as e:
+        # compile_piston() catches CompilerError internally and never re-raises it.
+        # This catches Jinja2 TemplateError and any other unexpected failure (GAP-S29-13).
+        return {
+            "automation_yaml": None,
+            "script_yaml":     None,
+            "warnings":        [],
+            "errors":          [{"level": "error", "code": "COMPILER_INTERNAL_ERROR", "message": str(e), "context": None}],
+            "success":         False,
+        }
 
     return {
-        "automation_yaml": auto_yaml,
-        "script_yaml": script_yaml,
-        "warnings": [str(w) for w in warnings],
-        "errors": errors,
-        "success": len(errors) == 0,
+        "automation_yaml": result.automation_yaml,
+        "script_yaml":     result.script_yaml,
+        "warnings":        [{"level": m.level, "code": m.code, "message": m.message, "context": m.context} for m in result.warnings],
+        "errors":          [{"level": m.level, "code": m.code, "message": m.message, "context": m.context} for m in result.errors],
+        "success":         len(result.errors) == 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Piston helpers
+# ---------------------------------------------------------------------------
+
+def _migrate_piston(piston: dict) -> dict:
+    """
+    Schema migration hook. Pass-through for now — no migrations defined yet.
+    When logic_version bumps, add migration steps here keyed by version number.
+    Called on every GET /pistons/{id} before the version check.
+    """
+    return piston
+
+
+def _validate_device_map(device_map: dict) -> dict:
+    """
+    Coerce device_map values to lists. Per PISTON_FORMAT.md, all role values
+    must be arrays of entity ID strings — never bare strings.
+    Raises 422 if a value cannot be coerced to a list.
+    """
+    cleaned = {}
+    for role, value in device_map.items():
+        if isinstance(value, list):
+            cleaned[role] = value
+        elif isinstance(value, str):
+            cleaned[role] = [value]   # coerce bare string to single-item list
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"device_map role '{role}' must be a list of entity IDs.",
+            )
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +181,8 @@ def get_piston(piston_id: str):
     piston = storage.get_piston(piston_id)
     if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
+
+    piston = _migrate_piston(piston)  # schema migration hook (GAP-S29-12)
 
     # Spec: if logic_version or ui_version is from the future, refuse to load.
     # Treat missing version fields as v1 (safe default per spec).
@@ -176,6 +228,9 @@ def create_piston(piston: dict = Body(...)):
     piston.setdefault("device_map_meta", {})
     piston.setdefault("variables", [])
     piston.setdefault("statements", [])
+    piston["device_map"] = _validate_device_map(piston["device_map"])
+    # piston_text stored as-is but never parsed — frontend render functions are
+    # the source of truth for display text (PISTON_FORMAT.md Section 1, GAP-S29-16)
     saved = storage.save_piston(piston)
     return saved
 
@@ -184,8 +239,9 @@ def create_piston(piston: dict = Body(...)):
 def update_piston(piston_id: str, piston: dict = Body(...)):
     """
     Update an existing piston. The piston_id in the URL is authoritative.
-    Runs internal validation (compile check) on save — does NOT deploy.
-    Returns the saved piston plus any compiler warnings.
+    Does NOT compile on save — compile is a separate explicit action per
+    DESIGN.md Section 18. Save is always fast and never blocked by compiler state.
+    Returns the saved piston.
     """
     existing = storage.get_piston(piston_id)
     if existing is None:
@@ -193,24 +249,20 @@ def update_piston(piston_id: str, piston: dict = Body(...)):
 
     piston["id"] = piston_id  # enforce ID from URL
     piston.pop("compile_target", None)  # compiler owns this — never user-supplied
+    piston["device_map"] = _validate_device_map(piston.get("device_map", {}))
+    # piston_text stored as-is but never parsed — frontend render functions are
+    # the source of truth for display text (PISTON_FORMAT.md Section 1, GAP-S29-16)
     saved = storage.save_piston(piston)
-
-    # Run compile check on save (Stage 1 + 2 validation — no HA write)
-    compile_result = _compile(saved)
-
-    return {
-        "piston": saved,
-        "compile_check": compile_result,
-    }
+    return {"piston": saved}
 
 
 @router.delete("/pistons/{piston_id}", status_code=204)
 def delete_piston(piston_id: str):
     """
     Delete a piston from storage.
-    Does NOT remove compiled files from HA — that is the companion's job.
-    The frontend should warn the user that deployed files must be cleaned up manually
-    or via the companion before deletion if the piston is deployed.
+    Does NOT remove compiled files from HA — HA file cleanup must be done
+    manually or will be handled by the deploy system in S1-5.
+    The frontend should warn the user if the piston is currently deployed.
     """
     deleted = storage.delete_piston(piston_id)
     if not deleted:
@@ -243,14 +295,12 @@ def compile_piston(piston_id: str):
 @router.post("/pistons/{piston_id}/deploy")
 def deploy_piston(piston_id: str):
     """
-    Compile a piston and send the output to the companion for writing to HA.
-    The companion writes the files and reloads automations/scripts.
+    Compile a piston and write the output directly to HA via ha_client.
+    Full HA write implementation in S1-5. Returns compile result for now.
 
     This is the two-step save model:
       Step 1: PUT /pistons/{id}  — saves JSON to Docker volume (always fast)
-      Step 2: POST /pistons/{id}/deploy  — compiles + writes to HA via companion
-
-    Returns compile result plus companion response.
+      Step 2: POST /pistons/{id}/deploy  — compiles + writes to HA
     """
     piston = storage.get_piston(piston_id)
     if piston is None:
@@ -265,45 +315,11 @@ def deploy_piston(piston_id: str):
             "compile_result": compile_result,
         }
 
-    # Send to companion
-    companion_result = _send_to_companion(piston, compile_result)
-
-    if companion_result["success"]:
-        # Mark piston as deployed
-        piston["deployed"] = True
-        piston["stale"] = False
-        storage.save_piston(piston)
-
+    # TODO S1-5: write compiled YAML to HA via ha_client, call reload endpoints
     return {
-        "deployed": companion_result["success"],
+        "deployed": False,
+        "reason": "Deploy not yet implemented — compile succeeded. See S1-5.",
         "compile_result": compile_result,
-        "companion": companion_result,
-    }
-
-
-def _send_to_companion(piston: dict, compile_result: dict) -> dict:
-    """
-    Send compiled YAML to the companion integration for writing to HA.
-    The companion is a HA custom integration that:
-      - Writes automation and script YAML files
-      - Calls automation.reload and script.reload
-      - Manages global variable helpers
-
-    Companion communication: REST call to HA's companion service endpoint.
-    This is a stub — full companion integration is a separate spec/session.
-    """
-    # TODO: implement companion HTTP call
-    # config = storage.load_config()
-    # ha_url = config["ha_url"]
-    # ha_token = config["ha_token"]
-    # POST to {ha_url}/api/services/pistoncore/deploy with the YAML strings
-
-    return {
-        "success": False,
-        "message": "Companion not yet implemented. "
-                   "Compile output is ready — deploy stub will be replaced in a future session.",
-        "automation_yaml": compile_result["automation_yaml"],
-        "script_yaml": compile_result["script_yaml"],
     }
 
 
@@ -325,7 +341,6 @@ def create_global(body: dict = Body(...)):
     The companion creates the corresponding HA helper on deploy.
     """
     globals_store = storage.load_globals()
-    import uuid
     global_id = str(uuid.uuid4()).replace("-", "")[:8]
     globals_store[global_id] = {
         "id": global_id,
@@ -357,8 +372,11 @@ def _mark_pistons_stale_for_global(global_id: str):
     """Mark any piston referencing the deleted global as stale."""
     for piston in storage.list_pistons():
         piston_json = str(piston)
+        # FRAGILE HEURISTIC: string scan of serialized piston dict.
+        # Produces false positives if global_id appears in unrelated text fields.
+        # Real fix: walk piston statement tree checking global_id references.
+        # See GAP-S29-15 — full fix in S4-8.
         if global_id in piston_json:
-            # Simple heuristic — full scan would walk the piston tree
             piston["stale"] = True
             storage.save_piston(piston)
 
@@ -459,6 +477,28 @@ def get_device_services(entity_id: str):
         return ha_client.get_services(entity_id)
     except HAClientError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Piston duplicate / import / export stubs
+# ---------------------------------------------------------------------------
+
+@router.post("/pistons/{piston_id}/duplicate", status_code=501)
+def duplicate_piston(piston_id: str):
+    """Duplicate a piston. Not yet implemented — returns 501. See S2-x."""
+    raise HTTPException(status_code=501, detail="Duplicate not yet implemented.")
+
+
+@router.post("/pistons/import", status_code=501)
+def import_piston():
+    """Import a piston from Snapshot JSON. Not yet implemented — returns 501. See S2-x."""
+    raise HTTPException(status_code=501, detail="Import not yet implemented.")
+
+
+@router.get("/pistons/{piston_id}/export", status_code=501)
+def export_piston(piston_id: str):
+    """Export a piston as Snapshot JSON. Not yet implemented — returns 501. See S2-x."""
+    raise HTTPException(status_code=501, detail="Export not yet implemented.")
 
 
 # ---------------------------------------------------------------------------

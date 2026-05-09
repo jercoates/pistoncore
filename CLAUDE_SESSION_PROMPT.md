@@ -41,7 +41,40 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 28 Complete
+## Project Status — Session 29 Complete
+
+### What Was Done in Session 29
+
+**S1-3: Backend audit of api.py and main.py. No code written.**
+
+18 gaps documented. All assigned to S1-4 or later. The four most critical
+(GAP-S29-1 through S29-4) mean the compile endpoint is completely broken right
+now — `_compile()` calls the old 5-param compiler signature, uses the old
+`known_piston_slugs` key, calls `storage.get_all_slugs()` instead of a UUID
+function, and tries to tuple-unpack a CompilerResult dataclass. Nothing reaches
+the compiler correctly until S1-4 fixes these.
+
+Summary of all 18 gaps:
+- GAP-S29-1: `_compile()` calls old 5-param compiler signature — crash on any compile
+- GAP-S29-2: `known_piston_slugs` not renamed to `known_piston_ids` in api.py
+- GAP-S29-3: `storage.get_all_slugs()` likely returns slugs not UUIDs
+- GAP-S29-4: CompilerResult tuple unpack broken — crash on any compile
+- GAP-S29-5: Companion stub still present — deploy always returns success:false
+- GAP-S29-6: BASE_URL injection missing from page serve
+- GAP-S29-7: `/ws` WebSocket endpoint absent
+- GAP-S29-8: Duplicate/import endpoints missing — frontend gets 404
+- GAP-S29-9: Snapshot export endpoint missing — frontend gets 404
+- GAP-S29-10: device_map values not validated as arrays
+- GAP-S29-11: No Pydantic validation on piston save
+- GAP-S29-12: Schema migration hook missing in get_piston()
+- GAP-S29-13: Jinja2 template errors uncaught → unhandled 500
+- GAP-S29-14: `slugify` in Compiler class, should be in utils.py
+- GAP-S29-15: `_mark_pistons_stale_for_global()` uses fragile string scan
+- GAP-S29-16: piston_text never-parse rule not documented in code
+- GAP-S29-17: Compile-on-save behavior — verify against DESIGN.md Section 18
+- GAP-S29-18: MISSING_SPECS.md may be stale — needs quick pass at start of S1-4
+
+Full gap detail in TASKS.md "Gaps Found Session 29" section.
 
 ### What Was Done in Session 28
 
@@ -106,6 +139,8 @@ it must announce which door opened in HA.
   starts. **Blocks S1-7 session 2.** See TASKS.md S1-7 session 2 for the full
   decision spec. Upload PYSCRIPT_COMPILER_SPEC.md for that session.
 
+### What Was Done in Session 27
+
 **S1-2b: editor.js flat statements array. No changes to wizard.js (except one Bug A fix) or compiler.py.**
 
 - Rewrote `_actionLines` to accept `(childIds, stmtMap, depth, ...)` — resolves
@@ -133,10 +168,7 @@ it must announce which door opened in HA.
   bare condition nodes when context is `if_condition`, so editor routes them correctly.
 - Both files pass Node.js syntax check.
 
-**Findings for S1-2c (compiler.py):**
-- No new findings. S1-2c scope is unchanged per TASKS.md.
-
-## What Was Done in Session 26
+### What Was Done in Session 26
 
 **S1-2a: wizard.js flat statements array. No changes to editor.js or compiler.py.**
 
@@ -158,57 +190,6 @@ it must announce which door opened in HA.
   _blockId) confirmed present — deferred to S1-2b as spec'd.
 - Duplicate-node risk in `_commitConditionAndMore` noted — same `ifBlockId` reused
   on every "Add more" click. Fix in S1-2b when editor gains update-vs-insert logic.
-- TASKS.md updated: S1-2a marked done, findings documented for S1-2b, Session 26
-  added to DONE.
-
-**TASKS.md — major updates:**
-- All Stage 1 and 2 Upload lines updated to include required spec files plus
-  CLAUDE_SESSION_PROMPT.md and TASKS.md on every task
-- S1-7 Compiler Bug Fixes added as two sessions:
-  - Session 1 (before S1-5): Fix Tier 1 bugs — triggers never populated, condition
-    indentation malformed, with_block only acts on first device, for_each body
-    doesn't use per-iteration entity, slug vs UUID, boolean state quoting,
-    compile_piston signature alignment, CompilerError code fields, NO_TRIGGERS
-    validation. Also: build 6-piston test suite in tests/pistons/.
-  - Session 2 (after S1-6): Fix Tier 2 bugs — template condition compiler, aggregation,
-    is_trigger filtering, parallel branch continue_on_error, $currentEventDevice
-    context-aware resolution, PyScript dispatch stub, ha_client.py connection leaks,
-    services cache per-domain, hash computation.
-- S1-6 Fat Compiler Context Assembly added between S1-5 and S1-7 session 2
-- S1-5 dependency updated — now requires S1-7 session 1 complete, not just S1-2c
-- S1-2b expanded — full render-back verification table for all 18 statement types,
-  wizard pre-population bugs A/B/C added to fix list, piston_text generation added
-- S1-2c — Section 18 verification required before marking done
-- S3-2 Deferred Validation Testing added after S3-1
-- S4-15 Operational Hardening added (Gap A/C/D/F/G from Grok review)
-- Gap B (.dockerignore) added to Minor/Cosmetic
-- S4-0 reordered — Error States Inventory is now first
-- S4-10 write-a-piston.md blocker explicitly noted
-- Session 25 added to DONE
-
-**MISSING_SPECS.md — three items added:**
-- Item 13: Fat Compiler Context Assembly (blocks S1-6)
-- Item 14: Time Condition Compiler Path (blocks S1-7 session 2 / Bug 8)
-- Item 15: write-a-piston.md prompt content (blocks S4-10)
-
-**PISTON_FORMAT.md — updated:**
-- "Two Formats" intro corrected — Snapshot JSON is the share format, not piston_text
-- piston_text field added to wrapper table with full warning block
-- "Fail loudly on render failure" rule added — if editor fails to render any
-  statement, piston_text is NOT regenerated; previous value preserved
-- "What This Format Is Not" section updated
-
-**HA_LIMITATIONS.md — three items corrected:**
-- State value quoting (Bug 11), wait_for_trigger timeout (Bug 3), parallel branch
-  continue_on_error (Bug 12) moved from "already handled" to "known gaps"
-- These were incorrectly marked as handled. They are not implemented. Fix in S1-7.
-
-**DESIGN.md:**
-- Duplicate Section 32 heading fixed (Standing Questions → 33, Dev Log → 34)
-- Session 25 dev log entry added
-
-**STATEMENT_TYPES.md:**
-- Section 16 header confirmed present — was already fixed, no change needed
 
 ---
 
@@ -228,8 +209,9 @@ wizard → JSON → backend → compiler → frontend renders → HA deploy succ
   - GAP-S28-3 blocks S1-5: verify automation.yaml.j2 and script.yaml.j2 use
     piston_id not slug for entity IDs. Fix templates before deploy.
   - GAP-S28-4: 6 test pistons in tests/pistons/ still needed.
-- **S1-3:** Backend audit — no code, written gap list only. ← NEXT TASK
-- **S1-4:** Backend cleanup — companion stub, BASE_URL, /ws endpoint, central logging.
+- **S1-3:** Backend audit. ✅ DONE (Session 29). 18 gaps found, all assigned to S1-4.
+- **S1-4:** Backend cleanup — 18 gaps from audit, companion stub, BASE_URL,
+  /ws endpoint, Pydantic validation, utils.py refactor. ← NEXT TASK
 - **S1-5:** HA direct write — depends on S1-2c AND S1-7 session 1 AND GAP-S28-3 resolved.
 - **S1-6:** Fat compiler context assembly. Write spec in same session, then code.
   Lives in context_builder.py (not ha_client.py, not api.py).
@@ -288,7 +270,7 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 
 ---
 
-## Known Code vs Spec Gaps (Post Session 28)
+## Known Code vs Spec Gaps (Post Session 29)
 
 **Structural:**
 - S1-2a (wizard.js) ✅ done Session 26
@@ -320,12 +302,22 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 - GAP-S28-5: PyScript compiler template decision not made. **Blocks S1-7 session 2.**
   Must decide before coding PyScript compiler — see TASKS.md S1-7 session 2.
 
-**Backend cleanup (S1-4 — not yet done):**
-- _send_to_companion() stub still in api.py — must be removed
-- Companion references still in api.py comments and backend/README.md
-- BASE_URL injection missing
-- /ws WebSocket endpoint absent
-- duplicate/import API methods missing — frontend calls crash
+**Backend gaps (S1-4 — not yet done):**
+- GAP-S29-1 through S29-4: `_compile()` completely broken — wrong signature,
+  wrong key names, wrong return type unpack. Crashes on any compile.
+- GAP-S29-5: Companion stub present — deploy always fails
+- GAP-S29-6: BASE_URL injection missing
+- GAP-S29-7: /ws WebSocket endpoint absent
+- GAP-S29-8/9: Duplicate/import/export endpoints missing — frontend 404s
+- GAP-S29-10: device_map values not validated as arrays
+- GAP-S29-11: No Pydantic validation on piston save
+- GAP-S29-12: Schema migration hook missing
+- GAP-S29-13: Jinja2 errors uncaught → 500
+- GAP-S29-14: slugify not in utils.py
+- GAP-S29-15: Stale global scan is string heuristic (comment in S1-4, fix in S4-8)
+- GAP-S29-16: piston_text never-parse rule undocumented in code
+- GAP-S29-17: Compile-on-save behavior — verify against spec
+- GAP-S29-18: MISSING_SPECS.md may be stale
 
 **Deploy (S1-5 — not yet implemented):**
 - No real HA file write exists

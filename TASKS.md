@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 29 complete (S1-3 backend audit done)
+**Last Updated:** Session 30 complete (S1-4 backend cleanup done, GAP-S28-3 template fix done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -150,50 +150,49 @@ See "Gaps Found Session 29" section below for full detail.
 
 ---
 
-### S1-4: main.py / api.py Backend Cleanup ← NEXT TASK
-**Why fourth:** Remove dead code and stubs before adding anything new. Clean slate
-makes the HA write implementation in S1-5 easier to reason about.
-**Spec ref:** DESIGN.md Sections 4, 24, 26
-**Upload:** main.py, api.py, backend/README.md, DESIGN.md, FRONTEND_SPEC.md,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**Fix in this order:**
-1. Remove `_send_to_companion()` stub function from api.py entirely (GAP-S29-5)
-2. Remove all companion references from api.py comments and docstrings (GAP-S29-5)
-3. Remove companion references from backend/README.md (GAP-S29-5)
-4. Fix `_compile()` — build fat context dict, call `compile_piston(context)`,
-   unpack CompilerResult correctly (GAP-S29-1, S29-2, S29-3, S29-4)
-5. Fix `device_map` validation — coerce or reject non-list values on save (GAP-S29-10)
-6. Add thin Pydantic model for piston create/update (GAP-S29-11)
-7. Add `_migrate_piston()` hook in `get_piston()` — pass-through for now (GAP-S29-12)
-8. Wrap compiler call in try/except for Jinja2 TemplateError (GAP-S29-13)
-9. Add BASE_URL injection at page serve time in main.py (GAP-S29-6)
-10. Add `/ws` WebSocket endpoint stub — accepts connections, stays open (GAP-S29-7)
-11. Add duplicate/import/export API stubs returning 501 not-yet-implemented (GAP-S29-8, S29-9)
-12. Move `slugify` to utils.py (GAP-S29-14)
-13. Add comment to `_mark_pistons_stale_for_global()` flagging string scan as
-    fragile heuristic, real fix in S4-8 (GAP-S29-15)
-14. Add comments in create/update piston confirming piston_text is never parsed (GAP-S29-16)
-15. Confirm compile-on-save behavior against DESIGN.md Section 18 — fix if
-    spec says it should not block save response (GAP-S29-17)
-16. Add central logging config at startup in main.py (Gap E from Grok review)
-17. Do a quick pass through MISSING_SPECS.md to mark any items resolved since
-    last update (GAP-S29-18)
+### S1-4: main.py / api.py Backend Cleanup ✅ DONE (Session 30)
+**What was done:**
+- GAP-S29-1,2,3,4: `_compile()` rewritten — fat context dict, `compile_piston(context)`,
+  CompilerResult unpacked via `.automation_yaml`, `.script_yaml`, `.warnings`, `.errors`
+- GAP-S29-5: `_send_to_companion()` removed. Deploy returns compile result + TODO S1-5.
+- GAP-S29-6: BASE_URL injected into index.html at serve time. Reads from
+  `PISTONCORE_BASE_URL` env var, falls back to `localhost:7777`.
+- GAP-S29-7: `/ws` WebSocket stub added — accepts and holds connections.
+- GAP-S29-8,9: Duplicate/import/export stubs added returning 501.
+- GAP-S29-10: `_validate_device_map()` added — coerces bare strings, rejects invalid.
+- GAP-S29-12: `_migrate_piston()` pass-through hook added in `get_piston()`.
+- GAP-S29-13: Compiler call wrapped in `except Exception` — catches TemplateError.
+- GAP-S29-15: Fragile heuristic comment added to `_mark_pistons_stale_for_global()`.
+- GAP-S29-16: piston_text never-parsed comment added to create and update.
+- GAP-S29-17: Compile-on-save removed from `update_piston()` — violates DESIGN.md S18.
+- Gap E: Central `logging.basicConfig()` added to main.py.
+- GAP-S30-2 (found and fixed same session): `result.messages` → `result.warnings`.
+  Dead `except CompilerError` block removed — compiler never re-raises it.
+- GAP-S30-5,6,7 (found and fixed same session): companion ref in docstring, unused
+  imports, inline uuid import — all cleaned.
 
-**Output:** Backend with no dead companion code, no crashing compiler calls,
-correct field names, thin validation, and no crashing on known frontend calls.
+**Not done — carried forward:**
+- GAP-S29-11: Pydantic model — deferred
+- GAP-S29-14: slugify to utils.py — requires compiler.py in scope, fits S1-7 session 2
+- GAP-S29-18: MISSING_SPECS.md pass — do at start of S1-5
+- backend/README.md companion cleanup — do at start of S1-5
+
+**Also done this session — GAP-S28-3 resolved:**
+- `automation_yaml.j2`: `script.pistoncore_{{ slug }}` → `script.pistoncore_{{ piston_id }}`
+- `script_yaml.j2`: `pistoncore_{{ slug }}:` → `pistoncore_{{ piston_id }}:`
+- S1-5 is now unblocked.
 
 ---
 
-### S1-5: HA Direct Write — Deploy Implementation
+### S1-5: HA Direct Write — Deploy Implementation ← NEXT TASK
 **Why fifth:** This is what the companion stub was supposed to do. Now we implement
 it correctly using direct REST API calls from ha_client.py.
-**Depends on:** S1-2c complete AND S1-7 session 1 complete AND GAP-S28-3 resolved.
-- GAP-S28-3: `automation.yaml.j2` and `script.yaml.j2` templates must be verified
-  to use `piston_id` (not `slug`) for entity IDs and filenames. Fix templates before
-  starting this task or deployed files will have wrong entity IDs.
+**Depends on:** S1-2c ✅ S1-7 session 1 ✅ GAP-S28-3 ✅ — all clear, unblocked.
 **Spec ref:** DESIGN.md Sections 22, 13, 16
 **Upload:** ha_client.py, api.py, DESIGN.md, COMPILER_SPEC.md, automation.yaml.j2,
-script.yaml.j2, CLAUDE_SESSION_PROMPT.md, TASKS.md
+script_yaml.j2, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Do first:** Quick pass through MISSING_SPECS.md (GAP-S29-18) and
+backend/README.md companion cleanup before coding starts.
 **What gets built:**
 - Deploy endpoint calls compiler → gets YAML strings back
 - Writes automation YAML to `<ha_config>/automations/pistoncore/pistoncore_{uuid}.yaml`
@@ -221,8 +220,7 @@ deploy. Test it against a real HA instance before marking done.
 **What was done:** See Session 28 entry in DONE section below.
 
 **Outstanding before fully closed:**
-- GAP-S28-3: Verify `automation.yaml.j2` and `script.yaml.j2` use `piston_id`
-  not `slug` for entity IDs/filenames. Fix templates if wrong. **Blocks S1-5.**
+- GAP-S28-3: ✅ DONE Session 30 — templates fixed, S1-5 unblocked.
 - GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
   this task is fully done. Can be done standalone or at start of S1-4 session.
 
@@ -648,6 +646,26 @@ in a real sandbox before building the wizard step.
 
 ## DONE — Completed Sessions
 
+### Session 30 — S1-4: main.py / api.py Backend Cleanup ✅ + GAP-S28-3 Template Fix ✅
+api.py: `_compile()` rewritten with fat context dict and correct CompilerResult unpack.
+Compile-on-save removed from `update_piston()` — violates DESIGN.md Section 18.
+`_send_to_companion()` stub removed; all companion references cleaned from docstrings.
+`_validate_device_map()` helper added — coerces/rejects invalid device_map values.
+`_migrate_piston()` pass-through hook added in `get_piston()`.
+Compiler call wrapped in `except Exception` — catches Jinja2 TemplateError.
+Duplicate/import/export 501 stub endpoints added.
+Unused imports removed; uuid import moved to top-level.
+Fragile heuristic comment added to `_mark_pistons_stale_for_global()`.
+piston_text never-parsed comments added to create and update.
+GAP-S30-2 found and fixed same session: `result.messages` → `result.warnings`;
+dead `except CompilerError` block removed.
+main.py: central logging config added. BASE_URL injected at page serve time,
+reads from `PISTONCORE_BASE_URL` env var. `/ws` WebSocket stub added.
+Templates: `automation_yaml.j2` and `script_yaml.j2` fixed — slug → piston_id
+for entity IDs and script key. GAP-S28-3 resolved. S1-5 unblocked.
+Not done: GAP-S29-11 (Pydantic), S29-14 (slugify), S29-18 (MISSING_SPECS pass),
+backend/README.md cleanup.
+
 ### Session 29 — S1-3: Backend Audit ✅
 api.py and main.py audited. No code written. 18 gaps documented:
 - GAP-S29-1: `_compile()` calls old 5-param compiler signature — crash on any compile
@@ -692,7 +710,7 @@ Bug 23 — `CompilerMessage` and `CompilerResult` dataclasses; `CompilerError` g
 code and context fields. Bug 24 — NO_TRIGGERS CompilerError on empty trigger list.
 Templates: `trigger_homeassistant_yaml.j2` created; `trigger_event_yaml.j2` and
 `wait_until_yaml.j2` updated. `__main__` test block updated to new API.
-Open: GAP-S28-3 (verify automation/script templates use piston_id — blocks S1-5),
+Open: GAP-S28-3 ✅ DONE Session 30 (templates fixed — slug → piston_id).
 GAP-S28-4 (6 test pistons in tests/pistons/ not yet created).
 
 ### Session 27 — S1-2b: editor.js Flat Statements Array ✅
@@ -778,9 +796,39 @@ rewritten. FRONTEND_SPEC.md import dialog updated. Session prompt updated.
 
 ---
 
+## Gaps Found Session 30
+
+### GAP-S30-3: Double config load per compile call
+**Found during:** S1-4 gap review
+**Problem:** `_compile()` calls `_get_compiler()` (which calls `storage.load_config()`)
+and separately calls `_get_app_version()` (which also calls `storage.load_config()`).
+Two disk reads for the same data on every compile.
+**What needs to happen:** Load config once in `_compile()` and pass values directly
+to `_get_compiler()` and read `app_version` from it. Low priority — no correctness
+impact, just unnecessary disk I/O.
+**Fits in:** S1-5 or any session that touches api.py.
+
+### GAP-S30-8: automation_yaml.j2 uses both piston.id and piston_id for same value
+**Found during:** S1-4 gap review after fixing GAP-S28-3
+**Problem:** Line 4 uses `pistoncore_{{ piston.id }}` (via piston object dict),
+line 12 uses `pistoncore_{{ piston_id }}` (via explicitly passed var). Both resolve
+to the same value so output is correct, but inconsistent template style. Stable
+entity IDs should always come from the explicit `piston_id` var, not `piston.id`,
+in case the compiler ever needs to differentiate them.
+**What needs to happen:** Standardize line 4 in automation_yaml.j2 to use
+`{{ piston_id }}` instead of `{{ piston.id }}`. Cosmetic only.
+**Fits in:** S1-5 (templates will be open anyway).
+
+---
+
 ## Gaps Found Session 29 — Assigned to S1-4
 
-### GAP-S29-1: `_compile()` calls old 5-param compiler signature
+**Resolved in Session 30:** GAP-S29-1, S29-2, S29-3, S29-4, S29-5, S29-6, S29-7,
+S29-8, S29-9, S29-10, S29-12, S29-13, S29-15, S29-16, S29-17.
+**Still open:** GAP-S29-11 (Pydantic model), S29-14 (slugify to utils.py),
+S29-18 (MISSING_SPECS.md pass — do at start of S1-5).
+
+### GAP-S29-1: `_compile()` calls old 5-param compiler signature ✅ DONE S30
 **Found during:** S1-3 backend audit
 **Problem:** `_compile()` calls `compiler.compile_piston(piston=..., device_map=...,
 globals_store=..., app_version=..., known_piston_slugs=...)`. Bug 22 in Session 28
@@ -995,17 +1043,9 @@ Each else_if is a condition + then branch, compiled to an additional `elif:` blo
 in HA's choose structure. See COMPILER_SPEC for the expected output.
 **Fits in:** S1-7 session 2.
 
-### GAP-S28-3: automation.yaml.j2 and script.yaml.j2 may use slug not piston_id ⚠ BLOCKS S1-5
-**Found during:** S1-7 session 1 — Bug 14 fix
-**Problem:** The compiler now passes both `piston_id` and `slug` to the render
-templates. But the templates themselves may still use `slug` where they should
-use `piston_id` — for `id: pistoncore_{x}`, `script.pistoncore_{x}`, and
-filenames. If so, deployed files will have slug-based entity IDs that break on
-piston rename.
-**What needs to happen:** Upload `automation.yaml.j2` and `script.yaml.j2` and
-verify they use `piston_id` for all stable identifiers and `slug` only for `alias:`.
-Fix if wrong. Do this before S1-5.
-**Fits in:** Start of S1-5 session — upload templates alongside ha_client.py and api.py.
+### GAP-S28-3: automation.yaml.j2 and script.yaml.j2 may use slug not piston_id ✅ DONE S30
+**Fixed in Session 30:** Both templates updated — slug → piston_id for entity IDs
+and filenames. S1-5 is unblocked.
 
 ### GAP-S28-5: PyScript compiler template decision not made ⚠ BLOCKS S1-7 SESSION 2
 **Found during:** Post-session review of PYSCRIPT_COMPILER_SPEC.md

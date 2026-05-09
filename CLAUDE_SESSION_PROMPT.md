@@ -41,40 +41,73 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 29 Complete
+## Project Status — Session 30 Complete
+
+### What Was Done in Session 30
+
+**S1-4: main.py / api.py backend cleanup. GAP-S28-3 template fix. COMPLETE.**
+
+**api.py changes:**
+- GAP-S29-1,2,3,4: `_compile()` rewritten — fat context dict, correct
+  `known_piston_ids` key, single `compile_piston(context)` call, `CompilerResult`
+  unpacked correctly via `.automation_yaml`, `.script_yaml`, `.warnings`, `.errors`
+- GAP-S29-5: `_send_to_companion()` removed entirely. Deploy endpoint returns
+  compile result with `deployed: False` and TODO S1-5 note. All companion
+  references in docstrings cleaned.
+- GAP-S29-10: `_validate_device_map()` helper added — coerces bare strings to
+  single-item lists, rejects anything else with 422. Called on create and update.
+- GAP-S29-12: `_migrate_piston()` pass-through hook added, called in
+  `get_piston()` before version check.
+- GAP-S29-13: Compiler call wrapped in `except Exception` — catches Jinja2
+  TemplateError and any other unexpected failure. Returns structured error, never 500.
+- GAP-S29-15: Fragile heuristic comment added to `_mark_pistons_stale_for_global()`.
+- GAP-S29-16: `piston_text` never-parsed comment added to create and update.
+- GAP-S29-17: Compile-on-save removed from `update_piston()` — violates
+  DESIGN.md Section 18. Save is now always fast.
+- GAP-S29-8,9: Duplicate/import/export stub endpoints added returning 501.
+- GAP-S30-2: `result.messages` → `result.warnings` (crash fix). Dead
+  `except CompilerError` block removed — compiler never re-raises it.
+- GAP-S30-5: Companion reference removed from `delete_piston` docstring.
+- GAP-S30-6: Unused `BaseModel`, `Any`, `CompilerError` imports removed.
+- GAP-S30-7: `import uuid` moved from inside function body to top-level.
+
+**main.py changes:**
+- Gap E: Central `logging.basicConfig()` added at startup.
+- GAP-S29-6: `serve_index()` injects `window.PISTONCORE_BASE_URL` into `<head>`.
+  Reads from `PISTONCORE_BASE_URL` env var — set in docker-compose for Unraid
+  deployments (e.g. `http://192.168.1.10:7777`). Falls back to `localhost:7777`.
+- GAP-S29-7: `/ws` WebSocket stub added — accepts connections, stays open,
+  logs connect, discards messages. Full impl in S2-x.
+
+**Template fixes (GAP-S28-3 — resolved):**
+- `automation_yaml.j2` line 12: `script.pistoncore_{{ slug }}` →
+  `script.pistoncore_{{ piston_id }}`
+- `script_yaml.j2` line 5: `pistoncore_{{ slug }}:` →
+  `pistoncore_{{ piston_id }}:`
+- S1-5 is now unblocked.
+
+**Gaps found Session 30 — new:**
+- GAP-S30-3: `_get_compiler()` and `_get_app_version()` both call
+  `storage.load_config()` — double disk read per compile. Low priority.
+- GAP-S30-8: `automation_yaml.j2` uses both `{{ piston.id }}` (line 4) and
+  `{{ piston_id }}` (line 12) for the same value. Inconsistent template style.
+  Cosmetic — standardize to `{{ piston_id }}` throughout both templates.
+
+**Not done this session — carried forward:**
+- GAP-S29-11: Pydantic validation model — deferred, non-trivial
+- GAP-S29-14: Move `slugify` to utils.py — requires compiler.py in scope
+- GAP-S29-18: MISSING_SPECS.md pass — do at start of S1-5
+- backend/README.md companion reference cleanup — minor, do in S1-5
 
 ### What Was Done in Session 29
 
 **S1-3: Backend audit of api.py and main.py. No code written.**
 
 18 gaps documented. All assigned to S1-4 or later. The four most critical
-(GAP-S29-1 through S29-4) mean the compile endpoint is completely broken right
-now — `_compile()` calls the old 5-param compiler signature, uses the old
-`known_piston_slugs` key, calls `storage.get_all_slugs()` instead of a UUID
-function, and tries to tuple-unpack a CompilerResult dataclass. Nothing reaches
-the compiler correctly until S1-4 fixes these.
-
-Summary of all 18 gaps:
-- GAP-S29-1: `_compile()` calls old 5-param compiler signature — crash on any compile
-- GAP-S29-2: `known_piston_slugs` not renamed to `known_piston_ids` in api.py
-- GAP-S29-3: `storage.get_all_slugs()` likely returns slugs not UUIDs
-- GAP-S29-4: CompilerResult tuple unpack broken — crash on any compile
-- GAP-S29-5: Companion stub still present — deploy always returns success:false
-- GAP-S29-6: BASE_URL injection missing from page serve
-- GAP-S29-7: `/ws` WebSocket endpoint absent
-- GAP-S29-8: Duplicate/import endpoints missing — frontend gets 404
-- GAP-S29-9: Snapshot export endpoint missing — frontend gets 404
-- GAP-S29-10: device_map values not validated as arrays
-- GAP-S29-11: No Pydantic validation on piston save
-- GAP-S29-12: Schema migration hook missing in get_piston()
-- GAP-S29-13: Jinja2 template errors uncaught → unhandled 500
-- GAP-S29-14: `slugify` in Compiler class, should be in utils.py
-- GAP-S29-15: `_mark_pistons_stale_for_global()` uses fragile string scan
-- GAP-S29-16: piston_text never-parse rule not documented in code
-- GAP-S29-17: Compile-on-save behavior — verify against DESIGN.md Section 18
-- GAP-S29-18: MISSING_SPECS.md may be stale — needs quick pass at start of S1-4
-
-Full gap detail in TASKS.md "Gaps Found Session 29" section.
+(GAP-S29-1 through S29-4) mean the compile endpoint was completely broken —
+`_compile()` called the old 5-param compiler signature, used the old
+`known_piston_slugs` key, called `storage.get_all_slugs()` instead of a UUID
+function, and tried to tuple-unpack a CompilerResult dataclass. All fixed in S1-4.
 
 ### What Was Done in Session 28
 
@@ -128,9 +161,6 @@ Full gap detail in TASKS.md "Gaps Found Session 29" section.
   deliberate exception to the flat model rule. Fits a spec-only pass.
 - GAP-S28-2: `else_ifs` on if blocks not compiled. Pre-existing gap, deferred
   to S1-7 session 2.
-- GAP-S28-3: `automation.yaml.j2` and `script.yaml.j2` templates may still use
-  `slug` for entity IDs instead of `piston_id`. Must verify and fix before S1-5
-  or deployed files will have wrong entity IDs. **Blocks S1-5.**
 - GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
   S1-7 session 1 can be marked fully done per TASKS.md.
 - GAP-S28-5: PyScript compiler template decision not made. Native YAML compiler
@@ -168,109 +198,9 @@ Full gap detail in TASKS.md "Gaps Found Session 29" section.
   bare condition nodes when context is `if_condition`, so editor routes them correctly.
 - Both files pass Node.js syntax check.
 
-### What Was Done in Session 26
-
-**S1-2a: wizard.js flat statements array. No changes to editor.js or compiler.py.**
-
-- Fixed 6 broken type-name aliases in `_handleStatementType` — `if_block`, `timer`,
-  `do_block`, `for_loop`, `while_loop`, `repeat_loop` were silently falling through
-  and doing nothing when picker cards were clicked.
-- Expanded all skeleton statement objects to complete schemas per STATEMENT_TYPES.md.
-  Previously most were bare `{ type, id }` only.
-- Fixed `every` field name `unit` → `interval_unit`. Added `statements:[]` and
-  optional scheduling fields (`at_minute`, `at_time`, `only_on_days/dom/months`).
-- Fixed `repeat` skeleton: added `condition_operator:'and'` and common fields.
-- Fixed `for_each` skeleton: added common fields.
-- Moved skeleton construction to factory function `_sk()` called at dispatch time
-  so `_newId()` is always fresh per invocation.
-- Confirmed `_commitCondition` / `_commitConditionAndMore` were already writing
-  flat-compatible output (`then:[]`, `else:[]`, `else_ifs:[]`). No structural
-  change needed there for the flat model.
-- Bugs B and C (pending_if_id / block-id conflict, _buildConditionNode not returning
-  _blockId) confirmed present — deferred to S1-2b as spec'd.
-- Duplicate-node risk in `_commitConditionAndMore` noted — same `ifBlockId` reused
-  on every "Add more" click. Fix in S1-2b when editor gains update-vs-insert logic.
-
 ---
 
-## What Still Needs to Be Done
-
-All work is tracked in TASKS.md. Read that file at the start of every session.
-This section is a brief summary only — TASKS.md is the authority.
-
-**Overall goal:** Clean round-trip on one simple piston before any feature work.
-wizard → JSON → backend → compiler → frontend renders → HA deploy succeeds.
-
-### Stage 1 — Structural Fixes (current stage, do in order)
-
-- **S1-2b:** Flat statements array — editor.js only. ✅ DONE (Session 27)
-- **S1-2c:** Flat statements array — compiler.py only. ✅ DONE (Session 28)
-- **S1-7 session 1:** Compiler bug fixes Tier 1. ✅ DONE (Session 28)
-  - GAP-S28-3 blocks S1-5: verify automation.yaml.j2 and script.yaml.j2 use
-    piston_id not slug for entity IDs. Fix templates before deploy.
-  - GAP-S28-4: 6 test pistons in tests/pistons/ still needed.
-- **S1-3:** Backend audit. ✅ DONE (Session 29). 18 gaps found, all assigned to S1-4.
-- **S1-4:** Backend cleanup — 18 gaps from audit, companion stub, BASE_URL,
-  /ws endpoint, Pydantic validation, utils.py refactor. ← NEXT TASK
-- **S1-5:** HA direct write — depends on S1-2c AND S1-7 session 1 AND GAP-S28-3 resolved.
-- **S1-6:** Fat compiler context assembly. Write spec in same session, then code.
-  Lives in context_builder.py (not ha_client.py, not api.py).
-- **S1-7 session 2:** Compiler bug fixes Tier 2 (after S1-6). Template conditions,
-  aggregation, time conditions, PyScript dispatch stub. Also: else_ifs (GAP-S28-2).
-  **Requires GAP-S28-5 resolved first** — PyScript template design decision must
-  be made and documented in PYSCRIPT_COMPILER_SPEC.md before any PyScript code.
-
-### Stage 2 — Connect the Seams
-
-HAClient abstraction, device_map_meta wiring, Snapshot export, import role
-mapping flow, HA version detection. See TASKS.md for full detail.
-
-### Stage 3 — Round-Trip Smoke Test
-
-S3-1: One testing session — simple piston all the way through.
-S3-2: Deferred validation testing — D-1, D-5, D-6, D-7 against real HA.
-
-### Stage 4 — Features
-
-Everything else. Each session needs only its own listed files. See TASKS.md.
-
----
-
-## Key Design Decisions — Locked, Do Not Relitigate
-
-- Compile target always compiler-owned, never user-controlled
-- Wizard writes structured JSON only — never piston_text
-- Editor renders from structured JSON only — never stores or reads display text
-- piston_text is a TEMPORARY safety net only — stored at bottom of piston JSON,
-  never parsed, never authoritative, remove after S3-1 testing
-- piston_text is generated from the same render functions as the editor — not a
-  parallel render path. If render fails for any statement, piston_text is NOT
-  regenerated — previous value preserved. Fail loudly, not silently.
-- Snapshot JSON is the single share/AI/community format — structured JSON
-  with empty device_map arrays and role name placeholders
-- AI prompts target Snapshot JSON output — no text parsing on import
-- Device globals baked at compile time (no runtime lookup)
-- Non-device globals as HA input helpers backed by UUID-based entity IDs
-- Global variables use `@` prefix, piston variables use `$` prefix
-- Frontend never calls HA directly — always through backend
-- BASE_URL required on every connection — no hardcoded paths
-- UUID-based file naming — never slug-based
-- execute/end execute are rendering artifacts — not data nodes in JSON
-- Single-device missing = hard flag, block redeploy (pending HA behavior validation)
-- Multi-device missing = degrade gracefully on remaining devices
-- wizard_context is retired — does not exist
-- Condition object: flat format with `role` at top level (not nested subject object)
-- device_map values are always arrays, even for single-device roles
-- Statement IDs: `stmt_` + 8 char lowercase hex
-- Statements array is FLAT per spec — child references by ID (S1-2 structural work)
-- `on_event` compiles to blocking wait in PyScript — true async is not possible
-  in HA. Wizard must warn users. See STATEMENT_TYPES.md Section 10.
-- Fat compiler context assembly lives in context_builder.py — not ha_client.py,
-  not api.py. api.py calls it.
-
----
-
-## Known Code vs Spec Gaps (Post Session 29)
+## Known Code vs Spec Gaps (Post Session 30)
 
 **Structural:**
 - S1-2a (wizard.js) ✅ done Session 26
@@ -295,34 +225,42 @@ Everything else. Each session needs only its own listed files. See TASKS.md.
 - GAP-S28-1: PISTON_FORMAT.md and STATEMENT_TYPES.md should explicitly document
   that `tasks` inside action nodes are embedded objects — deliberate exception to
   the flat model rule. Spec-only fix.
-- GAP-S28-3: automation.yaml.j2 and script.yaml.j2 may still use `slug` for entity
-  IDs. Must verify and fix before S1-5. **Blocks S1-5.**
 - GAP-S28-4: 6 test pistons in tests/pistons/ not yet created. Required before
   S1-7 session 1 is fully done per TASKS.md.
 - GAP-S28-5: PyScript compiler template decision not made. **Blocks S1-7 session 2.**
   Must decide before coding PyScript compiler — see TASKS.md S1-7 session 2.
 
-**Backend gaps (S1-4 — not yet done):**
-- GAP-S29-1 through S29-4: `_compile()` completely broken — wrong signature,
-  wrong key names, wrong return type unpack. Crashes on any compile.
-- GAP-S29-5: Companion stub present — deploy always fails
-- GAP-S29-6: BASE_URL injection missing
-- GAP-S29-7: /ws WebSocket endpoint absent
-- GAP-S29-8/9: Duplicate/import/export endpoints missing — frontend 404s
-- GAP-S29-10: device_map values not validated as arrays
-- GAP-S29-11: No Pydantic validation on piston save
-- GAP-S29-12: Schema migration hook missing
-- GAP-S29-13: Jinja2 errors uncaught → 500
-- GAP-S29-14: slugify not in utils.py
-- GAP-S29-15: Stale global scan is string heuristic (comment in S1-4, fix in S4-8)
-- GAP-S29-16: piston_text never-parse rule undocumented in code
-- GAP-S29-17: Compile-on-save behavior — verify against spec
-- GAP-S29-18: MISSING_SPECS.md may be stale
+**Backend gaps — resolved in S1-4 (Session 30):**
+- GAP-S29-1 through S29-4 ✅ _compile() fixed
+- GAP-S29-5 ✅ companion stub removed
+- GAP-S29-6 ✅ BASE_URL injection added
+- GAP-S29-7 ✅ /ws WebSocket stub added
+- GAP-S29-8,9 ✅ duplicate/import/export 501 stubs added
+- GAP-S29-10 ✅ device_map validation added
+- GAP-S29-12 ✅ _migrate_piston() hook added
+- GAP-S29-13 ✅ TemplateError caught
+- GAP-S29-15 ✅ fragile heuristic comment added
+- GAP-S29-16 ✅ piston_text never-parsed comments added
+- GAP-S29-17 ✅ compile-on-save removed
 
-**Deploy (S1-5 — not yet implemented):**
+**Backend gaps — still open:**
+- GAP-S29-11: No Pydantic validation on piston save — deferred
+- GAP-S29-14: slugify not in utils.py — deferred, requires compiler.py in scope
+- GAP-S29-18: MISSING_SPECS.md may be stale — do at start of S1-5
+- GAP-S30-3: Double config load per compile (_get_compiler + _get_app_version).
+  Low priority.
+- GAP-S30-8: automation_yaml.j2 uses both piston.id and piston_id for same value.
+  Cosmetic — standardize to piston_id throughout. Do in S1-5 when templates are open.
+- backend/README.md: companion references not yet cleaned. Do in S1-5.
+
+**Template gaps — resolved in Session 30:**
+- GAP-S28-3 ✅ automation_yaml.j2 and script_yaml.j2 fixed — slug → piston_id
+  for entity IDs. S1-5 is now unblocked.
+
+**Deploy (S1-5 — next task):**
 - No real HA file write exists
 - automation.reload and script.reload not yet called from deploy endpoint
-- GAP-S28-3 must be resolved first
+- GAP-S28-3 resolved — S1-5 is unblocked
 
 **Context assembly (S1-6 — not yet implemented):**
 - No build_compiler_context() function exists
@@ -416,6 +354,12 @@ docker run -d \
   -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize \
   pistoncore
 ```
+
+**PISTONCORE_BASE_URL env var:** Set this in docker-compose.yml to your Unraid
+server IP so the frontend can reach the backend from other machines on the LAN.
+Example: `PISTONCORE_BASE_URL=http://192.168.1.10:7777`
+Without it, BASE_URL defaults to localhost:7777 which only works when browser
+and server are on the same machine.
 
 ---
 

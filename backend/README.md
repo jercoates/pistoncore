@@ -31,7 +31,7 @@ The `PISTONCORE_DATA_DIR` env var lets you point storage at a local test folder 
 | PUT | /pistons/{id} | Save piston to Docker volume (no HA write) |
 | DELETE | /pistons/{id} | Delete piston from storage |
 | POST | /pistons/{id}/compile | Compile and return YAML strings (no HA write) |
-| POST | /pistons/{id}/deploy | Compile + send to companion for HA write |
+| POST | /pistons/{id}/deploy | Compile + write YAML files to HA (S1-5 — returns compile result only until implemented) |
 | GET | /globals | List global variables |
 | POST | /globals | Create a global variable |
 | DELETE | /globals/{id} | Delete a global variable |
@@ -44,7 +44,7 @@ The `PISTONCORE_DATA_DIR` env var lets you point storage at a local test folder 
 There are two distinct save operations — the frontend must make this clear to users:
 
 1. **Save** (`PUT /pistons/{id}`) — writes the piston JSON to the Docker volume. Fast, always works, no HA involvement. This is what the Save button does.
-2. **Deploy** (`POST /pistons/{id}/deploy`) — compiles the piston and sends the YAML files to HA via the companion. Requires the companion to be installed.
+2. **Deploy** (`POST /pistons/{id}/deploy`) — compiles the piston and writes the YAML files directly to HA via ha_client. Requires ha_url and ha_token configured.
 
 ## Compiler Quick Test
 
@@ -62,7 +62,7 @@ Expected output matches the hand-written example in COMPILER_SPEC.md Section 17.
 Read DESIGN.md v0.9.1 and COMPILER_SPEC.md v0.2 before modifying any file in this folder.
 
 - `compiler.py` — each method references the COMPILER_SPEC section it implements. Add new statement types by adding an `elif` in `_compile_sequence()` and a `_compile_<type>()` method.
-- `api.py` — the deploy endpoint has a clearly marked companion stub. Replace `_send_to_companion()` when the companion integration is built.
+- `api.py` — the deploy endpoint has a TODO S1-5 stub. Full HA file write implemented in S1-5 using ha_client.py.
 - `storage.py` — all file paths go through this module. Do not read or write files from `api.py` or `compiler.py` directly.
 
 Do not change the design documents. The backend serves the spec — not the other way around.

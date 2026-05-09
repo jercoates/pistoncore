@@ -365,6 +365,37 @@ async def _fetch_capabilities(entity_id: str) -> dict:
     }
 
 
+def call_service(domain: str, service: str, service_data: dict = None) -> dict:
+    """
+    Call a Home Assistant service via WebSocket.
+    Used by the deploy endpoint for automation.reload, script.reload,
+    and pyscript.reload after writing compiled files.
+    Returns the HA result payload.
+    Raises HAClientError on failure.
+    """
+    return _run(_call_service(domain, service, service_data or {}))
+
+
+async def _call_service(domain: str, service: str, service_data: dict) -> dict:
+    results = await _ws_call([
+        {
+            "id": 1,
+            "type": "call_service",
+            "domain": domain,
+            "service": service,
+            "service_data": service_data,
+        }
+    ])
+    result = results[0]
+    if not result.get("success"):
+        error = result.get("error", {})
+        raise HAClientError(
+            f"HA service {domain}.{service} failed: "
+            f"{error.get('message', 'unknown error')}"
+        )
+    return result
+
+
 def get_services(entity_id: str) -> list[dict]:
     """
     Return valid services for a device's domain with parameter schema.

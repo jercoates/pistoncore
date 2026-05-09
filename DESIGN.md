@@ -1143,6 +1143,72 @@ PistonCore is architecturally forbidden from:
 * Writing to any file that does not contain its own signature header
 * Calling any undocumented HA internal API
 
+### Exception — First-Run configuration.yaml Setup
+
+PistonCore makes one limited exception to the "no editing configuration.yaml"
+rule: on startup, if the PistonCore include directives are not present in
+configuration.yaml, PistonCore appends them. This is a setup action on
+PistonCore's own behalf — not interference with user config.
+
+The two lines PistonCore adds, and only these two lines:
+
+```
+# Added by PistonCore — required for deploy to work. Do not remove.
+automation pistoncore: !include_dir_merge_list automations/pistoncore/
+script pistoncore: !include_dir_merge_named scripts/pistoncore/
+```
+
+Rules governing this exception:
+
+* PistonCore checks for its own include lines on every startup. If present,
+  it does nothing. If missing, it appends them. The check is idempotent.
+* PistonCore never modifies any other line in configuration.yaml.
+* PistonCore never removes or rewrites lines it previously added.
+* This only runs if ha_config_path is configured. If the path is not set,
+  the check is skipped silently.
+* After adding the lines, PistonCore sets ha_restart_required: true in its
+  own config. Deploying a script piston while this flag is set returns a
+  clear error: "HA restart required before script pistons can be deployed —
+  configuration.yaml was updated on startup. Restart HA once to complete
+  setup."
+* Automation pistons are unaffected by this flag — automation.reload is
+  sufficient and does not require a full restart.
+* PyScript pistons require no configuration.yaml change — PyScript
+  auto-scans the pyscript/ directory and all subdirectories.
+* The ha_restart_required flag clears automatically on the first successful
+  script piston deploy, proving HA loaded the new config.
+
+### First-Run Warning — Required
+
+When PistonCore adds the include lines to configuration.yaml, it must
+display a prominent warning in the UI that persists until a script piston
+deploys successfully:
+
+> ⚠ PistonCore has updated your configuration.yaml to register its
+> automation and script folders with Home Assistant. A one-time HA
+> restart is required before script pistons can be deployed.
+> Automation pistons can be deployed immediately without a restart.
+> [Dismiss — I will restart HA]
+
+This warning must also appear:
+* In the PistonCore log on startup when the lines are added
+* At the top of the status page for any script piston while the flag is set
+* In the deploy response when a script piston deploy is attempted while
+  the flag is set
+
+### Documentation Requirement
+
+The README, setup guide, and any first-run onboarding documentation must
+include this notice prominently — before any other setup instructions:
+
+> IMPORTANT: On first startup, PistonCore will automatically add two
+> lines to your Home Assistant configuration.yaml file to register its
+> automation and script folders. A one-time Home Assistant restart is
+> required after this happens before script pistons can be deployed.
+> Automation pistons work immediately without a restart. You will see
+> a warning in the PistonCore UI until a script piston deploys
+> successfully.
+
 ---
 
 ## 20. Security

@@ -14,6 +14,7 @@
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
@@ -21,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
+import storage
 from api import router
 
 # Central logging config (Gap E — Grok review)
@@ -30,10 +32,86 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pistoncore")
 
+
+# ---------------------------------------------------------------------------
+# Startup — HA configuration.yaml setup
+# DESIGN.md Section 19 exception: PistonCore appends its own include
+# directives to configuration.yaml on startup if they are not present.
+# ---------------------------------------------------------------------------
+
+def _setup_ha_config():
+    """
+    Ensure PistonCore's include directives exist in HA's configuration.yaml.
+    Appends them if missing. Sets ha_restart_required flag if lines were added.
+    Creates pistoncore output subdirectories if they don't exist.
+    Only runs if ha_config_path is configured in PistonCore config.
+    Per DESIGN.md Section 19 exception.
+    """
+    config = storage.load_config()
+    ha_config_path = config.get("ha_config_path", "").strip()
+    if not ha_config_path:
+        logger.info("ha_config_path not set — skipping configuration.yaml setup.")
+        return
+
+    config_yaml_path = os.path.join(ha_config_path, "configuration.yaml")
+    if not os.path.isfile(config_yaml_path):
+        logger.warning(
+            f"configuration.yaml not found at {config_yaml_path} — "
+            f"skipping setup. Check ha_config_path in PistonCore settings."
+        )
+        return
+
+    AUTOMATION_LINE = "automation pistoncore: !include_dir_merge_list automations/pistoncore/"
+    SCRIPT_LINE     = "script pistoncore: !include_dir_merge_named scripts/pistoncore/"
+    COMMENT_LINE    = "# Added by PistonCore — required for deploy to work. Do not remove."
+
+    with open(config_yaml_path, "r") as f:
+        content = f.read()
+
+    missing = []
+    if AUTOMATION_LINE not in content:
+        missing.append(AUTOMATION_LINE)
+    if SCRIPT_LINE not in content:
+        missing.append(SCRIPT_LINE)
+
+    if not missing:
+        logger.info("PistonCore configuration.yaml entries already present — no changes needed.")
+    else:
+        addition = f"\n{COMMENT_LINE}\n" + "\n".join(missing) + "\n"
+        with open(config_yaml_path, "a") as f:
+            f.write(addition)
+
+        logger.warning(
+            "PistonCore added include directives to configuration.yaml: %s. "
+            "A one-time Home Assistant restart is required before script pistons "
+            "can be deployed. Automation pistons work immediately.",
+            ", ".join(missing),
+        )
+
+        config["ha_restart_required"] = True
+        storage.save_config(config)
+
+    # Ensure pistoncore output subdirectories exist
+    # These must exist before the first deploy writes into them.
+    for subdir in ["automations/pistoncore", "scripts/pistoncore", "pyscript/pistoncore"]:
+        full_path = os.path.join(ha_config_path, subdir)
+        os.makedirs(full_path, exist_ok=True)
+        logger.info("Ensured directory exists: %s", full_path)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan — runs startup logic before serving requests."""
+    _setup_ha_config()
+    yield
+    # Shutdown logic goes here when needed
+
+
 app = FastAPI(
     title="PistonCore",
     description="WebCoRE-style visual automation builder for Home Assistant",
     version="0.9",
+    lifespan=lifespan,
 )
 
 # CORS — kept permissive; tighten if exposing beyond LAN

@@ -22,6 +22,7 @@
 #   GET    /device/{entity_id}/capabilities — capabilities with attribute_type detection
 #   GET    /device/{entity_id}/services    — domain services with field schema
 
+import hashlib
 import os
 import uuid
 
@@ -259,14 +260,52 @@ def update_piston(piston_id: str, piston: dict = Body(...)):
 @router.delete("/pistons/{piston_id}", status_code=204)
 def delete_piston(piston_id: str):
     """
-    Delete a piston from storage.
-    Does NOT remove compiled files from HA — HA file cleanup must be done
-    manually or will be handled by the deploy system in S1-5.
-    The frontend should warn the user if the piston is currently deployed.
+    Delete a piston from storage and remove its compiled HA files if present.
+    Compiled file removal is best-effort — missing files are silently ignored.
+    Only removes files that contain PistonCore's own signature header so we
+    never touch files we didn't create (DESIGN.md Section 19).
+    HA reload is called after removal so the automation/script stops running.
     """
-    deleted = storage.delete_piston(piston_id)
-    if not deleted:
+    # Load piston before deleting so we have the id for file paths
+    piston = storage.get_piston(piston_id)
+    if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
+
+    storage.delete_piston(piston_id)
+
+    # Remove compiled HA files if ha_config_path is configured
+    config = storage.load_config()
+    ha_config_path = config.get("ha_config_path", "").strip()
+    if ha_config_path:
+        automation_path = os.path.join(
+            ha_config_path, "automations", "pistoncore", f"pistoncore_{piston_id}.yaml"
+        )
+        script_path = os.path.join(
+            ha_config_path, "scripts", "pistoncore", f"pistoncore_{piston_id}.yaml"
+        )
+        removed_any = False
+        for path in [automation_path, script_path]:
+            if os.path.isfile(path):
+                # Safety check — only remove files PistonCore created
+                try:
+                    with open(path) as f:
+                        header = f.read(200)
+                    if "MANAGED BY PISTONCORE" in header:
+                        os.remove(path)
+                        removed_any = True
+                except OSError:
+                    pass  # Best-effort — log in future
+
+        # Reload HA so the deleted automation/script stops running
+        if removed_any:
+            try:
+                ha_client.call_service("automation", "reload")
+            except ha_client.HAClientError:
+                pass  # Best-effort — piston is deleted from PistonCore regardless
+            try:
+                ha_client.call_service("script", "reload")
+            except ha_client.HAClientError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -293,34 +332,203 @@ def compile_piston(piston_id: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/pistons/{piston_id}/deploy")
-def deploy_piston(piston_id: str):
+def deploy_piston(piston_id: str, force: bool = False):
     """
-    Compile a piston and write the output directly to HA via ha_client.
-    Full HA write implementation in S1-5. Returns compile result for now.
-
-    This is the two-step save model:
+    Compile a piston and write output files to HA, then call reload services.
+    Implements the two-step save model per DESIGN.md Section 18:
       Step 1: PUT /pistons/{id}  — saves JSON to Docker volume (always fast)
       Step 2: POST /pistons/{id}/deploy  — compiles + writes to HA
+
+    force=true skips the hash mismatch check (user confirmed overwrite).
+
+    Returns structured result: deployed, written_paths, reload_errors,
+    compile_result, message.
+
+    Script pistons require ha_restart_required=false before deploying —
+    set by _setup_ha_config() on startup after adding configuration.yaml lines.
+    Automation pistons are unaffected by this flag.
     """
+    config = storage.load_config()
+    ha_config_path = config.get("ha_config_path", "").strip()
+
+    if not ha_config_path:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "ha_config_path is not configured. Set the path to your HA "
+                "config directory in PistonCore settings before deploying."
+            ),
+        )
+
     piston = storage.get_piston(piston_id)
     if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
 
+    # Compile in memory — never writes to HA (DESIGN.md Section 18 Stage 2)
     compile_result = _compile(piston)
-
     if not compile_result["success"]:
         return {
             "deployed": False,
-            "reason": "Compilation failed — nothing written to HA.",
+            "reason": "compile_failed",
             "compile_result": compile_result,
         }
 
-    # TODO S1-5: write compiled YAML to HA via ha_client, call reload endpoints
+    piston_uuid     = piston["id"]
+    automation_yaml = compile_result["automation_yaml"]
+    script_yaml     = compile_result["script_yaml"]
+
+    # Script pistons need a full HA restart after configuration.yaml was updated.
+    # Automation pistons are unaffected — automation.reload is sufficient.
+    # DESIGN.md Section 19 exception.
+    if script_yaml and config.get("ha_restart_required"):
+        return {
+            "deployed": False,
+            "reason": "ha_restart_required",
+            "message": (
+                "PistonCore updated your configuration.yaml on startup to register "
+                "its script folder. A one-time Home Assistant restart is required "
+                "before script pistons can be deployed. "
+                "Automation pistons can be deployed immediately without a restart."
+            ),
+            "compile_result": compile_result,
+        }
+
+    # Resolve output paths — COMPILER_SPEC Section 5
+    automation_dir  = os.path.join(ha_config_path, "automations", "pistoncore")
+    script_dir      = os.path.join(ha_config_path, "scripts",     "pistoncore")
+    automation_path = os.path.join(automation_dir, f"pistoncore_{piston_uuid}.yaml")
+    script_path     = os.path.join(script_dir,     f"pistoncore_{piston_uuid}.yaml")
+
+    os.makedirs(automation_dir, exist_ok=True)
+    os.makedirs(script_dir,     exist_ok=True)
+
+    # Hash mismatch check — DESIGN.md Section 13, COMPILER_SPEC Section 6.
+    # If the deployed file was manually edited since last deploy, refuse to
+    # overwrite unless force=true.
+    if not force:
+        for path, content in [
+            (automation_path, automation_yaml),
+            (script_path,     script_yaml),
+        ]:
+            if content and os.path.isfile(path):
+                if _check_hash_mismatch(path):
+                    return {
+                        "deployed": False,
+                        "reason": "hash_mismatch",
+                        "path": path,
+                        "message": (
+                            f"The deployed file at {path} was manually edited "
+                            f"since last deploy. Deploy with force=true to overwrite, "
+                            f"or discard your manual changes."
+                        ),
+                        "compile_result": compile_result,
+                    }
+
+    # Write files to HA config directory — DESIGN.md Section 18 Stage 4
+    written_paths = []
+    try:
+        if automation_yaml:
+            with open(automation_path, "w") as f:
+                f.write(automation_yaml)
+            written_paths.append(automation_path)
+
+        if script_yaml:
+            with open(script_path, "w") as f:
+                f.write(script_yaml)
+            written_paths.append(script_path)
+
+    except OSError as e:
+        return {
+            "deployed": False,
+            "reason": "file_write_failed",
+            "message": (
+                f"Could not write to HA config directory: {e}. "
+                f"Check that ha_config_path is correct and the directory is "
+                f"writable (e.g. Samba share is mounted and accessible)."
+            ),
+            "compile_result": compile_result,
+        }
+
+    # Call HA reload services — DESIGN.md Section 18 Stage 4
+    # automation.reload picks up new files immediately, no HA restart needed.
+    # script.reload same — but only if configuration.yaml was already set up.
+    reload_errors = []
+
+    try:
+        ha_client.call_service("automation", "reload")
+    except ha_client.HAClientError as e:
+        reload_errors.append(f"automation.reload failed: {e}")
+
+    if script_yaml:
+        try:
+            ha_client.call_service("script", "reload")
+            # First successful script deploy proves HA loaded the config —
+            # clear the restart-required flag. DESIGN.md Section 19.
+            if config.get("ha_restart_required"):
+                config["ha_restart_required"] = False
+                storage.save_config(config)
+        except ha_client.HAClientError as e:
+            reload_errors.append(f"script.reload failed: {e}")
+
+    # Mark piston as deployed in storage
+    piston["deployed"] = True
+    storage.save_piston(piston)
+
+    deployed = len(reload_errors) == 0
     return {
-        "deployed": False,
-        "reason": "Deploy not yet implemented — compile succeeded. See S1-5.",
+        "deployed": deployed,
+        "written_paths": written_paths,
+        "reload_errors": reload_errors,
         "compile_result": compile_result,
+        "message": (
+            "Deployed successfully."
+            if deployed
+            else "Files written but HA reload failed — see reload_errors."
+        ),
     }
+
+
+def _check_hash_mismatch(existing_path: str) -> bool:
+    """
+    Read the pc_hash from an existing deployed file's header.
+    Recompute the hash of the file body and compare.
+    Returns True if the file was manually edited since PistonCore last wrote it.
+    Returns False if hashes match, file is unreadable, or no pc_hash found.
+    COMPILER_SPEC Section 6 / DESIGN.md Section 13.
+    """
+    try:
+        with open(existing_path, "r") as f:
+            existing_content = f.read()
+    except OSError:
+        return False  # Can't read — allow overwrite
+
+    # Extract pc_hash from the signature header line
+    stored_hash = None
+    for line in existing_content.splitlines():
+        if "pc_hash:" in line:
+            parts = line.split("pc_hash:")
+            if len(parts) > 1:
+                stored_hash = parts[1].strip().split()[0]
+            break
+
+    if stored_hash is None:
+        return False  # No PistonCore signature — not our file, don't block
+
+    # Recompute hash of the body (everything after the comment header lines)
+    lines = existing_content.splitlines(keepends=True)
+    body_start = 0
+    in_header = True
+    for i, line in enumerate(lines):
+        if in_header and (line.strip().startswith("#") or line.strip() == ""):
+            body_start = i + 1
+        else:
+            in_header = False
+            break
+    body = "".join(lines[body_start:])
+    actual_hash = hashlib.sha256(body.encode()).hexdigest()
+
+    # Mismatch means the body changed after PistonCore wrote it — manual edit
+    return actual_hash != stored_hash
 
 
 # ---------------------------------------------------------------------------

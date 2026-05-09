@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+import utils
+
 
 # ---------------------------------------------------------------------------
 # Compiler result types — COMPILER_SPEC Section 13
@@ -94,20 +96,16 @@ class Compiler:
         )
 
     # -----------------------------------------------------------------------
-    # Section 4 — Slug generation
+    # Section 4 — Slug generation (delegated to utils.slugify)
     # -----------------------------------------------------------------------
 
     def slugify(self, name: str) -> str:
         """
-        Convert a piston name to a safe slug for filenames and entity IDs.
+        Thin wrapper — delegates to utils.slugify.
+        Kept as a method so existing call sites (self.slugify(...)) don't change.
         COMPILER_SPEC Section 4.
         """
-        s = name.lower()
-        s = s.replace(" ", "_").replace("-", "_")
-        s = re.sub(r"[^a-z0-9_]", "", s)
-        s = s.strip("_")
-        s = s[:50]
-        return s
+        return utils.slugify(name)
 
     # -----------------------------------------------------------------------
     # Section 5 — Main entry point

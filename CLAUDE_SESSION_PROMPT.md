@@ -41,7 +41,94 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 30 Complete
+## Project Status — Session 31 Complete
+
+### What Was Done in Session 31
+
+**S1-5: Deploy endpoint. Full implementation. COMPLETE.**
+
+**DESIGN.md changes:**
+- Section 19: Added first-run configuration.yaml setup exception — documents the
+  two lines PistonCore appends, rules governing the exception, first-run warning
+  requirement, and documentation requirement. This was a design gap that had been
+  discussed but never written into the spec.
+
+**storage.py changes:**
+- `load_config()` defaults: added `ha_config_path: ""` and `ha_restart_required: False`.
+
+**main.py changes:**
+- Added `contextlib.asynccontextmanager` import and `import storage`.
+- Added `_setup_ha_config()` — checks/appends PistonCore include directives to
+  `configuration.yaml` on startup, creates `automations/pistoncore/`,
+  `scripts/pistoncore/`, `pyscript/pistoncore/` subdirectories, sets
+  `ha_restart_required: True` if lines were added. Idempotent — safe to run
+  on every startup.
+- Added `lifespan()` context manager — calls `_setup_ha_config()` at startup.
+- Wired `lifespan=lifespan` into `FastAPI()` constructor.
+
+**ha_client.py changes:**
+- Added `call_service(domain, service, service_data=None)` — public sync wrapper.
+- Added `_call_service(domain, service, service_data)` — async implementation via
+  `_ws_call()`. Used by deploy for `automation.reload`, `script.reload`.
+
+**api.py changes:**
+- Added `import hashlib` at top.
+- `deploy_piston()`: full implementation replacing the TODO stub. Checks
+  `ha_config_path`, compiles, checks `ha_restart_required` for script pistons,
+  resolves output paths, checks hash mismatch (skippable with `force=True`),
+  writes files, calls `automation.reload` / `script.reload`, marks piston
+  deployed, clears `ha_restart_required` on first successful script deploy.
+- `_check_hash_mismatch(existing_path)`: reads `pc_hash` from deployed file
+  header, recomputes hash of body, returns True if manually edited.
+- `delete_piston()`: now removes compiled HA files (automation + script) after
+  deleting from storage. Safety check — only removes files with PistonCore
+  signature. Calls `automation.reload` and `script.reload` after removal.
+  Best-effort — piston is always deleted from PistonCore regardless of HA errors.
+
+**automation_yaml.j2 changes:**
+- GAP-S30-8: standardized to `{{ piston_id }}` throughout. Line 2 (`pc_piston_id`)
+  and line 4 (`id: pistoncore_`) were using `{{ piston.id }}` — corrected to
+  `{{ piston_id }}` to match `script_yaml.j2` and the compiler's explicit pass.
+
+**backend/README.md changes:**
+- Removed all companion references (now fully replaced by ha_config_path approach).
+- Added first-run warning notice at top per DESIGN.md Section 19 documentation
+  requirement.
+- Added `ha_client.py` to files table.
+- Updated deploy endpoint description to reflect actual implementation.
+- Added Deploy — HA Config Path section explaining the three deployment scenarios.
+- Updated compiler quick test reference from Section 17 to Section 18.
+- Updated DESIGN.md version reference from v0.9.1 to v1.1.
+
+**Gaps found Session 31 — new:**
+- GAP-S31-1: `get_all_slugs()` in storage.py imports Compiler inside function —
+  circular import risk. Fix: move `slugify` to `utils.py`. ✅ CLOSED SAME SESSION.
+- GAP-S31-2: `_setup_ha_config()` startup errors not surfaced to user in UI —
+  if `configuration.yaml` write fails (wrong path, read-only), only a log warning.
+  Fits S4-0 error states inventory.
+- GAP-S31-3: PyScript deploy path not implemented — directory created on startup
+  but deploy endpoint has no PyScript file write or `pyscript.reload`. Fits S1-7
+  session 2 when PyScript compiler is built.
+- GAP-S31-5: `ha_config_path` setting has no UI — user must edit config.json
+  directly. Blocked by MISSING_SPECS.md Item 3 (Settings page spec). No action.
+- GAP-S31-6: `endpoints.json` in customize volume references `write_automation`
+  REST endpoint that does not exist in HA. Should be removed or corrected to
+  reflect WebSocket + filesystem approach. Fits a spec/customize volume cleanup
+  pass. Low priority.
+
+**Gaps closed this session:**
+- GAP-S30-8 ✅ automation_yaml.j2 piston.id → piston_id standardized
+- GAP-S31-1 ✅ utils.py created, slugify moved from Compiler class, storage.py
+  updated — circular import risk eliminated
+- GAP-S31-4 ✅ delete_piston now removes compiled HA files (closed same session)
+- GAP-S29-14 ✅ slugify now in utils.py — was same issue as GAP-S31-1
+- backend/README.md companion references ✅ cleaned
+
+**Not done this session — carried forward:**
+- GAP-S29-11: Pydantic validation model — deferred, non-trivial
+- GAP-S29-18: MISSING_SPECS.md pass — confirmed accurate, closed
+- GAP-S28-1: `tasks` embedded vs flat needs spec documentation — needs
+  PISTON_FORMAT.md in context
 
 ### What Was Done in Session 30
 
@@ -224,7 +311,7 @@ function, and tried to tuple-unpack a CompilerResult dataclass. All fixed in S1-
 **Session 28 gaps — open:**
 - GAP-S28-1: PISTON_FORMAT.md and STATEMENT_TYPES.md should explicitly document
   that `tasks` inside action nodes are embedded objects — deliberate exception to
-  the flat model rule. Spec-only fix.
+  the flat model rule. Spec-only fix. Needs PISTON_FORMAT.md in context.
 - GAP-S28-4: 6 test pistons in tests/pistons/ not yet created. Required before
   S1-7 session 1 is fully done per TASKS.md.
 - GAP-S28-5: PyScript compiler template decision not made. **Blocks S1-7 session 2.**
@@ -243,24 +330,30 @@ function, and tried to tuple-unpack a CompilerResult dataclass. All fixed in S1-
 - GAP-S29-16 ✅ piston_text never-parsed comments added
 - GAP-S29-17 ✅ compile-on-save removed
 
+**Backend gaps — resolved in S1-5 (Session 31):**
+- GAP-S29-18 ✅ MISSING_SPECS.md pass — confirmed accurate, no updates needed
+- GAP-S29-14 / GAP-S31-1 ✅ utils.py created, slugify moved from Compiler class,
+  storage.py updated — circular import risk eliminated
+- GAP-S30-8 ✅ automation_yaml.j2 standardized to piston_id throughout
+- GAP-S31-4 ✅ delete_piston now removes compiled HA files
+- backend/README.md ✅ companion references cleaned, first-run warning added
+
 **Backend gaps — still open:**
 - GAP-S29-11: No Pydantic validation on piston save — deferred
-- GAP-S29-14: slugify not in utils.py — deferred, requires compiler.py in scope
-- GAP-S29-18: MISSING_SPECS.md may be stale — do at start of S1-5
 - GAP-S30-3: Double config load per compile (_get_compiler + _get_app_version).
   Low priority.
-- GAP-S30-8: automation_yaml.j2 uses both piston.id and piston_id for same value.
-  Cosmetic — standardize to piston_id throughout. Do in S1-5 when templates are open.
-- backend/README.md: companion references not yet cleaned. Do in S1-5.
+- GAP-S31-2: _setup_ha_config() startup errors not surfaced to UI. Fits S4-0.
+- GAP-S31-3: PyScript deploy path not implemented. Fits S1-7 session 2.
+- GAP-S31-5: ha_config_path has no UI. Blocked by Settings page spec.
+- GAP-S31-6: endpoints.json references write_automation REST endpoint that
+  doesn't exist. Should be removed. Low priority.
 
-**Template gaps — resolved in Session 30:**
-- GAP-S28-3 ✅ automation_yaml.j2 and script_yaml.j2 fixed — slug → piston_id
-  for entity IDs. S1-5 is now unblocked.
-
-**Deploy (S1-5 — next task):**
-- No real HA file write exists
-- automation.reload and script.reload not yet called from deploy endpoint
-- GAP-S28-3 resolved — S1-5 is unblocked
+**Deploy (S1-5 — DONE Session 31):**
+- ✅ Files written to ha_config_path/automations/pistoncore/ and scripts/pistoncore/
+- ✅ automation.reload and script.reload called via ha_client.call_service()
+- ✅ Hash mismatch detection implemented (force=True to override)
+- ✅ ha_restart_required flag — set on startup, cleared on first successful script deploy
+- ✅ configuration.yaml setup on startup (_setup_ha_config in main.py)
 
 **Context assembly (S1-6 — not yet implemented):**
 - No build_compiler_context() function exists

@@ -86,12 +86,12 @@ def get_all_slugs() -> dict[str, str]:
     """
     Return a dict of {piston_id: slug} for all pistons.
     Used by the compiler for slug collision detection and call_piston resolution.
+    Uses utils.slugify — no Compiler instantiation needed.
     """
-    from compiler import Compiler
-    compiler = Compiler()
+    from utils import slugify
     result = {}
     for piston in list_pistons():
-        result[piston["id"]] = compiler.slugify(piston["name"])
+        result[piston["id"]] = slugify(piston["name"])
     return result
 
 
@@ -130,6 +130,8 @@ def load_config() -> dict:
     defaults = {
         "ha_url": "http://homeassistant.local:8123",
         "ha_token": "",
+        "ha_config_path": "",          # path to HA config dir — set by user in settings
+        "ha_restart_required": False,  # True after configuration.yaml is modified on startup
         "app_version": "0.9",
         "run_timeout_minutes": 5,
         "template_dir": "/pistoncore-customize/compiler-templates/native-script/",

@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 30 complete (S1-4 backend cleanup done, GAP-S28-3 template fix done)
+**Last Updated:** Session 31 complete (S1-5 deploy implementation done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -173,7 +173,7 @@ See "Gaps Found Session 29" section below for full detail.
 
 **Not done — carried forward:**
 - GAP-S29-11: Pydantic model — deferred
-- GAP-S29-14: slugify to utils.py — requires compiler.py in scope, fits S1-7 session 2
+- GAP-S29-14: slugify to utils.py ✅ DONE Session 31
 - GAP-S29-18: MISSING_SPECS.md pass — do at start of S1-5
 - backend/README.md companion cleanup — do at start of S1-5
 
@@ -184,38 +184,44 @@ See "Gaps Found Session 29" section below for full detail.
 
 ---
 
-### S1-5: HA Direct Write — Deploy Implementation ← NEXT TASK
-**Why fifth:** This is what the companion stub was supposed to do. Now we implement
-it correctly using direct REST API calls from ha_client.py.
-**Depends on:** S1-2c ✅ S1-7 session 1 ✅ GAP-S28-3 ✅ — all clear, unblocked.
-**Spec ref:** DESIGN.md Sections 22, 13, 16
-**Upload:** ha_client.py, api.py, DESIGN.md, COMPILER_SPEC.md, automation.yaml.j2,
-script_yaml.j2, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**Do first:** Quick pass through MISSING_SPECS.md (GAP-S29-18) and
-backend/README.md companion cleanup before coding starts.
-**What gets built:**
-- Deploy endpoint calls compiler → gets YAML strings back
-- Writes automation YAML to `<ha_config>/automations/pistoncore/pistoncore_{uuid}.yaml`
-- Writes script YAML to `<ha_config>/scripts/pistoncore/pistoncore_{uuid}.yaml`
-- Calls `POST /api/services/automation/reload` via HA REST
-- Calls `POST /api/services/script/reload` via HA REST
-- Catches reload failure — returns error to frontend, old version stays active
-- File write uses token from config.json (Docker) or SUPERVISOR_TOKEN (addon)
-- Every written file includes the signature header (DESIGN.md Section 13)
+### S1-5: HA Direct Write — Deploy Implementation ✅ DONE (Session 31)
 
-**Sequence:**
-1. Compile piston → YAML strings in memory
-2. yamllint check on strings before writing
-3. Write files to HA config directories
-4. Call reload endpoints
-5. Return success or structured error per DESIGN.md Section 18
+**What was done:**
 
-**Output:** A piston that actually deploys to HA. This is the first real end-to-end
-deploy. Test it against a real HA instance before marking done.
+- DESIGN.md Section 19: First-run configuration.yaml setup exception documented.
+- storage.py: `ha_config_path` and `ha_restart_required` added to `load_config()` defaults.
+- main.py: `_setup_ha_config()` startup hook — appends PistonCore include directives
+  to `configuration.yaml` if missing, creates pistoncore output subdirectories,
+  sets `ha_restart_required: True` if lines were added. Runs via FastAPI lifespan.
+- ha_client.py: `call_service(domain, service, service_data)` added — WebSocket
+  service call for automation.reload, script.reload.
+- api.py: Full deploy endpoint implementation — compile, ha_restart_required check,
+  hash mismatch detection (force=True override), file write to ha_config_path,
+  automation.reload + script.reload via ha_client, mark piston deployed, clear
+  ha_restart_required on first successful script deploy.
+- api.py: `_check_hash_mismatch(path)` helper — reads pc_hash from file header,
+  recomputes body hash, returns True if manually edited.
+- api.py: `delete_piston()` — now removes compiled HA files (safety check for
+  PistonCore signature), calls reload after removal. Best-effort.
+- automation_yaml.j2: GAP-S30-8 — standardized to `{{ piston_id }}` throughout.
+- backend/README.md: Companion references removed, first-run warning added,
+  deploy documentation updated to reflect actual implementation.
+
+**Gaps found this session:**
+- GAP-S31-1: get_all_slugs() circular import risk — see gaps section below
+- GAP-S31-2: _setup_ha_config() errors not surfaced to UI — fits S4-0
+- GAP-S31-3: PyScript deploy not implemented — fits S1-7 session 2
+- GAP-S31-5: ha_config_path has no UI — blocked by Settings page spec
+- GAP-S31-6: endpoints.json write_automation ref is dead — low priority cleanup
+
+**Test before marking fully verified:**
+Deploy a simple (native script) piston to real HA via Samba mount.
+Verify automation and script files appear in HA config dir.
+Verify automation appears in HA automations list after reload.
 
 ---
 
-### S1-7: Compiler Bug Fixes — Session 1 of 2 ✅ DONE (Session 28)
+### S1-6: Fat Compiler Context Assembly ← NEXT TASK
 
 **What was done:** See Session 28 entry in DONE section below.
 
@@ -226,15 +232,16 @@ deploy. Test it against a real HA instance before marking done.
 
 ---
 
-### S1-6: Fat Compiler Context Assembly (After S1-5)
+### S1-6: Fat Compiler Context Assembly ← NEXT TASK
 
 **Why:** The compiler receives a fat context object (COMPILER_SPEC.md Section 7)
 containing entity states, services, HA version, globals, and more. Nothing
 currently builds this object. S1-5 deploy works with a stub context — this
 replaces the stub with real data from HA.
-**Do after:** S1-5 complete and tested against real HA.
-**Spec ref:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4
-**Upload:** api.py, ha_client.py, COMPILER_SPEC.md, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Depends on:** S1-5 ✅ complete.
+**Spec ref:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4, MISSING_SPECS.md Item 13
+**Upload:** api.py, ha_client.py, COMPILER_SPEC.md, DESIGN.md, MISSING_SPECS.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 **Note:** Write the fat context spec first in this session (no code), then
 implement. See MISSING_SPECS.md Item 13.
@@ -929,13 +936,11 @@ to frontend.
 Return structured error with template name and context.
 **Fits in:** S1-4.
 
-### GAP-S29-14: `slugify` in Compiler class, not utils.py
+### GAP-S29-14: `slugify` in Compiler class, not utils.py ✅ CLOSED Session 31
 **Found during:** S1-3 backend audit (also Grok review)
-**Problem:** Pure string utility with no compiler state dependency. Other modules
-can't use it without instantiating a full Compiler.
-**What needs to happen:** Move to utils.py (create if needed). Import from there
-in compiler.py and anywhere else that needs it.
-**Fits in:** S1-4.
+**Closed:** utils.py created in Session 31. `slugify()` moved there.
+`compiler.py` now has a thin wrapper delegating to `utils.slugify()`.
+`storage.py` `get_all_slugs()` imports directly from utils — no Compiler needed.
 
 ### GAP-S29-15: `_mark_pistons_stale_for_global()` uses string scan heuristic
 **Found during:** S1-3 backend audit
@@ -1075,6 +1080,53 @@ They are needed to prove the compiler produces correct output as bugs are fixed.
 `test_foreach.json`, `test_chicken_lights.json`.
 **Fits in:** Can be done standalone (small session, JSON only) or at the start of
 the S1-4 backend cleanup session since that session touches no compiler files.
+
+---
+
+## Gaps Found Session 31
+
+### GAP-S31-1: get_all_slugs() in storage.py — circular import risk ✅ CLOSED Session 31
+**Found during:** S1-5 code review
+**Closed:** utils.py created. `slugify()` moved from Compiler class to utils.py.
+`storage.py` `get_all_slugs()` now imports from utils. `compiler.py` `slugify()`
+method is now a thin wrapper delegating to `utils.slugify()`. No circular import
+possible — utils.py has no PistonCore imports.
+
+### GAP-S31-2: _setup_ha_config() errors not surfaced to UI
+**Found during:** S1-5 implementation review
+**Problem:** If `configuration.yaml` write fails (wrong path, read-only mount, Samba
+not connected), `_setup_ha_config()` logs a warning but the user sees nothing in the
+PistonCore UI. They will be confused when deploy fails with no clear explanation.
+**What needs to happen:** Add a startup status endpoint (`GET /startup-status`) that
+returns whether setup succeeded, what was done, and any errors. Frontend reads this
+on load and shows a banner if setup failed or ha_restart_required is True.
+**Fits in:** S4-0 error states inventory — do when frontend error state work starts.
+
+### GAP-S31-3: PyScript deploy path not implemented
+**Found during:** S1-5 implementation
+**Problem:** `pyscript/pistoncore/` directory is created on startup, but the deploy
+endpoint has no PyScript file write path or `pyscript.reload` service call.
+**What needs to happen:** Add PyScript file write and `ha_client.call_service("pyscript", "reload")`
+to deploy endpoint when compile_target is "pyscript".
+**Fits in:** S1-7 session 2 — do when PyScript compiler is built and produces output.
+
+### GAP-S31-5: ha_config_path has no UI
+**Found during:** S1-5 implementation
+**Problem:** User cannot set `ha_config_path` without directly editing config.json on
+the Docker volume. No settings UI exists.
+**What needs to happen:** Settings page must include a ha_config_path field with a
+test button that checks if the path is reachable and configuration.yaml exists there.
+**Fits in:** Settings page implementation — blocked by MISSING_SPECS.md Item 3.
+
+### GAP-S31-6: endpoints.json references write_automation REST endpoint that doesn't exist
+**Found during:** S1-5 research — confirmed HA REST API has no file write endpoint
+**Problem:** DESIGN.md Section 15 and the customize volume `endpoints.json` reference
+`write_automation` as a REST endpoint. This endpoint does not exist in HA. File writing
+is done via direct filesystem access (ha_config_path), not via REST API.
+**What needs to happen:** Remove `write_automation` from endpoints.json and from
+DESIGN.md Section 15. Add notes explaining the filesystem approach. Cosmetic — does
+not affect any running code since endpoints.json is not yet used by ha_client.py.
+**Fits in:** A spec/customize volume cleanup pass. Low priority.
 
 ---
 

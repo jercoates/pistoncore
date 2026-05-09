@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 33 complete (S1-8 template compliance + S1-7 partial bug fixes done)
+**Last Updated:** Session 34 complete (S1-7 session 3 done — else_ifs, time condition fix, PyScript spec; reference folder audit clean; GAP-S28-4 updated)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -322,7 +322,12 @@ Part 2 — Implement SQLite setup (code):
 - Add DB connection to backend startup
 - Seed device_state_cache from current HA entity list on first connect
 
-**Upload:** main.py, storage.py (if exists), DESIGN.md, MISSING_SPECS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Upload:** main.py, storage.py (if exists), DESIGN.md, MISSING_SPECS.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Before starting Part 1:** Quick spec pass to close floating spec-only gaps:
+- GAP-S28-1: Add note to PISTON_FORMAT.md and STATEMENT_TYPES.md that `tasks` inside
+  action nodes are embedded objects — deliberate exception to flat model rule.
+- GAP-S27-1: Confirm tasks decision is documented (same fix as above).
+Then proceed to Part 1 (storage spec) and Part 2 (SQLite code).
 **Output:** Working SQLite DB created on startup, all tables present, ready for
 device tracking and logging to write into.
 
@@ -373,14 +378,11 @@ device tracking and logging to write into.
 
 ---
 
-### S2-5: HA Version Detection — Wire In
-**Spec ref:** DESIGN.md Section 9
-**Upload:** ha_client.py, main.py, DESIGN.md, COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**What gets built:**
-- On every HA connect, call `GET /api/` and store detected HA version
-- Display in settings/status area
-- Version stored for compiler template selection
-- Re-checked on every reconnect
+### S2-5: HA Version Detection — Display and Template Selection
+**Note:** `get_ha_version()` was already built in S1-6 (reads from auth_ok WebSocket
+handshake). What remains is wiring the stored version into the UI and template
+selection — that's settings page work, not seam-connecting work. Moved to Stage 4.
+**See:** S4-0 settings page spec, which must be written first.
 
 ---
 
@@ -933,7 +935,7 @@ break.
 state whether `tasks` inside an `action` node are embedded objects (not flat) or
 flat-referenced by ID. Whichever is decided, add a note calling it out as a
 deliberate exception (or non-exception) to the flat model rule.
-**Blocks:** S1-2c if compiler assumes wrong model. Verify before or during S1-2c.
+**Fits in:** Start of S2-0 spec pass — resolve the decision, add one line to PISTON_FORMAT.md and STATEMENT_TYPES.md. No code needed.
 
 ### GAP-S27-2: else empty array always renders else branch
 **Found during:** S1-2b editor.js rewrite
@@ -945,8 +947,7 @@ code only showed else when the user explicitly added it.
 **What needs to happen:** Decide: should else render when `else: []` (empty but
 present) or only when `else` has at least one child ID? Update editor.js render
 check and wizard.js skeleton accordingly. Document the decision.
-**Fits in:** A small editor.js fix once the decision is made. Can be done in S1-2c
-session as a side fix or its own mini-session.
+**Fits in:** S3-1 render-back testing — decide and fix editor.js at that point.
 
 ### GAP-S27-3: switch case.statements — IDs or embedded objects?
 **Found during:** S1-2b editor.js rewrite
@@ -957,7 +958,7 @@ produce nothing.
 **What needs to happen:** Check wizard.js `_handleStatementType` switch skeleton.
 Confirm `case.statements` is written as `[]` (empty ID array, flat model) not as
 `[{...}]` (embedded). Fix wizard if wrong. Verify during render-back testing.
-**Fits in:** Render-back verification pass for S1-2b. Fix wizard.js if needed.
+**Fits in:** S3-1 render-back testing — catch and fix wizard.js at that point.
 
 ### GAP-S27-4: for loop field names — verify wizard skeleton matches renderer
 **Found during:** S1-2b editor.js rewrite
@@ -967,7 +968,7 @@ exact field names.
 **What needs to happen:** Check wizard.js `_handleStatementType` for the `for`
 skeleton. Confirm field names match. Fix wizard.js if wrong. Verify during
 render-back testing.
-**Fits in:** Render-back verification pass for S1-2b. Fix wizard.js if needed.
+**Fits in:** S3-1 render-back testing — catch and fix wizard.js at that point.
 
 ---
 
@@ -982,7 +983,7 @@ exception to the flat model rule, which could confuse future maintainers.
 **What needs to happen:** Add a note to PISTON_FORMAT.md and STATEMENT_TYPES.md
 explicitly stating that `tasks` inside action nodes are embedded objects and this
 is intentional — not an oversight.
-**Fits in:** Spec-only mini-session or rides along with another spec-touch session.
+**Fits in:** Start of S2-0 — spec-only, no code, fits the spec-writing part of that session.
 
 ### GAP-S28-2: else_ifs on if blocks not compiled
 **Found during:** S1-7 session 1 compiler bug fixes
@@ -997,7 +998,7 @@ in HA's choose structure. See COMPILER_SPEC for the expected output.
 **Fixed in Session 30:** Both templates updated — slug → piston_id for entity IDs
 and filenames. S1-5 is unblocked.
 
-### GAP-S28-5: PyScript compiler template decision not made ⚠ BLOCKS S1-7 SESSION 2
+### GAP-S28-5: PyScript compiler template decision not made ✅ DONE Session 34
 **Found during:** Post-session review of PYSCRIPT_COMPILER_SPEC.md
 **Problem:** The native YAML compiler uses Jinja2 templates so HA YAML syntax
 changes only require template edits, not compiler code changes. PyScript also has
@@ -1007,14 +1008,9 @@ assuming pure Python string generation throughout — this decision was never ex
 made and was never compared against the template approach used for native YAML.
 Coding the PyScript compiler without resolving this will either lock in the wrong
 approach or require a rewrite when the first PyScript API change hits.
-**What needs to happen:** At the start of S1-7 session 2, make the explicit design
-decision and document it in PYSCRIPT_COMPILER_SPEC.md Section 4.1 before any
-PyScript compiler code is written. Recommended: Jinja2 templates for structural
-boilerplate (decorators, service calls, task.unique, completion event), pure Python
-string generation for body logic (if/while/for/set_variable) where indentation
-is semantic and templates would be painful.
-**Fits in:** First thing in S1-7 session 2. Upload PYSCRIPT_COMPILER_SPEC.md
-alongside the other files for that session.
+**What needs to happen:** ✅ Done Session 34 — Section 4.1 added to PYSCRIPT_COMPILER_SPEC.md.
+Hybrid approach: Jinja2 templates for 5 boilerplate patterns, pure Python string
+generation for body logic. MISSING_SPECS.md Item 16 closed.
 
 ### GAP-S28-4: 6 test pistons in tests/pistons/ not yet created
 **Found during:** S1-7 session 1 — TASKS.md required them before marking done
@@ -1023,8 +1019,10 @@ They are needed to prove the compiler produces correct output as bugs are fixed.
 **What needs to happen:** Create the 6 flat-format piston JSON files in tests/pistons/:
 `test_conditions.json`, `test_waits.json`, `test_parallel.json`, `test_nested.json`,
 `test_foreach.json`, `test_chicken_lights.json`.
-**Fits in:** Can be done standalone (small session, JSON only) or at the start of
-the S1-4 backend cleanup session since that session touches no compiler files.
+**Blocked until:** S3-1 passes. The wizard must produce real piston output before
+hand-written test JSON is meaningful — without a working reference the test files
+could just encode the same bugs. Do this between S3-1 and S3-2.
+**Fits in:** After S3-1 passes, before S3-2 deferred validation testing.
 
 ---
 
@@ -1086,7 +1084,7 @@ app_version directly from storage.load_config().
 
 ## Gaps Found Session 33
 
-### GAP-S33-1: else_ifs on if blocks not compiled ⚠ OPEN
+### GAP-S33-1: else_ifs on if blocks not compiled ✅ DONE Session 34
 **Found during:** S1-8 compiler rewrite / S1-7 bug fixes
 **Problem:** _compile_if_block() handles then/else correctly but the else_ifs
 array is completely ignored. A piston with "else if" branches compiled silently
@@ -1094,7 +1092,7 @@ drops those branches. This is GAP-S28-2 carried forward.
 **What needs to happen:** Implement else_ifs compilation in _compile_if_block().
 Each else_if is a condition + then branch. Compile to additional elif: blocks
 in HA's if/then/else structure or nested if blocks. See COMPILER_SPEC Section 8.4.
-**Fits in:** S1-7 session 3.
+**Fits in:** ✅ Done Session 34 — elif: block support added to _compile_if_block and if_block.yaml.j2.
 
 ### GAP-S33-2: condition_and/or template indentation needs real-world testing
 **Found during:** S1-8 template rewrite
@@ -1124,8 +1122,7 @@ result.warnings and therefore won't show in the PistonCore UI.
 **What needs to happen:** Add optional `warnings: list = None` parameter to
 _compile_single_condition() and thread it through to _compile_time_condition() so
 it can append a proper CompilerMessage. Update all callers that have warnings available.
-**Fits in:** S1-7 session 4, or whenever _compile_single_condition is next touched.
-Low priority — YAML comment is sufficient for beta use.
+**Fits in:** Whenever compiler.py is next opened after S3-1. Low priority — YAML comment is sufficient for beta use.
 
 ---
 

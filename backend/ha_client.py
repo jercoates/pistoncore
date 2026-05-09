@@ -472,6 +472,111 @@ async def _fetch_services(entity_id: str) -> list[dict]:
     return output
 
 
+def get_all_states() -> dict:
+    """
+    Return all HA entity states as a dict keyed by entity_id.
+    Each value is {"state": str, "attributes": dict}.
+    Raises HAClientError on failure — caller must abort deploy.
+    """
+    return _run(_fetch_all_states())
+
+
+async def _fetch_all_states() -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "get_states"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for get_states.")
+    out = {}
+    for entity in resp.get("result", []):
+        out[entity["entity_id"]] = {
+            "state":      entity.get("state", ""),
+            "attributes": entity.get("attributes", {}),
+        }
+    return out
+
+
+def get_services_for_domains(domains: set) -> dict:
+    """
+    Return raw HA service data for the requested domains only.
+    Returns {} and logs a warning on failure — never raises.
+    Caller degrades gracefully.
+    """
+    try:
+        return _run(_fetch_services_for_domains(domains))
+    except HAClientError as e:
+        logger.warning("get_services_for_domains failed: %s", e)
+        return {}
+
+
+async def _fetch_services_for_domains(domains: set) -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "get_services"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for get_services.")
+    all_services = resp.get("result", {})
+    return {d: all_services[d] for d in domains if d in all_services}
+
+
+def get_areas() -> dict:
+    """
+    Return HA area registry as {area_id: area_name}.
+    Returns {} and logs a warning on failure — never raises.
+    """
+    try:
+        return _run(_fetch_areas())
+    except HAClientError as e:
+        logger.warning("get_areas failed: %s", e)
+        return {}
+
+
+async def _fetch_areas() -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "config/area_registry/list"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for area_registry/list.")
+    return {a["area_id"]: a["name"] for a in resp.get("result", [])}
+
+
+def get_ha_version() -> str:
+    """
+    Return the HA version string by reading it from the auth_ok WebSocket
+    handshake message. Returns "unknown" on any failure — never raises.
+    """
+    try:
+        return _run(_fetch_ha_version())
+    except Exception as e:
+        logger.warning("get_ha_version failed: %s", e)
+        return "unknown"
+
+
+async def _fetch_ha_version() -> str:
+    config = storage.load_config()
+    ha_url = config.get("ha_url", "http://homeassistant.local:8123")
+    ha_token = config.get("ha_token", "")
+
+    ws_url = ha_url.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+    ws_url += "/api/websocket"
+
+    try:
+        async with websockets.connect(ws_url, open_timeout=10) as ws:
+            auth_req = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            if auth_req.get("type") != "auth_required":
+                return "unknown"
+            await ws.send(json.dumps({"type": "auth", "access_token": ha_token}))
+            auth_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            if auth_resp.get("type") != "auth_ok":
+                return "unknown"
+            return auth_resp.get("ha_version", "unknown")
+    except Exception:
+        return "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Attribute type detection — WIZARD_SPEC priority order
 # ---------------------------------------------------------------------------

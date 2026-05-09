@@ -33,6 +33,8 @@ import storage
 from compiler import Compiler
 import ha_client
 from ha_client import HAClientError
+import context_builder
+from context_builder import ContextBuildError
 
 # ---------------------------------------------------------------------------
 # API key authentication
@@ -65,33 +67,27 @@ def _get_compiler() -> Compiler:
     return Compiler(template_dir=config["template_dir"])
 
 
-def _get_app_version() -> str:
-    return storage.load_config().get("app_version", "0.9")
-
-
 def _compile(piston: dict) -> dict:
     """
-    Run the compiler against a piston and return a structured result.
-    Builds the fat context dict per COMPILER_SPEC Section 7.
-    Returns a dict with automation_yaml, script_yaml, warnings, errors, success.
+    Build fat compiler context and run the compiler against a piston.
+    Returns a structured result with automation_yaml, script_yaml,
+    warnings, errors, success.
 
-    Stub fields (entity_states, services, ha_version, zones, areas) are populated
-    with empty defaults until S1-6 implements context_builder.py.
+    Aborts with a structured error if entity_states cannot be fetched
+    (ContextBuildError). All other context fetch failures degrade gracefully.
     """
+    try:
+        context = context_builder.build_compiler_context(piston)
+    except ContextBuildError as e:
+        return {
+            "automation_yaml": None,
+            "script_yaml":     None,
+            "warnings":        [],
+            "errors":          [{"level": "error", "code": "CONTEXT_BUILD_ERROR", "message": str(e), "context": None}],
+            "success":         False,
+        }
+
     compiler = _get_compiler()
-    context = {
-        "piston":           piston,
-        "device_map":       piston.get("device_map", {}),
-        "globals_store":    storage.load_globals(),
-        "known_piston_ids": storage.get_all_slugs(),   # {piston_id: slug}
-        "app_version":      _get_app_version(),
-        # Stub fields — real values assembled in S1-6 (context_builder.py)
-        "entity_states":    {},
-        "services":         {},
-        "ha_version":       "unknown",
-        "zones":            [],
-        "areas":            [],
-    }
 
     try:
         result = compiler.compile_piston(context)

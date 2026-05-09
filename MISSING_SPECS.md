@@ -395,20 +395,9 @@ and works correctly with the device picker and missing device handler.
 
 ---
 
-## 13. Fat Compiler Context Assembly — MISSING
-
-**Blocks:** S1-6 coding
-**Needs to be written before:** S1-6 starts (write spec in the same session as the
-code — spec first, then implement)
-**What it must cover:**
-- Which HA endpoints are called, in what order
-- What failure modes abort the deploy vs degrade gracefully
-- Where the assembly code lives (ha_client.py or new context_builder.py — not api.py)
-- Which fields are required vs optional for the compiler to function
-- Full field list: `entity_states`, `services`, `ha_version`, `global_variables`,
-  `piston_variables`, `zones`, `areas`
-
-**Reference:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4
+## 13. Fat Compiler Context Assembly — RESOLVED (Session 32)
+See context_builder.py. Spec written and implemented this session.
+Moved to DONE section below.
 
 ---
 
@@ -481,6 +470,12 @@ PYSCRIPT_COMPILER_SPEC.md written. All 6 gaps resolved. Status: READY TO CODE.
 ### Item 9 — PyScript-Forcing Patterns (Session 24)
 All seven patterns documented in PYSCRIPT_COMPILER_SPEC.md Section 1.1.
 Detection note added for content-analysis patterns.
+
+### Item 13 — Fat Compiler Context Assembly (Session 32)
+context_builder.py created. build_compiler_context(piston) implemented.
+ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
+get_ha_version() added. api.py _compile() stub replaced with real context.
+_get_app_version() removed (dead code after _compile() rewrite).
 
 ---
 

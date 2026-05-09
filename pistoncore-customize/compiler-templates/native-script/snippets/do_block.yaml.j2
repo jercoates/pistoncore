@@ -1,0 +1,4 @@
+{% if label %}# do_block: {{ label }} ({{ stmt_id }})
+{% endif %}- alias: "{{ stmt_id }}"
+  sequence:
+{{ compiled_sequence | indent(4, first=True) }}

@@ -1,0 +1,5 @@
+- condition: or
+  conditions:
+{% for cond in compiled_conditions %}
+{{ cond | indent(4, first=True) }}
+{% endfor %}

@@ -1,0 +1,8 @@
+- alias: "{{ stmt_id }}"
+  repeat:
+    for_each:
+{% for eid in entity_ids %}
+      - {{ eid }}
+{% endfor %}
+    sequence:
+{{ compiled_sequence | indent(6, first=True) }}

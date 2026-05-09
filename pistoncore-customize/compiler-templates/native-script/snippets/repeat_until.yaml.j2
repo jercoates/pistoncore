@@ -1,0 +1,6 @@
+- alias: "{{ stmt_id }}"
+  repeat:
+    sequence:
+{{ compiled_sequence | indent(6, first=True) }}
+    until:
+{{ compiled_until_condition | indent(6, first=True) }}

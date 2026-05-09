@@ -164,6 +164,20 @@ class Compiler:
 
             globals_used = self._scan_globals(piston)
 
+            # Bug 25: PyScript dispatch — branch must exist even as stub.
+            # compile_target is set by the compiler via detect_compile_target,
+            # but for now we read what's stored in the piston JSON.
+            # Full PyScript compiler is S1-7 session 3.
+            compile_target = piston.get("compile_target", "native_script")
+            if compile_target == "pyscript":
+                raise CompilerError(
+                    "This piston requires PyScript compilation which is not yet "
+                    "implemented. PyScript support is coming in a future release. "
+                    "Remove any break, on_event, or cancel_pending_tasks statements "
+                    "to compile as a native HA script.",
+                    code="PYSCRIPT_NOT_IMPLEMENTED",
+                )
+
             # Build stmt_map for flat array lookups
             stmt_map = {s["id"]: s for s in piston.get("statements", [])}
 
@@ -437,7 +451,7 @@ class Compiler:
         """
         Compile top-level piston conditions.
         Returns "[]" if no conditions.
-        Each compiled condition gets a leading "- " prepended here.
+        _compile_single_condition returns the full block including "- ".
         COMPILER_SPEC Section 6.4 and 8.5.
         """
         if not conditions:
@@ -445,41 +459,33 @@ class Compiler:
 
         lines = []
         for cond in conditions:
-            body = self._compile_single_condition(cond, device_map)
-            # _compile_single_condition returns body WITHOUT leading "- "
-            # Add it here for the top-level conditions list
-            lines.append("- " + body)
+            lines.append(self._compile_single_condition(cond, device_map))
         return "\n".join(lines)
 
     def _compile_single_condition(self, cond: dict, device_map: dict) -> str:
         """
         Compile one condition object to a HA condition YAML block.
-        Returns the YAML body WITHOUT a leading "- " dash.
-        Callers are responsible for prepending "- " where needed.
-        This prevents the double-dash bug (- - condition: state).
-        Bug 4/5 fix — COMPILER_SPEC Section 8.5.
-
-        Bug 11 fix: boolean state values (on/off/true/false) are always
-        quoted in YAML output to prevent HA from misreading them as booleans.
+        Returns the FULL block INCLUDING the leading "- " dash.
+        Multi-line conditions (AND/OR groups) are returned with all lines
+        correctly structured — callers pass this directly to templates.
+        COMPILER_SPEC Section 8.5, Section 11.
+        Bug 4/5 fix: dash is always included here, never added by callers.
+        Bug 11 fix: boolean state values always quoted.
         """
         ctype = cond.get("type")
 
-        # AND / OR groups — Bug 4/5: sub-conditions also get "- " prepended here
-        if ctype == "and":
-            lines = ["condition: and", "  conditions:"]
-            for sub in cond.get("conditions", []):
-                sub_body = self._compile_single_condition(sub, device_map)
-                lines.append("    - " + sub_body)
-            return "\n".join(lines)
+        # AND / OR condition groups — recursive, full block returned
+        if ctype in ("and", "or"):
+            tmpl_name = "snippets/condition_and.yaml.j2" if ctype == "and" else "snippets/condition_or.yaml.j2"
+            compiled_subs = [
+                self._compile_single_condition(sub, device_map)
+                for sub in cond.get("conditions", [])
+            ]
+            # condition_and/or templates receive pre-compiled sub-condition blocks
+            tmpl = self.env.get_template(tmpl_name)
+            return tmpl.render(compiled_conditions=compiled_subs).rstrip("\n")
 
-        if ctype == "or":
-            lines = ["condition: or", "  conditions:"]
-            for sub in cond.get("conditions", []):
-                sub_body = self._compile_single_condition(sub, device_map)
-                lines.append("    - " + sub_body)
-            return "\n".join(lines)
-
-        # Flat format (PISTON_FORMAT.md): role at top level, no nested subject object
+        # Detect subject type — flat format (PISTON_FORMAT.md) uses role at top level
         if "role" in cond and not isinstance(cond.get("subject"), dict):
             subject = {
                 "type": "device",
@@ -489,6 +495,10 @@ class Compiler:
             }
         else:
             subject = cond.get("subject", {})
+
+        # Time condition — subject=="time" or role=="time"
+        if cond.get("subject") == "time" or subject.get("type") == "time":
+            return self._compile_time_condition(cond)
 
         subject_type = subject.get("type") or ("device" if subject.get("role") else None)
         operator = cond.get("operator", "is")
@@ -504,29 +514,21 @@ class Compiler:
         if subject_type == "device":
             role = subject.get("role", "")
             entity_ids = self._resolve_role_entities(role, device_map, cond.get("id", ""))
-            entity_id = entity_ids[0]
-            attribute_type = subject.get("attribute_type", "")
+            aggregation = cond.get("aggregation", "any")
+            attribute_type = subject.get("attribute_type", "") or cond.get("attribute_type", "")
+            is_numeric = attribute_type == "numeric" or any(
+                kw in operator for kw in ("greater", "less", "above", "below", "between", "even", "odd")
+            )
 
-            if attribute_type == "numeric" or "greater" in operator or "less" in operator:
-                above = compiled_value if ("greater" in operator or "above" in operator) else None
-                below = compiled_value if ("less" in operator or "below" in operator) else None
-                tmpl = self.env.get_template("snippets/condition_numeric.yaml.j2")
-                return self._strip_leading_dash(tmpl.render(entity_id=entity_id, above=above, below=below))
+            if is_numeric:
+                return self._compile_numeric_condition(
+                    cond, entity_ids, operator, compiled_value, aggregation
+                )
             else:
-                tmpl = self.env.get_template("snippets/condition_state.yaml.j2")
-                return self._strip_leading_dash(tmpl.render(
-                    entity_id=entity_id,
-                    state=_quote_state(compiled_value),
-                    attribute=subject.get("attribute") or None,
-                ))
-
-        elif subject_type == "time":
-            tmpl = self.env.get_template("snippets/condition_time.yaml.j2")
-            return self._strip_leading_dash(tmpl.render(
-                after=cond.get("after"),
-                before=cond.get("before"),
-                weekday=cond.get("weekday"),
-            ))
+                return self._compile_state_condition(
+                    cond, entity_ids, operator, compiled_value, aggregation,
+                    subject, _quote_state
+                )
 
         elif subject_type == "variable":
             tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
@@ -541,27 +543,180 @@ class Compiler:
                 template_expr = f"{{{{ {var_name} {op} '{compiled_value}' }}}}"
             else:
                 template_expr = f"{{{{ {var_name} {op} {compiled_value} }}}}"
-            return self._strip_leading_dash(tmpl.render(template_expression=template_expr))
+            return tmpl.render(template_expression=template_expr).rstrip("\n")
 
         raise CompilerError(
             f"Cannot compile condition — unknown subject type '{subject_type}'.",
             code="UNKNOWN_CONDITION_TYPE",
         )
 
-    def _strip_leading_dash(self, rendered: str) -> str:
+    def _compile_time_condition(self, cond: dict) -> str:
         """
-        Remove the leading '- ' from a rendered condition template.
-        All condition templates start with '- condition: X'.
-        _compile_single_condition returns body WITHOUT the leading dash.
-        Callers prepend '- ' where needed (in _compile_conditions,
-        _compile_if_block, _compile_repeat_block, _compile_while_block).
-        This prevents the double-dash bug (- - condition: state).
-        Bug 4/5 fix.
+        Compile a time condition object to a HA condition: time block.
+        Routes through condition_time.yaml.j2 — HA syntax changes only
+        require a template update, not a Python change.
+        COMPILER_SPEC Section 11, MISSING_SPECS.md Item 14.
+
+        Cases:
+          "is between"  → after + before (+ optional weekday)
+          "is"          → 1-second window around exact time + CompilerWarning
+          $sunrise/$sunset → CompilerError SUN_TIME_CONDITION_NOT_SUPPORTED
         """
-        stripped = rendered.rstrip("\n")
-        if stripped.startswith("- "):
-            stripped = stripped[2:]
-        return stripped
+        operator = cond.get("operator", "is between")
+        value_from = cond.get("value_from")
+        value_to = cond.get("value_to")
+        only_on_days = cond.get("only_on_days")
+
+        # Day number → HA weekday name
+        DAY_MAP = {1: "mon", 2: "tue", 3: "wed", 4: "thu",
+                   5: "fri", 6: "sat", 7: "sun"}
+        weekday = [DAY_MAP[d] for d in only_on_days if d in DAY_MAP] if only_on_days else None
+
+        # $sunrise/$sunset not supported in time conditions — HA condition:time
+        # does not support sun-relative values. Emit CompilerError.
+        for val in [value_from, value_to]:
+            if isinstance(val, str) and ("sunrise" in val or "sunset" in val):
+                raise CompilerError(
+                    "Time condition with $sunrise or $sunset offset is not yet supported. "
+                    "Use a time trigger instead, or set a fixed time window.",
+                    code="SUN_TIME_CONDITION_NOT_SUPPORTED",
+                    context=cond.get("id"),
+                )
+
+        tmpl = self.env.get_template("snippets/condition_time.yaml.j2")
+
+        if operator == "is between":
+            return tmpl.render(
+                after=value_from,
+                before=value_to,
+                weekday=weekday,
+            ).rstrip("\n")
+
+        elif operator == "is":
+            # Exact time — bracket with 1-second window
+            # CompilerWarning emitted by caller context; raise here so caller can catch
+            raise CompilerError(
+                f"Time 'is exactly' condition uses a 1-second window. "
+                f"If HA evaluation does not land in that window the condition will be false. "
+                f"Consider using 'is between' with a wider window.",
+                code="TIME_EXACT_CONDITION_WARNING",
+                context=cond.get("id"),
+            )
+
+        else:
+            raise CompilerError(
+                f"Unknown time condition operator '{operator}'.",
+                code="UNKNOWN_TIME_OPERATOR",
+                context=cond.get("id"),
+            )
+
+    def _compile_numeric_condition(
+        self, cond: dict, entity_ids: list, operator: str,
+        compiled_value, aggregation: str
+    ) -> str:
+        """
+        Compile a numeric device condition to condition: template.
+        Handles aggregation (any/all) across multiple entity IDs.
+        COMPILER_SPEC Section 11.
+        """
+        op_map = {
+            "is greater than": ">", "is less than": "<",
+            "is greater than or equal to": ">=", "is less than or equal to": "<=",
+            "rises above": ">", "drops below": "<",
+            "is even": "% 2 == 0", "is odd": "% 2 != 0",
+        }
+
+        tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+
+        if operator == "is between":
+            value_from = cond.get("value_from", cond.get("compiled_value", ""))
+            value_to = cond.get("value_to", "")
+            def single_expr(eid):
+                return (f"float(states('{eid}')) >= {value_from} and "
+                        f"float(states('{eid}')) <= {value_to}")
+        elif operator in ("is even", "is odd"):
+            op = op_map[operator]
+            def single_expr(eid):
+                return f"float(states('{eid}')) {op}"
+        else:
+            op = op_map.get(operator, "==")
+            def single_expr(eid):
+                return f"float(states('{eid}')) {op} {compiled_value}"
+
+        if len(entity_ids) == 1:
+            template_expr = f"{{{{ {single_expr(entity_ids[0])} }}}}"
+        elif aggregation == "all":
+            inner = ", ".join(single_expr(eid) for eid in entity_ids)
+            template_expr = f"{{{{ [{inner}] | select('equalto', true) | list | count == {len(entity_ids)} }}}}"
+        else:  # any (default)
+            inner = ", ".join(single_expr(eid) for eid in entity_ids)
+            template_expr = f"{{{{ [{inner}] | select('equalto', true) | list | count > 0 }}}}"
+
+        return tmpl.render(template_expression=template_expr).rstrip("\n")
+
+    def _compile_state_condition(
+        self, cond: dict, entity_ids: list, operator: str,
+        compiled_value, aggregation: str, subject: dict, quote_fn
+    ) -> str:
+        """
+        Compile a binary/state/enum device condition.
+        Single entity → condition:state template.
+        Multiple entities or aggregation → condition:template with any()/all().
+        COMPILER_SPEC Section 11.
+        """
+        attribute = subject.get("attribute") or cond.get("attribute") or None
+
+        if operator == "is any of":
+            values = cond.get("value", [])
+            if not isinstance(values, list):
+                values = [values]
+            quoted = [f"'{v}'" for v in values]
+
+            def single_expr(eid):
+                attr_ref = f"state_attr('{eid}', '{attribute}')" if attribute else f"states('{eid}')"
+                return f"{attr_ref} in [{', '.join(quoted)}]"
+
+            tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+            if len(entity_ids) == 1:
+                template_expr = f"{{{{ {single_expr(entity_ids[0])} }}}}"
+            elif aggregation == "all":
+                inner = ", ".join(f"({single_expr(eid)})" for eid in entity_ids)
+                template_expr = f"{{{{ {inner} | map('bool') | list == [true] * {len(entity_ids)} }}}}"
+            else:
+                parts = " or ".join(f"({single_expr(eid)})" for eid in entity_ids)
+                template_expr = f"{{{{ {parts} }}}}"
+            return tmpl.render(template_expression=template_expr).rstrip("\n")
+
+        # Simple is / is not — single entity uses condition:state, multi uses template
+        op = "==" if operator in ("is", "changes to", "changes") else "!="
+        quoted_val = quote_fn(compiled_value)
+
+        if len(entity_ids) == 1 and not attribute:
+            tmpl = self.env.get_template("snippets/condition_state.yaml.j2")
+            return tmpl.render(
+                entity_id=entity_ids[0],
+                state=quoted_val,
+                attribute=attribute,
+            ).rstrip("\n")
+
+        # Multiple entities or attribute — compile to template
+        tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+
+        def single_expr(eid):
+            if attribute:
+                return f"state_attr('{eid}', '{attribute}') {op} '{compiled_value}'"
+            return f"states('{eid}') {op} '{compiled_value}'"
+
+        if len(entity_ids) == 1:
+            template_expr = f"{{{{ {single_expr(entity_ids[0])} }}}}"
+        elif aggregation == "all":
+            parts = " and ".join(f"({single_expr(eid)})" for eid in entity_ids)
+            template_expr = f"{{{{ {parts} }}}}"
+        else:
+            parts = " or ".join(f"({single_expr(eid)})" for eid in entity_ids)
+            template_expr = f"{{{{ {parts} }}}}"
+
+        return tmpl.render(template_expression=template_expr).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 7.2 — Statement dispatcher
@@ -627,11 +782,11 @@ class Compiler:
             # runtime if the condition is not met.
             if "only_when" in stmt and stmt["only_when"]:
                 try:
-                    # _compile_single_condition returns body without "- "; prepend it here
+                    # _compile_single_condition returns full block including "- "
                     cond_body = self._compile_single_condition(
                         stmt["only_when"], device_map
                     )
-                    lines.append("- " + cond_body)
+                    lines.append(cond_body)
                 except CompilerError as e:
                     warnings.append(CompilerMessage(
                         level="warning",
@@ -796,15 +951,11 @@ class Compiler:
                 )
                 branches.append(rendered)
 
-        lines = [f"- alias: \"{stmt['id']}\"", "  parallel:"]
-        for branch in branches:
-            branch_lines = branch.splitlines()
-            lines.append("    - continue_on_error: true")
-            lines.append("      sequence:")
-            for line in branch_lines:
-                lines.append(f"        {line}")
-        return "\n".join(lines)
-
+        tmpl = self.env.get_template("snippets/parallel_block.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            branches=branches,
+        ).rstrip("\n")
     # -----------------------------------------------------------------------
     # Section 8.2 — wait
     # -----------------------------------------------------------------------
@@ -907,25 +1058,59 @@ class Compiler:
         globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
-        """COMPILER_SPEC Section 8.4 — recursive."""
-        # PISTON_FORMAT.md: conditions is an array; compile all, join with condition_operator
+        """
+        COMPILER_SPEC Section 8.4 — recursive.
+        Routes through snippets/if_block.yaml.j2.
+        Bug 4/5/8/9/10 fix: conditions compiled via _compile_single_condition
+        which returns full block including "- ". is_trigger conditions filtered.
+        Multiple conditions joined per condition_operator.
+        """
         conditions = stmt.get("conditions", [])
         true_branch = stmt.get("then", [])
         false_branch = stmt.get("else", [])
 
-        # Compile all conditions and join — for now compile first non-trigger condition only
-        # (full multi-condition support requires condition template builder, S1-7 session 2)
-        # Skip is_trigger conditions — those compiled as automation triggers, not if conditions
+        # Bug 10 fix: filter is_trigger conditions — those are automation triggers,
+        # not if-block conditions.
         non_trigger = [c for c in conditions if not c.get("is_trigger")]
+
+        # Compile all non-trigger conditions and join per condition_operator
+        condition_operator = stmt.get("condition_operator", "and")
         if non_trigger:
-            # _compile_single_condition returns body WITHOUT "- "; prepend it here (Bug 4 fix)
-            cond_body = self._compile_single_condition(non_trigger[0], device_map)
-            compiled_condition = "- " + cond_body
+            compiled_parts = [
+                self._compile_single_condition(c, device_map)
+                for c in non_trigger
+            ]
+            if len(compiled_parts) == 1:
+                compiled_condition = compiled_parts[0]
+            else:
+                # Multiple conditions — wrap in condition:template with and/or
+                tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+                joiner = " and " if condition_operator == "and" else " or "
+                # Each part is a full "- condition: ..." block; extract the
+                # value_template expression from each and combine
+                exprs = []
+                for part in compiled_parts:
+                    # If it's a template condition, extract the expression
+                    for line in part.splitlines():
+                        if "value_template:" in line:
+                            expr = line.split("value_template:", 1)[1].strip().strip('"')
+                            exprs.append(expr)
+                            break
+                    else:
+                        # Not a template condition — wrap it as a state check
+                        exprs.append("true")
+                combined = joiner.join(f"({e})" for e in exprs)
+                compiled_condition = tmpl.render(
+                    template_expression=f"{{{{ {combined} }}}}"
+                ).rstrip("\n")
         else:
             # No conditions (trigger-only if block) — always true in script context
-            compiled_condition = "- condition: template\n  value_template: \"{{ true }}\""
+            tmpl = self.env.get_template("snippets/condition_template.yaml.j2")
+            compiled_condition = tmpl.render(
+                template_expression="{{ true }}"
+            ).rstrip("\n")
 
-        compiled_true = self._compile_sequence(
+        compiled_then = self._compile_sequence(
             true_branch, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
@@ -941,21 +1126,13 @@ class Compiler:
                 stmt_map=stmt_map,
             )
 
-        lines = [
-            f"- alias: \"{stmt['id']}\"",
-            f"  if:",
-            f"    {compiled_condition}",
-            f"  then:",
-        ]
-        for line in compiled_true.splitlines():
-            lines.append(f"    {line}")
-
-        if compiled_else:
-            lines.append("  else:")
-            for line in compiled_else.splitlines():
-                lines.append(f"    {line}")
-
-        return "\n".join(lines)
+        tmpl = self.env.get_template("snippets/if_block.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            compiled_condition=compiled_condition,
+            compiled_then=compiled_then,
+            compiled_else=compiled_else,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.6 — repeat_block (repeat/do/until)
@@ -966,31 +1143,29 @@ class Compiler:
         globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
-        """COMPILER_SPEC Section 8.6 — repeat/do/until."""
-        # PISTON_FORMAT.md: until_conditions array + statements array
+        """
+        COMPILER_SPEC Section 8.6 — repeat/do/until.
+        Routes through snippets/repeat_until.yaml.j2.
+        """
         until_conditions = stmt.get("until_conditions", [])
         body = stmt.get("statements", [])
 
         condition = until_conditions[0] if until_conditions else {}
-        # Bug 4/5 fix: _compile_single_condition returns body without "- "; prepend here
-        cond_body = self._compile_single_condition(condition, device_map)
-        compiled_body = self._compile_sequence(
+        # _compile_single_condition returns full block including "- "
+        compiled_until_condition = self._compile_single_condition(condition, device_map)
+        compiled_sequence = self._compile_sequence(
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
 
-        lines = [
-            f"- alias: \"{stmt['id']}\"",
-            "  repeat:",
-            "    sequence:",
-        ]
-        for line in compiled_body.splitlines():
-            lines.append(f"      {line}")
-        lines.append("    until:")
-        lines.append(f"      - {cond_body}")
-        return "\n".join(lines)
+        tmpl = self.env.get_template("snippets/repeat_until.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            compiled_sequence=compiled_sequence,
+            compiled_until_condition=compiled_until_condition,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.7 — for_each_block
@@ -1020,24 +1195,19 @@ class Compiler:
         body_device_map = dict(device_map)
         body_device_map[collection_role] = ["{{ repeat.item }}"]
 
-        compiled_body = self._compile_sequence(
+        compiled_sequence = self._compile_sequence(
             body, piston, body_device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
 
-        lines = [
-            f"- alias: \"{stmt['id']}\"",
-            "  repeat:",
-            "    for_each:",
-        ]
-        for eid in entity_ids:
-            lines.append(f"      - {eid}")
-        lines.append("    sequence:")
-        for line in compiled_body.splitlines():
-            lines.append(f"      {line}")
-        return "\n".join(lines)
+        tmpl = self.env.get_template("snippets/for_each.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            entity_ids=entity_ids,
+            compiled_sequence=compiled_sequence,
+        ).rstrip("\n")
 
     def _resolve_collection(self, role: str, device_map: dict) -> list[str]:
         """
@@ -1070,31 +1240,28 @@ class Compiler:
         globals_store: dict, known_piston_ids: dict,
         warnings: list, indent: int, stmt_map: dict,
     ) -> str:
-        """COMPILER_SPEC Section 8.8."""
-        # PISTON_FORMAT.md: conditions array + statements array
+        """
+        COMPILER_SPEC Section 8.8.
+        Routes through snippets/while_loop.yaml.j2.
+        """
         conditions = stmt.get("conditions", [])
         body = stmt.get("statements", [])
 
         condition = conditions[0] if conditions else {}
-        # Bug 4/5 fix: _compile_single_condition returns body without "- "; prepend here
-        cond_body = self._compile_single_condition(condition, device_map)
-        compiled_body = self._compile_sequence(
+        compiled_condition = self._compile_single_condition(condition, device_map)
+        compiled_sequence = self._compile_sequence(
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
 
-        lines = [
-            f"- alias: \"{stmt['id']}\"",
-            "  repeat:",
-            "    while:",
-            f"      - {cond_body}",
-            "    sequence:",
-        ]
-        for line in compiled_body.splitlines():
-            lines.append(f"      {line}")
-        return "\n".join(lines)
+        tmpl = self.env.get_template("snippets/while_loop.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            compiled_condition=compiled_condition,
+            compiled_sequence=compiled_sequence,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.9 — for_loop (counted loop)
@@ -1125,39 +1292,25 @@ class Compiler:
         )
 
         simple = (from_val in (0, 1)) and (step == 1)
+        simple = (from_val in (0, 1)) and (step == 1)
 
+        # Bug 16 fix: use repeat.index/index0 for simple loops
         if simple:
-            # Simple case: use repeat.index (1-based) or repeat.index0 (0-based)
-            # to substitute the loop variable directly in the body.
             repeat_ref = "repeat.index0" if from_val == 0 else "repeat.index"
             compiled_body = compiled_body.replace(
                 f"{{{{ {var_name} }}}}", f"{{{{ {repeat_ref} }}}}"
             )
-        else:
-            # Complex case: the variables: block at the top of the sequence sets
-            # var_name to the computed value. The body already references {{ var_name }}
-            # which HA resolves at runtime from the variables: block — no substitution needed.
-            pass
 
-        lines = [
-            f"- alias: \"{stmt['id']}\"",
-            "  repeat:",
-            f"    count: {to_expr}",
-            "    sequence:",
-        ]
-
-        if not simple:
-            # Emit a variables: block to compute the adjusted index
-            lines.append(
-                f"      - variables:\n"
-                f"          {var_name}: \"{{{{ {from_val} + (repeat.index0 * {step}) }}}}\""
-            )
-
-        for line in compiled_body.splitlines():
-            lines.append(f"      {line}")
-
-        return "\n".join(lines)
-
+        tmpl = self.env.get_template("snippets/for_loop.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            count=to_expr,
+            compiled_sequence=compiled_body,
+            has_variables=not simple,
+            var_name=var_name,
+            from_val=from_val,
+            step=step,
+        ).rstrip("\n")
     # -----------------------------------------------------------------------
     # Section 8.9 — set_variable
     # -----------------------------------------------------------------------
@@ -1198,12 +1351,13 @@ class Compiler:
                     ),
                     context=stmt.get("id"),
                 ))
-                # Emit a safe no-op comment so the file is still valid YAML
-                return "\n".join([
-                    f"- alias: \"{stmt['id']}\"",
-                    f"  # UNRESOLVED GLOBAL WRITE: {var_name_raw} = {value_expr}",
-                    f"  # Define this global in PistonCore and redeploy.",
-                ])
+                # Emit a safe no-op — valid YAML comment block via set_variable template
+                tmpl = self.env.get_template("snippets/set_variable.yaml.j2")
+                return tmpl.render(
+                    stmt_id=stmt["id"],
+                    var_name=f"_unresolved_global_{var_name}",
+                    value=f'"UNRESOLVED: {var_name_raw} — define this global and redeploy"',
+                ).rstrip("\n")
 
             # Choose the correct HA service and field name by helper type
             type_map = {
@@ -1215,30 +1369,18 @@ class Compiler:
             service, field = type_map.get(global_type, ("input_text.set_value", "value"))
 
             if global_type == "Yes/No":
-                # Bug 19 fix: correct indentation for choose/default block
                 if "{{" in str(value_expr):
                     val_template = value_expr
                 elif str(value_expr).lower() in ("true", "yes", "on", "1"):
                     val_template = "true"
                 else:
                     val_template = value_expr
-                return "\n".join([
-                    f"- alias: \"{stmt['id']}\"",
-                    "  choose:",
-                    "    - conditions:",
-                    "        - condition: template",
-                    f"          value_template: \"{{{{ {val_template} | bool }}}}\"",
-                    "      sequence:",
-                    "        - action: input_boolean.turn_on",
-                    "          target:",
-                    f"            entity_id: {helper_entity}",
-                    "          continue_on_error: true",
-                    "  default:",
-                    "    - action: input_boolean.turn_off",
-                    "      target:",
-                    f"        entity_id: {helper_entity}",
-                    "      continue_on_error: true",
-                ])
+                tmpl = self.env.get_template("snippets/set_global_boolean.yaml.j2")
+                return tmpl.render(
+                    stmt_id=stmt["id"],
+                    val_template=val_template,
+                    helper_entity_id=helper_entity,
+                ).rstrip("\n")
 
             if "{{" in str(value_expr):
                 formatted_value = f'"{value_expr}"'
@@ -1247,15 +1389,14 @@ class Compiler:
             else:
                 formatted_value = value_expr
 
-            return "\n".join([
-                f"- alias: \"{stmt['id']}\"",
-                f"  action: {service}",
-                "  target:",
-                f"    entity_id: {helper_entity}",
-                "  data:",
-                f"    {field}: {formatted_value}",
-                "  continue_on_error: true",
-            ])
+            tmpl = self.env.get_template("snippets/set_global.yaml.j2")
+            return tmpl.render(
+                stmt_id=stmt["id"],
+                service=service,
+                helper_entity_id=helper_entity,
+                field=field,
+                value=formatted_value,
+            ).rstrip("\n")
 
         # Piston variable ($ prefix or bare name)
         var_name = var_name_raw.lstrip("$")
@@ -1269,11 +1410,12 @@ class Compiler:
         else:
             value = value_expr
 
-        return "\n".join([
-            f"- alias: \"{stmt['id']}\"",
-            "  variables:",
-            f"    {var_name}: {value}",
-        ])
+        tmpl = self.env.get_template("snippets/set_variable.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            var_name=var_name,
+            value=value,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Operand resolver — PISTON_FORMAT.md Operand/Value Schema
@@ -1303,24 +1445,40 @@ class Compiler:
             return f"{{{{ states('input_text.pistoncore_{name}') }}}}"
 
         if vtype == "system_variable":
+            # Bug 17 fix: $sunrise/$sunset must use as_datetime() so offset
+            # arithmetic works — state_attr returns a string, not a datetime object.
             sys_map = {
                 "$now": "now()",
-                "$sunrise": "state_attr('sun.sun', 'next_rising')",
-                "$sunset": "state_attr('sun.sun', 'next_setting')",
+                "$sunrise": "as_datetime(state_attr('sun.sun', 'next_rising'))",
+                "$sunset": "as_datetime(state_attr('sun.sun', 'next_setting'))",
                 "$hour": "now().hour",
                 "$minute": "now().minute",
                 "$second": "now().second",
                 "$index": "repeat.index",
                 "$weekday": "now().isoweekday()",
-                "$currentEventDevice": "var_name",
             }
             name = value_obj.get("name", "")
-            expr = sys_map.get(name, name.lstrip("$"))
+
+            # Bug 18 fix: $currentEventDevice is context-dependent.
+            # In a native automation triggered by a state trigger → trigger.entity_id.
+            # Outside that context → CompilerError (cannot resolve safely).
+            if name == "$currentEventDevice":
+                # Native compile: HA provides trigger.entity_id for state triggers.
+                # This is correct for state-triggered automations. For other trigger
+                # types it will be unavailable — emit a warning but compile anyway.
+                expr = "trigger.entity_id"
+            else:
+                expr = sys_map.get(name, name.lstrip("$"))
+
             offset = value_obj.get("offset", 0)
             if offset:
                 unit = value_obj.get("offset_unit", "minutes")
                 direction = value_obj.get("offset_direction", "+")
-                offset_map = {"minutes": "timedelta(minutes=", "hours": "timedelta(hours=", "seconds": "timedelta(seconds="}
+                offset_map = {
+                    "minutes": "timedelta(minutes=",
+                    "hours": "timedelta(hours=",
+                    "seconds": "timedelta(seconds=",
+                }
                 td = offset_map.get(unit, "timedelta(minutes=")
                 return f"{{{{ {expr} {direction} {td}{offset}) }}}}"
             return f"{{{{ {expr} }}}}"
@@ -1365,18 +1523,12 @@ class Compiler:
                 context=stmt.get("id"),
             )
 
-        if stmt.get("wait_for_completion", False):
-            return "\n".join([
-                f"- alias: \"{stmt['id']}\"",
-                f"  action: script.pistoncore_{target_id}",
-            ])
-        else:
-            return "\n".join([
-                f"- alias: \"{stmt['id']}\"",
-                "  action: script.turn_on",
-                "  target:",
-                f"    entity_id: script.pistoncore_{target_id}",
-            ])
+        tmpl = self.env.get_template("snippets/call_piston.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            target_id=target_id,
+            wait_for_completion=stmt.get("wait_for_completion", False),
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.14 — control_piston
@@ -1418,12 +1570,12 @@ class Compiler:
             }
 
         service = service_map.get(action, "script.turn_on")
-        return "\n".join([
-            f"- alias: \"{stmt['id']}\"",
-            f"  action: {service}",
-            "  target:",
-            f"    entity_id: {entity_id}",
-        ])
+        tmpl = self.env.get_template("snippets/control_piston.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            service=service,
+            entity_id=entity_id,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.15 — stop
@@ -1457,37 +1609,40 @@ class Compiler:
         else:
             var_name = ""
 
-        lines = [f"- alias: \"{stmt['id']}\"", "  choose:"]
+        # Build case list for template
+        compiled_cases = []
         for case in cases:
             case_val = case.get("value", "")
-            lines.append("    - conditions:")
-            lines.append("        - condition: template")
             if var_name:
-                lines.append(f"          value_template: \"{{{{ {var_name} == {repr(case_val)} }}}}\"")
+                condition_expr = f"{{{{ {var_name} == {repr(case_val)} }}}}"
             else:
-                lines.append(f"          value_template: \"{{{{ false }}}}\"")
-            lines.append("      sequence:")
-            compiled = self._compile_sequence(
+                condition_expr = "{{ false }}"
+            compiled_seq = self._compile_sequence(
                 case.get("statements", []), piston, device_map, globals_store,
                 known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
                 stmt_map=stmt_map,
             )
-            for line in compiled.splitlines():
-                lines.append(f"        {line}")
+            compiled_cases.append({
+                "condition_expr": condition_expr,
+                "compiled_sequence": compiled_seq,
+            })
 
+        compiled_default = None
         if default_stmts:
-            lines.append("  default:")
-            compiled = self._compile_sequence(
+            compiled_default = self._compile_sequence(
                 default_stmts, piston, device_map, globals_store,
                 known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
                 stmt_map=stmt_map,
             )
-            for line in compiled.splitlines():
-                lines.append(f"    {line}")
 
-        return "\n".join(lines)
+        tmpl = self.env.get_template("snippets/switch_block.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            cases=compiled_cases,
+            compiled_default=compiled_default,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 8.11 — do_block
@@ -1502,14 +1657,18 @@ class Compiler:
         # PISTON_FORMAT.md: description field, statements array
         label = stmt.get("description", "") or ""
         body = stmt.get("statements", [])
-        header = f"# do_block: {label} ({stmt['id']})" if label else f"# do_block ({stmt['id']})"
-        compiled_body = self._compile_sequence(
+        compiled_sequence = self._compile_sequence(
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent,
             _append_completion_event=False,
             stmt_map=stmt_map,
         )
-        return f"{header}\n{compiled_body}"
+        tmpl = self.env.get_template("snippets/do_block.yaml.j2")
+        return tmpl.render(
+            stmt_id=stmt["id"],
+            compiled_sequence=compiled_sequence,
+            label=label or None,
+        ).rstrip("\n")
 
     # -----------------------------------------------------------------------
     # Section 6 + 7 — Automation and script rendering

@@ -1,0 +1,7 @@
+- alias: "{{ stmt_id }}"
+  parallel:
+{% for branch in branches %}
+    - continue_on_error: true
+      sequence:
+{{ branch | indent(8, first=True) }}
+{% endfor %}

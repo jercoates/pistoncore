@@ -1,0 +1,9 @@
+- alias: "{{ stmt_id }}"
+  if:
+{{ compiled_condition | indent(4, first=True) }}
+  then:
+{{ compiled_then | indent(4, first=True) }}
+{% if compiled_else %}
+  else:
+{{ compiled_else | indent(4, first=True) }}
+{% endif %}

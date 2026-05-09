@@ -1,0 +1,7 @@
+- alias: "{{ stmt_id }}"
+  action: {{ service }}
+  target:
+    entity_id: {{ helper_entity_id }}
+  data:
+    {{ field }}: {{ value }}
+  continue_on_error: true

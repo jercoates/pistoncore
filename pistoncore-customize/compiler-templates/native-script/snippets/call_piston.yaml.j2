@@ -1,0 +1,8 @@
+- alias: "{{ stmt_id }}"
+{% if wait_for_completion %}
+  action: script.pistoncore_{{ target_id }}
+{% else %}
+  action: script.turn_on
+  target:
+    entity_id: script.pistoncore_{{ target_id }}
+{% endif %}

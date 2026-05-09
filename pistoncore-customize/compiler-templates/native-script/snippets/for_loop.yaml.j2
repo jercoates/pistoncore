@@ -1,0 +1,9 @@
+- alias: "{{ stmt_id }}"
+  repeat:
+    count: {{ count }}
+    sequence:
+{% if has_variables %}
+      - variables:
+          {{ var_name }}: "{{ '{{' }} {{ from_val }} + (repeat.index0 * {{ step }}) {{ '}}' }}"
+{% endif %}
+{{ compiled_sequence | indent(6, first=True) }}

@@ -48,10 +48,23 @@ snippets/
   set_variable.yaml.j2      Set a local piston variable
   set_global.yaml.j2        Write a value to a global variable helper
   log_message.yaml.j2       Fire a PISTONCORE_LOG event
+  if_block.yaml.j2          If/then/else branching
+  repeat_until.yaml.j2      Repeat/do/until loop
+  while_loop.yaml.j2        While loop
+  for_each.yaml.j2          For each loop over a list
+  for_loop.yaml.j2          Counted for loop
+  switch_block.yaml.j2      Switch/choose pattern matching
+  do_block.yaml.j2          Do grouping block
+  parallel_block.yaml.j2    Parallel execution block
+  set_variable.yaml.j2      Set a local piston variable
+  set_global.yaml.j2        Write a value to a global variable helper
+  set_global_boolean.yaml.j2  Write a Yes/No (input_boolean) global variable
   call_piston.yaml.j2       Call another piston's script
   control_piston.yaml.j2    Start/stop/enable/disable/trigger a piston or automation
   stop.yaml.j2              Stop the script
   completion_event.yaml.j2  PISTONCORE_RUN_COMPLETE event (always last in sequence)
+  condition_and.yaml.j2     AND condition group
+  condition_or.yaml.j2      OR condition group
   trigger_sun.yaml.j2       Sun rise/set trigger
   trigger_state.yaml.j2     Entity state change trigger
   trigger_time.yaml.j2      Time-of-day trigger

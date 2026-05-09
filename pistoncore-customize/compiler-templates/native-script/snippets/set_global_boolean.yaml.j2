@@ -1,0 +1,15 @@
+- alias: "{{ stmt_id }}"
+  choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ '{{' }} {{ val_template }} | bool {{ '}}' }}"
+      sequence:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: {{ helper_entity_id }}
+          continue_on_error: true
+  default:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: {{ helper_entity_id }}
+      continue_on_error: true

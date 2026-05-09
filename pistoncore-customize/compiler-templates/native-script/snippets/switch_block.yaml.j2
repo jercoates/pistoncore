@@ -1,0 +1,13 @@
+- alias: "{{ stmt_id }}"
+  choose:
+{% for case in cases %}
+    - conditions:
+        - condition: template
+          value_template: "{{ case.condition_expr }}"
+      sequence:
+{{ case.compiled_sequence | indent(8, first=True) }}
+{% endfor %}
+{% if compiled_default %}
+  default:
+{{ compiled_default | indent(4, first=True) }}
+{% endif %}

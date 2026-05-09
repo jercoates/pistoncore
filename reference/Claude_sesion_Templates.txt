@@ -1,0 +1,2005 @@
+
+Claude finished the response
+You said: give me the list of the other files needed
+
+CLAUDE_SESSION_PROMPT.md
+md
+
+
+TASKS.md
+md
+
+give me the list of the other files needed
+
+3:50 PM
+Claude responded: Based on the session prompt and TASKS.
+
+Viewed 2 files
+Viewed 2 files
+Based on the session prompt and TASKS.md, the next task is S1-6: Context Assembly (building build_compiler_context()). Let me check what TASKS.md says about the file list for that task.
+
+
+Find S1-6 task details
+Find S1-6 task details
+Here's the file list for S1-6: Fat Compiler Context Assembly from TASKS.md line 243:
+
+Upload these files:
+
+api.py
+ha_client.py
+COMPILER_SPEC.md
+DESIGN.md
+MISSING_SPECS.md
+CLAUDE_SESSION_PROMPT.md ✅ (already uploaded)
+TASKS.md ✅ (already uploaded)
+So the five you still need are: api.py, ha_client.py, COMPILER_SPEC.md, DESIGN.md, and MISSING_SPECS.md.
+
+The task also notes to write the fat context spec first before any code (see MISSING_SPECS.md Item 13), so MISSING_SPECS.md is especially important to have in context before we start.
+
+
+COMPILER_SPEC.md
+md
+
+
+MISSING_SPECS.md
+md
+
+
+DESIGN.md
+md
+
+
+api.py
+py
+
+
+ha_client.py
+py
+
+3:52 PM
+Claude responded: Good, I've read all the files.
+
+Viewed 6 files
+Viewed 6 files
+Good, I've read all the files. Now let me check DESIGN.md Section 4 quickly, then I'll have everything needed to propose the spec and then the implementation.
+
+
+Viewed 2 files
+Viewed 2 files
+I've read all the files. Here's what I've got.
+
+S1-6: Fat Compiler Context Assembly
+Session goal: Write the spec (MISSING_SPECS.md Item 13), then implement context_builder.py, then update api.py to call it.
+
+Step 1 — Spec First (MISSING_SPECS.md Item 13)
+Before any code, here's the proposed spec text that will close Item 13. Read it and approve before I touch anything.
+
+Proposed spec for MISSING_SPECS.md Item 13 → move to DONE:
+
+## 13. Fat Compiler Context Assembly — RESOLVED (Session 32)
+
+New file: context_builder.py
+Entry point: build_compiler_context(piston: dict) -> dict
+
+HA calls made (via ha_client._run + _ws_call, same pattern as existing callers):
+
+1. get_states  → entity_states dict  (entity_id → {state, attributes})
+   Abort deploy if this fails — compiler cannot function without entity states.
+
+2. get_services → services dict  (domain → {service_name → fields})
+   Degrade gracefully if this fails — compiler warns on unknown services.
+   Fetch only domains referenced in piston device_map to keep payload small.
+   (Matches GAP-S27 note in TASKS.md re: Bug 27 — cache per-domain, not per-entity.
+   context_builder fetches per-domain directly so caching is correct by design.)
+
+3. GET /api/ → ha_version string
+   Use "unknown" if fetch fails — compiler proceeds with warnings.
+   Uses REST (not WebSocket) — one HTTP call, simple.
+
+4. globals.json from userdata volume (via storage.load_globals())
+   Missing file → empty list, not an error. Already called in existing _compile stub.
+
+5. piston["variables"] → piston_variables pass-through.
+
+6. get_states filtered for zone.* entities → zones list
+   Degrade gracefully if states fetch already failed.
+
+7. config/area_registry/list → areas dict (area_id → area_name)
+   Degrade gracefully if this fails. Already fetched in _fetch_devices —
+   context_builder fetches it independently (no shared state with device cache).
+
+Assembly order:
+  entity_states first (abort on fail) → then services + ha_version + areas
+  in parallel if possible, or sequential — sequential is fine for v1.
+  globals and piston_variables are local reads, always succeed.
+
+Output dict matches COMPILER_SPEC Section 7 exactly.
+
+Where this lives: context_builder.py (not ha_client.py, not api.py).
+  ha_client.py is for HA communication primitives.
+  api.py is for endpoint logic.
+  context_builder.py owns context assembly — one job, one file.
+
+api.py changes:
+  _compile(piston) calls build_compiler_context(piston) instead of building the stub dict.
+  deploy_piston() calls _compile() same as before — no deploy-path change needed.
+  compile endpoint also benefits automatically.
+
+ha_client.py additions needed:
+  get_all_states() → dict  (entity_id → {state, attributes})
+    Calls get_states WebSocket message, returns full dict.
+  get_services_for_domains(domains: set[str]) → dict  (domain → raw services dict)
+    Calls get_services WebSocket message once, filters to requested domains.
+  get_areas() → dict  (area_id → area_name)
+    Calls config/area_registry/list, returns name map.
+  get_ha_version() → str
+    HTTP GET /api/ to HA REST endpoint, reads "version" field.
+    Falls back to "unknown" on any failure.
+Step 2 — After Spec Approval: Code Plan
+Three files change:
+
+ha_client.py — add 4 new public functions:
+
+get_all_states() → dict[str, dict]
+get_services_for_domains(domains) → dict
+get_areas() → dict
+get_ha_version() → str (HTTP, not WebSocket)
+context_builder.py — new file:
+
+build_compiler_context(piston) → fat context dict
+api.py — one change:
+
+_compile(piston) swaps the stub dict for build_compiler_context(piston) call
+Also needs import context_builder
+One question before I write anything: The get_ha_version() call hits the HA REST API (GET /api/) rather than WebSocket. ha_client.py doesn't have any HTTP helper yet — only _ws_call. Do you want me to add a minimal _http_get(path) helper to ha_client.py for this, or keep it simpler by just inlining the requests call inside get_ha_version()? Either works — the inline approach is less infrastructure, the helper is cleaner if we need more REST calls later.
+
+You said: witch api is better?
+witch api is better?  i think the websocket but im not sure
+
+3:55 PM
+Claude responded: Good instinct.
+Good instinct. WebSocket is better here.
+
+HA exposes the version via WebSocket too — it's in the auth_ok message that comes back during the authentication handshake. We're already opening a WebSocket connection for every _ws_call anyway, so we can grab the version right out of that response at zero extra cost.
+
+The REST GET /api/ alternative would mean opening a second connection type (HTTP) just for one field, adding a requests or httpx dependency call, and duplicating the auth URL-building logic.
+
+Decision: read ha_version from the auth_ok WebSocket message.
+
+The auth_ok payload looks like:
+
+json
+{"type": "auth_ok", "ha_version": "2025.6.0"}
+That field is always there. We're already parsing that message in _ws_call — we just throw it away right now. We can either:
+
+Return it as a side-channel from _ws_call (messy — changes every caller)
+Add a lightweight get_ha_version() that opens a WebSocket, authenticates, reads ha_version from auth_ok, and closes — no commands needed
+The second option is clean. One small async function, same pattern as everything else, no new dependencies, no HTTP at all.
+
+Ready to write the spec update and then the code if you approve the approach.
+
+You said: yes
+yes
+
+3:56 PM
+Claude responded: Good.
+Good. Here's the full proposed spec text for MISSING_SPECS.md Item 13 — read it and approve before I write any code.
+
+MISSING_SPECS.md Item 13 — proposed "RESOLVED" text (replaces current item):
+
+## 13. Fat Compiler Context Assembly — RESOLVED (Session 32)
+
+New file: context_builder.py
+Entry point: build_compiler_context(piston: dict) -> dict
+
+HA calls made (all via ha_client, no direct HA calls from context_builder):
+
+1. get_all_states() → entity_states dict (entity_id → {state, attributes})
+   ABORT deploy if this fails — compiler cannot function without entity states.
+
+2. get_services_for_domains(domains) → services dict (domain → service data)
+   Domains extracted from piston device_map values at call time.
+   DEGRADE GRACEFULLY if this fails — compiler warns on unknown services.
+
+3. get_ha_version() → str
+   Read from auth_ok WebSocket message — no extra connection needed.
+   Returns "unknown" on any failure — compiler proceeds with warnings.
+
+4. storage.load_globals() → global_variables list
+   Local file read. Missing file → empty list, not an error.
+
+5. piston["variables"] → piston_variables pass-through. No HA call.
+
+6. zones — filtered from entity_states (zone.* prefix). No extra HA call.
+   If entity_states fetch failed, zones is [].
+
+7. get_areas() → areas dict (area_id → area_name)
+   DEGRADE GRACEFULLY if this fails — returns {}.
+
+Assembly order: entity_states first (abort on failure). Then services,
+ha_version, and areas — sequential for v1, all degrade gracefully.
+globals and piston_variables are local reads, always succeed.
+
+Output dict matches COMPILER_SPEC Section 7 exactly:
+{
+    "piston":             piston,
+    "entity_states":      dict,   # entity_id → {state, attributes}
+    "services":           dict,   # domain → service data
+    "ha_version":         str,
+    "pistoncore_version": str,    # from storage.load_config() app_version
+    "global_variables":   list,   # from globals.json
+    "piston_variables":   list,   # from piston["variables"]
+    "areas":              dict,   # area_id → area_name
+    "zones":              list,   # filtered from entity_states
+}
+
+New functions in ha_client.py:
+  get_all_states() → dict[str, dict]
+    WebSocket get_states. Returns {entity_id: {state, attributes}}.
+    Raises HAClientError on failure.
+
+  get_services_for_domains(domains: set[str]) → dict
+    WebSocket get_services. Filters result to requested domains only.
+    Returns {} and logs warning on failure (never raises).
+
+  get_areas() → dict[str, str]
+    WebSocket config/area_registry/list. Returns {area_id: area_name}.
+    Returns {} and logs warning on failure (never raises).
+
+  get_ha_version() → str
+    Opens WebSocket, reads ha_version from auth_ok message, closes.
+    Returns "unknown" on any failure (never raises).
+
+api.py changes:
+  Import context_builder at top.
+  _compile(piston) calls build_compiler_context(piston) and passes result
+  as context to compiler.compile_piston(). Stub dict removed.
+  If build_compiler_context raises ContextBuildError (entity_states abort),
+  _compile returns structured error same as compiler errors.
+Two things to confirm before I code:
+
+Does this spec look right to you, or anything you want changed?
+The global_variables field in COMPILER_SPEC Section 7 shows it as a list of objects with id, name, display_name, type, helper_entity_id, entity_ids. But storage.load_globals() currently returns a dict keyed by ID. I'll need to convert it to a list when building the context. Just flagging so there's no surprise — that conversion happens inside context_builder.py, storage stays unchanged.
+You said: looks good to me but most of it is over my head.
+looks good to me but most of it is over my head.  I think the rest calls are from before i knew about the websocket and didnt know better.
+
+3:57 PM
+Claude responded: That makes sense — the REST calls in haclient.
+That makes sense — the REST calls in ha_client.py are older code from before the WebSocket pattern was established. The good news is everything in context_builder.py will be WebSocket-only from the start, so this session adds nothing that needs to be fixed later.
+
+The one existing REST-ish thing worth noting: get_ha_version() is the only place where we'd have previously used REST. We're doing it via WebSocket instead, so that's already the right call.
+
+Let me write the code now. Three files, in order:
+
+MISSING_SPECS.md — close Item 13
+ha_client.py — add 4 new functions
+context_builder.py — new file
+api.py — swap stub for real context
+I'll show each file's changes as text first, one at a time, and wait for your approval before moving to the next.
+
+Change 1 of 4 — MISSING_SPECS.md
+Replace the current Item 13 block with the resolved version. Everything else in the file stays untouched.
+
+Find this:
+
+## 13. Fat Compiler Context Assembly — MISSING
+...
+**Reference:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4
+Replace with:
+
+## 13. Fat Compiler Context Assembly — RESOLVED (Session 32)
+See context_builder.py. Spec written and implemented this session.
+Moved to DONE section below.
+And add to the DONE section at the bottom:
+
+### Item 13 — Fat Compiler Context Assembly (Session 32)
+context_builder.py created. build_compiler_context(piston) implemented.
+ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
+get_ha_version() added. api.py _compile() stub replaced with real context.
+Approve this and I'll move to ha_client.py changes. That's where the actual logic lives so I want you to see it clearly before I write it.
+
+You said: its aproved
+its aproved
+
+3:58 PM
+Claude responded: Here are the proposed haclient.
+Here are the proposed ha_client.py additions. These are 4 new functions added at the bottom of the public API section, after call_service. Nothing existing is touched.
+
+Change 2 of 4 — ha_client.py (additions only)
+Add after the get_services / _fetch_services block, before the attribute type detection section:
+
+python
+def get_all_states() -> dict:
+    """
+    Return all HA entity states as a dict keyed by entity_id.
+    Each value is {"state": str, "attributes": dict}.
+    Raises HAClientError on failure — caller must abort deploy.
+    """
+    return _run(_fetch_all_states())
+
+
+async def _fetch_all_states() -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "get_states"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for get_states.")
+    out = {}
+    for entity in resp.get("result", []):
+        out[entity["entity_id"]] = {
+            "state":      entity.get("state", ""),
+            "attributes": entity.get("attributes", {}),
+        }
+    return out
+
+
+def get_services_for_domains(domains: set) -> dict:
+    """
+    Return raw HA service data for the requested domains only.
+    Returns {} and logs a warning on failure — never raises.
+    Caller degrades gracefully.
+    """
+    try:
+        return _run(_fetch_services_for_domains(domains))
+    except HAClientError as e:
+        logger.warning("get_services_for_domains failed: %s", e)
+        return {}
+
+
+async def _fetch_services_for_domains(domains: set) -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "get_services"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for get_services.")
+    all_services = resp.get("result", {})
+    return {d: all_services[d] for d in domains if d in all_services}
+
+
+def get_areas() -> dict:
+    """
+    Return HA area registry as {area_id: area_name}.
+    Returns {} and logs a warning on failure — never raises.
+    """
+    try:
+        return _run(_fetch_areas())
+    except HAClientError as e:
+        logger.warning("get_areas failed: %s", e)
+        return {}
+
+
+async def _fetch_areas() -> dict:
+    results = await _ws_call([
+        {"id": 1, "type": "config/area_registry/list"},
+    ])
+    resp = results[0]
+    if not resp.get("success"):
+        raise HAClientError("HA returned error for area_registry/list.")
+    return {a["area_id"]: a["name"] for a in resp.get("result", [])}
+
+
+def get_ha_version() -> str:
+    """
+    Return the HA version string by reading it from the auth_ok WebSocket
+    handshake message. Returns "unknown" on any failure — never raises.
+    """
+    try:
+        return _run(_fetch_ha_version())
+    except Exception as e:
+        logger.warning("get_ha_version failed: %s", e)
+        return "unknown"
+
+
+async def _fetch_ha_version() -> str:
+    config = storage.load_config()
+    ha_url = config.get("ha_url", "http://homeassistant.local:8123")
+    ha_token = config.get("ha_token", "")
+
+    ws_url = ha_url.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+    ws_url += "/api/websocket"
+
+    try:
+        async with websockets.connect(ws_url, open_timeout=10) as ws:
+            auth_req = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            if auth_req.get("type") != "auth_required":
+                return "unknown"
+            await ws.send(json.dumps({"type": "auth", "access_token": ha_token}))
+            auth_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            if auth_resp.get("type") != "auth_ok":
+                return "unknown"
+            return auth_resp.get("ha_version", "unknown")
+    except Exception:
+        return "unknown"
+A few things to note before you approve:
+
+get_ha_version() opens its own WebSocket connection separate from _ws_call. That's intentional — it only needs the handshake, not the full request/response cycle. It's also the only function that catches bare Exception instead of HAClientError, because we want it to swallow absolutely everything and return "unknown".
+get_services_for_domains and get_areas and get_ha_version all degrade gracefully (return empty / "unknown", log a warning). Only get_all_states raises — because the deploy must abort without entity states.
+Nothing existing in ha_client.py is changed.
+Approve this and I'll write context_builder.py.
+
+You said: approved
+approved
+
+3:59 PM
+Claude responded: Now writing context_builder.
+Now writing context_builder.py. This is the new file, shown in full.
+
+Change 3 of 4 — context_builder.py (new file)
+python
+# pistoncore/backend/context_builder.py
+#
+# Assembles the fat compiler context object before every compile.
+# The compiler receives this — it makes no HA calls of its own.
+#
+# Entry point: build_compiler_context(piston) -> dict
+#
+# Failure model:
+#   entity_states fetch fails → raises ContextBuildError (abort deploy)
+#   services / ha_version / areas fail → degrade gracefully (compiler warns)
+#   globals / piston_variables → local reads, always succeed
+#
+# See COMPILER_SPEC.md Section 7 for the full context object schema.
+
+import logging
+
+import ha_client
+import storage
+
+logger = logging.getLogger("context_builder")
+
+
+class ContextBuildError(Exception):
+    """Raised when context assembly fails in a way that must abort the deploy."""
+    pass
+
+
+def build_compiler_context(piston: dict) -> dict:
+    """
+    Build the fat compiler context object for a piston.
+    Fetches all data the compiler needs from HA and local storage.
+
+    Raises ContextBuildError if entity_states cannot be fetched —
+    the compiler cannot function without entity states.
+
+    All other HA fetch failures degrade gracefully.
+    """
+
+    # --- Entity states (required — abort if unavailable) ---
+    try:
+        entity_states = ha_client.get_all_states()
+    except ha_client.HAClientError as e:
+        raise ContextBuildError(
+            f"Could not fetch entity states from HA: {e}. "
+            f"Check your HA connection and token in PistonCore settings."
+        ) from e
+
+    # --- Zones — filtered from entity_states, no extra HA call ---
+    zones = [
+        {"entity_id": eid, **data}
+        for eid, data in entity_states.items()
+        if eid.startswith("zone.")
+    ]
+
+    # --- Services — domains referenced in this piston's device_map ---
+    device_map = piston.get("device_map", {})
+    domains = {
+        entity_id.split(".")[0]
+        for entity_ids in device_map.values()
+        for entity_id in entity_ids
+        if "." in entity_id
+    }
+    services = ha_client.get_services_for_domains(domains)
+
+    # --- HA version ---
+    ha_version = ha_client.get_ha_version()
+
+    # --- Areas ---
+    areas = ha_client.get_areas()
+
+    # --- Global variables — local read, convert dict to list ---
+    # storage.load_globals() returns {id: {...}} — compiler expects a list
+    globals_dict = storage.load_globals()
+    global_variables = list(globals_dict.values())
+
+    # --- Piston variables — pass-through ---
+    piston_variables = piston.get("variables", [])
+
+    # --- PistonCore version ---
+    pistoncore_version = storage.load_config().get("app_version", "1.0")
+
+    return {
+        "piston":             piston,
+        "entity_states":      entity_states,
+        "services":           services,
+        "ha_version":         ha_version,
+        "pistoncore_version": pistoncore_version,
+        "global_variables":   global_variables,
+        "piston_variables":   piston_variables,
+        "areas":              areas,
+        "zones":              zones,
+    }
+Notes before you approve:
+
+The domains extraction loop handles the case where a device_map value is an empty list or an entity_id with no dot — both are skipped cleanly.
+global_variables converts from the storage dict format to the list format COMPILER_SPEC Section 7 expects. Storage is unchanged.
+zones costs nothing extra — it's just a filter over entity_states we already fetched.
+pistoncore_version reads config, same as _get_app_version() in api.py already does. This means two config reads per compile (one here, one in _get_compiler()). That's GAP-S30-3 which is already documented as low priority — no action needed now.
+Approve this and I'll show the final api.py change, which is small.
+
+You said: Approved
+Approved
+
+4:00 PM
+Claude responded: Change 4 of 4 — api.
+Change 4 of 4 — api.py (small change)
+Two things change in _compile(): add the import at the top of the file, and swap the stub dict for the real context builder call.
+
+Add to imports at top of api.py (after import ha_client):
+
+python
+import context_builder
+from context_builder import ContextBuildError
+Replace the entire _compile() function:
+
+python
+def _compile(piston: dict) -> dict:
+    """
+    Build fat compiler context and run the compiler against a piston.
+    Returns a structured result with automation_yaml, script_yaml,
+    warnings, errors, success.
+
+    Aborts with a structured error if entity_states cannot be fetched
+    (ContextBuildError). All other context fetch failures degrade gracefully.
+    """
+    try:
+        context = context_builder.build_compiler_context(piston)
+    except ContextBuildError as e:
+        return {
+            "automation_yaml": None,
+            "script_yaml":     None,
+            "warnings":        [],
+            "errors":          [{"level": "error", "code": "CONTEXT_BUILD_ERROR", "message": str(e), "context": None}],
+            "success":         False,
+        }
+
+    compiler = _get_compiler()
+
+    try:
+        result = compiler.compile_piston(context)
+    except Exception as e:
+        return {
+            "automation_yaml": None,
+            "script_yaml":     None,
+            "warnings":        [],
+            "errors":          [{"level": "error", "code": "COMPILER_INTERNAL_ERROR", "message": str(e), "context": None}],
+            "success":         False,
+        }
+
+    return {
+        "automation_yaml": result.automation_yaml,
+        "script_yaml":     result.script_yaml,
+        "warnings":        [{"level": m.level, "code": m.code, "message": m.message, "context": m.context} for m in result.warnings],
+        "errors":          [{"level": m.level, "code": m.code, "message": m.message, "context": m.context} for m in result.errors],
+        "success":         len(result.errors) == 0,
+    }
+That's everything. The stub dict and its comment are gone. _get_app_version() is no longer called from _compile() — context_builder reads it directly. The helper function stays in api.py since nothing else calls it yet, but it's now dead code. I'll flag that as a gap.
+
+Gap Review
+One gap found this session:
+
+GAP-S32-1: _get_app_version() in api.py is now dead code
+
+_compile() no longer calls it — context_builder.build_compiler_context() reads app_version directly from config.
+_get_compiler() still calls _get_app_version() indirectly — wait, no it doesn't. _get_compiler() calls storage.load_config() directly for template_dir only.
+So _get_app_version() is referenced nowhere. Safe to remove.
+Small fix, fits this session's file scope — I can remove it now if you want, or leave it. Your call.
+No other gaps found. The three new functions in ha_client.py (get_services_for_domains, get_areas, get_ha_version) are all called only from context_builder.py which is new this session, so no broken callers anywhere.
+
+Do you want me to remove _get_app_version() from api.py now, then write all four files? Or leave it and write now?
+
+You said: yes
+yes
+
+4:00 PM
+Claude responded: Confirmed.
+Confirmed. Writing all files now.
+
+
+Edited 2 files, viewed a file, ran a command
+Edited 2 files, viewed a file, ran a command
+Now ha_client.py — adding the 4 new functions before the attribute type detection section:
+
+
+Add 4 new public functions to ha_client.py
+Add 4 new public functions to ha_client.py
+Now context_builder.py:
+
+
+Create context_builder.py
+Create context_builder.py
+Now api.py — imports first, then _compile(), then remove _get_app_version():
+
+
+Edited 2 files
+Edited 2 files
+Now verify all four files look right:
+
+
+Verify all changes are correct
+Verify all changes are correct
+Everything checks out. _get_app_version() is gone, no dead references, syntax valid. Now copy to outputs:
+
+
+Ran a command, read a file
+Ran a command, read a file
+Session complete. Here's the summary for CLAUDE_SESSION_PROMPT.md and TASKS.md — copy what you need.
+
+What Was Done — Session 32 (S1-6)
+S1-6: Fat Compiler Context Assembly. COMPLETE.
+
+MISSING_SPECS.md changes:
+
+Item 13 closed — moved to DONE section.
+ha_client.py changes:
+
+get_all_states() / _fetch_all_states() — WebSocket get_states, returns {entity_id: {state, attributes}}. Raises HAClientError on failure.
+get_services_for_domains(domains) / _fetch_services_for_domains() — WebSocket get_services, filters to requested domains. Degrades gracefully.
+get_areas() / _fetch_areas() — WebSocket config/area_registry/list. Degrades gracefully.
+get_ha_version() / _fetch_ha_version() — reads ha_version from auth_ok WebSocket handshake. Returns "unknown" on any failure.
+context_builder.py — new file:
+
+ContextBuildError exception class.
+build_compiler_context(piston) — assembles full fat context per COMPILER_SPEC Section 7. Aborts on entity_states failure. All other HA fetches degrade gracefully. Zones filtered from entity_states (no extra call). globals dict converted to list. piston_variables pass-through.
+api.py changes:
+
+Added import context_builder and from context_builder import ContextBuildError.
+_compile() rewritten — calls build_compiler_context(), handles ContextBuildError with CONTEXT_BUILD_ERROR code. Stub dict removed.
+_get_app_version() removed — dead code after rewrite.
+Gaps found this session:
+
+None. GAP-S32-1 (_get_app_version() dead code) fixed same session.
+Next task: S1-7 — Compiler Bug Fixes Session 2. Upload: compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md.
+
+
+Context builder
+PY 
+
+Ha client
+PY 
+
+Api
+PY 
+
+Missing specs
+Document · MD 
+You said: context builder goes in the backend folder correct
+context builder goes in the backend folder correct
+
+4:05 PM
+Claude responded: Yes, same folder as api.
+Yes, same folder as api.py, ha_client.py, storage.py, etc.
+
+pistoncore/
+  backend/
+    api.py
+    compiler.py
+    context_builder.py   ← goes here
+    ha_client.py
+    main.py
+    storage.py
+    utils.py
+The file header already says # pistoncore/backend/context_builder.py so it's consistent with the rest.
+
+You said: just checking that is where i placed it.
+just checking that is where i placed it.  Commit comment for these files
+
+4:06 PM
+S1-6: Fat compiler context assembly — context_builder.py
+
+- Add context_builder.py: build_compiler_context() assembles fat context
+  per COMPILER_SPEC Section 7. Aborts on entity_states failure, all other
+  HA fetches degrade gracefully.
+- ha_client.py: add get_all_states(), get_services_for_domains(),
+  get_areas(), get_ha_version() (reads version from auth_ok handshake).
+- api.py: replace stub context dict with context_builder call. Remove
+  dead _get_app_version(). Add CONTEXT_BUILD_ERROR handling.
+- MISSING_SPECS.md: close Item 13.
+You said: new session prompt.
+new session prompt.  unless we can roll into the next one now
+
+4:08 PM
+Claude responded: You can roll into S1-7 now — the files you already have in context are still good.
+You can roll into S1-7 now — the files you already have in context are still good. Here's what S1-7 needs that isn't already uploaded:
+
+Still needed:
+
+compiler.py
+PISTON_FORMAT.md
+STATEMENT_TYPES.md
+PYSCRIPT_COMPILER_SPEC.md
+Already in context from this session:
+
+CLAUDE_SESSION_PROMPT.md ✅
+TASKS.md ✅
+COMPILER_SPEC.md ✅
+DESIGN.md ✅
+One catch — TASKS.md and CLAUDE_SESSION_PROMPT.md weren't updated with Session 32 notes yet. That's normally done before closing. Do you want to update those now before uploading the S1-7 files, or update them at the end of S1-7 to cover both sessions at once?
+
+You said: cover both at the end we should be on only used 14% of my limit so far.
+
+compiler.py
+py
+
+
+PISTON_FORMAT.md
+md
+
+
+PYSCRIPT_COMPILER_SPEC.md
+md
+
+
+STATEMENT_TYPES.md
+md
+
+cover both at the end we should be on only used 14% of my limit so far.
+
+4:10 PM
+Claude responded: Good, we have plenty of room.
+Good, we have plenty of room. Let me read all four files before we touch anything.
+
+
+Viewed 6 files
+Viewed 6 files
+Now let me read the other three spec files:
+
+
+Read TASKS.md S1-7 section in full
+Read TASKS.md S1-7 section in full
+Good. Now let me quickly check the key COMPILER_SPEC section 11 and STATEMENT_TYPES.md for the condition compiler, plus PISTON_FORMAT.md for field references:
+
+
+Viewed 2 files
+Viewed 2 files
+Good — I have everything I need. Let me now read STATEMENT_TYPES.md and PISTON_FORMAT.md for the condition schema details:
+
+
+Viewed 3 files
+Viewed 3 files
+Good. I've now read everything. Let me take stock before proposing anything.
+
+S1-7 — Pre-work Assessment
+TASKS.md lists 14 bugs to fix this session. Before diving in, two required design decisions must be made first per the spec:
+
+1. PyScript template design (GAP-S28-5 / MISSING_SPECS.md Item 16) TASKS.md says to decide Option A vs Option B and write it into PYSCRIPT_COMPILER_SPEC.md before any PyScript compiler code. However — Bug 25 (the only PyScript item this session) is just adding a dispatch branch stub, not actually building the PyScript compiler. No PyScript code is written this session. The template design decision blocks PyScript compiler coding but not a one-line stub. I'd recommend we skip the template spec this session and add a note that it must be written before S1-7 session 3 when real PyScript code starts.
+
+2. Time condition compiler path (MISSING_SPECS.md Item 14) Bug 8 (conditions compiled as state blocks, spec says template) requires writing the time condition spec first. But looking at COMPILER_SPEC Section 11, the time condition path actually is defined there — condition_time.yaml.j2 template already exists in the compiler. What's missing is the full template-based condition compiler for device conditions. MISSING_SPECS.md Item 14 is specifically about time-as-condition (not trigger). This needs to be written before Bug 8.
+
+My recommendation: Write the time condition spec inline this session (it's small — just the four cases from MISSING_SPECS.md Item 14), then proceed with the bugs. Skip the PyScript template spec since no real PyScript code gets written today.
+
+Does that approach work for you, or do you want to handle the specs differently?
+
+Also — Bugs 17 (ha_client.py — ThreadPoolExecutor) and 18 (get_services cache per entity not domain) and 19 (_field_type entity_id selector) are ha_client.py bugs, not compiler.py bugs. They're in this session's list but ha_client.py isn't the focus file. Since we just touched ha_client.py, do you want to fold those three in now, or defer them to keep this session focused on compiler.py only?
+
+You said: if we have room in the session lets get them done, unless they fit neatly into a future sesion that is already on the list.
+if we have room in  the session lets get them done, unless they fit neatly into a future sesion that is already on the list.  Make sure any of the things we skip do not get lost.
+
+4:14 PM
+Claude responded: Good call.
+Good call. Let me check each one:
+
+Bug 26 — ThreadPoolExecutor per call (ha_client.py): This is a real architecture change — refactoring _run() to work natively with FastAPI's async context. Non-trivial and touches every ha_client caller. S2-1 (HAClient abstraction) is already on the list and is the right home for this — that session is specifically about ha_client architecture. Not lost — already in TASKS.md S1-7 bug list, just move it to S2-1.
+
+Bug 27 — get_services caches per entity not per domain (ha_client.py): Actually already fixed this session — get_services_for_domains() in context_builder fetches per domain by design. The old get_services(entity_id) function still exists with the bad cache key but it's only used by the wizard device picker, not the compiler. Low blast radius. Fits S2-1 alongside Bug 26. Not lost.
+
+Bug 28 — _field_type doesn't handle entity_id selector (ha_client.py): Wizard UX bug, not compiler. Fits a wizard session — probably S2-2 (device_map_meta wire-in) or a dedicated wizard fix session. Not a compiler session concern.
+
+So the answer is: all three fit neatly into sessions already on the list. No need to squeeze them in here and split focus. We keep this session pure compiler.py.
+
+Here's what we do lose if we skip the PyScript template spec:
+
+Nothing — Bug 25 (PyScript dispatch stub) doesn't require it. The stub is just an if compile_target == "pyscript": return self._compile_pyscript(piston, context) branch with a raise CompilerError("PyScript not yet implemented") body. No template decisions needed for that.
+
+Plan for this session:
+
+Write time condition spec inline (closes MISSING_SPECS.md Item 14)
+Fix Bugs 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 25 in compiler.py
+Move Bugs 26, 27, 28 to their proper future sessions in TASKS.md
+Update TASKS.md and CLAUDE_SESSION_PROMPT.md to cover both sessions 32 and 33
+Ready to write the time condition spec first. Shall I proceed?
+
+You said: yes go
+yes go
+
+4:15 PM
+Claude responded: Let me read MISSINGSPECS.
+Let me read MISSING_SPECS.md Item 14 and the current condition_time template reference carefully before writing the spec.
+
+
+Viewed 2 files
+Viewed 2 files
+Good. I have everything I need. Now I'll write the time condition spec, then we'll go straight to bugs.
+
+Time Condition Compiler Path — Proposed Spec (MISSING_SPECS.md Item 14)
+This closes Item 14 and goes into the DONE section. Here's the spec text — approve this before I touch any code:
+
+### Item 14 — Time Condition Compiler Path (Session 33)
+
+Written inline in this session before Bug 8 coding. 
+
+Time conditions use subject: "time" and is_trigger: false.
+They are NOT the same as time triggers (is_trigger: true).
+They compile to HA condition: time blocks, not template conditions.
+
+Four cases:
+
+CASE 1 — "is between" (most common)
+JSON:
+  { "subject": "time", "operator": "is between",
+    "value_from": "08:00:00", "value_to": "23:00:00" }
+Output:
+  condition: time
+  after: "08:00:00"
+  before: "23:00:00"
+
+CASE 2 — "is between" with only_on_days
+JSON:
+  { "subject": "time", "operator": "is between",
+    "value_from": "20:00:00", "value_to": "08:00:00",
+    "only_on_days": [1, 2, 3, 4, 5] }
+Output:
+  condition: time
+  after: "20:00:00"
+  before: "08:00:00"
+  weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+
+only_on_days uses ISO weekday numbers: 1=Monday through 7=Sunday.
+HA weekday names: mon, tue, wed, thu, fri, sat, sun.
+Mapping: 1→mon, 2→tue, 3→wed, 4→thu, 5→fri, 6→sat, 7→sun.
+
+CASE 3 — "is" (exact time — rare)
+JSON:
+  { "subject": "time", "operator": "is", "value_from": "08:00:00" }
+Output:
+  condition: time
+  after: "07:59:59"
+  before: "08:00:01"
+(HA has no exact-time condition — bracket it with a 1-second window.)
+Emit CompilerWarning: "Time 'is exactly' condition uses a 1-second window.
+  If HA evaluation does not land in that window the condition will be false.
+  Consider using 'is between' with a wider window."
+
+CASE 4 — $sunrise / $sunset with offset (time condition, not trigger)
+MISSING_SPECS.md Item 14 defers this: HA condition: time does not support
+sun-relative values. Must compile to condition: template using
+as_datetime(state_attr('sun.sun', 'next_rising')) arithmetic.
+Document in HA_LIMITATIONS.md. Emit CompilerError with code
+SUN_TIME_CONDITION_NOT_SUPPORTED and message:
+  "Time condition with $sunrise or $sunset offset is not yet supported.
+   Use a time trigger instead, or set a fixed time window."
+Do not silently drop it. This case is deferred — do not implement in S1-7.
+
+$now operand in time conditions:
+  "time is $now" makes no sense as a condition — always true.
+  Emit CompilerWarning: "Time condition comparing to $now is always true."
+  Compile as: condition: template / value_template: "{{ true }}"
+
+Where this compiles in compiler.py:
+  _compile_single_condition() detects subject=="time" (or role=="time")
+  and routes to a new _compile_time_condition() method.
+  This replaces the existing condition_time.yaml.j2 template path —
+  the time condition is simple enough to build inline without a template.
+  The existing template call can be removed.
+Two things to note before you approve:
+
+The existing condition_time.yaml.j2 template is already being called in _compile_single_condition() for subject_type == "time". Our new _compile_time_condition() replaces that call — the template itself can stay in the customize volume for now (removing it is cosmetic, no functional impact).
+Case 4 (
+s
+u
+n
+r
+i
+s
+e
+/
+sunrise/sunset in time conditions) is explicitly deferred with a CompilerError. This means a piston using that pattern gets a clear error message instead of silently broken output. The right answer for that case is a future spec session.
+Approve this spec and I'll go straight into the bug fixes.
+
+You said: now do not forget the templates are there for a reason.
+now do not forget the templates are there for a reason.  Is this something ha will/may change in the future if yes the template stays.  I need to add this to your prompt the plan is to make it so it be easily updatable through the templates
+
+4:18 PM
+Claude responded: You're absolutely right, and this is an important architectural correction.
+You're absolutely right, and this is an important architectural correction. Let me re-examine this.
+
+The entire point of the template system is that when HA changes YAML syntax, users update a template file — no PistonCore code release needed. That applies to time conditions too. If HA ever changes condition: time syntax (field names, weekday format, structure), the template is what absorbs that change.
+
+So condition_time.yaml.j2 stays and the new _compile_time_condition() method feeds it data — same pattern as every other condition and trigger in the compiler. The method does the logic (which case, build the data), the template does the YAML rendering.
+
+Revised spec — just the "Where this compiles" section changes:
+
+Where this compiles in compiler.py:
+  _compile_single_condition() detects subject=="time" (or role=="time")
+  and routes to a new _compile_time_condition() method.
+  _compile_time_condition() determines which case applies, builds the
+  data dict, and renders condition_time.yaml.j2 — same pattern as all
+  other condition and trigger templates.
+  The template handles all YAML structure. If HA changes condition: time
+  syntax, only the template needs updating — no Python changes.
+
+condition_time.yaml.j2 parameters:
+  after        — string or None
+  before       — string or None  
+  weekday      — list of HA day strings or None (["mon","tue",...])
+And add this to CLAUDE_SESSION_PROMPT.md standing rules:
+
+Template rule — templates exist so HA syntax changes require only a
+template edit, never a Python code release. Every compiler output that
+touches HA YAML syntax must go through a Jinja2 template. Never inline
+HA YAML structure in Python strings. If you find inline YAML in Python
+compiler methods, that is a bug — add it to TASKS.md.
+Do you approve this revised spec and the addition to CLAUDE_SESSION_PROMPT.md?
+
+You said: yes the rule needs to be there.
+
+condition_time.yaml.j2
+j2
+
+yes the rule needs to be there.  This is the third time ive caught you trying to bypass the templates.  the problem now is if I missed you doing it and now it wont work.
+
+4:21 PM
+Claude responded: You're right, and that's a legitimate concern.
+You're right, and that's a legitimate concern. Let me read the template first, then do a full audit of the compiler for every place Python is emitting HA YAML inline instead of going through a template.
+
+
+Read condition_time.yaml.j2
+Read condition_time.yaml.j2
+Good. Now the audit. I'm going through every compiler method that emits YAML and flagging every place it's done inline in Python instead of through a template.
+
+
+Find all inline YAML string construction in compiler.py
+Find all inline YAML string construction in compiler.py
+That's extensive. Let me now categorize every violation clearly:
+
+
+Read the parallel block section
+Read the parallel block section
+Good. I now have a complete picture. Here's the full audit result — every place compiler.py emits HA YAML inline in Python instead of through a template:
+
+Template Bypass Audit
+Methods with inline YAML that need templates:
+
+Method	What's inline	Severity
+_compile_with_block (parallel branch)	parallel:, continue_on_error:, sequence: structure	High
+_compile_if_block	if:, then:, else: entire block structure	High
+_compile_repeat_block	repeat:, sequence:, until: structure	High
+_compile_for_each_block	repeat:, for_each:, sequence: structure	High
+_compile_while_block	repeat:, while:, sequence: structure	High
+_compile_for_loop	repeat:, count:, sequence:, variables: structure	High
+_compile_set_variable	variables:, action:, target:, data:, entire Yes/No choose block	High
+_compile_call_piston	action:, target:, entity_id:	High
+_compile_control_piston	action:, target:, entity_id:	High
+_compile_switch_block	choose:, conditions:, condition: template, value_template:, sequence:, default:	High
+_compile_if_block (condition fallback)	inline condition: template\n  value_template: "{{ true }}"	High
+Already using templates correctly:
+
+_compile_with_block (simple case) — uses with_block.yaml.j2 ✓
+_compile_wait — uses wait_until.yaml.j2, wait_duration.yaml.j2 ✓
+_compile_wait_for_state — uses wait_for_state.yaml.j2 ✓
+_compile_stop — uses stop.yaml.j2 ✓
+_compile_log_message — uses log_message.yaml.j2 ✓
+_compile_triggers — uses trigger snippet templates ✓
+_compile_conditions — uses condition snippet templates ✓
+_render_automation / _render_script — use automation.yaml.j2, script.yaml.j2 ✓
+This is significant. Almost every control-flow statement type is emitting HA YAML inline. These all need templates. This is the right fix but it's not a one-session job — each method needs a corresponding template file created alongside the code change, and that needs to be tested.
+
+My recommendation:
+
+This session we fix the bugs listed in TASKS.md for S1-7. Every inline YAML violation gets logged as a named gap (GAP-S33-x) and added to TASKS.md as a new task S1-8: Template Compliance Pass — a dedicated session to create the missing templates and route all inline YAML through them. That session only needs compiler.py and the template directory.
+
+We also add the template rule to CLAUDE_SESSION_PROMPT.md right now so it can't be missed again.
+
+The alternative — doing the template compliance pass now — would be a full session on its own and would push all the Bug 8-25 fixes to yet another session.
+
+Which do you prefer: log and defer as S1-8, or do the template pass now before the bug fixes?
+
+You said: existing templates.
+
+completion_event.yaml.j2
+j2
+
+
+condition_numeric.yaml.j2
+j2
+
+
+condition_state.yaml.j2
+j2
+
+
+condition_template.yaml.j2
+j2
+
+
+log_message.yaml.j2
+j2
+
+
+stop.yaml.j2
+j2
+
+
+trigger_event_yaml.j2
+j2
+
+
+trigger_homeassistant_yaml.j2
+j2
+
+
+trigger_numeric.yaml.j2
+j2
+
+
+trigger_state.yaml.j2
+j2
+
+
+trigger_sun.yaml.j2
+j2
+
+
+trigger_time.yaml.j2
+j2
+
+
+trigger_time_pattern.yaml.j2
+j2
+
+
+trigger_webhook.yaml.j2
+j2
+
+
+wait_duration.yaml.j2
+j2
+
+
+wait_for_state.yaml.j2
+j2
+
+
+wait_until_yaml.j2
+j2
+
+
+with_block.yaml.j2
+j2
+
+existing templates.  i dont know how this was missed its in the design
+
+4:22 PM
+Claude responded: Let me read all the existing templates so I know exactly what we have before writing a single line.
+Let me read all the existing templates so I know exactly what we have before writing a single line.
+
+
+Read all uploaded templates
+Read all uploaded templates
+Good. Now I have the full picture. Here's the honest assessment:
+
+Missing templates — things that have NO template at all and are fully inline:
+
+if / then / else block structure
+repeat / sequence / until structure (repeat block)
+repeat / while / sequence structure (while block)
+repeat / for_each / sequence structure (for_each block)
+repeat / count / sequence structure (for loop)
+parallel block structure
+choose / conditions / sequence / default structure (switch block)
+sequence wrapper (do block)
+variables: action (set_variable — local)
+action: / target: / data: (set_variable global, call_piston, control_piston)
+input_boolean choose block (set_variable Yes/No global)
+Templates that exist and ARE being used correctly: with_block, wait_until, wait_duration, wait_for_state, stop, log_message, completion_event, all triggers, all condition snippets, condition_time (partially — the call exists but the method needs fixing per Bug 8).
+
+This is a real problem and it's bigger than one session can safely absorb alongside Bug 8-25. Here's my honest recommendation:
+
+Do S1-8 (template compliance) BEFORE S1-7 bug fixes. The reason is this: several of the Bug 8-25 fixes touch the same methods that have inline YAML violations. If we fix bugs now against inline YAML code, then fix the templates later, we're touching those methods twice and risk introducing new bugs in the second pass. Fixing the templates first gives us a clean stable foundation, then the bug fixes land cleanly on top.
+
+S1-8 scope — new templates needed:
+
+if_block.yaml.j2, repeat_until.yaml.j2, while_block.yaml.j2, for_each_block.yaml.j2, for_loop.yaml.j2, parallel_block.yaml.j2, switch_block.yaml.j2, do_block.yaml.j2, set_variable_local.yaml.j2, set_variable_global.yaml.j2, set_variable_boolean.yaml.j2, action_call.yaml.j2 (for call_piston / control_piston)
+
+That's 12 new templates plus routing the compiler methods through them.
+
+Your call: Do S1-8 now (templates first, bugs after in S1-7), or defer S1-8 and accept that S1-7 bug fixes land on top of known-broken inline YAML? I'd strongly recommend templates first.
+
+You said: lets do it the right way
+lets do it the right way
+
+4:23 PM
+Claude responded: Good.
+Good. Let's do S1-8 first — templates then bug fixes.
+
+Before I write anything, I need to see what the control-flow YAML output is supposed to look like for each missing template. I have COMPILER_SPEC and STATEMENT_TYPES for reference. Let me map out every template we need to create, what parameters it takes, and what it renders, so you can approve the full plan before I write a single file.
+
+S1-8 Template Plan — Proposed
+1. if_block.yaml.j2
+Parameters: stmt_id, compiled_condition, compiled_then, compiled_else (optional)
+
+- alias: "{{ stmt_id }}"
+  if:
+    {{ compiled_condition }}
+  then:
+    {{ compiled_then }}
+  {% if compiled_else %}
+  else:
+    {{ compiled_else }}
+  {% endif %}
+2. repeat_until.yaml.j2
+Parameters: stmt_id, compiled_sequence, compiled_until_condition
+
+- alias: "{{ stmt_id }}"
+  repeat:
+    sequence:
+      {{ compiled_sequence }}
+    until:
+      - {{ compiled_until_condition }}
+3. while_block.yaml.j2
+Parameters: stmt_id, compiled_condition, compiled_sequence
+
+- alias: "{{ stmt_id }}"
+  repeat:
+    while:
+      - {{ compiled_condition }}
+    sequence:
+      {{ compiled_sequence }}
+4. for_each_block.yaml.j2
+Parameters: stmt_id, entity_ids (list), compiled_sequence
+
+- alias: "{{ stmt_id }}"
+  repeat:
+    for_each:
+      {% for eid in entity_ids %}
+      - {{ eid }}
+      {% endfor %}
+    sequence:
+      {{ compiled_sequence }}
+5. for_loop.yaml.j2
+Parameters: stmt_id, count, compiled_sequence, 
+            has_variables (bool), var_name, from_val, step (for complex case)
+
+- alias: "{{ stmt_id }}"
+  repeat:
+    count: {{ count }}
+    sequence:
+      {% if has_variables %}
+      - variables:
+          {{ var_name }}: "{{ '{{' }} {{ from_val }} + (repeat.index0 * {{ step }}) {{ '}}' }}"
+      {% endif %}
+      {{ compiled_sequence }}
+6. parallel_block.yaml.j2
+Parameters: stmt_id, branches (list of rendered branch strings)
+
+- alias: "{{ stmt_id }}"
+  parallel:
+    {% for branch in branches %}
+    - continue_on_error: true
+      sequence:
+        {{ branch }}
+    {% endfor %}
+7. switch_block.yaml.j2
+Parameters: stmt_id, cases (list of {condition_expr, compiled_sequence}),
+            compiled_default (optional)
+
+- alias: "{{ stmt_id }}"
+  choose:
+    {% for case in cases %}
+    - conditions:
+        - condition: template
+          value_template: "{{ case.condition_expr }}"
+      sequence:
+        {{ case.compiled_sequence }}
+    {% endfor %}
+  {% if compiled_default %}
+  default:
+    {{ compiled_default }}
+  {% endif %}
+8. do_block.yaml.j2
+Parameters: stmt_id, compiled_sequence, label (optional)
+
+{% if label %}# do_block: {{ label }} ({{ stmt_id }}){% endif %}
+- alias: "{{ stmt_id }}"
+  sequence:
+    {{ compiled_sequence }}
+9. set_variable_local.yaml.j2
+Parameters: stmt_id, var_name, value
+
+- alias: "{{ stmt_id }}"
+  variables:
+    {{ var_name }}: {{ value }}
+10. set_variable_global.yaml.j2
+Parameters: stmt_id, service, helper_entity_id, field, value
+
+- alias: "{{ stmt_id }}"
+  action: {{ service }}
+  target:
+    entity_id: {{ helper_entity_id }}
+  data:
+    {{ field }}: {{ value }}
+  continue_on_error: true
+11. set_variable_boolean.yaml.j2
+Parameters: stmt_id, val_template, helper_entity_id
+
+- alias: "{{ stmt_id }}"
+  choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ '{{' }} {{ val_template }} | bool {{ '}}' }}"
+      sequence:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: {{ helper_entity_id }}
+          continue_on_error: true
+  default:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: {{ helper_entity_id }}
+      continue_on_error: true
+12. action_call.yaml.j2
+Parameters: stmt_id, service, entity_id
+
+- alias: "{{ stmt_id }}"
+  action: {{ service }}
+  target:
+    entity_id: {{ entity_id }}
+One question before you approve: the indentation of compiled_sequence and compiled_then/compiled_else inside templates is tricky — Jinja2 doesn't automatically re-indent multi-line blocks passed as variables. The existing compiler handles this by joining lines with explicit indent prefixes in Python before passing to the template. We need to decide: keep that pattern (Python pre-indents, template just drops the block in), or use a Jinja2 indent() filter inside the templates.
+
+The indent() filter is cleaner and keeps indentation logic in the template where it belongs. Example: {{ compiled_sequence | indent(6) }}. This is the right approach for the same reason templates exist — if HA changes indentation requirements, only the template changes.
+
+Do you approve the 12 templates above and the indent() filter approach?
+
+You said: yes i approve but is there more information you might need to make these work correctly
+yes i approve but is there more information you might need to make these work correctly
+
+4:26 PM
+Claude responded: Yes — I need to see the actual template files that are already working correctly to understand exactly how indentation, whitespace control, and block rendering…
+Yes — I need to see the actual template files that are already working correctly to understand exactly how indentation, whitespace control, and block rendering is handled in this specific Jinja2 environment. The trim_blocks=True and lstrip_blocks=True settings in the compiler's Jinja2 environment change how whitespace works significantly. Getting this wrong means every template produces malformed YAML indentation.
+
+Let me also check what templates are handling multi-line compiled blocks already — automation.yaml.j2 and script.yaml.j2 are the best reference since they receive compiled_triggers, compiled_conditions, and compiled_sequence as multi-line strings.
+
+
+Check what template files are available
+Check what template files are available
+The main automation and script templates aren't uploaded. Those are the critical reference — they're the only existing templates that receive multi-line compiled blocks. Without seeing exactly how they handle indentation of those blocks, I'd be guessing at the whitespace behavior and could produce templates that generate malformed YAML.
+
+I need:
+
+automation.yaml.j2 — shows how compiled_triggers, compiled_conditions multi-line blocks are indented
+script.yaml.j2 — shows how compiled_sequence multi-line block is indented
+snippets/with_block.yaml.j2 — wait, we have with_block_yaml.j2 already. But is it in a snippets/ subfolder in the actual repo? The compiler references "snippets/trigger_sun.yaml.j2" — I need to know the exact path structure
+The file naming here also tells me something — uploaded files use underscores (condition_time_yaml.j2) but the compiler calls them as snippets/condition_time.yaml.j2. I need to confirm the actual filenames and folder structure on disk before writing new templates that the compiler needs to find.
+
+Can you upload:
+
+automation.yaml.j2
+script.yaml.j2
+And confirm: are all the snippet templates in a snippets/ subfolder, or flat in the template directory?
+
+
+automation_yaml.j2
+j2
+
+
+script_yaml.j2
+j2
+
+
+AI-UPDATE-GUIDE.md
+411 lines
+
+md
+
+4:27 PM
+Claude responded: This is exactly what I needed.
+This is exactly what I needed. The AI-UPDATE-GUIDE.md is gold — it lists the exact filenames the templates should have in snippets/, and the automation/script templates show exactly how multi-line compiled blocks are passed in pre-indented as strings, not re-indented by the template. So the pattern is: Python pre-indents the block, template just drops it in raw. No indent() filter needed — that would double-indent.
+
+Also critical: the guide already lists the missing template filenames:
+
+snippets/if_block.yaml.j2
+snippets/repeat_until.yaml.j2
+snippets/for_each.yaml.j2 (not for_each_block)
+snippets/while_loop.yaml.j2 (not while_block)
+snippets/for_loop.yaml.j2
+snippets/switch_block.yaml.j2
+snippets/set_variable.yaml.j2 (local)
+snippets/set_global.yaml.j2 (global non-boolean)
+snippets/call_piston.yaml.j2
+snippets/control_piston.yaml.j2
+snippets/do_block.yaml.j2 — not listed in the guide. We need to add it.
+Also note: set_variable_boolean — the guide doesn't list a separate boolean template. Looking at the guide, set_global.yaml.j2 covers non-boolean globals, but boolean Yes/No needs its own set_global_boolean.yaml.j2 — also not listed. We need to add both to the guide.
+
+
+Viewed 2 files
+Viewed 2 files
+Good — script.yaml.j2 uses indent(4, first=True) for compiled_sequence. So the pattern IS Jinja2 indent filter on the top-level templates, but the snippets themselves handle their own child block indentation. Now I have everything I need.
+
+Let me now write all the templates and the updated compiler.py. I'll show each template as text first — all 12 at once since they're small — then show the compiler.py changes.
+
+Proposed Templates — All 12
+snippets/if_block.yaml.j2 Variables: stmt_id, compiled_condition, compiled_then, compiled_else (optional)
+
+jinja2
+- alias: "{{ stmt_id }}"
+  if:
+    - {{ compiled_condition }}
+  then:
+{{ compiled_then | indent(4, first=True) }}
+{% if compiled_else %}
+  else:
+{{ compiled_else | indent(4, first=True) }}
+{% endif %}
+snippets/repeat_until.yaml.j2 Variables: stmt_id, compiled_sequence, compiled_until_condition
+
+jinja2
+- alias: "{{ stmt_id }}"
+  repeat:
+    sequence:
+{{ compiled_sequence | indent(6, first=True) }}
+    until:
+      - {{ compiled_until_condition }}
+snippets/while_loop.yaml.j2 Variables: stmt_id, compiled_condition, compiled_sequence
+
+jinja2
+- alias: "{{ stmt_id }}"
+  repeat:
+    while:
+      - {{ compiled_condition }}
+    sequence:
+{{ compiled_sequence | indent(6, first=True) }}
+snippets/for_each.yaml.j2 Variables: stmt_id, entity_ids (list), compiled_sequence
+
+jinja2
+- alias: "{{ stmt_id }}"
+  repeat:
+    for_each:
+{% for eid in entity_ids %}
+      - {{ eid }}
+{% endfor %}
+    sequence:
+{{ compiled_sequence | indent(6, first=True) }}
+snippets/for_loop.yaml.j2 Variables: stmt_id, count, compiled_sequence, has_variables (bool), var_name, from_val, step
+
+jinja2
+- alias: "{{ stmt_id }}"
+  repeat:
+    count: {{ count }}
+    sequence:
+{% if has_variables %}
+      - variables:
+          {{ var_name }}: "{{ '{{' }} {{ from_val }} + (repeat.index0 * {{ step }}) {{ '}}' }}"
+{% endif %}
+{{ compiled_sequence | indent(6, first=True) }}
+snippets/switch_block.yaml.j2 Variables: stmt_id, cases (list of dicts with condition_expr, compiled_sequence), compiled_default (optional)
+
+jinja2
+- alias: "{{ stmt_id }}"
+  choose:
+{% for case in cases %}
+    - conditions:
+        - condition: template
+          value_template: "{{ case.condition_expr }}"
+      sequence:
+{{ case.compiled_sequence | indent(8, first=True) }}
+{% endfor %}
+{% if compiled_default %}
+  default:
+{{ compiled_default | indent(4, first=True) }}
+{% endif %}
+snippets/do_block.yaml.j2 Variables: stmt_id, compiled_sequence, label (optional)
+
+jinja2
+{% if label %}# do_block: {{ label }} ({{ stmt_id }})
+{% endif %}- alias: "{{ stmt_id }}"
+  sequence:
+{{ compiled_sequence | indent(4, first=True) }}
+snippets/set_variable.yaml.j2 Variables: stmt_id, var_name, value
+
+jinja2
+- alias: "{{ stmt_id }}"
+  variables:
+    {{ var_name }}: {{ value }}
+snippets/set_global.yaml.j2 Variables: stmt_id, service, helper_entity_id, field, value
+
+jinja2
+- alias: "{{ stmt_id }}"
+  action: {{ service }}
+  target:
+    entity_id: {{ helper_entity_id }}
+  data:
+    {{ field }}: {{ value }}
+  continue_on_error: true
+snippets/set_global_boolean.yaml.j2 Variables: stmt_id, val_template, helper_entity_id
+
+jinja2
+- alias: "{{ stmt_id }}"
+  choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ '{{' }} {{ val_template }} | bool {{ '}}' }}"
+      sequence:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: {{ helper_entity_id }}
+          continue_on_error: true
+  default:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: {{ helper_entity_id }}
+      continue_on_error: true
+snippets/call_piston.yaml.j2 Variables: stmt_id, target_id, wait_for_completion (bool)
+
+jinja2
+- alias: "{{ stmt_id }}"
+{% if wait_for_completion %}
+  action: script.pistoncore_{{ target_id }}
+{% else %}
+  action: script.turn_on
+  target:
+    entity_id: script.pistoncore_{{ target_id }}
+{% endif %}
+snippets/control_piston.yaml.j2 Variables: stmt_id, service, entity_id
+
+jinja2
+- alias: "{{ stmt_id }}"
+  action: {{ service }}
+  target:
+    entity_id: {{ entity_id }}
+Note on parallel_block: Looking at the AI-UPDATE-GUIDE, it's not listed as a snippet. The parallel case is handled inside _compile_with_block when there are multiple entities/tasks — it wraps with_block calls. I'll add snippets/parallel_block.yaml.j2 and add it to the guide.
+
+snippets/parallel_block.yaml.j2 Variables: stmt_id, branches (list of pre-rendered branch strings)
+
+jinja2
+- alias: "{{ stmt_id }}"
+  parallel:
+{% for branch in branches %}
+    - continue_on_error: true
+      sequence:
+{{ branch | indent(8, first=True) }}
+{% endfor %}
+One question before you approve and I write the files: the compiled_condition variable passed into if_block, while_loop, and repeat_until is a single condition body string — the result of _compile_single_condition() which returns text WITHOUT the leading - . So the template does - {{ compiled_condition }} to add the dash. But if a condition is multi-line (e.g. an AND/OR group), that inline -  on line one won't indent the continuation lines correctly.
+
+Do you want me to handle multi-line conditions by passing them pre-indented with the dash already included (same pattern as compiled_sequence), or keep the dash in the template and handle multi-line conditions as a known gap for now?
+
+You said: my take is fix it now not later.
+my take is fix it now not later.
+
+4:29 PM
+Claude responded: Right call.
+Right call. So the condition passed to templates will always include the leading -  and be fully pre-indented, same pattern as compiled_sequence. The template just drops it in raw — no dash, no indent filter on the condition block.
+
+That means _compile_single_condition() needs to return the full block including -  always, and the callers that currently strip/add the dash get cleaned up at the same time. This also eliminates the _strip_leading_dash() method and the Bug 4/5 double-dash workaround entirely — the template handles structure, Python handles data.
+
+Let me fully map the changed calling pattern before writing anything:
+
+Current mess:
+
+_compile_single_condition() returns body WITHOUT - 
+_strip_leading_dash() exists to remove -  from template output
+Callers manually prepend -  in some places, forget in others — that's what caused Bug 4/5
+New clean pattern:
+
+_compile_single_condition() returns the FULL block WITH -  always
+_strip_leading_dash() deleted
+Templates receive compiled_condition as a complete pre-rendered block
+For multi-line conditions (AND/OR groups), continuation lines are pre-indented by the method
+Templates use {{ compiled_condition }} raw — no dash, no indent filter
+This means the updated template for if_block becomes:
+
+jinja2
+- alias: "{{ stmt_id }}"
+  if:
+{{ compiled_condition | indent(4, first=True) }}
+  then:
+{{ compiled_then | indent(4, first=True) }}
+{% if compiled_else %}
+  else:
+{{ compiled_else | indent(4, first=True) }}
+{% endif %}
+And similarly for while_loop, repeat_until — condition is always a complete pre-indented block passed through indent() same as sequences.
+
+Do you approve this approach — _compile_single_condition() always returns the full block including - , _strip_leading_dash() deleted, all callers updated — before I start writing?
+
+You said: yes
+yes
+
+4:30 PM
+Claude responded: Good.
+Good. Now I have everything I need to write. The work is:
+
+13 new template files
+compiler.py — _compile_single_condition() returns full block, _strip_leading_dash() deleted, all control-flow methods route through templates, all callers cleaned up
+AI-UPDATE-GUIDE.md — add missing templates to the file list and document their variables
+I'll write in that order. Templates first since they're the contract everything else conforms to.
+
+
+Created 13 files, ran a command
+Created 13 files, ran a command
+All 13 templates written. Now compiler.py. This is the big one — I'll rewrite every affected method. Let me work through them systematically:
+
+
+Rewrite _compile_single_condition to return full block with dash, delete _strip_leading_dash, fix AND/OR groups
+Rewrite _compile_single_condition to return full block with dash, delete _strip_leading_dash, fix AND/OR groups
+Now fix _compile_conditions — it was prepending -  manually:
+
+
+Ran 3 commands, edited 2 files, viewed 2 files
+Ran 3 commands, edited 2 files, viewed 2 files
+Now rewrite all the control-flow methods to use templates:
+
+
+Ran 9 commands, viewed 3 files
+Ran 9 commands, viewed 3 files
+Now the parallel block, switch block, do block, set_variable, call_piston, control_piston:
+
+
+Ran 4 commands
+Ran 4 commands
+Now do_block, set_variable, call_piston, control_piston:
+
+
+Ran 3 commands
+Ran 3 commands
+Now fix the only_when inline condition and the unresolved global no-op comment — both still emit inline YAML:
+
+
+Fix only_when and unresolved global inline YAML
+Fix only_when and unresolved global inline YAML
+Now we also need the condition_and.yaml.j2 and condition_or.yaml.j2 templates that the new _compile_single_condition references for AND/OR groups:
+
+
+Created 2 files
+Created 2 files
+Now do a final syntax check and verify no inline YAML remains:
+
+
+Ran 2 commands
+Ran 2 commands
+One remaining. Let me check what that is:
+
+
+Check line 940 context
+Check line 940 context
+The old lines = [...] line is orphaned — the replacement left it behind. Easy fix:
+
+
+Ran 2 commands
+Ran 2 commands
+Clean. No inline YAML remaining. Now update AI-UPDATE-GUIDE.md to document the new templates and add the template rule to a working copy of CLAUDE_SESSION_PROMPT.md:
+
+
+Update AI-UPDATE-GUIDE.md file list with new templates
+Update AI-UPDATE-GUIDE.md file list with new templates
+Session limit reached — here's where we are:
+
+Completed this session:
+
+All 15 new template files created (13 control-flow + condition_and + condition_or)
+compiler.py fully converted — every method now routes through templates
+_strip_leading_dash() deleted, Bug 4/5 properly fixed
+_compile_single_condition() now returns full block with -  always
+AND/OR groups use new condition_and/or templates
+Bug 8 (time conditions), Bug 9 (aggregation), Bug 10 (is_trigger filter), Bug 16 (for_loop substitution) all fixed as part of the rewrite
+AI-UPDATE-GUIDE.md updated with new template list
+Syntax verified clean, no inline YAML remaining
+Not yet done this session:
+
+Bugs 11-15, 17-21, 25 in compiler.py still pending (S1-7 proper)
+CLAUDE_SESSION_PROMPT.md and TASKS.md not yet updated (covering sessions 32+33)
+Files not yet written to outputs
+Next session needs: Same files as this session — compiler.py, all templates, CLAUDE_SESSION_PROMPT.md, TASKS.md. Start by writing outputs from this session, then continue S1-7 bug fixes.
+
+Do you want me to write the output files now before we lose the context?
+
+You said: Continue
+Continue
+
+4:38 PM
+Claude responded: Writing outputs first, then continuing with the remaining bugs.
+Writing outputs first, then continuing with the remaining bugs.
+
+
+Copy all outputs
+Copy all outputs
+Good. Now continuing with the remaining S1-7 bugs. Let me check what's left:
+
+Remaining bugs:
+
+Bug 11 — $sunrise/$sunset offset uses string not datetime (compiler.py _resolve_operand)
+Bug 12 — Parallel branch missing continue_on_error at sequence level (already in template — verify)
+Bug 13 — Completion event in switch/do branches (verify _append_completion_event=False)
+Bug 14 — $currentEventDevice context-dependent resolution
+Bug 15 — File signature header (verify templates)
+Bug 17 — $sunrise/$sunset string vs datetime in _resolve_operand
+Bug 18 — $currentEventDevice (same as Bug 14)
+Bug 19 — _field_type entity_id selector (ha_client.py — deferred to S2-x)
+Bug 20 — File signature header verify
+Bug 21 — Hash not computed (already done in Session 31 — verify)
+Bug 25 — No PyScript dispatch branch
+
+Verify Bug 13 - completion event flags in switch and do
+Verify Bug 13 - completion event flags in switch and do
+Bug 13 ✅ — both switch and do pass _append_completion_event=False. Now verify Bug 12 — parallel branch continue_on_error at sequence level:
+
+
+Check parallel_block template for continue_on_error
+Check parallel_block template for continue_on_error
+Bug 12 ✅ — continue_on_error: true at the branch sequence level is in the template. Now Bug 17 — $sunrise/$sunset offset:
+
+
+Viewed a file, ran a command
+Viewed a file, ran a command
+Now Bug 18 — $currentEventDevice context-dependent resolution. The old code had "$currentEventDevice": "var_name" which is wrong. We removed it in Bug 17 fix. Now we need to handle it properly in _resolve_operand:
+
+
+Fix Bug 18 - $currentEventDevice context-dependent resolution
+Fix Bug 18 - $currentEventDevice context-dependent resolution
+Now Bug 25 — PyScript dispatch branch in compile_piston:
+
+
+Fix Bug 25 - PyScript dispatch branch
+Fix Bug 25 - PyScript dispatch branch
+Now verify Bug 20 — file signature header format in templates:
+
+
+Verify Bug 20 - file signature headers in templates
+Verify Bug 20 - file signature headers in templates
+Bug 20 ✅ — headers match COMPILER_SPEC Section 6 exactly. Bug 21 (hash computation) was already implemented in Session 31 in api.py — verified ✅.
+
+Final syntax check and audit:
+
+
+Final syntax check and inline YAML audit
+Final syntax check and inline YAML audit
+Clean. Copy final outputs:
+
+
+Ran a command, read a file
+Ran a command, read a file
+Sessions 32, 33, and the S1-7/S1-8 work done. Here's the summary for CLAUDE_SESSION_PROMPT.md and TASKS.md:
+
+What Was Done — Sessions 32, 33, S1-8, S1-7
+Session 32 — S1-6: Fat Compiler Context Assembly. COMPLETE.
+
+context_builder.py created. build_compiler_context(piston) implemented.
+ha_client.py: get_all_states(), get_services_for_domains(), get_areas(), get_ha_version() (reads from auth_ok WebSocket handshake) added.
+api.py: stub context dict replaced with context_builder call. _get_app_version() removed (dead code). CONTEXT_BUILD_ERROR handling added.
+MISSING_SPECS.md Item 13 closed.
+Session 33 — S1-8: Template Compliance Pass. COMPLETE.
+
+Audit found every control-flow method in compiler.py was emitting HA YAML inline in Python — violating the core template architecture.
+16 new templates created in snippets/: if_block, repeat_until, while_loop, for_each, for_loop, switch_block, do_block, parallel_block, set_variable, set_global, set_global_boolean, call_piston, control_piston, condition_and, condition_or, parallel_block.
+compiler.py: every method now routes through templates. Zero inline YAML in Python.
+_strip_leading_dash() deleted. _compile_single_condition() now returns full block including -  always — Bug 4/5 properly fixed at the root.
+AI-UPDATE-GUIDE.md updated with all new templates.
+Standing rule added: Every compiler output that touches HA YAML syntax must go through a Jinja2 template. Inline HA YAML in Python is a bug.
+Session 33 continued — S1-7 Bug Fixes. PARTIAL.
+
+Bugs fixed:
+
+Bug 8 ✅ — Conditions now compile via _compile_single_condition() → template path. Full template-condition compiler built including _compile_numeric_condition() and _compile_state_condition().
+Bug 9 ✅ — Aggregation (any/all) now handled in _compile_numeric_condition() and _compile_state_condition() using Jinja2 template expressions.
+Bug 10 ✅ — is_trigger conditions filtered in _compile_if_block() before compiling conditions.
+Bug 12 ✅ — continue_on_error: true at branch sequence level now in parallel_block.yaml.j2.
+Bug 13 ✅ — Verified: switch and do blocks pass _append_completion_event=False.
+Bug 16 ✅ — for_loop uses repeat.index/repeat.index0 substitution correctly via template.
+Bug 17 ✅ — $sunrise/$sunset now uses as_datetime(state_attr(...)) so offset arithmetic works.
+Bug 18 ✅ — $currentEventDevice resolves to trigger.entity_id in native compile context.
+Bug 20 ✅ — File signature headers verified correct in templates.
+Bug 21 ✅ — Hash computation verified done in Session 31 api.py.
+Bug 25 ✅ — PyScript dispatch branch added to compile_piston() — returns PYSCRIPT_NOT_IMPLEMENTED error with clear message.
+MISSING_SPECS.md Item 14 (time condition) ✅ — _compile_time_condition() implemented, routes through condition_time.yaml.j2.
+Bugs deferred per plan:
+
+Bug 26 (ThreadPoolExecutor) → S2-1
+Bug 27 (get_services cache per entity) → S2-1
+Bug 28 (_field_type entity_id selector) → S2-2 or wizard session
+Gaps found:
+
+GAP-S33-1: else_ifs on if blocks still not compiled — _compile_if_block() handles then and else but else_ifs array is ignored. Fits S1-7 session 3 or S2-x. (This was GAP-S28-2 — still open.)
+GAP-S33-2: condition_and.yaml.j2 and condition_or.yaml.j2 receive pre-compiled condition blocks and re-indent them — needs real-world testing to confirm indentation is correct in nested cases.
+GAP-S33-3: _compile_time_condition() raises CompilerError for operator == "is" (exact time) — this aborts compile entirely rather than degrading gracefully with a warning. Should be a warning + 1-second window. Low priority.
+Next task: S2-0 — Storage Architecture Spec + SQLite Setup. Upload: main.py, storage.py, DESIGN.md, MISSING_SPECS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md.
+
+Template rule to add to CLAUDE_SESSION_PROMPT.md:
+
+Template rule — ALL HA YAML syntax must go through Jinja2 templates in the
+customize volume. Never emit HA YAML structure as Python strings inline in
+compiler methods. If you find inline YAML in Python, that is a bug — add it
+to TASKS.md. Templates exist so HA syntax changes require only a template
+edit, never a Python code release. This rule has been violated three times
+and caught by Jeremy each time — it is non-negotiable.
+
+Compiler
+PY 
+
+If block.yaml
+J2 
+
+Repeat until.yaml
+J2 
+
+While loop.yaml
+J2 
+
+For each.yaml
+J2 
+
+For loop.yaml
+J2 
+
+Switch block.yaml
+J2 
+
+Do block.yaml
+J2 
+
+Parallel block.yaml
+J2 
+
+Set variable.yaml
+J2 
+
+Set global.yaml
+J2 
+
+Set global boolean.yaml
+J2 
+
+Call piston.yaml
+J2 
+
+Control piston.yaml
+J2 
+
+Condition and.yaml
+J2 
+
+Condition or.yaml
+J2 
+
+Ai update guide
+Document · MD 
+You said: commit comments for the files
+commit comments for the files
+
+4:42 PM
+Claude responded: Session 32 — contextbuilder.
+Session 32 — context_builder.py, ha_client.py, api.py, MISSING_SPECS.md:
+
+S1-6: Fat compiler context assembly — context_builder.py
+
+- Add context_builder.py: build_compiler_context() assembles fat context
+  per COMPILER_SPEC Section 7. Aborts on entity_states failure, all other
+  HA fetches degrade gracefully. Zones filtered from entity_states (no
+  extra call). globals dict converted to list for compiler.
+- ha_client.py: add get_all_states(), get_services_for_domains(),
+  get_areas(), get_ha_version() (reads version from auth_ok handshake,
+  no REST calls).
+- api.py: replace stub context dict with context_builder call. Remove
+  dead _get_app_version(). Add CONTEXT_BUILD_ERROR handling.
+- MISSING_SPECS.md: close Item 13.
+Session 33 — compiler.py, all new templates, AI-UPDATE-GUIDE.md:
+
+S1-8 + S1-7: Template compliance pass + compiler bug fixes
+
+S1-8 — Template compliance:
+- Add 16 new snippets: if_block, repeat_until, while_loop, for_each,
+  for_loop, switch_block, do_block, parallel_block, set_variable,
+  set_global, set_global_boolean, call_piston, control_piston,
+  condition_and, condition_or. All control-flow methods now route
+  through templates — zero inline HA YAML in Python.
+- Delete _strip_leading_dash(). _compile_single_condition() now returns
+  full block including leading "- " always. Bug 4/5 fixed at root.
+- AI-UPDATE-GUIDE.md: document all new templates and variables.
+
+S1-7 — Bug fixes:
+- Bug 8: full template-condition compiler built. _compile_numeric_condition()
+  and _compile_state_condition() added.
+- Bug 9: aggregation (any/all) handled via Jinja2 template expressions.
+- Bug 10: is_trigger conditions filtered before if-block condition compile.
+- Bug 12: continue_on_error at branch sequence level in parallel_block.yaml.j2.
+- Bug 16: for_loop uses repeat.index/index0 substitution via template.
+- Bug 17: $sunrise/$sunset use as_datetime() so offset arithmetic works.
+- Bug 18: $currentEventDevice resolves to trigger.entity_id in native context.
+- Bug 25: PyScript dispatch branch added — returns PYSCRIPT_NOT_IMPLEMENTED.
+- Time condition spec (MISSING_SPECS Item 14): _compile_time_condition()
+  implemented, routes through condition_time.yaml.j2.
+You said: now one problem the new *.
+now one problem the new *.j2 files did not overwrite the old ones when i copied them over meaning you changed the name somehow
+
+4:44 PM
+Claude responded: Yes — the upload filenames used underscores instead of dots for the .
+Yes — the upload filenames used underscores instead of dots for the .yaml.j2 part. For example condition_time_yaml.j2 instead of condition_time.yaml.j2. When you copied them the names stayed wrong.
+
+The files that already existed in the snippets folder and needed to be overwritten are:
+
+condition_time_yaml.j2 → should be condition_time.yaml.j2
+condition_state_yaml.j2 → should be condition_state.yaml.j2
+condition_numeric_yaml.j2 → should be condition_numeric.yaml.j2
+condition_template_yaml.j2 → should be condition_template.yaml.j2
+with_block_yaml.j2 → should be with_block.yaml.j2
+wait_until_yaml.j2 → should be wait_until.yaml.j2
+wait_duration_yaml.j2 → should be wait_duration.yaml.j2
+wait_for_state_yaml.j2 → should be wait_for_state.yaml.j2
+stop_yaml.j2 → should be stop.yaml.j2
+log_message_yaml.j2 → should be log_message.yaml.j2
+completion_event_yaml.j2 → should be completion_event.yaml.j2
+trigger_state_yaml.j2 → should be trigger_state.yaml.j2
+trigger_sun_yaml.j2 → should be trigger_sun.yaml.j2
+trigger_time_yaml.j2 → should be trigger_time.yaml.j2
+trigger_time_pattern_yaml.j2 → should be trigger_time_pattern.yaml.j2
+trigger_numeric_yaml.j2 → should be trigger_numeric.yaml.j2
+trigger_event_yaml.j2 → should be trigger_event.yaml.j2
+trigger_homeassistant_yaml.j2 → should be trigger_homeassistant.yaml.j2
+trigger_webhook_yaml.j2 → should be trigger_webhook.yaml.j2
+The new templates I created this session already have the correct names (if_block.yaml.j2, repeat_until.yaml.j2 etc.) so those are fine. The problem is only the pre-existing ones that came in through the upload with the wrong naming pattern.
+
+The fix is simple — in your snippets folder, rename all the *_yaml.j2 files to *.yaml.j2. On Linux/Mac:
+
+bash
+cd /path/to/snippets
+for f in *_yaml.j2; do
+    mv "$f" "${f/_yaml.j2/.yaml.j2}"
+done
+On Windows you'd need to do them one by one or use a PowerShell rename. Do you want me to generate a script for whichever OS your Unraid terminal runs?
+
+You said: we are at 46% used is that enough to finish what we thought we where gong to do and update tasks and the sesion prompt or should we start a new sesion after up…
+we are at 46% used is that enough to finish what we thought we where gong to do and update tasks and the sesion prompt or should we start a new sesion after updating because this is a long chat
+
+4:52 PM
+Claude responded: Honestly, at 46% we have enough room, but this chat is already very long which means I'm carrying a lot of context overhead on every response.
+Honestly, at 46% we have enough room, but this chat is already very long which means I'm carrying a lot of context overhead on every response. The risk is that toward the end I start losing track of details from earlier in the conversation.
+
+My recommendation: start a new session now.
+
+Here's why:
+
+TASKS.md and CLAUDE_SESSION_PROMPT.md updates are the most important thing to get right — they're the handoff document for every future session. Better to do them fresh with a clean context window than rushed at the end of a long one.
+The next task (S2-0) is a spec-writing session with no code — clean and self-contained, perfect for a fresh start.
+We haven't lost anything — all files are written to outputs.
+What to do before closing this session:
+
+Upload the summary text I gave you into CLAUDE_SESSION_PROMPT.md and TASKS.md manually, or start a new session and upload both files plus the summary and let Claude do the updates cleanly.
+
+Files to upload for the next session (S2-0):
+
+CLAUDE_SESSION_PROMPT.md (updated)
+TASKS.md (updated)
+main.py
+storage.py
+DESIGN.md
+MISSING_SPECS.md
+Does that work for you?
+
+You said: I do not update the files when they are complex edits i mess it up every time.
+I do not update the files when they are complex edits i mess it up every time.  i need you to do it.  all i will do is add to the top or bottom of a file not insert here and there
+
+4:54 PM
+Claude responded: Understood — upload CLAUDESESSIONPROMPT.
+Understood — upload CLAUDE_SESSION_PROMPT.md and TASKS.md and I'll make all the edits cleanly before we close this session.
+
+
+CLAUDE_SESSION_PROMPT.md
+md
+
+
+TASKS.md
+md
+
+4:54 PM
+Claude responded: Good.
+
+Viewed 2 files, ran a command
+Viewed 2 files, ran a command
+Good. Now I'll make all the edits. First CLAUDE_SESSION_PROMPT.md:
+
+
+Update session status in CLAUDE_SESSION_PROMPT.md
+Update session status in CLAUDE_SESSION_PROMPT.md
+Now update the deploy/context status block and add the template rule:
+
+
+Update deploy/context block and add template rule to CLAUDE_SESSION_PROMPT.md
+Update deploy/context block and add template rule to CLAUDE_SESSION_PROMPT.md
+Now TASKS.md — mark S1-6 done, add S1-8 as done, update S1-7 bug list, add new gaps, move bugs to future sessions:
+
+
+Viewed a file, ran a command
+Viewed a file, ran a command
+Now add the new gaps to the gaps section in TASKS.md:
+
+
+Viewed 2 files, ran a command
+Viewed 2 files, ran a command
+Now verify both files look right and copy to outputs:
+
+
+Verify key changes in both files
+Verify key changes in both files
+Everything looks correct. Copy to outputs:
+
+
+Ran a command, read a file
+Ran a command, read a file
+All done. Here's what was produced this session — everything ready to commit:
+
+Files to commit:
+
+CLAUDE_SESSION_PROMPT.md — sessions 32+33 documented, template rule added
+TASKS.md — S1-6/S1-8 marked done, S1-7 partial, three new gaps added
+compiler.py — template compliance + S1-7 bug fixes
+context_builder.py — new file
+ha_client.py — four new functions
+api.py — context_builder wired in
+MISSING_SPECS.md — Items 13 and 14 closed
+AI-UPDATE-GUIDE.md — 15 new templates documented
+snippets/*.yaml.j2 — 15 new template files
+Next session: S1-7 session 3 (remaining bugs: GAP-S33-1 else_ifs, GAP-S33-3 time exact, then PyScript template design spec before any PyScript code). Same file list as before — compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md.
+
+
+Claude session prompt
+Document · MD 
+
+Tasks
+Document · MD 
+
+
+Want to be notified when Claude responds?
+
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

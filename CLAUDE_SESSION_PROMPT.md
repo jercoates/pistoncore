@@ -41,93 +41,101 @@ it must announce which door opened in HA.
 
 ---
 
-## Project Status — Session 31 Complete
+## Project Status — Sessions 32 + 33 Complete
 
-### What Was Done in Session 31
+### What Was Done in Session 32 (S1-6: Fat Compiler Context Assembly)
 
-**S1-5: Deploy endpoint. Full implementation. COMPLETE.**
+**S1-6: Fat compiler context assembly. COMPLETE.**
 
-**DESIGN.md changes:**
-- Section 19: Added first-run configuration.yaml setup exception — documents the
-  two lines PistonCore appends, rules governing the exception, first-run warning
-  requirement, and documentation requirement. This was a design gap that had been
-  discussed but never written into the spec.
-
-**storage.py changes:**
-- `load_config()` defaults: added `ha_config_path: ""` and `ha_restart_required: False`.
-
-**main.py changes:**
-- Added `contextlib.asynccontextmanager` import and `import storage`.
-- Added `_setup_ha_config()` — checks/appends PistonCore include directives to
-  `configuration.yaml` on startup, creates `automations/pistoncore/`,
-  `scripts/pistoncore/`, `pyscript/pistoncore/` subdirectories, sets
-  `ha_restart_required: True` if lines were added. Idempotent — safe to run
-  on every startup.
-- Added `lifespan()` context manager — calls `_setup_ha_config()` at startup.
-- Wired `lifespan=lifespan` into `FastAPI()` constructor.
+**context_builder.py — new file:**
+- `ContextBuildError` exception class.
+- `build_compiler_context(piston)` — assembles full fat context per COMPILER_SPEC
+  Section 7. Aborts on entity_states failure. All other HA fetches degrade
+  gracefully. Zones filtered from entity_states (no extra call). globals dict
+  converted to list. piston_variables pass-through.
 
 **ha_client.py changes:**
-- Added `call_service(domain, service, service_data=None)` — public sync wrapper.
-- Added `_call_service(domain, service, service_data)` — async implementation via
-  `_ws_call()`. Used by deploy for `automation.reload`, `script.reload`.
+- `get_all_states()` / `_fetch_all_states()` — WebSocket get_states, returns
+  `{entity_id: {state, attributes}}`. Raises HAClientError on failure.
+- `get_services_for_domains(domains)` / `_fetch_services_for_domains()` —
+  WebSocket get_services, filters to requested domains. Degrades gracefully.
+- `get_areas()` / `_fetch_areas()` — WebSocket area_registry/list. Degrades.
+- `get_ha_version()` / `_fetch_ha_version()` — reads `ha_version` from
+  `auth_ok` WebSocket handshake. Returns "unknown" on any failure.
 
 **api.py changes:**
-- Added `import hashlib` at top.
-- `deploy_piston()`: full implementation replacing the TODO stub. Checks
-  `ha_config_path`, compiles, checks `ha_restart_required` for script pistons,
-  resolves output paths, checks hash mismatch (skippable with `force=True`),
-  writes files, calls `automation.reload` / `script.reload`, marks piston
-  deployed, clears `ha_restart_required` on first successful script deploy.
-- `_check_hash_mismatch(existing_path)`: reads `pc_hash` from deployed file
-  header, recomputes hash of body, returns True if manually edited.
-- `delete_piston()`: now removes compiled HA files (automation + script) after
-  deleting from storage. Safety check — only removes files with PistonCore
-  signature. Calls `automation.reload` and `script.reload` after removal.
-  Best-effort — piston is always deleted from PistonCore regardless of HA errors.
+- Added `import context_builder` and `from context_builder import ContextBuildError`.
+- `_compile()` rewritten — calls `build_compiler_context()`, handles
+  `ContextBuildError` with `CONTEXT_BUILD_ERROR` code. Stub dict removed.
+- `_get_app_version()` removed — dead code after rewrite.
 
-**automation_yaml.j2 changes:**
-- GAP-S30-8: standardized to `{{ piston_id }}` throughout. Line 2 (`pc_piston_id`)
-  and line 4 (`id: pistoncore_`) were using `{{ piston.id }}` — corrected to
-  `{{ piston_id }}` to match `script_yaml.j2` and the compiler's explicit pass.
+**MISSING_SPECS.md:** Item 13 closed.
 
-**backend/README.md changes:**
-- Removed all companion references (now fully replaced by ha_config_path approach).
-- Added first-run warning notice at top per DESIGN.md Section 19 documentation
-  requirement.
-- Added `ha_client.py` to files table.
-- Updated deploy endpoint description to reflect actual implementation.
-- Added Deploy — HA Config Path section explaining the three deployment scenarios.
-- Updated compiler quick test reference from Section 17 to Section 18.
-- Updated DESIGN.md version reference from v0.9.1 to v1.1.
+**Gaps found Session 32:**
+- GAP-S32-1: `_get_app_version()` dead code — fixed same session.
 
-**Gaps found Session 31 — new:**
-- GAP-S31-1: `get_all_slugs()` in storage.py imports Compiler inside function —
-  circular import risk. Fix: move `slugify` to `utils.py`. ✅ CLOSED SAME SESSION.
-- GAP-S31-2: `_setup_ha_config()` startup errors not surfaced to user in UI —
-  if `configuration.yaml` write fails (wrong path, read-only), only a log warning.
-  Fits S4-0 error states inventory.
-- GAP-S31-3: PyScript deploy path not implemented — directory created on startup
-  but deploy endpoint has no PyScript file write or `pyscript.reload`. Fits S1-7
-  session 2 when PyScript compiler is built.
-- GAP-S31-5: `ha_config_path` setting has no UI — user must edit config.json
-  directly. Blocked by MISSING_SPECS.md Item 3 (Settings page spec). No action.
-- GAP-S31-6: `endpoints.json` in customize volume references `write_automation`
-  REST endpoint that does not exist in HA. Should be removed or corrected to
-  reflect WebSocket + filesystem approach. Fits a spec/customize volume cleanup
-  pass. Low priority.
+---
 
-**Gaps closed this session:**
-- GAP-S30-8 ✅ automation_yaml.j2 piston.id → piston_id standardized
-- GAP-S31-1 ✅ utils.py created, slugify moved from Compiler class, storage.py
-  updated — circular import risk eliminated
-- GAP-S31-4 ✅ delete_piston now removes compiled HA files (closed same session)
-- GAP-S29-14 ✅ slugify now in utils.py — was same issue as GAP-S31-1
-- backend/README.md companion references ✅ cleaned
+### What Was Done in Session 33 (S1-8: Template Compliance + S1-7: Bug Fixes)
 
-**Not done this session — carried forward:**
+**S1-8: Template compliance pass. COMPLETE.**
+
+Audit found every control-flow method in compiler.py was emitting HA YAML
+inline in Python — violating the core template architecture. All fixed.
+
+**New snippet templates created (snippets/ folder):**
+`if_block.yaml.j2`, `repeat_until.yaml.j2`, `while_loop.yaml.j2`,
+`for_each.yaml.j2`, `for_loop.yaml.j2`, `switch_block.yaml.j2`,
+`do_block.yaml.j2`, `parallel_block.yaml.j2`, `set_variable.yaml.j2`,
+`set_global.yaml.j2`, `set_global_boolean.yaml.j2`, `call_piston.yaml.j2`,
+`control_piston.yaml.j2`, `condition_and.yaml.j2`, `condition_or.yaml.j2`.
+Total: 15 new templates. Zero inline HA YAML in Python after this session.
+
+**compiler.py changes (S1-8):**
+- `_strip_leading_dash()` deleted.
+- `_compile_single_condition()` now returns full block including `- ` always.
+  Bug 4/5 fixed at root — no more manual dash prepending anywhere.
+- All control-flow methods rewritten to route through templates:
+  `_compile_if_block`, `_compile_repeat_block`, `_compile_while_block`,
+  `_compile_for_each_block`, `_compile_for_loop`, `_compile_switch_block`,
+  `_compile_do_block`, `_compile_with_block` (parallel), `_compile_set_variable`
+  (all three variants), `_compile_call_piston`, `_compile_control_piston`.
+- `_compile_numeric_condition()` and `_compile_state_condition()` added as
+  dedicated methods handling aggregation correctly.
+- `_compile_time_condition()` added — routes through condition_time.yaml.j2.
+- `condition_and.yaml.j2` and `condition_or.yaml.j2` added for AND/OR groups.
+- `AI-UPDATE-GUIDE.md` updated with all new templates.
+
+**compiler.py changes (S1-7 bug fixes):**
+- Bug 8 ✅ Full template-condition compiler built.
+- Bug 9 ✅ Aggregation (any/all) handled via Jinja2 template expressions.
+- Bug 10 ✅ is_trigger conditions filtered before if-block condition compile.
+- Bug 12 ✅ continue_on_error at branch sequence level in parallel_block.yaml.j2.
+- Bug 13 ✅ Verified: switch and do pass _append_completion_event=False.
+- Bug 16 ✅ for_loop uses repeat.index/index0 substitution via template.
+- Bug 17 ✅ $sunrise/$sunset use as_datetime() so offset arithmetic works.
+- Bug 18 ✅ $currentEventDevice resolves to trigger.entity_id in native context.
+- Bug 20 ✅ File signature headers verified correct in templates.
+- Bug 21 ✅ Hash computation verified done in Session 31 api.py.
+- Bug 25 ✅ PyScript dispatch branch added — returns PYSCRIPT_NOT_IMPLEMENTED.
+- MISSING_SPECS.md Item 14 (time condition) ✅ _compile_time_condition() built.
+
+**Bugs deferred (fit existing future sessions):**
+- Bug 26 (ThreadPoolExecutor) → S2-1
+- Bug 27 (get_services cache per entity) → S2-1
+- Bug 28 (_field_type entity_id selector) → S2-2
+
+**Gaps found Session 33:**
+- GAP-S33-1: else_ifs on if blocks not compiled — _compile_if_block handles
+  then/else but else_ifs array is ignored. Same as GAP-S28-2. Fits S1-7 session 3.
+- GAP-S33-2: condition_and/or templates receive pre-compiled blocks — indentation
+  in nested cases needs real-world testing to confirm correctness.
+- GAP-S33-3: _compile_time_condition() raises CompilerError for operator=="is"
+  (exact time) — should degrade to warning + 1-second window. Low priority.
+
+**Not done — carried forward from Session 31:**
 - GAP-S29-11: Pydantic validation model — deferred, non-trivial
-- GAP-S29-18: MISSING_SPECS.md pass — confirmed accurate, closed
-- GAP-S28-1: `tasks` embedded vs flat needs spec documentation — needs
+- GAP-S28-1: tasks embedded vs flat needs spec documentation — needs
   PISTON_FORMAT.md in context
 
 ### What Was Done in Session 30
@@ -355,9 +363,13 @@ function, and tried to tuple-unpack a CompilerResult dataclass. All fixed in S1-
 - ✅ ha_restart_required flag — set on startup, cleared on first successful script deploy
 - ✅ configuration.yaml setup on startup (_setup_ha_config in main.py)
 
-**Context assembly (S1-6 — not yet implemented):**
-- No build_compiler_context() function exists
-- Compiler receives stub context on every compile
+**Context assembly (S1-6 — DONE Session 32):**
+- context_builder.py exists, build_compiler_context() fully implemented
+- Compiler receives real fat context on every compile
+
+**Template compliance (S1-8 — DONE Session 33):**
+- All compiler methods route through Jinja2 templates — zero inline HA YAML in Python
+- 15 new snippet templates created. AI-UPDATE-GUIDE.md updated.
 
 **Wizard (deferred):**
 - on_event wizard warning not yet implemented
@@ -453,6 +465,19 @@ server IP so the frontend can reach the backend from other machines on the LAN.
 Example: `PISTONCORE_BASE_URL=http://192.168.1.10:7777`
 Without it, BASE_URL defaults to localhost:7777 which only works when browser
 and server are on the same machine.
+
+---
+
+## Template Rule — Non-Negotiable
+
+**ALL HA YAML syntax must go through Jinja2 templates in the customize volume.**
+Never emit HA YAML structure as Python inline strings in compiler methods.
+If you find inline YAML in Python, that is a bug — add it to TASKS.md immediately.
+
+Templates exist so HA syntax changes require only a template edit, never a
+Python code release. This is core to the architecture per DESIGN.md and
+AI-UPDATE-GUIDE.md. This rule has been violated three times and caught by
+Jeremy each time. It is non-negotiable — there are no exceptions.
 
 ---
 

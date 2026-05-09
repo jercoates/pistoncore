@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 31 complete (S1-5 deploy implementation done)
+**Last Updated:** Session 33 complete (S1-8 template compliance + S1-7 partial bug fixes done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -221,134 +221,76 @@ Verify automation appears in HA automations list after reload.
 
 ---
 
-### S1-6: Fat Compiler Context Assembly ← NEXT TASK
+### S1-6: Fat Compiler Context Assembly ✅ DONE (Session 32)
 
-**What was done:** See Session 28 entry in DONE section below.
-
-**Outstanding before fully closed:**
-- GAP-S28-3: ✅ DONE Session 30 — templates fixed, S1-5 unblocked.
-- GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
-  this task is fully done. Can be done standalone or at start of S1-4 session.
-
----
-
-### S1-6: Fat Compiler Context Assembly ← NEXT TASK
-
-**Why:** The compiler receives a fat context object (COMPILER_SPEC.md Section 7)
-containing entity states, services, HA version, globals, and more. Nothing
-currently builds this object. S1-5 deploy works with a stub context — this
-replaces the stub with real data from HA.
-**Depends on:** S1-5 ✅ complete.
-**Spec ref:** COMPILER_SPEC.md Section 7, DESIGN.md Section 4, MISSING_SPECS.md Item 13
-**Upload:** api.py, ha_client.py, COMPILER_SPEC.md, DESIGN.md, MISSING_SPECS.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
-
-**Note:** Write the fat context spec first in this session (no code), then
-implement. See MISSING_SPECS.md Item 13.
-
-**What gets built:**
-A `build_compiler_context(piston, ha_client)` function that:
-1. Reads piston JSON (pass through)
-2. Calls `GET /api/states` via HAClient → builds `entity_states` dict
-3. Calls `GET /api/services` via HAClient for domains in piston device_map → builds `services` dict
-4. Calls `GET /api/` via HAClient → reads `version` field → `ha_version`
-5. Reads `globals.json` from userdata volume → builds `global_variables` array
-6. Reads piston `variables` array → `piston_variables` (pass through)
-7. Calls `GET /api/states` filtered for `zone.*` entities → `zones`
-8. Calls area registry endpoint → `areas`
-9. Assembles into fat context object and returns it
-
-**Failure handling:**
-- Entity states fetch fails → abort deploy, return error to frontend
-- Services fetch fails → degrade gracefully, compiler warns on unknown services
-- HA version fetch fails → use `"unknown"`, compiler proceeds with warnings
-- globals.json missing → treat as empty list, not an error
-
-**Where this code lives:** New file context_builder.py — not ha_client.py, not api.py.
-api.py calls it.
-
-**Output:** `compile_piston()` receives a real fat context object on every deploy.
-No more stub context. Compiler warnings about missing entity data are now meaningful.
+**What was done:**
+- context_builder.py created. build_compiler_context(piston) fully implemented.
+- ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
+  get_ha_version() (reads from auth_ok WebSocket handshake) added.
+- api.py: stub context dict replaced with context_builder call.
+  _get_app_version() removed (dead code). CONTEXT_BUILD_ERROR handling added.
+- MISSING_SPECS.md Item 13 closed.
 
 ---
 
-### S1-7: Compiler Bug Fixes — Session 2 of 2 (After S1-6)
+### S1-8: Template Compliance Pass ✅ DONE (Session 33)
 
-**Do after:** S1-6 complete (real context assembly in place).
-**Spec ref:** COMPILER_SPEC.md Section 11. PISTON_FORMAT.md. STATEMENT_TYPES.md.
-**Note:** Read MISSING_SPECS.md Item 14 (Time Condition Compiler Path) before
-starting Bug 8. That spec must be written before the template-condition compiler
-is coded. Write it in this session if not already done.
-**Upload:** compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md,
-PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**What was done:**
+Audit found every control-flow compiler method was emitting HA YAML inline in
+Python — violating the core template architecture. All methods now route through
+Jinja2 templates. Zero inline HA YAML in Python after this session.
 
-**REQUIRED DESIGN DECISION BEFORE CODING — PyScript templates (GAP-S28-5):**
-PyScript has occasional API changes (decorator names, `task.unique()` syntax,
-`service.call()` signature, `state_trigger` argument format). The native YAML
-compiler uses Jinja2 templates for exactly this reason. The PyScript compiler
-must make the same decision before being coded.
+- 15 new snippet templates created: if_block, repeat_until, while_loop,
+  for_each, for_loop, switch_block, do_block, parallel_block, set_variable,
+  set_global, set_global_boolean, call_piston, control_piston,
+  condition_and, condition_or.
+- _strip_leading_dash() deleted. _compile_single_condition() now returns full
+  block including "- " always. Bug 4/5 fixed at root.
+- AI-UPDATE-GUIDE.md updated with all new templates.
 
-Decision to make at start of this session:
-- **Option A:** Use Jinja2 templates for PyScript boilerplate — same customize
-  volume pattern as native YAML. Templates: `pyscript_state_trigger.j2`,
-  `pyscript_service_call.j2`, `pyscript_task_unique.j2`,
-  `pyscript_completion_event.j2`, `pyscript_time_trigger.j2`. Body logic
-  (if/while/for/set_variable) remains Python string generation — templates
-  are only for the structural boilerplate that PyScript changes version to version.
-- **Option B:** Pure Python string generation throughout. Accept that PyScript
-  API changes require compiler.py edits.
+**Note on existing templates:** Uploaded template files had naming format
+`condition_time_yaml.j2` instead of `condition_time.yaml.j2`. All pre-existing
+snippet templates must be renamed on disk: replace `_yaml.j2` with `.yaml.j2`.
+```bash
+cd /path/to/snippets && for f in *_yaml.j2; do mv "$f" "${f/_yaml.j2/.yaml.j2}"; done
+```
 
-Recommended: Option A. The boilerplate lines are small, self-contained, and
-appear in predictable places — exactly the right fit for templates. Body logic
-stays as Python string generation because indentation is semantic.
+---
 
-Write the template design into PYSCRIPT_COMPILER_SPEC.md (new Section 4.1)
-before writing any PyScript compiler code. Then create the template files.
+### S1-7: Compiler Bug Fixes — Session 2 ✅ PARTIAL DONE (Session 33)
 
-**Fix in this session (Tier 2 — output looks valid but behaves wrong):**
-8. **Bug 8 — Conditions compiled as state blocks, spec says template:** Build
-   full template-condition compiler per COMPILER_SPEC Section 11. Conditions must
-   compile to Jinja2 `condition: template` / `value_template:`. Cannot express
-   aggregation, `is any of`, `is between`, or combined and/or without this.
-9. **Bug 9 — Aggregation silently dropped:** `aggregation` field never read.
-   "Any of {Doors} is open" compiles as "first mapped door is open." Fix using
-   Jinja2 `any()`/`all()` template expressions.
-10. **Bug 10 — is_trigger not filtered in condition compilation:** Trigger conditions
-    must not appear in `if:` blocks. Filter on `is_trigger: true` in condition
-    compiler path.
-11. **Bug 12 — Parallel branch missing continue_on_error at sequence level:** Emit
-    `continue_on_error: true` at the branch sequence level. (See HA_LIMITATIONS.md
-    — moved from "already handled" this session.)
-12. **Bug 15 — Completion event in switch/do branches (verify first):** Verify
-    `_compile_switch_block` and `_compile_do_block` pass
-    `_append_completion_event=False` in recursive calls. Fix only if broken.
-13. **Bug 16 — for_loop variable substitution is fragile text-replace:** Replace
-    text-replace with proper template variable binding.
-14. **Bug 17 — $sunrise/$sunset offset uses string not datetime:** Change to
-    `as_datetime(state_attr('sun.sun', 'next_rising'))` pattern.
-15. **Bug 18 — $currentEventDevice resolution is context-dependent:** Must resolve
-    differently by context:
-    - Inside a native automation action triggered by a state trigger → `{{ trigger.entity_id }}`
-    - Inside a PyScript on_event handler → `var_name` from kwargs
-    - Outside any trigger context in a native compile → CompilerError
-    Do not blanket-error for all native compiles — valid native automations can
-    reference `trigger.entity_id`.
-16. **Bug 25 — No PyScript dispatch:** Add branch on `compile_target` in
-    `compile_piston`. Stub is acceptable but the branch must exist.
-17. **Bug 26 — ThreadPoolExecutor per call causes connection leaks** (ha_client.py):
-    Refactor to await-able from FastAPI handler directly.
-18. **Bug 27 — get_services caches per entity not per domain:** Cache per-domain.
-    `get_services("light.a")` and `get_services("light.b")` should share one fetch.
-19. **Bug 28 — _field_type doesn't handle entity_id selector:** Fix wizard UX for
-    service fields that select an entity.
-20. **Bug 20 — File signature header (verify):** Confirm templates emit correct
-    format per COMPILER_SPEC Section 6.
-21. **Bug 21 — Hash not computed:** Add `hashlib.sha256()` against compiled output
-    in backend (api.py, not compiler.py).
+**Bugs fixed this session:**
+- Bug 8 ✅ Full template-condition compiler. _compile_numeric_condition() and
+  _compile_state_condition() added. Routes through condition_template.yaml.j2.
+- Bug 9 ✅ Aggregation (any/all) handled via Jinja2 any()/all() expressions.
+- Bug 10 ✅ is_trigger conditions filtered before if-block condition compile.
+- Bug 12 ✅ continue_on_error at branch sequence level in parallel_block.yaml.j2.
+- Bug 13/15 ✅ Verified: switch and do pass _append_completion_event=False.
+- Bug 16 ✅ for_loop uses repeat.index/index0 substitution via template.
+- Bug 17 ✅ $sunrise/$sunset use as_datetime() so offset arithmetic works.
+- Bug 18 ✅ $currentEventDevice resolves to trigger.entity_id in native context.
+- Bug 20 ✅ File signature headers verified correct in templates.
+- Bug 21 ✅ Hash computation verified done in Session 31 api.py.
+- Bug 25 ✅ PyScript dispatch branch — returns PYSCRIPT_NOT_IMPLEMENTED.
+- MISSING_SPECS.md Item 14 ✅ _compile_time_condition() built, routes through
+  condition_time.yaml.j2.
 
-**Output:** All 6 test pistons from S1-7 session 1 still pass. Time conditions,
-aggregation, and multi-device with-blocks all compile correctly. **Then proceed
-to S2-0.**
+**Bugs deferred to future sessions:**
+- Bug 26 (ThreadPoolExecutor connection leaks) → S2-1
+- Bug 27 (get_services caches per entity not domain) → S2-1
+- Bug 28 (_field_type entity_id selector) → S2-2
+
+**Still outstanding (S1-7 session 3):**
+- GAP-S28-2 / GAP-S33-1: else_ifs on if blocks not compiled. See gaps section.
+- GAP-S33-2: condition_and/or template indentation needs real-world testing.
+- GAP-S33-3: _compile_time_condition "is" operator raises error, should warn.
+- PyScript template design (GAP-S28-5/MISSING_SPECS Item 16) — must be written
+  before any PyScript compiler code.
+
+**Upload for S1-7 session 3:** compiler.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
+STATEMENT_TYPES.md, PYSCRIPT_COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+**Then proceed to S2-0.**
 
 ---
 
@@ -1127,6 +1069,47 @@ is done via direct filesystem access (ha_config_path), not via REST API.
 DESIGN.md Section 15. Add notes explaining the filesystem approach. Cosmetic — does
 not affect any running code since endpoints.json is not yet used by ha_client.py.
 **Fits in:** A spec/customize volume cleanup pass. Low priority.
+
+---
+
+## Gaps Found Session 32
+
+### GAP-S32-1: _get_app_version() dead code ✅ CLOSED Session 32
+**Found during:** S1-6 code review
+**Closed:** Removed from api.py same session. context_builder.py reads
+app_version directly from storage.load_config().
+
+---
+
+## Gaps Found Session 33
+
+### GAP-S33-1: else_ifs on if blocks not compiled ⚠ OPEN
+**Found during:** S1-8 compiler rewrite / S1-7 bug fixes
+**Problem:** _compile_if_block() handles then/else correctly but the else_ifs
+array is completely ignored. A piston with "else if" branches compiled silently
+drops those branches. This is GAP-S28-2 carried forward.
+**What needs to happen:** Implement else_ifs compilation in _compile_if_block().
+Each else_if is a condition + then branch. Compile to additional elif: blocks
+in HA's if/then/else structure or nested if blocks. See COMPILER_SPEC Section 8.4.
+**Fits in:** S1-7 session 3.
+
+### GAP-S33-2: condition_and/or template indentation needs real-world testing
+**Found during:** S1-8 template rewrite
+**Problem:** condition_and.yaml.j2 and condition_or.yaml.j2 receive pre-compiled
+condition blocks and re-indent them using Jinja2 indent filter. Nested cases
+(AND group inside OR group, etc.) have not been tested against real HA.
+**What needs to happen:** Test with a piston that uses nested AND/OR condition
+groups. Verify output YAML is correctly indented and HA accepts it.
+**Fits in:** S3-2 deferred validation testing, or catch during S3-1 round-trip.
+
+### GAP-S33-3: _compile_time_condition "is" operator aborts instead of warning
+**Found during:** S1-7 time condition implementation
+**Problem:** _compile_time_condition() raises CompilerError for operator=="is"
+(exact time match) rather than degrading gracefully with a CompilerWarning and
+a 1-second window bracket. This aborts the entire compile for a recoverable case.
+**What needs to happen:** Change to emit CompilerWarning and compile as
+after: HH:MM:SS-1sec / before: HH:MM:SS+1sec using condition_time.yaml.j2.
+**Fits in:** S1-7 session 3 — small fix, same file scope.
 
 ---
 

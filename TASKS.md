@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 28 complete (S1-2c and S1-7 session 1 done)
+**Last Updated:** Session 29 complete (S1-3 backend audit done)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -143,48 +143,44 @@ If any row fails, fix before marking S1-2c started.
 
 ---
 
-### S1-3: main.py Backend Audit (Audit Only, No Fixes Yet)
-**Why third:** Before fixing anything in the backend, get a complete picture of
-what is wrong. Fixing one thing at a time without the full list leads to
-partial fixes and missed gaps.
-**Spec ref:** DESIGN.md Sections 4, 15, 24, 26
-**Upload:** main.py, api.py, DESIGN.md, FRONTEND_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**What to audit for:**
-- BASE_URL injection missing (critical — breaks addon ingress)
-- Companion stubs still present in deploy endpoint (must remove)
-- Any piston_text parsing (must remove — not a v1 format)
-- Statement JSON field names in save/validation logic (may still use old names)
-- device_map handling — must store/return list format per PISTON_FORMAT.md
-- Snapshot export — does it strip entity IDs correctly?
-- Role mapping on import — is it implemented at all?
-- WebSocket `/ws` endpoint — confirmed absent by external review, must be added
-- duplicate/import API methods — missing, frontend calls them and gets errors
-
-**Output:** A written audit list of every gap found. No code written this session.
+### S1-3: Backend Audit ✅ DONE (Session 29)
+**What was done:** Full written audit of api.py and main.py. No code written.
+18 gaps documented. All assigned to S1-4 or later sessions.
+See "Gaps Found Session 29" section below for full detail.
 
 ---
 
-### S1-4: main.py / api.py Backend Cleanup
+### S1-4: main.py / api.py Backend Cleanup ← NEXT TASK
 **Why fourth:** Remove dead code and stubs before adding anything new. Clean slate
 makes the HA write implementation in S1-5 easier to reason about.
 **Spec ref:** DESIGN.md Sections 4, 24, 26
-**Upload:** main.py, api.py, backend/README.md, DESIGN.md, FRONTEND_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Upload:** main.py, api.py, backend/README.md, DESIGN.md, FRONTEND_SPEC.md,
+PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 **Fix in this order:**
-1. Remove `_send_to_companion()` stub function from api.py entirely
-2. Remove all companion references from api.py comments and docstrings
-3. Remove companion references from backend/README.md
-4. Remove any piston_text parsing
-5. Fix statement field names in save/validation logic
-6. Fix device_map handling — must store/return list format per PISTON_FORMAT.md
-7. Add BASE_URL injection at page serve time
-8. Add `/ws` WebSocket endpoint (basic — exists, stays connected, no logic yet)
-9. Add duplicate/import API stubs that return a clean not-yet-implemented error
-   instead of crashing the frontend
-10. **(Gap E)** Add central logging config at startup in main.py (level, format,
-    output). Low effort, high value for debugging.
+1. Remove `_send_to_companion()` stub function from api.py entirely (GAP-S29-5)
+2. Remove all companion references from api.py comments and docstrings (GAP-S29-5)
+3. Remove companion references from backend/README.md (GAP-S29-5)
+4. Fix `_compile()` — build fat context dict, call `compile_piston(context)`,
+   unpack CompilerResult correctly (GAP-S29-1, S29-2, S29-3, S29-4)
+5. Fix `device_map` validation — coerce or reject non-list values on save (GAP-S29-10)
+6. Add thin Pydantic model for piston create/update (GAP-S29-11)
+7. Add `_migrate_piston()` hook in `get_piston()` — pass-through for now (GAP-S29-12)
+8. Wrap compiler call in try/except for Jinja2 TemplateError (GAP-S29-13)
+9. Add BASE_URL injection at page serve time in main.py (GAP-S29-6)
+10. Add `/ws` WebSocket endpoint stub — accepts connections, stays open (GAP-S29-7)
+11. Add duplicate/import/export API stubs returning 501 not-yet-implemented (GAP-S29-8, S29-9)
+12. Move `slugify` to utils.py (GAP-S29-14)
+13. Add comment to `_mark_pistons_stale_for_global()` flagging string scan as
+    fragile heuristic, real fix in S4-8 (GAP-S29-15)
+14. Add comments in create/update piston confirming piston_text is never parsed (GAP-S29-16)
+15. Confirm compile-on-save behavior against DESIGN.md Section 18 — fix if
+    spec says it should not block save response (GAP-S29-17)
+16. Add central logging config at startup in main.py (Gap E from Grok review)
+17. Do a quick pass through MISSING_SPECS.md to mark any items resolved since
+    last update (GAP-S29-18)
 
-**Output:** Backend with no dead companion code, no piston_text references,
-correct field names, and no crashing on known frontend calls.
+**Output:** Backend with no dead companion code, no crashing compiler calls,
+correct field names, thin validation, and no crashing on known frontend calls.
 
 ---
 
@@ -228,7 +224,7 @@ deploy. Test it against a real HA instance before marking done.
 - GAP-S28-3: Verify `automation.yaml.j2` and `script.yaml.j2` use `piston_id`
   not `slug` for entity IDs/filenames. Fix templates if wrong. **Blocks S1-5.**
 - GAP-S28-4: 6 test pistons in `tests/pistons/` not yet created. Required before
-  this task is fully done. Can be done standalone or at start of S1-3 session.
+  this task is fully done. Can be done standalone or at start of S1-4 session.
 
 ---
 
@@ -263,8 +259,8 @@ A `build_compiler_context(piston, ha_client)` function that:
 - HA version fetch fails → use `"unknown"`, compiler proceeds with warnings
 - globals.json missing → treat as empty list, not an error
 
-**Where this code lives:** New function in ha_client.py or new context_builder.py.
-Not in api.py — api.py calls it.
+**Where this code lives:** New file context_builder.py — not ha_client.py, not api.py.
+api.py calls it.
 
 **Output:** `compile_piston()` receives a real fat context object on every deploy.
 No more stub context. Compiler warnings about missing entity data are now meaningful.
@@ -547,6 +543,8 @@ may have evolved. Verify the PyScript spec is still aligned before coding.
 - Stale piston tracking when Device/Devices global changes
 - globals_index.json maintained on every successful compile
 - Banner on piston list when affected pistons need redeployment
+- Replace string-scan heuristic in `_mark_pistons_stale_for_global()` with proper
+  walk of statements/variables/conditions arrays (GAP-S29-15)
 
 ### S4-9: Run Status Reporting — WebSocket Events
 **Spec ref:** DESIGN.md Section 21
@@ -649,6 +647,28 @@ in a real sandbox before building the wizard step.
 ---
 
 ## DONE — Completed Sessions
+
+### Session 29 — S1-3: Backend Audit ✅
+api.py and main.py audited. No code written. 18 gaps documented:
+- GAP-S29-1: `_compile()` calls old 5-param compiler signature — crash on any compile
+- GAP-S29-2: `known_piston_slugs` not renamed to `known_piston_ids` in api.py
+- GAP-S29-3: `storage.get_all_slugs()` likely returns slugs not UUIDs — wrong data to compiler
+- GAP-S29-4: CompilerResult tuple unpack broken — crash on any compile
+- GAP-S29-5: Companion stub still present — deploy always returns success:false
+- GAP-S29-6: BASE_URL injection missing from page serve — addon ingress broken
+- GAP-S29-7: `/ws` WebSocket endpoint absent — run log panel dead
+- GAP-S29-8: Duplicate/import endpoints missing — frontend gets 404
+- GAP-S29-9: Snapshot export endpoint missing — frontend gets 404
+- GAP-S29-10: device_map values not validated as arrays — data corruption risk
+- GAP-S29-11: No Pydantic validation on piston save — any garbage accepted
+- GAP-S29-12: Schema migration hook missing — future upgrades have no landing place
+- GAP-S29-13: Jinja2 template errors uncaught → unhandled 500
+- GAP-S29-14: `slugify` in Compiler class, should be in utils.py
+- GAP-S29-15: `_mark_pistons_stale_for_global()` uses fragile string scan heuristic
+- GAP-S29-16: `piston_text` never-parse rule undocumented in code
+- GAP-S29-17: Compile-on-save behavior — check DESIGN.md Section 18 for intent
+- GAP-S29-18: MISSING_SPECS.md may be stale — quick pass needed at start of S1-4
+All 18 gaps assigned to S1-4 (most) or later sessions (S4-8 for GAP-S29-15).
 
 ### Session 28 — S1-2c + S1-7 Session 1: compiler.py Flat Array + Tier 1 Bug Fixes ✅
 compiler.py only (plus 3 Jinja templates).
@@ -758,6 +778,150 @@ rewritten. FRONTEND_SPEC.md import dialog updated. Session prompt updated.
 
 ---
 
+## Gaps Found Session 29 — Assigned to S1-4
+
+### GAP-S29-1: `_compile()` calls old 5-param compiler signature
+**Found during:** S1-3 backend audit
+**Problem:** `_compile()` calls `compiler.compile_piston(piston=..., device_map=...,
+globals_store=..., app_version=..., known_piston_slugs=...)`. Bug 22 in Session 28
+changed the compiler to accept a single fat context dict. This crashes on any compile.
+**What needs to happen:** Rebuild `_compile()` to assemble the fat context dict and
+call `compile_piston(context)`. Unpack from CompilerResult fields.
+**Fits in:** S1-4.
+
+### GAP-S29-2: `known_piston_slugs` not renamed in api.py
+**Found during:** S1-3 backend audit
+**Problem:** `_compile()` passes `known_piston_slugs=known_slugs`. Bug 13 renamed
+this to `known_piston_ids` in the compiler. Part of the same fix as GAP-S29-1.
+**Fits in:** S1-4.
+
+### GAP-S29-3: `storage.get_all_slugs()` likely returns slugs not UUIDs
+**Found during:** S1-3 backend audit
+**Problem:** After Bug 13, the compiler's `known_piston_ids` must be UUIDs.
+If `get_all_slugs()` returns slugs, `call_piston` UUID validation always fails.
+**What needs to happen:** Replace with a function that returns UUIDs. Verify what
+`get_all_slugs()` actually returns and rename or fix accordingly.
+**Fits in:** S1-4.
+
+### GAP-S29-4: CompilerResult tuple unpack broken
+**Found during:** S1-3 backend audit
+**Problem:** `auto_yaml, script_yaml, warnings, errors = compiler.compile_piston(...)`
+crashes — Bug 23 changed the return to a CompilerResult dataclass, not a tuple.
+**What needs to happen:** Unpack from CompilerResult fields. Also update the
+`success: len(errors) == 0` check — errors are now CompilerMessage objects.
+**Fits in:** S1-4.
+
+### GAP-S29-5: Companion stub still present
+**Found during:** S1-3 backend audit
+**Problem:** `_send_to_companion()` always returns `success: False`. Deploy endpoint
+calls it. Deploy can never succeed.
+**What needs to happen:** Remove stub entirely. Replace deploy endpoint logic
+with direct HA file write (S1-5). For S1-4, stub removed and deploy returns
+clean not-yet-implemented response.
+**Fits in:** S1-4 (remove), S1-5 (real implementation).
+
+### GAP-S29-6: BASE_URL injection missing
+**Found during:** S1-3 backend audit
+**Problem:** `serve_index()` returns bare FileResponse with no BASE_URL injection.
+Frontend must hardcode localhost:7777. Addon ingress mode broken.
+**What needs to happen:** Inject BASE_URL into HTML on page serve (script tag or
+meta tag). Value from env var or config.
+**Fits in:** S1-4.
+
+### GAP-S29-7: `/ws` WebSocket endpoint absent
+**Found during:** S1-3 backend audit
+**Problem:** No WebSocket endpoint exists. Frontend run log listeners connect to nothing.
+**What needs to happen:** Add basic `/ws` stub — accepts connections, stays open,
+no message logic. Real protocol in S4-9 after MISSING_SPECS.md Item 2 is written.
+**Fits in:** S1-4 (stub), S4-9 (real).
+
+### GAP-S29-8: Duplicate/import endpoints missing
+**Found during:** S1-3 backend audit
+**Problem:** No `POST /pistons/{id}/duplicate` or `POST /pistons/import`. Frontend
+calls these and gets 404s.
+**What needs to happen:** Add 501 stubs for both. Real implementation in S2-3/S2-4.
+**Fits in:** S1-4 (stubs), S2-3/S2-4 (real).
+
+### GAP-S29-9: Snapshot export endpoint missing
+**Found during:** S1-3 backend audit
+**Problem:** No export endpoint. Frontend export button hits a 404.
+**What needs to happen:** Add 501 stub. Real implementation in S2-3.
+**Fits in:** S1-4 (stub), S2-3 (real).
+
+### GAP-S29-10: device_map values not validated as arrays
+**Found during:** S1-3 backend audit
+**Problem:** `device_map` initialized as `{}`. No validation that values are arrays.
+Client sending a scalar gets it stored and returned as a scalar — breaks compiler.
+**What needs to happen:** On save, validate every device_map value is a list.
+Coerce scalar to `[value]` or reject with 422.
+**Fits in:** S1-4.
+
+### GAP-S29-11: No Pydantic validation on piston save
+**Found during:** S1-3 backend audit (also Grok review)
+**Problem:** create/update accept any dict. No type or value validation.
+**What needs to happen:** Add thin Pydantic model — name is string, mode is
+enum, logic_version/ui_version are ints, statements is list, device_map values
+are lists. Full pipeline in S4-5.
+**Fits in:** S1-4 (thin model), S4-5 (full pipeline).
+
+### GAP-S29-12: Schema migration hook missing
+**Found during:** S1-3 backend audit (also Grok review)
+**Problem:** `get_piston()` rejects future versions but has no migration path for
+when PistonCore is newer than the stored piston. Future schema changes have nowhere
+to land without this hook.
+**What needs to happen:** Add `_migrate_piston(piston)` called in `get_piston()`
+before returning. Pass-through now; real logic added when versions increment.
+**Fits in:** S1-4 (hook), future sessions (migration logic).
+
+### GAP-S29-13: Jinja2 template errors uncaught
+**Found during:** S1-3 backend audit (also Grok review)
+**Problem:** Template render failure propagates as unhandled 500. No useful detail
+to frontend.
+**What needs to happen:** Wrap compiler call in try/except for Jinja2 TemplateError.
+Return structured error with template name and context.
+**Fits in:** S1-4.
+
+### GAP-S29-14: `slugify` in Compiler class, not utils.py
+**Found during:** S1-3 backend audit (also Grok review)
+**Problem:** Pure string utility with no compiler state dependency. Other modules
+can't use it without instantiating a full Compiler.
+**What needs to happen:** Move to utils.py (create if needed). Import from there
+in compiler.py and anywhere else that needs it.
+**Fits in:** S1-4.
+
+### GAP-S29-15: `_mark_pistons_stale_for_global()` uses string scan heuristic
+**Found during:** S1-3 backend audit
+**Problem:** `if global_id in str(piston)` — false positives if global ID appears
+in any string field. Does not walk the actual reference structure.
+**What needs to happen:** S1-4: add comment flagging as known fragile heuristic.
+S4-8: replace with proper walk of statements/variables/conditions arrays.
+**Fits in:** S1-4 (comment), S4-8 (fix).
+
+### GAP-S29-16: piston_text never-parse rule undocumented in code
+**Found during:** S1-3 backend audit
+**Problem:** The "never parse piston_text" rule exists in specs but not as a code
+comment. Future developer could add a parse path without realizing it's prohibited.
+**What needs to happen:** Add explicit comment in create/update piston handlers.
+**Fits in:** S1-4.
+
+### GAP-S29-17: Compile-on-save behavior — verify against spec
+**Found during:** S1-3 backend audit
+**Problem:** `update_piston()` runs a full compile on every save. May be slow or
+unintentionally block save response. Need to confirm DESIGN.md Section 18 intent.
+**What needs to happen:** Check DESIGN.md Section 18. If compile errors should
+never block save success, confirm current behavior matches (it appears to — compile
+result is supplementary). If spec says something different, fix it.
+**Fits in:** S1-4 (confirm or fix).
+
+### GAP-S29-18: MISSING_SPECS.md may be stale
+**Found during:** S1-3 backend audit
+**Problem:** Some items may have been resolved in recent sessions and not marked done.
+**What needs to happen:** Quick 5-minute pass at start of S1-4 — check each item
+against actual spec files and mark resolved ones done.
+**Fits in:** S1-4 (housekeeping before coding starts).
+
+---
+
 ## Gaps Found Session 27 — Needs Spec Clarification or Separate Session
 
 ### GAP-S27-1: action node tasks — embedded objects or flat IDs?
@@ -861,6 +1025,8 @@ string generation for body logic (if/while/for/set_variable) where indentation
 is semantic and templates would be painful.
 **Fits in:** First thing in S1-7 session 2. Upload PYSCRIPT_COMPILER_SPEC.md
 alongside the other files for that session.
+
+### GAP-S28-4: 6 test pistons in tests/pistons/ not yet created
 **Found during:** S1-7 session 1 — TASKS.md required them before marking done
 **Problem:** The 6 compiler test piston JSON files were not created this session.
 They are needed to prove the compiler produces correct output as bugs are fixed.
@@ -868,7 +1034,7 @@ They are needed to prove the compiler produces correct output as bugs are fixed.
 `test_conditions.json`, `test_waits.json`, `test_parallel.json`, `test_nested.json`,
 `test_foreach.json`, `test_chicken_lights.json`.
 **Fits in:** Can be done standalone (small session, JSON only) or at the start of
-the S1-3 backend audit session since that session writes no code.
+the S1-4 backend cleanup session since that session touches no compiler files.
 
 ---
 

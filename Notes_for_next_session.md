@@ -13,3 +13,8 @@ V1 bar is "most real pistons work correctly" — not "perfect parity with every 
 PyScript for complex pistons is locked for V1. No debate, don't relitigate it.
 The four sample pistons (Low Battery, Door Chime, CO Alert, Water Leak) are the real V1 test. If those work, V1 is meaningful.
 HA has real limitations compared to Hubitat. That's known and accepted. Document them, work around them where possible, warn users clearly where not. Don't pretend HA can do things it can't.
+
+Note for start of Session B:
+Before starting editor.js work, add one item to TASKS.md S4-10:
+
+"The AI prompt files (write-a-piston.md and migrate-from-webcore.md) must be written against the nested tree model. Any AI generating flat ID-reference JSON ("then": ["stmt_002"]) will produce pistons that break the editor. When S4-10 is reached, the nested format examples in PISTON_FORMAT.md and COMPILER_SPEC.md Section 18 are the reference. Do not use any flat-model JSON examples anywhere in the prompt files."

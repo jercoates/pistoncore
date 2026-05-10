@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 35 complete (S-NESTED Session A — spec updates + compiler.py nested tree migration)
+**Last Updated:** Session 36 complete (S-NESTED Session B — editor.js nested tree migration)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -57,27 +57,39 @@ statements. No lookup map. No orphaned nodes possible.
 - compiler.py: _compile_sequence accepts objects directly, stmt_map removed,
   all control-flow methods updated, _collect_triggers recurses nested tree.
 
-**Session B — editor.js ← NEXT**
-Upload: editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, TASKS.md, CLAUDE_SESSION_PROMPT.md
+**Session B — editor.js ✅ DONE (Session 36)**
+- _actionLines: accepts object arrays directly, stmtMap gone from signature and
+  all 13 recursive calls.
+- _renderDocument: passes p.statements objects directly, stmtMap build removed.
+- _findNode: recursive tree walk replaces flat map lookup. Signature changed to
+  _findNode(id, nodes) — called as _findNode(id) to search from root.
+- _buildStmtMap: deleted.
+- _findAnyNode: updated call site to new _findNode.
+- _removeNode: recursive tree splice replaces flat ID filter.
+- _insertAfter: finds owning array in tree, splices there.
+- _replaceNode: new helper — replaces node in-place anywhere in tree.
+- insertStatement: uses _replaceNode for update-in-place; if_condition uses
+  _findNode; strips _blockId before storing.
+- for renderer: node.from/to/variable → node.start/end/counter_variable (GAP-S27-4).
+- switch renderer: node.variable/role → node.expression; node.default_statements
+  → node.default.
+- wait_for_state renderer: renders conditions array + timeout as multi-line block.
+- GAP-S27-2: else branch renders only when node.else.length > 0.
+- piston_text generation removed from save().
+- _normalizePiston: added on load — checks logic_version/ui_version against
+  supported max (throws on future version), removes malformed nodes recursively.
 
-What changes:
-- `_actionLines(childStmts, depth, ...)` — accepts objects directly, stmtMap gone
-- `_removeNode(id)` — recursive tree walk, splice from owning array directly
-- `_insertAfter(targetId, newNode)` — finds parent in tree, splices after target
-- `_findNode(id)` — recursive tree walk, no map
-- `_buildStmtMap()` — deleted
-- `insertStatement` — update finds node in tree and replaces in-place
-- Bug A / _blockId hack — removed, conditions route directly to parent's array
-- GAP-S27-2 (else: [] renders else branch) — decide and fix here
-- GAP-S27-4 (for loop field names) — verify and fix here
-- normalizePiston() on load — simple integrity check (id present, type present)
-
-**Session C — wizard.js audit + S3-1 round-trip test**
-Upload: wizard.js, editor.js, PISTON_FORMAT.md, TASKS.md, CLAUDE_SESSION_PROMPT.md
+**Session C — wizard.js audit + S3-1 round-trip test ← NEXT**
+Upload: wizard.js, editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, TASKS.md,
+CLAUDE_SESSION_PROMPT.md
 
 What changes:
 - Verify all wizard commit functions produce correct nested output
-- Skeleton objects already write empty arrays — confirm they work with nested render
+- Skeleton objects write empty arrays — confirm they work with nested render
+- GAP-S36-1: Replace _blockId stamp mechanism with proper channel (see gaps below)
+- GAP-S36-2: Deep re-ID on paste/duplicate (see gaps below)
+- GAP-S27-4: for loop field names — verify wizard skeleton matches corrected renderer
+  (wizard already writes start/end/step/counter_variable — confirm and close gap)
 - Build one real piston, verify all six round-trip steps pass
 
 ---
@@ -90,10 +102,8 @@ and their fields are unchanged.
 
 ---
 
-### S1-2b: Flat Statements Array — editor.js ⚠ SUPERSEDED by S-NESTED Session B
-The flat model implementation is replaced by the nested tree implementation in
-S-NESTED Session B. The render-back verification table below carries forward —
-it must be completed during Session B/C testing.
+### S1-2b: Flat Statements Array — editor.js ⚠ SUPERSEDED by S-NESTED Session B ✅ DONE (Session 36)
+The flat model implementation is replaced by the nested tree implementation.
 
 **Render-back verification table — to be completed during S-NESTED Session C:**
 
@@ -133,59 +143,18 @@ compiler.py now accepts child statement objects directly — no stmt_map, no ID 
 ---
 
 ### S1-4: main.py / api.py Backend Cleanup ✅ DONE (Session 30)
-**What was done:**
-- GAP-S29-1,2,3,4: `_compile()` rewritten — fat context dict, correct
-  `known_piston_ids` key, single `compile_piston(context)` call, `CompilerResult`
-  unpacked correctly via `.automation_yaml`, `.script_yaml`, `.warnings`, `.errors`
-- GAP-S29-5: `_send_to_companion()` removed entirely.
-- GAP-S29-6: BASE_URL injected into index.html at serve time.
-- GAP-S29-7: `/ws` WebSocket stub added.
-- GAP-S29-8,9: Duplicate/import/export stubs added returning 501.
-- GAP-S29-10: `_validate_device_map()` added.
-- GAP-S29-12: `_migrate_piston()` pass-through hook added.
-- GAP-S29-13: Compiler call wrapped in `except Exception`.
-- GAP-S29-15: Fragile heuristic comment added.
-- GAP-S29-16: piston_text never-parsed comment added.
-- GAP-S29-17: Compile-on-save removed from `update_piston()`.
-- GAP-S29-8,9: Duplicate/import/export 501 stubs added.
-- GAP-S30-2: `result.messages` → `result.warnings`. Dead except block removed.
 
 ---
 
 ### S1-5: HA Direct Write — Deploy Implementation ✅ DONE (Session 31)
 
-**What was done:**
-- DESIGN.md Section 19: First-run configuration.yaml setup exception documented.
-- storage.py: `ha_config_path` and `ha_restart_required` added to `load_config()` defaults.
-- main.py: `_setup_ha_config()` startup hook.
-- ha_client.py: `call_service(domain, service, service_data)` added.
-- api.py: Full deploy endpoint implementation.
-- api.py: `_check_hash_mismatch(path)` helper.
-- api.py: `delete_piston()` — now removes compiled HA files.
-- automation_yaml.j2: GAP-S30-8 fixed — standardized to `{{ piston_id }}`.
-- backend/README.md: Companion references removed.
-
-**Gaps found this session:**
-- GAP-S31-2: _setup_ha_config() errors not surfaced to UI — fits S4-0
-- GAP-S31-3: PyScript deploy not implemented — fits S1-7 session 2
-- GAP-S31-5: ha_config_path has no UI — blocked by Settings page spec
-- GAP-S31-6: endpoints.json write_automation ref is dead — low priority cleanup
-
 ---
 
 ### S1-6: Fat Compiler Context Assembly ✅ DONE (Session 32)
 
-**What was done:**
-- context_builder.py created. build_compiler_context(piston) fully implemented.
-- ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
-  get_ha_version() added.
-- api.py: stub context dict replaced with context_builder call.
-
 ---
 
 ### S1-7: Compiler Bug Fixes — Sessions 1-3 ✅ DONE (Sessions 28, 33, 34)
-
-All compiler bugs fixed. See DONE section for full detail.
 
 **Still open:**
 - GAP-S34-1: _compile_single_condition has no warnings param. Low priority.
@@ -230,8 +199,6 @@ Part 2 — Implement SQLite setup (code):
 
 **Upload:** main.py, storage.py (if exists), DESIGN.md, MISSING_SPECS.md,
 PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-**Note:** GAP-S28-1 (tasks embedded vs flat) is now RESOLVED by nested tree model —
-no spec pass needed at start of this session. Proceed directly to storage spec.
 **Output:** Working SQLite DB created on startup, all tables present.
 
 ---
@@ -392,6 +359,34 @@ that feature is listed as missing, write the spec first — then code.
 
 ## DONE — Completed Sessions
 
+### Session 36 — S-NESTED Session B: editor.js Nested Tree Migration ✅
+All statement tree operations rewritten for nested object tree.
+No flat statements array. No stmtMap. No ID references between statements.
+
+editor.js changes:
+- _actionLines: object arrays in, stmtMap gone from signature and all recursive calls.
+- _renderDocument: p.statements objects passed directly.
+- _findNode: recursive tree walk, called as _findNode(id) from root.
+- _buildStmtMap: deleted.
+- _findAnyNode: updated to new _findNode.
+- _removeNode: recursive tree splice.
+- _insertAfter: finds owning array in tree and splices there.
+- _replaceNode: new helper, in-place replacement anywhere in tree.
+- insertStatement: _replaceNode for update-in-place; _findNode for if_condition;
+  strips _blockId before storing.
+- for renderer: corrected to start/end/counter_variable (GAP-S27-4 fixed).
+- switch renderer: expression operand, node.default (not default_statements).
+- wait_for_state: multi-line block with conditions array and timeout.
+- GAP-S27-2: else renders only when node.else.length > 0.
+- piston_text generation removed from save().
+- _normalizePiston: version check + malformed node removal on load.
+
+wizard.js: no changes this session. _blockId mechanism still needed and
+correct — cleanup deferred to Session C (GAP-S36-1).
+
+New gaps opened: GAP-S36-1, GAP-S36-2, GAP-S36-3.
+Gaps resolved: GAP-S27-2, GAP-S27-4.
+
 ### Session 35 — S-NESTED Session A: Nested Tree Spec + compiler.py ✅
 Root cause of editor render reliability identified: flat ID-reference model.
 Decision: migrate to nested tree. Children are embedded objects, not ID references.
@@ -407,47 +402,60 @@ compiler.py updated:
 - compile_piston: stmt_map build removed, _compile_sequence called with raw statements.
 
 Tasks superseded:
-- S1-2b (editor.js flat array) → SUPERSEDED by S-NESTED Session B
+- S1-2b (editor.js flat array) → SUPERSEDED by S-NESTED Session B ✅ DONE Session 36
 - S1-2c (compiler.py flat array) → SUPERSEDED (this session)
 - GAP-S28-1/GAP-S27-1 (tasks embedded exception) → RESOLVED (universal rule now)
 - GAP-S27-3 (switch case.statements model) → RESOLVED
-- Bug A / _blockId hack → RESOLVED in Session B
+- Bug A / _blockId hack → routing now handled by _findNode; cleanup in Session C
 
 ### Session 34 — S1-7 Session 3: else_ifs + time condition + PyScript spec ✅
-compiler.py: _compile_if_block rewritten with else_ifs. _compile_time_condition
-"is" operator fixed. PYSCRIPT_COMPILER_SPEC.md Section 4.1 added.
-Templates: if_block.yaml.j2 updated. condition_time.yaml.j2 updated.
-
 ### Session 33 — S1-8: Template Compliance + S1-7 Session 2 Bug Fixes ✅
-All compiler methods route through Jinja2 templates. Zero inline HA YAML in Python.
-15 new snippet templates. Bugs 8,9,10,12,13,16,17,18,20,21,25 fixed.
-
 ### Session 32 — S1-6: Fat Compiler Context Assembly ✅
-context_builder.py created. ha_client.py: 4 new methods. api.py: _compile() rewritten.
-
 ### Session 31 — S1-5: HA Direct Write ✅
-Full deploy pipeline. _setup_ha_config(). call_service(). hash mismatch detection.
-delete_piston removes compiled files. automation_yaml.j2 standardized.
-
 ### Session 30 — S1-4: main.py / api.py Backend Cleanup ✅ + GAP-S28-3 Template Fix ✅
-_compile() rewritten. Companion stub removed. BASE_URL injection. WebSocket stub.
-Template slug → piston_id fix. 17 gaps resolved.
-
 ### Session 29 — S1-3: Backend Audit ✅
-18 gaps documented. No code written.
-
 ### Session 28 — S1-2c: compiler.py Flat Array + S1-7 Session 1 Bug Fixes ✅
-Flat model implementation (superseded by Session 35). Bugs 1-7,11,13,14,19,22,23,24 fixed.
-
 ### Session 27 — S1-2b: editor.js Flat Array ✅ (superseded by S-NESTED Session B)
-Flat model implementation. All 18 statement types rendering. Superseded.
-
 ### Session 26 — S1-2a: wizard.js Flat Array ✅
-Type name fixes, field name fixes, skeleton completeness. Still valid for nested model.
-
 ### Sessions 21-25 — Spec work, field alignment, COMPILER_SPEC rewrite ✅
-
 ### Sessions 1-20 — See DESIGN.md Section 33 (Development Log) ✅
+
+---
+
+## Gaps Found Session 36 — Still Open
+
+### GAP-S36-1: wizard.js _blockId mechanism — replace with proper channel
+**Found during:** S-NESTED Session B — insertStatement if_condition branch
+**Problem:** Wizard stamps `_blockId` on the condition node object in
+`_commitConditionAndMore` as a side-channel to tell the editor which if-block to
+route the condition to on subsequent "Add more" clicks. Editor strips _blockId
+before storing. Works but is fragile — routing metadata riding on the data object.
+**What needs to happen:** In Session C, replace _blockId stamp with a proper
+mechanism. Option A: add a second argument to `insertStatement(context, data, meta)`
+for routing metadata. Option B: wizard passes blockId via a module-level variable
+that insertStatement reads. Both sides must be updated together.
+**Fits in:** S-NESTED Session C
+
+### GAP-S36-2: _pasteSelected does not deep re-ID nested children
+**Found during:** S-NESTED Session B — _pasteSelected
+**Problem:** `clone.id = _nextStmtId()` gives the pasted copy a new top-level ID,
+but nested children (then/else/statements/cases etc.) retain their original IDs.
+If the original statement is still in the piston, duplicate child IDs exist in the
+tree. The compiler uses IDs as YAML aliases — duplicates will produce invalid YAML.
+**What needs to happen:** Write a `_deepReId(node)` function that walks the cloned
+tree recursively and assigns a fresh _nextStmtId() to every node at every level,
+including task IDs, condition IDs, case IDs, and else_if IDs.
+**Fits in:** S-NESTED Session C
+
+### GAP-S36-3: wait renderer branches 'until' and 'state' are untested
+**Found during:** S-NESTED Session B — wait renderer
+**Problem:** `wait_type: "until"` and `wait_type: "state"` render branches exist
+in the editor but there is no wizard UI for these wait types yet. The wizard only
+produces `wait_type: "duration"`. The render code is written to match
+STATEMENT_TYPES.md but cannot be tested until the wizard supports these types.
+**What needs to happen:** When wizard gets wait support, verify these render
+branches and add to the render-back verification table.
+**Fits in:** S-NESTED Session C or S3-1 round-trip test
 
 ---
 
@@ -469,53 +477,15 @@ Needs real-world testing to confirm correctness. Fits S3-2.
 **ha_client.py — medium term (Stage 4, after S4-9):**
 - Persistent WebSocket manager with reconnect loop, jittered backoff, ping/pong keepalive.
 
-**Docker / Dockerfile — fits S4-15:**
-- Run as non-root user (high priority before v1)
-- config.json permissions check at startup
-- HEALTHCHECK in Dockerfile/compose
-- Resource limits in compose example
-- Security headers middleware in main.py
-
-**Templates — fits S4-15 or S4-4:**
-- Whitespace control ({%- ... -%}) in all snippet templates
-- template_info.json metadata file (fits S4-4 when versioned folders built)
-- CLI test command: compile sample piston + validate with ruamel.yaml (fits after S3-1)
-
-**Documentation — pre-v1 session:**
-- README and DESIGN.md addon positioning cleanup
-- Promotion plan note: YouTube channels, r/homeassistant, HA community forums
-
----
-
-## Gaps Found Session 27 — Still Open
-
-### GAP-S27-2: else empty array always renders else branch
-**Found during:** S1-2b editor.js rewrite
-**Problem:** Wizard always writes `else: []` on new if blocks. Editor renders the
-`else` branch whenever `node.else !== undefined && node.else !== null`. An empty
-array satisfies that check. Every new if block shows an else ghost insertion point
-even if the user never added one.
-**What needs to happen:** Decide: render else branch only when `else` has at least
-one child object (not when empty array). Update editor.js check and wizard.js skeleton.
-**Fits in:** S-NESTED Session B — editor.js is open anyway.
-
-### GAP-S27-4: for loop field names — verify wizard skeleton matches renderer
-**Found during:** S1-2b editor.js rewrite
-**Problem:** The `for` renderer expects `node.variable`, `node.from`, `node.to`,
-`node.step`. Wizard skeleton not verified to use those exact field names.
-**Fits in:** S-NESTED Session C — wizard.js audit.
-
 ---
 
 ## Gaps Found Session 28 — Status Updated
 
-### GAP-S28-1: tasks embedded vs flat ✅ RESOLVED Session 35
-Nested tree model makes this a non-issue. All children are embedded objects.
-No exception needed — it is the universal rule.
-
 ### GAP-S28-4: 6 test pistons in tests/pistons/ not yet created
 Still open. Required before S1-7 session 1 can be marked fully done per TASKS.md.
-Fits after S3-1 — test pistons should use the nested format.
+Fits after S3-1 — test pistons must use the nested format.
+**Note:** Any test pistons written must use nested tree JSON per PISTON_FORMAT.md v2.0.
+Do not write flat ID-reference format test pistons.
 
 ---
 

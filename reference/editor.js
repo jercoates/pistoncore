@@ -5,12 +5,6 @@
 // No boxes or section headers. Line numbers, teal keywords,
 // ghost text insertion points, right-click context menu.
 // Save → navigates to status page.
-//
-// Session 36 — Nested Tree Migration (S-NESTED Session B)
-// All statement tree operations now work directly on the nested object tree.
-// No flat statements array. No stmtMap. No ID references between statements.
-// Children live inside their parent nodes in then/else/statements/cases/default arrays.
-// _findNode, _removeNode, _replaceNode, _insertAfter all recurse the tree directly.
 
 const Editor = (() => {
 
@@ -28,8 +22,7 @@ const Editor = (() => {
     container.innerHTML = `<div class="editor-loading"><div class="spinner"></div> Loading...</div>`;
     try {
       _piston = await API.getPiston(pistonId);
-      _normalizePiston(_piston);
-      _stmtCounter = 0; // _highestStmtId no longer needed; IDs are random hex
+      _stmtCounter = _highestStmtId(_piston);
       App.state.unsavedChanges = false;
       _selectedId = null;
       _cutId = null;
@@ -37,51 +30,6 @@ const Editor = (() => {
     } catch (e) {
       container.innerHTML = `<div class="banner banner-error">Could not load piston: ${_esc(e.message)}</div>`;
     }
-  }
-
-  // ── Normalize / integrity check on load ──────────────────
-  // Checks logic_version and ui_version against known supported values.
-  // Removes any statement node missing id or type — these cannot render safely.
-  // Recurses the full nested tree. Warns to console for every removal.
-  // Per PISTON_FORMAT.md: if version is from the future, warn and refuse to load.
-  function _normalizePiston(p) {
-    if (!p) return;
-
-    const SUPPORTED_LOGIC_VERSION = 1;
-    const SUPPORTED_UI_VERSION    = 1;
-
-    if (p.logic_version !== undefined && p.logic_version > SUPPORTED_LOGIC_VERSION) {
-      throw new Error(
-        `Piston uses logic_version ${p.logic_version} but this PistonCore only supports up to ${SUPPORTED_LOGIC_VERSION}. ` +
-        `Please upgrade PistonCore before opening this piston.`
-      );
-    }
-    if (p.ui_version !== undefined && p.ui_version > SUPPORTED_UI_VERSION) {
-      throw new Error(
-        `Piston uses ui_version ${p.ui_version} but this PistonCore only supports up to ${SUPPORTED_UI_VERSION}. ` +
-        `Please upgrade PistonCore before opening this piston.`
-      );
-    }
-
-    if (!Array.isArray(p.statements)) { p.statements = []; return; }
-
-    function checkNodes(nodes) {
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const n = nodes[i];
-        if (!n || typeof n !== 'object' || !n.id || !n.type) {
-          console.warn('PistonCore: removing malformed statement node at index', i, n);
-          nodes.splice(i, 1);
-          continue;
-        }
-        checkNodes(n.then        || []);
-        checkNodes(n.else        || []);
-        checkNodes(n.statements  || []);
-        (n.else_ifs || []).forEach(eib => checkNodes(eib.statements || []));
-        (n.cases    || []).forEach(c   => checkNodes(c.statements   || []));
-        checkNodes(n.default || []);
-      }
-    }
-    checkNodes(p.statements);
   }
 
   // ── Render ───────────────────────────────────────────────
@@ -213,8 +161,8 @@ const Editor = (() => {
       if (!isSimple) gh('· add a new trigger or condition', 'trigger_or_condition', 2);
     }
 
-    // Nested tree — pass statement objects directly, no stmtMap
-    _actionLines(p.statements || [], 1, lines, num, gh);
+    const stmtMap = Object.fromEntries((p.statements || []).map(s => [s.id, s]));
+    _actionLines((p.statements || []).map(s => s.id), stmtMap, 1, lines, num, gh);
 
     gh('· add a new statement', 'action', 1);
     ln(`<span class="kw">end execute;</span>`, 0);
@@ -223,11 +171,11 @@ const Editor = (() => {
   }
 
 
-  // ── Nested tree renderer ─────────────────────────────────
-  // childNodes: array of statement objects at this level (NOT IDs)
-  // depth:      nesting depth for indentation
-  // All recursive calls pass child object arrays directly from the node.
-  function _actionLines(childNodes, depth, lines, num, gh) {
+
+  // ── Flat action renderer ─────────────────────────────────
+  // childIds: array of statement IDs to render at this level
+  // stmtMap:  Object.fromEntries of the flat statements array
+  function _actionLines(childIds, stmtMap, depth, lines, num, gh) {
     const pad = Math.min(depth, 7);
 
     const ln = (html, indent, opts = {}) => {
@@ -240,9 +188,10 @@ const Editor = (() => {
       lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
     };
 
-    (childNodes || []).forEach(node => {
-      if (!node || !node.id) return; // guard against malformed nodes
-      const id = node.id;
+    (childIds || []).forEach(cid => {
+      const node = stmtMap[cid];
+      if (!node) return; // dangling reference — skip silently
+      const id = node.id || '';
       const t = node.type;
 
       if (t === 'if') {
@@ -250,21 +199,18 @@ const Editor = (() => {
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
         ln(`<span class="kw">then</span>`, pad);
-        _actionLines(node.then || [], depth + 2, lines, num, gh);
+        _actionLines(node.then || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
         (node.else_ifs || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
           (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
           ln(`<span class="kw">then</span>`, pad);
-          // else_if children are in eib.statements (nested objects)
-          _actionLines(eib.statements || [], depth + 2, lines, num, gh);
+          _actionLines(eib.statements || [], stmtMap, depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
-        // GAP-S27-2 fix: only render else branch when it has at least one child object.
-        // Wizard writes else: [] on new if blocks — that must not produce a ghost insertion point.
-        if (node.else && node.else.length > 0) {
+        if (node.else !== undefined && node.else !== null) {
           ln(`<span class="kw">else</span>`, pad);
-          _actionLines(node.else, depth + 2, lines, num, gh);
+          _actionLines(node.else || [], stmtMap, depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
         }
         ln(`<span class="kw">end if;</span>`, pad);
@@ -273,7 +219,7 @@ const Editor = (() => {
         ln(`<span class="kw">with</span>`, pad, { id, type: t });
         (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
-        // tasks are embedded objects inside the action node — not child statements
+        // tasks are task objects embedded in the action node, not flat stmt IDs
         (node.tasks || []).forEach(task => {
           const params = task.parameters
             ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
@@ -284,15 +230,11 @@ const Editor = (() => {
         ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
-        const dv = node.variable ? _esc(node.variable) : _dr(node.list_role || '');
+        const dv = node.variable ? _dv('$', node.variable) : _dr(node.list_role || '');
         const lv = _dr(node.list_role || '');
-        // node.variable already contains $ prefix (e.g. "$device") per STATEMENT_TYPES.md
-        const dvSpan = node.variable
-          ? `<span class="doc-var">${_esc(node.variable)}</span>`
-          : _dr(node.list_role || '');
-        ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
+        ln(`<span class="kw">for each</span> (${dv} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end for each;</span>`, pad);
 
@@ -300,54 +242,47 @@ const Editor = (() => {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end while;</span>`, pad);
 
       } else if (t === 'repeat') {
         ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">until</span>`, pad);
         (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
-        // GAP-S27-4 fix: field names from STATEMENT_TYPES.md are start/end/step/counter_variable.
-        // counter_variable is stored with $ prefix already (e.g. "$count") or null.
-        const varPart = node.counter_variable
-          ? `<span class="doc-var">${_esc(node.counter_variable)}</span>`
-          : '<span class="doc-ph">$i</span>';
-        const fromPart = node.start !== undefined ? _esc(String(node.start)) : '<span class="doc-ph">from</span>';
-        const toPart   = node.end   !== undefined ? _esc(String(node.end))   : '<span class="doc-ph">to</span>';
+        const varPart = node.variable ? _dv('$', node.variable) : '<span class="doc-ph">$i</span>';
+        const fromPart = node.from !== undefined ? _esc(String(node.from)) : '<span class="doc-ph">from</span>';
+        const toPart   = node.to   !== undefined ? _esc(String(node.to))   : '<span class="doc-ph">to</span>';
         const stepPart = node.step !== undefined && node.step !== 1 ? ` step ${_esc(String(node.step))}` : '';
         ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end for;</span>`, pad);
 
       } else if (t === 'do') {
         ln(`<span class="kw">do</span>`, pad, { id, type: t });
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end do;</span>`, pad);
 
       } else if (t === 'switch') {
-        // node.expression is an operand object per STATEMENT_TYPES.md (type/name/data).
-        // node.default is the default branch array (not node.default_statements).
-        const subjPart = node.expression ? _val(node.expression) : '<span class="doc-ph">[subject]</span>';
+        const subjPart = node.variable ? _dv('$', node.variable) : (node.role ? _dr(node.role) : '<span class="doc-ph">[subject]</span>');
         ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
         (node.cases || []).forEach(c => {
           ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
-          _actionLines(c.statements || [], depth + 3, lines, num, gh);
+          _actionLines(c.statements || [], stmtMap, depth + 3, lines, num, gh);
           gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id });
         });
-        // node.default is [] when no default, undefined means not present at all
-        if (node.default !== undefined) {
+        if (node.default_statements !== undefined) {
           ln(`<span class="kw">default:</span>`, pad + 1);
-          _actionLines(node.default || [], depth + 3, lines, num, gh);
+          _actionLines(node.default_statements || [], stmtMap, depth + 3, lines, num, gh);
           gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id });
         }
         ln(`<span class="kw">end switch;</span>`, pad);
@@ -357,7 +292,7 @@ const Editor = (() => {
         const unit = _esc(node.interval_unit || '');
         ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end every;</span>`, pad);
 
@@ -365,33 +300,22 @@ const Editor = (() => {
         const evtPart = node.event_name ? _esc(node.event_name) : '<span class="doc-ph">[event]</span>';
         ln(`<span class="kw">on event</span> ${evtPart}`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
+        _actionLines(node.statements || [], stmtMap, depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end on event;</span>`, pad);
 
       } else if (t === 'wait') {
         const w = node.wait_type === 'duration'
           ? `<span class="kw">wait</span> ${_esc(String(node.duration||''))} ${_esc(node.duration_unit||node.unit||'')};`
-          : node.wait_type === 'until'
-          ? `<span class="kw">wait until</span> ${_esc(node.until||'')};`
+          : node.wait_type === 'time'
+          ? `<span class="kw">wait until</span> ${_esc(node.time||'')};`
           : node.wait_type === 'state'
           ? `<span class="kw">wait for state</span> ${_condLine(node.condition || {})};`
           : `<span class="kw">wait</span>;`;
         ln(w, pad, { id, type: t });
 
       } else if (t === 'wait_for_state') {
-        // wait_for_state has a conditions array + optional timeout, not a single condition object.
-        // Renders as a multi-line block per STATEMENT_TYPES.md Section 15b.
-        ln(`<span class="kw">wait for state</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
-        if (node.timeout_seconds !== undefined && node.timeout_seconds !== null) {
-          const secs = node.timeout_seconds;
-          const mins = Math.round(secs / 60);
-          const timeoutStr = mins > 0 && secs % 60 === 0
-            ? `${mins} minute${mins !== 1 ? 's' : ''}`
-            : `${secs}s`;
-          ln(`    <span class="kw">timeout:</span> ${_esc(timeoutStr)};`, pad + 1);
-        }
+        ln(`<span class="kw">wait for state</span> ${_condLine(node.condition || {})};`, pad, { id, type: t });
 
       } else if (t === 'set_variable') {
         ln(`<span class="kw">set variable</span> ${_dv('$', node.variable || '')} = ${_val(node.value)};`, pad, { id, type: t });
@@ -407,9 +331,6 @@ const Editor = (() => {
 
       } else if (t === 'call_piston') {
         ln(`<span class="kw">execute piston</span> ${_esc(node.target_piston_name || node.target_piston_id || '')};`, pad, { id, type: t });
-
-      } else if (t === 'cancel_pending_tasks') {
-        ln(`<span class="kw">cancel all pending tasks</span>;`, pad, { id, type: t });
 
       } else {
         // Unknown type — render a visible error placeholder, never silently skip
@@ -448,7 +369,6 @@ const Editor = (() => {
     if (typeof v === 'object' && v.type === 'global_variable') return _dv('@', v.name || '');
     if (typeof v === 'object' && v.type === 'literal')         return _esc(String(v.data ?? ''));
     if (typeof v === 'object' && v.type === 'system_variable') return _dv('$', v.name || '');
-    if (typeof v === 'object' && v.type === 'expression')      return `<span class="doc-expr">${_esc(v.expression || '')}</span>`;
     return _esc(String(v));
   }
 
@@ -519,38 +439,7 @@ const Editor = (() => {
     }
   }
 
-  // ── Tree search helpers ──────────────────────────────────
-
-  // Recursive tree walk — finds any statement node by ID anywhere in the nested tree.
-  // Searches top-level statements and all child arrays recursively.
-  // Does NOT search triggers/conditions/variables — callers search those arrays directly.
-  // Called with no second argument to search from root: _findNode(id)
-  function _findNode(id, nodes) {
-    if (!id) return null;
-    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
-    for (const node of nodes) {
-      if (!node) continue;
-      if (node.id === id) return node;
-      let found =
-        _findNode(id, node.then       || []) ||
-        _findNode(id, node.else       || []) ||
-        _findNode(id, node.statements || []);
-      if (found) return found;
-      for (const eib of (node.else_ifs || [])) {
-        found = _findNode(id, eib.statements || []);
-        if (found) return found;
-      }
-      for (const c of (node.cases || [])) {
-        found = _findNode(id, c.statements || []);
-        if (found) return found;
-      }
-      found = _findNode(id, node.default || []);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  // Search triggers, conditions, variables, then the nested statement tree.
+  // Search triggers, conditions, variables, and the flat statements array.
   // Use this anywhere you need to find a node by ID regardless of which section it lives in.
   function _findAnyNode(id) {
     if (!id) return null;
@@ -558,82 +447,9 @@ const Editor = (() => {
     return inArr(_piston.triggers) ||
            inArr(_piston.conditions) ||
            inArr(_piston.variables) ||
-           _findNode(id);
+           _findNode(_buildStmtMap(), id);
   }
 
-  // Recursive tree splice — removes the node with the given ID from wherever it
-  // lives in the nested tree. Returns true if found and removed.
-  // Called with no second argument to search from root: _removeNode(id)
-  function _removeNode(id, nodes) {
-    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
-    for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i] && nodes[i].id === id) { nodes.splice(i, 1); return true; }
-      const node = nodes[i];
-      if (!node) continue;
-      if (_removeNode(id, node.then       || [])) return true;
-      if (_removeNode(id, node.else       || [])) return true;
-      if (_removeNode(id, node.statements || [])) return true;
-      for (const eib of (node.else_ifs || [])) {
-        if (_removeNode(id, eib.statements || [])) return true;
-      }
-      for (const c of (node.cases || [])) {
-        if (_removeNode(id, c.statements || [])) return true;
-      }
-      if (_removeNode(id, node.default || [])) return true;
-    }
-    return false;
-  }
-
-  // Finds the array that owns targetId (anywhere in the nested tree) and splices
-  // newNode in immediately after the target. Falls back to push at top level.
-  function _insertAfter(targetId, newNode) {
-    function spliceInto(nodes) {
-      if (!nodes) return false;
-      const i = nodes.findIndex(n => n && n.id === targetId);
-      if (i !== -1) { nodes.splice(i + 1, 0, newNode); return true; }
-      for (const node of nodes) {
-        if (!node) continue;
-        if (spliceInto(node.then))       return true;
-        if (spliceInto(node.else))       return true;
-        if (spliceInto(node.statements)) return true;
-        for (const eib of (node.else_ifs || [])) {
-          if (spliceInto(eib.statements)) return true;
-        }
-        for (const c of (node.cases || [])) {
-          if (spliceInto(c.statements)) return true;
-        }
-        if (spliceInto(node.default)) return true;
-      }
-      return false;
-    }
-    if (!spliceInto(_piston.statements || [])) {
-      (_piston.statements = _piston.statements || []).push(newNode);
-    }
-  }
-
-  // Finds the node with statementData.id anywhere in the nested tree and replaces
-  // it in-place in its owning array. Returns true if found and replaced.
-  function _replaceNode(statementData, nodes) {
-    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
-    for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i] && nodes[i].id === statementData.id) { nodes[i] = statementData; return true; }
-      const node = nodes[i];
-      if (!node) continue;
-      if (_replaceNode(statementData, node.then       || [])) return true;
-      if (_replaceNode(statementData, node.else       || [])) return true;
-      if (_replaceNode(statementData, node.statements || [])) return true;
-      for (const eib of (node.else_ifs || [])) {
-        if (_replaceNode(statementData, eib.statements || [])) return true;
-      }
-      for (const c of (node.cases || [])) {
-        if (_replaceNode(statementData, c.statements || [])) return true;
-      }
-      if (_replaceNode(statementData, node.default || [])) return true;
-    }
-    return false;
-  }
-
-  // ── Context menu ─────────────────────────────────────────
   function _handleContextMenu(e) {
     const stmt = e.target.closest('.doc-stmt');
     if (!stmt) return;
@@ -695,7 +511,7 @@ const Editor = (() => {
 
   function _deleteSelected() {
     if (!_selectedId) return;
-    // Check triggers/conditions/variables first — they are not in the statement tree
+    // Also handle triggers/conditions/variables (not in flat statements)
     const tryRemoveFromArr = (arr, id) => {
       if (!arr) return false;
       const i = arr.findIndex(n => n.id === id);
@@ -752,31 +568,75 @@ const Editor = (() => {
     });
   }
 
+  // ── Save ─────────────────────────────────────────────────
+  async function save() {
+    const nameInput = document.getElementById('editor-piston-name');
+    if (nameInput) _piston.name = nameInput.value.trim();
+
+    if (!_piston.name) {
+      if (nameInput) { nameInput.focus(); nameInput.style.borderColor = 'var(--red)'; }
+      _showNotice('Piston name is required.', 'error');
+      return false;
+    }
+
+    const btn = document.getElementById('btn-save');
+    if (btn) { btn.textContent = '💾 Saving...'; btn.disabled = true; }
+
+    // Generate piston_text from render functions — only if render succeeds.
+    // If any statement fails to render, preserve the previous value unchanged.
+    try {
+      _piston.piston_text = _renderDocument(_piston, false);
+    } catch(e) {
+      // Render threw — preserve existing piston_text, do not overwrite
+      console.warn('piston_text generation failed, preserving previous value:', e);
+    }
+
+    try {
+      const result = await API.savePiston(_piston.id, _piston);
+      _piston = result.piston || _piston;
+      _isNew = false;
+      _markUnsaved(false);
+
+      const warnings = result.compile_check?.warnings || [];
+      const errors   = result.compile_check?.errors   || [];
+
+      const needsPy = (result.piston?.compile_target || '').toLowerCase().includes('pyscript');
+      const warn = document.getElementById('pyscript-warning');
+      if (warn) warn.style.display = needsPy ? '' : 'none';
+
+      if (errors.length || warnings.length) {
+        _showNotice([...errors.map(e=>`⚠ ${e}`),...warnings.map(w=>`⚠ ${w}`)].join(' | '), 'warn');
+        return true;
+      }
+
+      App.navigate('status', { pistonId: _piston.id });
+      return true;
+
+    } catch(e) {
+      _showNotice(`Save failed — your work is preserved. ${e.message}`, 'error');
+      return false;
+    } finally {
+      if (btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
+    }
+  }
+
   // ── insertStatement — called by wizard ───────────────────
-  // Update-vs-insert rule:
-  //   If statementData.id already exists anywhere in the nested tree → replace in-place.
-  //   If not found → insert after _selectedId, or append to top level.
-  //
-  // if_condition context: wizard passes a block-id in _extra (via the ghost's data-block-id
-  // attribute). The editor finds that if block in the tree by ID and upserts the condition
-  // into its conditions array. The _blockId property on the condition node (stamped by
-  // _commitConditionAndMore in wizard.js) is also handled here for backwards compatibility
-  // until wizard.js is updated in Session C (see GAP-S36-1).
+  // Update-vs-insert rule: if statementData.id already exists in the flat
+  // statements array, replace in-place. Never append a duplicate.
   function insertStatement(context, statementData) {
+    // Bug A fix: if_condition context — route condition to parent if block
+    // Wizard sets _blockId on the condition node when adding conditions to an
+    // existing if block (e.g. from _commitConditionAndMore).
     if (context === 'if_condition') {
-      // blockId comes either from _extra['block-id'] (ghost click) or
-      // statementData._blockId (stamped by _commitConditionAndMore — GAP-S36-1)
       const blockId = statementData._blockId || null;
       if (blockId) {
-        const block = _findNode(blockId);
+        const stmtMap = _buildStmtMap();
+        const block = _findNode(stmtMap, blockId);
         if (block) {
           block.conditions = block.conditions || [];
           const ci = block.conditions.findIndex(c => c.id === statementData.id);
-          // Remove _blockId before storing — it is routing metadata, not piston data
-          const clean = { ...statementData };
-          delete clean._blockId;
-          if (ci >= 0) block.conditions[ci] = clean;
-          else block.conditions.push(clean);
+          if (ci >= 0) block.conditions[ci] = statementData;
+          else block.conditions.push(statementData);
           _markUnsaved(true);
           render();
           return;
@@ -802,15 +662,15 @@ const Editor = (() => {
 
     } else {
       if (!statementData.id) statementData.id = _nextStmtId();
-      // Update-vs-insert: try to replace in-place anywhere in the nested tree first
-      const replaced = _replaceNode(statementData);
-      if (!replaced) {
-        // New node — insert after selection, or append to top level
-        if (_selectedId) {
-          _insertAfter(_selectedId, statementData);
-        } else {
-          (_piston.statements = _piston.statements || []).push(statementData);
-        }
+      _piston.statements = _piston.statements || [];
+      // Update-vs-insert: replace in-place if ID already exists
+      const existing = _piston.statements.findIndex(s => s.id === statementData.id);
+      if (existing >= 0) {
+        _piston.statements[existing] = statementData;
+      } else if (_selectedId) {
+        _insertAfter(_selectedId, statementData);
+      } else {
+        _piston.statements.push(statementData);
       }
     }
     _markUnsaved(true);
@@ -840,55 +700,84 @@ const Editor = (() => {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // Flat lookup — stmtMap is built from _piston.statements.
+  // For triggers/conditions/variables (not in stmtMap), callers search their
+  // own arrays directly before calling this.
+  function _findNode(stmtMap, id) {
+    if (!stmtMap || !id) return null;
+    return stmtMap[id] || null;
+  }
+
+  function _buildStmtMap() {
+    return Object.fromEntries((_piston.statements || []).map(s => [s.id, s]));
+  }
+
+  // Flat removal — removes from statements array and cleans all parent child-ID lists
+  function _removeNode(id) {
+    const stmts = _piston.statements || [];
+    const idx = stmts.findIndex(s => s.id === id);
+    if (idx !== -1) stmts.splice(idx, 1);
+    const childKeys = ['then', 'else', 'statements', 'tasks'];
+    stmts.forEach(s => {
+      childKeys.forEach(k => {
+        if (Array.isArray(s[k])) s[k] = s[k].filter(cid => cid !== id);
+      });
+      (s.else_ifs || []).forEach(eib => {
+        if (Array.isArray(eib.statements)) eib.statements = eib.statements.filter(cid => cid !== id);
+      });
+      (s.cases || []).forEach(c => {
+        if (Array.isArray(c.statements)) c.statements = c.statements.filter(cid => cid !== id);
+      });
+      if (Array.isArray(s.default_statements)) s.default_statements = s.default_statements.filter(cid => cid !== id);
+    });
+  }
+
+  // Flat insertAfter — adds node to statements array after target, and injects
+  // new ID into whatever parent child-ID list contains the target ID.
+  function _insertAfter(targetId, newNode) {
+    const stmts = _piston.statements || [];
+    // Push to flat array
+    const tIdx = stmts.findIndex(s => s.id === targetId);
+    if (tIdx !== -1) stmts.splice(tIdx + 1, 0, newNode);
+    else stmts.push(newNode);
+    // Inject ID into parent child list after targetId
+    const childKeys = ['then', 'else', 'statements', 'tasks'];
+    for (const s of stmts) {
+      for (const k of childKeys) {
+        if (Array.isArray(s[k])) {
+          const ci = s[k].indexOf(targetId);
+          if (ci !== -1) { s[k].splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      for (const eib of (s.else_ifs || [])) {
+        if (Array.isArray(eib.statements)) {
+          const ci = eib.statements.indexOf(targetId);
+          if (ci !== -1) { eib.statements.splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      for (const c of (s.cases || [])) {
+        if (Array.isArray(c.statements)) {
+          const ci = c.statements.indexOf(targetId);
+          if (ci !== -1) { c.statements.splice(ci + 1, 0, newNode.id); return; }
+        }
+      }
+      if (Array.isArray(s.default_statements)) {
+        const ci = s.default_statements.indexOf(targetId);
+        if (ci !== -1) { s.default_statements.splice(ci + 1, 0, newNode.id); return; }
+      }
+    }
+  }
+
+  function _highestStmtId(piston) {
+    // Not used for ID generation anymore — kept only to initialize _stmtCounter
+    // so paste/duplicate IDs don't accidentally collide with loaded nodes.
+    // We just need any non-zero seed; actual IDs are now random hex via _nextStmtId.
+    return 0;
+  }
+
   function _nextStmtId() {
     // Spec: stmt_ + 8 char lowercase hex (matches wizard _newId() format)
     return 'stmt_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
-  }
-
-  // ── Save ─────────────────────────────────────────────────
-  async function save() {
-    const nameInput = document.getElementById('editor-piston-name');
-    if (nameInput) _piston.name = nameInput.value.trim();
-
-    if (!_piston.name) {
-      if (nameInput) { nameInput.focus(); nameInput.style.borderColor = 'var(--red)'; }
-      _showNotice('Piston name is required.', 'error');
-      return false;
-    }
-
-    const btn = document.getElementById('btn-save');
-    if (btn) { btn.textContent = '💾 Saving...'; btn.disabled = true; }
-
-    // piston_text field removed in Session 35 (PISTON_FORMAT.md v2.0).
-    // Snapshot JSON is generated on export, not on save. Do not generate it here.
-
-    try {
-      const result = await API.savePiston(_piston.id, _piston);
-      _piston = result.piston || _piston;
-      _isNew = false;
-      _markUnsaved(false);
-
-      const warnings = result.compile_check?.warnings || [];
-      const errors   = result.compile_check?.errors   || [];
-
-      const needsPy = (result.piston?.compile_target || '').toLowerCase().includes('pyscript');
-      const warn = document.getElementById('pyscript-warning');
-      if (warn) warn.style.display = needsPy ? '' : 'none';
-
-      if (errors.length || warnings.length) {
-        _showNotice([...errors.map(e=>`⚠ ${e}`),...warnings.map(w=>`⚠ ${w}`)].join(' | '), 'warn');
-        return true;
-      }
-
-      App.navigate('status', { pistonId: _piston.id });
-      return true;
-
-    } catch(e) {
-      _showNotice(`Save failed — your work is preserved. ${e.message}`, 'error');
-      return false;
-    } finally {
-      if (btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
-    }
   }
 
   return {

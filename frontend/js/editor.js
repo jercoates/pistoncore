@@ -607,6 +607,8 @@ const Editor = (() => {
       return false;
     }
     if (!spliceInto(_piston.statements || [])) {
+      console.warn('PistonCore: _insertAfter target not found, appending to top level', targetId);
+      _showNotice('Statement inserted at top level — target position not found.', 'warn');
       (_piston.statements = _piston.statements || []).push(newNode);
     }
   }
@@ -861,8 +863,9 @@ const Editor = (() => {
   }
 
   function _nextStmtId() {
-    // Spec: stmt_ + 8 char lowercase hex (matches wizard _newId() format)
-    return 'stmt_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+    // Spec: stmt_ + 8 char lowercase hex. Uses crypto to match wizard _newId().
+    return 'stmt_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   // ── Save ─────────────────────────────────────────────────

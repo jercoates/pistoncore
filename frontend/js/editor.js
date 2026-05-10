@@ -685,12 +685,35 @@ const Editor = (() => {
   function _pasteSelected() {
     if (!App.state.clipboard) return;
     const clone = JSON.parse(JSON.stringify(App.state.clipboard));
-    clone.id = _nextStmtId();
+    _deepReId(clone);
     if (_selectedId) _insertAfter(_selectedId, clone);
     else (_piston.statements = _piston.statements || []).push(clone);
     _cutId = null;
     _markUnsaved(true);
     render();
+  }
+
+  // Assigns a fresh ID to every node in a cloned subtree recursively.
+  // Covers statement nodes, else_if blocks, case blocks, condition nodes, and task nodes.
+  // Called on paste/duplicate to prevent duplicate IDs in the tree.
+  // GAP-S36-2 resolved: Session C.
+  function _deepReId(node) {
+    if (!node || typeof node !== 'object') return;
+    if (node.id) node.id = _nextStmtId();
+    (node.then        || []).forEach(n => _deepReId(n));
+    (node.else        || []).forEach(n => _deepReId(n));
+    (node.statements  || []).forEach(n => _deepReId(n));
+    (node.default     || []).forEach(n => _deepReId(n));
+    (node.else_ifs    || []).forEach(eib => {
+      if (eib.id) eib.id = _nextStmtId();
+      (eib.statements || []).forEach(n => _deepReId(n));
+    });
+    (node.cases || []).forEach(c => {
+      if (c.id) c.id = _nextStmtId();
+      (c.statements || []).forEach(n => _deepReId(n));
+    });
+    (node.conditions || []).forEach(c => { if (c.id) c.id = _nextStmtId(); });
+    (node.tasks      || []).forEach(t => { if (t.id) t.id = _nextStmtId(); });
   }
 
   function _deleteSelected() {
@@ -757,26 +780,23 @@ const Editor = (() => {
   //   If statementData.id already exists anywhere in the nested tree → replace in-place.
   //   If not found → insert after _selectedId, or append to top level.
   //
-  // if_condition context: wizard passes a block-id in _extra (via the ghost's data-block-id
-  // attribute). The editor finds that if block in the tree by ID and upserts the condition
-  // into its conditions array. The _blockId property on the condition node (stamped by
-  // _commitConditionAndMore in wizard.js) is also handled here for backwards compatibility
-  // until wizard.js is updated in Session C (see GAP-S36-1).
-  function insertStatement(context, statementData) {
+  // if_condition context: wizard passes blockId in meta argument. The editor finds that
+  // if block in the tree by ID and upserts the condition into its conditions array.
+  // GAP-S36-1 resolved: _blockId stamp mechanism replaced with meta argument in Session C.
+  function insertStatement(context, statementData, meta) {
     if (context === 'if_condition') {
-      // blockId comes either from _extra['block-id'] (ghost click) or
-      // statementData._blockId (stamped by _commitConditionAndMore — GAP-S36-1)
-      const blockId = statementData._blockId || null;
+      // blockId comes from meta.blockId (set by wizard via _commitConditionAndMore)
+      // or from the ghost's data-block-id attribute passed through extra (ghost click path
+      // sets context directly and the ghost data is not in meta — handled below by fallthrough).
+      const blockId = (meta && meta.blockId) || null;
       if (blockId) {
         const block = _findNode(blockId);
         if (block) {
           block.conditions = block.conditions || [];
           const ci = block.conditions.findIndex(c => c.id === statementData.id);
-          // Remove _blockId before storing — it is routing metadata, not piston data
-          const clean = { ...statementData };
-          delete clean._blockId;
-          if (ci >= 0) block.conditions[ci] = clean;
-          else block.conditions.push(clean);
+          // statementData is already clean — no _blockId to strip
+          if (ci >= 0) block.conditions[ci] = statementData;
+          else block.conditions.push(statementData);
           _markUnsaved(true);
           render();
           return;

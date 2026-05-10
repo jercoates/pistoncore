@@ -941,12 +941,10 @@ const Wizard = (() => {
       _context = 'if_condition';
       _extra = { 'block-id': ifBlockId };
     } else {
-      // Bug A fix: stamp _blockId on condition so editor can route it to the
-      // correct if block when context is if_condition on subsequent adds.
-      if (_context === 'if_condition' && _extra?.['block-id']) {
-        node._blockId = _extra['block-id'];
-      }
-      Editor.insertStatement(_context, node);
+      const meta = (_context === 'if_condition' && _extra?.['block-id'])
+        ? { blockId: _extra['block-id'] }
+        : {};
+      Editor.insertStatement(_context, node, meta);
       _sel = { statement_class:'condition' };
     }
     _editNode = null;
@@ -1344,13 +1342,22 @@ const Wizard = (() => {
     if (!cmd) return;
     let node;
     if (cmd === 'set_variable') {
+      const svValType = document.getElementById('wiz-sv-valtype')?.value || 'expression';
+      const svRaw     = document.getElementById('wiz-sv-expr')?.value || '';
+      const svValue   = svValType === 'value'
+        ? { type: 'literal',    data: svRaw }
+        : svValType === 'variable'
+        ? { type: 'variable',   name: svRaw }
+        : { type: 'expression', expression: svRaw };
       node = { type:'set_variable', id:_editNode?.id||_newId(),
         variable: document.getElementById('wiz-sv-name')?.value||'',
-        value:    document.getElementById('wiz-sv-expr')?.value||'' };
+        value:    svValue,
+        description: null, disabled: false };
     } else if (cmd === 'wait') {
       node = { type:'wait', id:_editNode?.id||_newId(), wait_type:'duration',
-        duration: document.getElementById('wiz-wait-n')?.value||'1',
-        unit:     document.getElementById('wiz-wait-u')?.value||'minutes' };
+        duration: parseInt(document.getElementById('wiz-wait-n')?.value||'1'),
+        duration_unit: document.getElementById('wiz-wait-u')?.value||'minutes',
+        description: null, disabled: false };
     } else if (cmd === 'log') {
       node = { type:'log_message', id:_editNode?.id||_newId(),
         message: { type:'literal', data: document.getElementById('wiz-log-msg')?.value||'' },

@@ -211,6 +211,35 @@ No X-Content-Type-Options, X-Frame-Options, or similar headers on API responses.
 Low effort — add FastAPI middleware in main.py. Good practice before v1.
 Fits in: S4-15 or any session that touches main.py.
 
+
+---
+
+## Pre-v1 Documentation and Promotion — Notes
+
+### README and DESIGN.md Addon Positioning
+Grok confirmed both files still have prominent addon references that don't match
+the current "addon is primary, Docker is secondary" positioning. This is not
+urgent during development but must be cleaned up before v1 launch.
+**What needs to happen:**
+- README: Make addon the clear primary path, Docker clearly secondary
+- DESIGN.md: Tighten "Two Products" section language to match actual strategy
+- Remove or conditionalize any v2 native runtime promises that only apply to addon
+- Add a "Writing to HA from Docker" section documenting the Samba/mount approach
+**Fits in:** A dedicated pre-v1 documentation session, not a coding session.
+
+### Promotion — Note for Later
+Promotion is not something that needs to happen now but needs a plan before v1.
+YouTube channels covering HA automation (e.g., Everything Smart Home, Smart Home
+Solver, BeardedTinker) are the right audience — they actively look for tools
+their viewers will find useful. The approach that works for tools like this:
+- Get the tool genuinely polished first — YouTubers won't cover alpha software
+- Post on r/homeassistant and HA community forums when v1 ships
+- A short demo video showing a complex WebCoRE piston recreated in PistonCore
+  side by side is the most compelling pitch for that audience
+- Reach out to 2-3 channels directly with a working demo — most are receptive
+  to genuinely useful tools they haven't seen before
+Not something to think about until after S3-1 passes. File it away for now.
+
 ## Processing Instructions for Session 35
 
 1. Read CLAUDE_SESSION_PROMPT.md and TASKS.md first as always

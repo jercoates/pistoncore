@@ -79,18 +79,20 @@ statements. No lookup map. No orphaned nodes possible.
 - _normalizePiston: added on load — checks logic_version/ui_version against
   supported max (throws on future version), removes malformed nodes recursively.
 
-**Session C — wizard.js audit + S3-1 round-trip test ← NEXT**
-Upload: wizard.js, editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, TASKS.md,
-CLAUDE_SESSION_PROMPT.md
-
-What changes:
-- Verify all wizard commit functions produce correct nested output
-- Skeleton objects write empty arrays — confirm they work with nested render
-- GAP-S36-1: Replace _blockId stamp mechanism with proper channel (see gaps below)
-- GAP-S36-2: Deep re-ID on paste/duplicate (see gaps below)
-- GAP-S27-4: for loop field names — verify wizard skeleton matches corrected renderer
-  (wizard already writes start/end/step/counter_variable — confirm and close gap)
-- Build one real piston, verify all six round-trip steps pass
+**Session C — wizard.js audit ✅ DONE (Session 37)**
+- GAP-S36-1: _blockId stamp replaced with meta argument. insertStatement now
+  accepts meta as third param. wizard passes { blockId } via meta, never stamps
+  data object. Editor reads meta.blockId cleanly, no spread/delete needed.
+- GAP-S36-2: _deepReId(node) added to editor.js. Recursively reassigns fresh IDs
+  to every node in cloned subtree (statements, else_ifs, cases, conditions, tasks).
+  _pasteSelected now calls _deepReId(clone) instead of only re-IDing top node.
+- GAP-S27-4: confirmed closed — wizard skeleton already writes start/end/step/
+  counter_variable matching the corrected renderer.
+- wait field name fix: _saveLocationCmd unit → duration_unit, duration parsed as
+  int, description/disabled added.
+- GAP-S37-1: set_variable value field now wraps in operand object. Reads
+  wiz-sv-valtype selector and produces literal/variable/expression object per
+  STATEMENT_TYPES.md Section 13. Was writing raw string before.
 
 ---
 
@@ -179,7 +181,7 @@ Stage 2 wires them together and verifies they talk to each other correctly.
 
 ---
 
-### S2-0: Storage Architecture Spec + SQLite Setup
+### S2-0: Storage Architecture Spec + SQLite Setup ✅ DONE (Session 38)
 **Why before other Stage 2 work:** Device tracking (S2-2) and run logging (S4-9)
 both need the database to exist. Define the schema first, create the DB on startup,
 then everything that needs it has a stable foundation.
@@ -359,6 +361,21 @@ that feature is listed as missing, write the spec first — then code.
 
 ## DONE — Completed Sessions
 
+### Session 38 — S2-0: SQLite Error Logger ✅
+New file: error_logger.py — ErrorLogger class, single error_logs table, WAL mode,
+30-day purge on startup, module-level singleton.
+main.py: added traceback import, Request to FastAPI imports, error_logger import,
+_log_unhandled_exceptions middleware to auto-log unhandled exceptions.
+No API endpoint yet — get_recent() exists but is not exposed. See GAP-S38-1.
+
+### Session 37 — S-NESTED Session C: wizard.js audit + field name fixes ✅
+GAP-S36-1: _blockId stamp replaced with meta argument in insertStatement.
+GAP-S36-2: _deepReId(node) added to editor.js for paste/duplicate.
+GAP-S27-4: confirmed closed — wizard already writes correct for loop field names.
+wait field name: _saveLocationCmd unit → duration_unit, duration parsed as int.
+GAP-S37-1: set_variable value field wraps in operand object (literal/variable/expression)
+  per STATEMENT_TYPES.md Section 13. Found and fixed same session.
+
 ### Session 36 — S-NESTED Session B: editor.js Nested Tree Migration ✅
 All statement tree operations rewritten for nested object tree.
 No flat statements array. No stmtMap. No ID references between statements.
@@ -422,30 +439,19 @@ Tasks superseded:
 
 ---
 
-## Gaps Found Session 36 — Still Open
+## Gaps Found Session 38 — Still Open
 
-### GAP-S36-1: wizard.js _blockId mechanism — replace with proper channel
-**Found during:** S-NESTED Session B — insertStatement if_condition branch
-**Problem:** Wizard stamps `_blockId` on the condition node object in
-`_commitConditionAndMore` as a side-channel to tell the editor which if-block to
-route the condition to on subsequent "Add more" clicks. Editor strips _blockId
-before storing. Works but is fragile — routing metadata riding on the data object.
-**What needs to happen:** In Session C, replace _blockId stamp with a proper
-mechanism. Option A: add a second argument to `insertStatement(context, data, meta)`
-for routing metadata. Option B: wizard passes blockId via a module-level variable
-that insertStatement reads. Both sides must be updated together.
-**Fits in:** S-NESTED Session C
+### GAP-S38-1: error_logs not exposed to frontend
+**Found during:** S2-0 — SQLite error logger
+**Problem:** get_recent() exists on ErrorLogger but there is no /api/logs endpoint.
+Frontend cannot display logs until this is wired.
+**What needs to happen:** Add /api/logs route to api.py. Fits Stage 4 alongside
+or before any logs UI work.
+**Fits in:** Stage 4 (S4-15 or a dedicated logs UI session).
 
-### GAP-S36-2: _pasteSelected does not deep re-ID nested children
-**Found during:** S-NESTED Session B — _pasteSelected
-**Problem:** `clone.id = _nextStmtId()` gives the pasted copy a new top-level ID,
-but nested children (then/else/statements/cases etc.) retain their original IDs.
-If the original statement is still in the piston, duplicate child IDs exist in the
-tree. The compiler uses IDs as YAML aliases — duplicates will produce invalid YAML.
-**What needs to happen:** Write a `_deepReId(node)` function that walks the cloned
-tree recursively and assigns a fresh _nextStmtId() to every node at every level,
-including task IDs, condition IDs, case IDs, and else_if IDs.
-**Fits in:** S-NESTED Session C
+---
+
+## Gaps Found Session 37 — Still Open
 
 ### GAP-S36-3: wait renderer branches 'until' and 'state' are untested
 **Found during:** S-NESTED Session B — wait renderer
@@ -454,8 +460,21 @@ in the editor but there is no wizard UI for these wait types yet. The wizard onl
 produces `wait_type: "duration"`. The render code is written to match
 STATEMENT_TYPES.md but cannot be tested until the wizard supports these types.
 **What needs to happen:** When wizard gets wait support, verify these render
-branches and add to the render-back verification table.
-**Fits in:** S-NESTED Session C or S3-1 round-trip test
+branches against STATEMENT_TYPES.md.
+**Fits in:** Whenever wait wizard UI is built.
+
+---
+
+## Gaps Found Session 36 — All Resolved Session 37
+
+### GAP-S36-1 ✅ RESOLVED Session 37
+_blockId stamp replaced with meta argument. See Session 37 entry in DONE section.
+
+### GAP-S36-2 ✅ RESOLVED Session 37
+_deepReId added to editor.js. See Session 37 entry in DONE section.
+
+### GAP-S37-1 ✅ RESOLVED Session 37 (found and fixed same session)
+set_variable value field now wraps in operand object per STATEMENT_TYPES.md Section 13.
 
 ---
 

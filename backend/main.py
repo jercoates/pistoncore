@@ -14,16 +14,18 @@
 
 import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
 import storage
 from api import router
+from error_logger import error_logger
 
 # Central logging config (Gap E — Grok review)
 logging.basicConfig(
@@ -122,6 +124,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def _log_unhandled_exceptions(request: Request, call_next):
+    """Auto-log any unhandled exception that escapes a route handler."""
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        error_logger.log(
+            level="error",
+            code="UNHANDLED_EXCEPTION",
+            message=str(exc),
+            context=f"{request.method} {request.url.path}",
+            stack_trace=traceback.format_exc(),
+        )
+        raise
 
 app.include_router(router)
 

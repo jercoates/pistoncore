@@ -74,7 +74,73 @@ elegance, theoretical correctness — that is wrong. The spec wins.
 
 ---
 
-## Project Status — Session 36 Complete
+## Project Status — Session 38 Complete
+
+### What Was Done in Session 38 (S2-0 — SQLite Error Logger)
+
+**error_logger.py created (new file).**
+Single ErrorLogger class. One table: error_logs. WAL mode enabled on init.
+30-day purge runs on every startup. Module-level singleton — import `error_logger`
+from anywhere in the backend that needs to log.
+
+Schema columns: id, timestamp, piston_id, piston_name, level, code, message,
+context, stack_trace, session_id, user_agent, ha_version, pistoncore_version, metadata.
+Four indexes: timestamp, piston_id, level, code.
+session_id / user_agent / ha_version / pistoncore_version stored as NULL for now.
+
+Auto-captures active exception traceback on error-level log calls when no
+stack_trace is passed and sys.exc_info()[0] is not None.
+
+**main.py updated.**
+Added: traceback import, Request to FastAPI imports, error_logger import.
+Added: _log_unhandled_exceptions middleware — catches any unhandled exception
+that escapes a route handler, logs it as UNHANDLED_EXCEPTION with method+path
+as context, then re-raises so FastAPI still returns a 500.
+
+**GAP-S38-1:** get_recent() has no /api/logs endpoint yet. Fits Stage 4.
+
+**Next task: S2-1 — HAClient Abstraction + HA API Externalization**
+Upload: ha_client.py, main.py, DESIGN.md, COMPILER_SPEC.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+### What Was Done in Session 37 (S-NESTED Session C — wizard.js audit + field name fixes)
+
+**wizard.js audited and fixed. editor.js updated for GAP-S36-1 and GAP-S36-2.**
+
+**GAP-S36-1 resolved:** `_blockId` stamp mechanism replaced with `meta` argument.
+- `insertStatement(context, statementData, meta)` now accepts meta as third param.
+- `_commitConditionAndMore` in wizard.js passes `{ blockId }` via meta instead of
+  stamping `_blockId` on the condition data object.
+- Editor reads `meta.blockId` cleanly. No spread/delete of statementData needed.
+
+**GAP-S36-2 resolved:** `_deepReId(node)` added to editor.js.
+- Recursively reassigns fresh IDs to every node in a cloned subtree.
+- Covers statement nodes, else_if blocks, case blocks, condition nodes, task nodes.
+- `_pasteSelected` now calls `_deepReId(clone)` instead of only re-IDing top node.
+
+**GAP-S37-1 found and resolved same session:** `set_variable` value field fix.
+- `_saveLocationCmd` for `set_variable` now reads `wiz-sv-valtype` selector.
+- Wraps textarea content as `literal` / `variable` / `expression` operand object
+  per STATEMENT_TYPES.md Section 13. Was writing a raw string before.
+
+**wait field name fix:**
+- `_saveLocationCmd` for `wait`: `unit` → `duration_unit`, `duration` parsed as int,
+  `description: null, disabled: false` added for spec completeness.
+
+**GAP-S27-4:** Confirmed closed — wizard skeleton already writes `start/end/step/
+counter_variable` matching the corrected renderer. No code change needed.
+
+**New gaps opened:** GAP-S36-3 (wait 'until'/'state' render branches untested —
+deferred until wizard gets wait UI support).
+**Gaps resolved:** GAP-S36-1, GAP-S36-2, GAP-S37-1, wait field name.
+
+**Next task: S2-0 — Storage Architecture Spec + SQLite Setup**
+Upload: main.py, storage.py (if exists), DESIGN.md, MISSING_SPECS.md,
+PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
 
 ### What Was Done in Session 36 (S-NESTED Session B — editor.js)
 
@@ -115,23 +181,10 @@ Children live inside their parent nodes in then/else/statements/cases/default ar
   (written by wizard skeleton) no longer produces ghost insertion point.
 - GAP-S27-4: `for` field names corrected (verified against wizard.js before fixing).
 - `piston_text` generation removed from `save()`. Field was removed in Session 35.
-- `_normalizePiston(p)` added, called on load:
-  - Checks `logic_version` and `ui_version` against supported max (1/1).
-    Throws with a clear message if piston is from a future version.
-  - Recursively removes statement nodes missing `id` or `type`.
-    Warns to console for each removal.
+- `_normalizePiston(p)` added, called on load.
 
-**wizard.js — no changes this session.**
-The `_blockId` stamp in `_commitConditionAndMore` is still correct and needed.
-Cleanup is deferred to Session C (GAP-S36-1). The editor handles it correctly —
-it finds the if-block via `_findNode(blockId)` and strips `_blockId` before storing.
-
-**New gaps opened:** GAP-S36-1, GAP-S36-2, GAP-S36-3. See TASKS.md.
+**New gaps opened:** GAP-S36-1, GAP-S36-2, GAP-S36-3.
 **Gaps resolved:** GAP-S27-2, GAP-S27-4.
-
-**Next task: S-NESTED Session C — wizard.js audit + round-trip test**
-Upload: wizard.js, editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, TASKS.md,
-CLAUDE_SESSION_PROMPT.md
 
 ---
 

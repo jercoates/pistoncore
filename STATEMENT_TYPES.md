@@ -1,8 +1,8 @@
 # PistonCore — Statement Types Reference
 
-**Version:** 1.0
+**Version:** 2.0
 **Status:** Authoritative — Required reference before compiler or wizard coding
-**Last Updated:** May 2026
+**Last Updated:** May 2026 (Session 35 — nested tree model)
 
 This document defines every statement type PistonCore supports. For each type it specifies:
 1. The structured JSON schema the wizard writes
@@ -24,8 +24,41 @@ projection from that structure. Rendered labels like `then`, `end if`, `when tru
 
 The editor calls a render function per statement type. The render function receives
 the structured JSON object and returns display text. The same render functions are
-used for editor display AND for the Snapshot preview on export. piston_text is retired
-as a v1 format — render functions produce display text only, not an export format.
+used for editor display AND for the Snapshot preview on export.
+
+**The editor must render from JSON correctly 100% of the time, every time, without
+fail.** This is the non-negotiable foundation of the project. It is why the data
+model uses a nested tree — children are embedded objects, never ID references.
+
+---
+
+## Nested Tree Model — How Children Work
+
+Control flow nodes (`if`, `while`, `repeat`, `for`, `for_each`, `do`, `switch`,
+`on_event`, `every`) own their children directly. The `then`, `else`, `statements`,
+`else_ifs`, and `cases` arrays contain child statement objects embedded inline.
+
+**There are no ID references between statements anywhere in the format.**
+
+```json
+{
+  "id": "stmt_001",
+  "type": "if",
+  "then": [
+    { "id": "stmt_002", "type": "action", ... },
+    { "id": "stmt_003", "type": "set_variable", ... }
+  ],
+  "else": [],
+  "else_ifs": []
+}
+```
+
+The compiler walks this tree recursively. The editor renders it recursively.
+Insert means add to the owning array. Remove means splice from the owning array.
+Nothing can become orphaned because there is no separate lookup step.
+
+`tasks` inside `action` nodes are also embedded objects (not child statements).
+This is consistent with the nested tree model — everything is embedded.
 
 ---
 
@@ -59,7 +92,7 @@ as a v1 format — render functions produce display text only, not an export for
 **Fields:**
 - `async` — boolean, default false. If true renders as `async with`
 - `devices` — array of role names from device_map
-- `tasks` — array of task objects (see task schema below)
+- `tasks` — array of task objects embedded directly in the action node (see task schema below)
 - `mode_restriction` — array of HA mode IDs, empty = no restriction
 
 ### Task Schema
@@ -74,6 +107,9 @@ as a v1 format — render functions produce display text only, not an export for
   "description": null
 }
 ```
+
+Tasks are embedded objects inside the action node. They are never referenced by ID
+from outside the action node.
 
 ### Editor Render
 
@@ -127,6 +163,9 @@ Single task shorthand (when only one task and no restrictions):
 }
 ```
 
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
+
 ### Editor Render
 
 ```
@@ -170,6 +209,13 @@ end do;
   "disabled": false
 }
 ```
+
+**Fields:**
+- `conditions` — array of condition objects for this if block
+- `condition_operator` — `"and"` / `"or"` connecting multiple conditions
+- `then` — array of child statement objects embedded directly (nested tree model)
+- `else_ifs` — array of else-if branch objects, each containing `conditions` and `statements` (child objects, nested)
+- `else` — array of child statement objects embedded directly (nested tree model)
 
 ### Editor Render
 
@@ -258,6 +304,10 @@ end if;
 }
 ```
 
+**Fields:**
+- `cases` — array of case objects. Each case's `statements` is an array of child statement objects embedded directly (nested tree model)
+- `default` — array of child statement objects embedded directly (nested tree model)
+
 **`case_traversal_policy`:** `"safe"` (auto-break) or `"fallthrough"` (programmer style)
 
 ### Editor Render
@@ -313,6 +363,9 @@ end switch;
 }
 ```
 
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
+
 ### Editor Render
 
 ```
@@ -362,6 +415,9 @@ repeat only supports count-based loops.
 }
 ```
 
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
+
 ### Editor Render
 
 ```
@@ -401,6 +457,9 @@ end for each;
   "disabled": false
 }
 ```
+
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
 
 ### Editor Render
 
@@ -442,6 +501,9 @@ end while;
   "disabled": false
 }
 ```
+
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
 
 ### Editor Render
 
@@ -488,6 +550,9 @@ end repeat;
   "disabled": false
 }
 ```
+
+**Fields:**
+- `statements` — array of child statement objects embedded directly (nested tree model)
 
 **`interval_unit` values:** `"ms"`, `"s"`, `"m"`, `"h"`, `"d"`, `"w"`, `"n"` (month), `"y"`
 
@@ -585,7 +650,7 @@ always be emitted when compiling an `on_event` statement, regardless of context.
 - `conditions` — standard condition objects (same schema as `if`, `while`, `repeat`).
   `is_trigger: true` on these conditions — they watch for device state changes.
 - `condition_operator` — `"and"` / `"or"` connecting multiple conditions
-- `statements` — child statement IDs (flat array, ID references per PISTON_FORMAT.md)
+- `statements` — array of child statement objects embedded directly (nested tree model)
 
 **System variables available inside `on_event` statements:**
 
@@ -1029,7 +1094,6 @@ but the compiler and editor must handle arbitrary nesting recursively.
 A condition array entry is either a flat condition object (has `is_trigger`, `role`,
 `operator` etc.) or a group object (has `type: "group"`, `operator`, `conditions`).
 The renderer and compiler detect which by checking for the `type: "group"` field.
-```
 
 ### Condition Render Examples
 
@@ -1144,7 +1208,8 @@ Case IDs: `case_` + 8 character hex: `case_f2a1b903`
 
 IDs are stable — they never change once assigned, even if the statement is moved,
 edited, or the piston is renamed. The compiler uses them as YAML aliases.
-Edit-in-place uses them to find the correct statement to update.
+Edit-in-place uses them to find the correct statement to update within its owning
+parent's child array.
 
 ---
 

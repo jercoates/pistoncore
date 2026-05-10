@@ -1,7 +1,8 @@
 # PistonCore Compiler Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Authoritative — Primary reference for all compiler coding
+**Last Updated:** May 2026 (Session 35 — nested tree model)
 **Last Updated:** May 2026
 
 Read DESIGN.md v1.1 before this document.
@@ -347,9 +348,9 @@ the script.
 ### 9.3 Trigger Compilation
 
 Triggers are condition objects in the statements array where `"is_trigger": true`.
-The compiler walks the statements array and collects all condition objects marked
-as triggers — regardless of position. Triggers can appear in any if block anywhere
-in the piston, not just the first one.
+The compiler recursively walks the nested statement tree and collects all condition
+objects marked as triggers — at any depth, in any if block anywhere in the piston.
+Because children are embedded objects, the recursive walk requires no lookup map.
 
 Each trigger object contains all data needed for compilation — no text parsing required.
 
@@ -493,8 +494,10 @@ pistoncore_<uuid>:
 
 ### 10.2 Statement Compilation — All Types
 
-The compiler walks the `statements` array and calls the appropriate compile function
-for each statement type. Statements are always typed objects — no text matching needed.
+The compiler walks the `statements` array recursively. Each control flow node's
+children (`then`, `else`, `statements`, `else_ifs`, `cases`) are embedded statement
+objects — no ID resolution or lookup map required. The compiler calls the appropriate
+compile function for each statement type.
 
 #### action (with/do block)
 
@@ -1215,7 +1218,7 @@ Document the minimum version in the README and check it on HA connect.
 The following is the hand-written target output for a simple driveway lights piston,
 verified against the compiler logic defined in this document.
 
-### Source Piston (internal structured JSON)
+### Source Piston (internal structured JSON — nested tree model)
 
 ```json
 {
@@ -1241,25 +1244,34 @@ verified against the compiler logic defined in this document.
           "value": { "preset": "sunset", "offset": 0 }
         }
       ],
-      "then": ["stmt_002", "stmt_003", "stmt_004"],
-      "else": []
-    },
-    {
-      "id": "stmt_002",
-      "type": "action",
-      "devices": ["driveway_light"],
-      "tasks": [{ "command": "turn_on", "ha_service": "light.turn_on", "parameters": { "brightness_pct": 100 } }]
-    },
-    {
-      "id": "stmt_003",
-      "type": "wait",
-      "until": "23:00:00"
-    },
-    {
-      "id": "stmt_004",
-      "type": "action",
-      "devices": ["driveway_light"],
-      "tasks": [{ "command": "turn_off", "ha_service": "light.turn_off", "parameters": {} }]
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_002",
+          "type": "action",
+          "devices": ["driveway_light"],
+          "tasks": [{ "id": "task_001", "command": "turn_on", "ha_service": "light.turn_on", "parameters": { "brightness_pct": 100 } }],
+          "description": null, "disabled": false
+        },
+        {
+          "id": "stmt_003",
+          "type": "wait",
+          "wait_type": "until",
+          "until": "23:00:00",
+          "description": null, "disabled": false
+        },
+        {
+          "id": "stmt_004",
+          "type": "action",
+          "devices": ["driveway_light"],
+          "tasks": [{ "id": "task_002", "command": "turn_off", "ha_service": "light.turn_off", "parameters": {} }],
+          "description": null, "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
     }
   ]
 }
@@ -1329,7 +1341,8 @@ pistoncore_a3f8c2d1:
 
 Note: `stmt_001` (the if block containing the sunset trigger) does not appear in the
 script body — triggers compile to the automation wrapper only. The then-branch statements
-(stmt_002, stmt_003, stmt_004) compile directly into the sequence.
+(stmt_002, stmt_003, stmt_004) are embedded inside stmt_001's `then` array and compile
+directly into the sequence.
 
 ---
 

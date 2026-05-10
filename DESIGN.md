@@ -244,13 +244,17 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 **Internal stored format:** Structured JSON — every statement is a typed data object. The wizard writes structured data. The editor renders display text from that data. The compiler reads structured JSON directly. This is the working format — the source of truth for everything PistonCore does with a piston.
 
-**Shared/export/AI format (`piston_text`):** Plain text — exactly what the editor displays. Easy to share, paste anywhere, generate with AI. This is the portable format for humans and AI. On import, it is translated to structured JSON through the AI Import dialog (see Section 6.3).
+**Shared/export/AI format (Snapshot JSON):** Structured JSON with empty `device_map` arrays and role name placeholders. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with personal device mappings removed. See Section 6.2.
 
-These two formats serve different purposes. The internal format is for the compiler and editor. The shared format is for humans, AI, and community sharing.
+These two formats serve different purposes. The internal format is for the compiler and editor. The Snapshot format is for humans, AI, and community sharing.
 
 ### 6.1 Internal Stored Format
 
-The internal piston file contains a wrapper plus a `statements` array of structured JSON objects — one per statement in the piston. This is the same proven model WebCoRE used, adapted for Home Assistant.
+The internal piston file contains a wrapper plus a `statements` array of structured JSON objects. This is the same proven model WebCoRE used, adapted for Home Assistant.
+
+**The statements array is a nested tree.** Control flow nodes own their children directly — `then`, `else`, `statements`, `else_ifs`, and `cases` contain child statement objects embedded inline. There are no ID references between statements. The tree structure is explicit and self-contained. This guarantees that what is stored is exactly what renders in the editor, with no lookup step that can fail or go stale.
+
+**The editor must render from this JSON correctly 100% of the time, every time, without fail.** This is the non-negotiable foundation of the project.
 
 ```json
 {
@@ -285,14 +289,21 @@ The internal piston file contains a wrapper plus a `statements` array of structu
           "value": "open"
         }
       ],
-      "then": ["stmt_002"],
-      "else": []
-    },
-    {
-      "id": "stmt_002",
-      "type": "set_variable",
-      "variable": "Message",
-      "value": ""
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_002",
+          "type": "set_variable",
+          "variable": "Message",
+          "value": { "type": "literal", "data": "" },
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
     }
   ]
 }
@@ -348,16 +359,18 @@ editor already use — just with the personal device mappings removed.
         }
       ],
       "condition_operator": "and",
-      "then": ["stmt_c1d4e823"],
+      "then": [
+        {
+          "id": "stmt_c1d4e823",
+          "type": "set_variable",
+          "variable": "message",
+          "value": { "type": "literal", "data": "" },
+          "description": null,
+          "disabled": false
+        }
+      ],
       "else_ifs": [],
       "else": [],
-      "disabled": false
-    },
-    {
-      "id": "stmt_c1d4e823",
-      "type": "set_variable",
-      "variable": "message",
-      "value": { "type": "literal", "data": "" },
       "disabled": false
     }
   ]
@@ -371,9 +384,6 @@ to map. `device_map_meta` is preserved so cardinality is known on import.
 This is what `write-a-piston.md` teaches AI assistants to generate.
 This is what `migrate-from-webcore.md` teaches AI assistants to produce
 from a WebCoRE screenshot.
-
-**`piston_text` is deferred to v2** as a possible human-writable convenience
-format. It is not in scope for v1 and nothing in v1 depends on it.
 
 ---
 

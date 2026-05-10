@@ -3,8 +3,11 @@
 # Matches COMPILER_SPEC.md Section 8 entry point and Section 13 result contract.
 # Started from Grok's skeleton — fixed and completed by Claude (Sessions 8-9).
 # Session 10: five bug fixes — hash, globals writes, _scan_globals, only_when, for_loop substitution.
-# Session 28: S1-2c flat statements array — stmt_map lookup, all control-flow methods updated.
 # Session 28: S1-7 session 1 — Bugs 1-7, 11, 13, 14, 19, 22, 23, 24 fixed.
+# Session 35: S-NESTED Session A — nested tree model. stmt_map and ID resolution removed.
+#   _compile_sequence now accepts list of statement objects directly.
+#   _collect_triggers now recurses into nested children at any depth.
+#   All control-flow methods: stmt_map parameter removed.
 #
 # This file is designed to be easy for anyone + Claude to maintain.
 # Each method references the COMPILER_SPEC section it implements.
@@ -178,12 +181,10 @@ class Compiler:
                     code="PYSCRIPT_NOT_IMPLEMENTED",
                 )
 
-            # Build stmt_map for flat array lookups
-            stmt_map = {s["id"]: s for s in piston.get("statements", [])}
-
-            # Collect triggers — condition objects with is_trigger:true
+            # Collect triggers — condition objects with is_trigger:true.
+            # Recurses the nested statement tree at any depth.
             # COMPILER_SPEC Section 9.3
-            trigger_conditions = self._collect_triggers(piston, stmt_map)
+            trigger_conditions = self._collect_triggers(piston)
 
             # called_by_piston — no automation file generated
             omit_automation = any(
@@ -218,7 +219,6 @@ class Compiler:
                 globals_store,
                 known_piston_ids,
                 result.warnings,
-                stmt_map=stmt_map,
             )
 
             if omit_automation:
@@ -289,18 +289,38 @@ class Compiler:
     # Section 9.3 — Trigger collection and compilation
     # -----------------------------------------------------------------------
 
-    def _collect_triggers(self, piston: dict, stmt_map: dict) -> list:
+    def _collect_triggers(self, piston: dict) -> list:
         """
-        Walk the flat statements array and collect every condition object
-        where is_trigger is True. Triggers can appear in any if block
-        anywhere in the piston — not just the top level.
+        Recursively walk the nested statement tree and collect every condition object
+        where is_trigger is True. Triggers can appear in any if block at any depth.
+        Nested tree model: children are embedded objects, no stmt_map needed.
         COMPILER_SPEC Section 9.3.
         """
         found = []
-        for stmt in piston.get("statements", []):
-            for cond in stmt.get("conditions", []):
-                if cond.get("is_trigger"):
-                    found.append(cond)
+
+        def walk_stmts(stmts: list):
+            for stmt in stmts:
+                # Collect triggers from this statement's conditions array
+                for cond in stmt.get("conditions", []):
+                    if cond.get("is_trigger"):
+                        found.append(cond)
+                # Recurse into all child statement arrays
+                for key in ("then", "else", "statements"):
+                    children = stmt.get(key, [])
+                    if children:
+                        walk_stmts(children)
+                # else_ifs each have their own conditions and statements
+                for eib in stmt.get("else_ifs", []):
+                    for cond in eib.get("conditions", []):
+                        if cond.get("is_trigger"):
+                            found.append(cond)
+                    walk_stmts(eib.get("statements", []))
+                # switch cases
+                for case in stmt.get("cases", []):
+                    walk_stmts(case.get("statements", []))
+                walk_stmts(stmt.get("default_statements", []))
+
+        walk_stmts(piston.get("statements", []))
         return found
 
     def _compile_triggers(
@@ -760,7 +780,7 @@ class Compiler:
 
     def _compile_sequence(
         self,
-        child_ids: list,
+        child_stmts: list,
         piston: dict,
         device_map: dict,
         globals_store: dict,
@@ -768,48 +788,25 @@ class Compiler:
         warnings: list,
         indent: int = 4,
         _append_completion_event: bool = True,
-        stmt_map: dict = None,
     ) -> str:
         """
-        Main statement dispatcher. Walks the child_ids list, resolves each ID
-        to a statement object via stmt_map, and compiles each statement.
-        Appends the PISTONCORE_RUN_COMPLETE event at end of the top-level
-        sequence only.
-        COMPILER_SPEC Section 7.2.
-        Flat model: child_ids is a list of statement ID strings. Each is looked
-        up in stmt_map. stmt_map is built once at the top-level call and passed
-        through all recursive calls. PISTON_FORMAT.md: statements is a flat
-        array; control-flow nodes reference children by ID only.
+        Main statement dispatcher. Walks child_stmts — a list of statement objects —
+        and compiles each one. Children are embedded objects in the nested tree model;
+        no ID resolution or stmt_map required.
+        Appends the PISTONCORE_RUN_COMPLETE event at end of the top-level sequence only.
+        COMPILER_SPEC Section 7.2 / 10.2. PISTON_FORMAT.md nested tree model.
         """
-        # Build stmt_map at the top-level call; recursive calls receive it pre-built.
-        if stmt_map is None:
-            stmt_map = {s['id']: s for s in piston.get('statements', [])}
-
-        # Resolve child_ids to statement objects.
-        # Each item should be a string ID in the flat model. The embedded-object
-        # fallback handles legacy data or the top-level call from compile_piston
-        # which still passes the raw statements list (list of dicts).
-        stmts = []
-        for item in child_ids:
-            if isinstance(item, str):
-                s = stmt_map.get(item)
-                if s is None:
-                    warnings.append(CompilerMessage(
-                        level="warning",
-                        code="MISSING_STATEMENT_ID",
-                        message=(
-                            f"Statement ID '{item}' referenced in a child list "
-                            f"was not found in piston.statements — skipped."
-                        ),
-                    ))
-                    continue
-                stmts.append(s)
-            else:
-                # Embedded object (top-level call passes dicts directly, or legacy data)
-                stmts.append(item)
-
         lines = []
-        for stmt in stmts:
+        for stmt in (child_stmts or []):
+            if not isinstance(stmt, dict):
+                # Defensive: skip anything that isn't a statement object
+                warnings.append(CompilerMessage(
+                    level="warning",
+                    code="INVALID_STATEMENT",
+                    message=f"Expected a statement object, got {type(stmt).__name__} — skipped.",
+                ))
+                continue
+
             stmt_type = stmt.get("type")
 
             # only_when — COMPILER_SPEC Section 8.16
@@ -846,31 +843,31 @@ class Compiler:
             elif stmt_type == "if":
                 lines.append(self._compile_if_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "repeat":
                 lines.append(self._compile_repeat_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "for_each":
                 lines.append(self._compile_for_each_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "while":
                 lines.append(self._compile_while_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "for":
                 lines.append(self._compile_for_loop(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "set_variable":
@@ -891,13 +888,13 @@ class Compiler:
             elif stmt_type == "switch":
                 lines.append(self._compile_switch_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type == "do":
                 lines.append(self._compile_do_block(
                     stmt, piston, device_map, globals_store,
-                    known_piston_ids, warnings, indent, stmt_map
+                    known_piston_ids, warnings, indent
                 ))
 
             elif stmt_type in ("break", "cancel_pending_tasks", "on_event"):
@@ -1092,7 +1089,7 @@ class Compiler:
     def _compile_if_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """
         COMPILER_SPEC Section 8.4 — recursive.
@@ -1156,7 +1153,6 @@ class Compiler:
             true_branch, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         ) if true_branch else "[]"
 
         # Compile else_ifs — each produces a {compiled_condition, compiled_sequence} dict
@@ -1174,7 +1170,6 @@ class Compiler:
                     ei_stmts, piston, device_map, globals_store,
                     known_piston_ids, warnings, indent + 2,
                     _append_completion_event=False,
-                    stmt_map=stmt_map,
                 ) if ei_stmts else "[]"
                 compiled_else_ifs.append({
                     "compiled_condition": ei_compiled_condition,
@@ -1187,7 +1182,6 @@ class Compiler:
                 false_branch, piston, device_map, globals_store,
                 known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
-                stmt_map=stmt_map,
             )
 
         tmpl = self.env.get_template("snippets/if_block.yaml.j2")
@@ -1206,7 +1200,7 @@ class Compiler:
     def _compile_repeat_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """
         COMPILER_SPEC Section 8.6 — repeat/do/until.
@@ -1222,7 +1216,6 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         )
 
         tmpl = self.env.get_template("snippets/repeat_until.yaml.j2")
@@ -1239,7 +1232,7 @@ class Compiler:
     def _compile_for_each_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """
         COMPILER_SPEC Section 8.7.
@@ -1264,7 +1257,6 @@ class Compiler:
             body, piston, body_device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         )
 
         tmpl = self.env.get_template("snippets/for_each.yaml.j2")
@@ -1303,7 +1295,7 @@ class Compiler:
     def _compile_while_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """
         COMPILER_SPEC Section 8.8.
@@ -1318,7 +1310,6 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         )
 
         tmpl = self.env.get_template("snippets/while_loop.yaml.j2")
@@ -1335,7 +1326,7 @@ class Compiler:
     def _compile_for_loop(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """
         COMPILER_SPEC Section 8.9.
@@ -1353,7 +1344,6 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent + 2,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         )
 
         simple = (from_val in (0, 1)) and (step == 1)
@@ -1658,7 +1648,7 @@ class Compiler:
     def _compile_switch_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.10 — compiles to HA choose:"""
         # PISTON_FORMAT.md: expression object, cases array (with statements), default array
@@ -1686,7 +1676,6 @@ class Compiler:
                 case.get("statements", []), piston, device_map, globals_store,
                 known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
-                stmt_map=stmt_map,
             )
             compiled_cases.append({
                 "condition_expr": condition_expr,
@@ -1699,7 +1688,6 @@ class Compiler:
                 default_stmts, piston, device_map, globals_store,
                 known_piston_ids, warnings, indent + 2,
                 _append_completion_event=False,
-                stmt_map=stmt_map,
             )
 
         tmpl = self.env.get_template("snippets/switch_block.yaml.j2")
@@ -1716,7 +1704,7 @@ class Compiler:
     def _compile_do_block(
         self, stmt: dict, piston: dict, device_map: dict,
         globals_store: dict, known_piston_ids: dict,
-        warnings: list, indent: int, stmt_map: dict,
+        warnings: list, indent: int,
     ) -> str:
         """COMPILER_SPEC Section 8.11 — inline comment + body."""
         # PISTON_FORMAT.md: description field, statements array
@@ -1726,7 +1714,6 @@ class Compiler:
             body, piston, device_map, globals_store,
             known_piston_ids, warnings, indent,
             _append_completion_event=False,
-            stmt_map=stmt_map,
         )
         tmpl = self.env.get_template("snippets/do_block.yaml.j2")
         return tmpl.render(
@@ -1853,9 +1840,8 @@ if __name__ == "__main__":
         },
         "variables": [],
         "conditions": [],
-        # Flat statements array — COMPILER_SPEC Section 18 format.
-        # Trigger is a condition object with is_trigger:True inside the if block.
-        # then/else contain statement ID strings, not embedded objects.
+        # Nested tree format — PISTON_FORMAT.md v2.0.
+        # Children are embedded statement objects, not ID strings.
         "statements": [
             {
                 "id": "stmt_001",
@@ -1871,25 +1857,36 @@ if __name__ == "__main__":
                     }
                 ],
                 "condition_operator": "and",
-                "then": ["stmt_002", "stmt_003", "stmt_004"],
+                "then": [
+                    {
+                        "id": "stmt_002",
+                        "type": "action",
+                        "devices": ["driveway_light"],
+                        "tasks": [{"id": "task_001", "command": "turn_on", "domain": "light",
+                                    "ha_service": "light.turn_on",
+                                    "parameters": {"brightness_pct": 100}}],
+                        "description": None, "disabled": False,
+                    },
+                    {
+                        "id": "stmt_003",
+                        "type": "wait",
+                        "wait_type": "until",
+                        "until": "23:00:00",
+                        "description": None, "disabled": False,
+                    },
+                    {
+                        "id": "stmt_004",
+                        "type": "action",
+                        "devices": ["driveway_light"],
+                        "tasks": [{"id": "task_002", "command": "turn_off", "domain": "light",
+                                    "ha_service": "light.turn_off", "parameters": {}}],
+                        "description": None, "disabled": False,
+                    },
+                ],
                 "else_ifs": [],
                 "else": [],
-            },
-            {
-                "id": "stmt_002",
-                "type": "action",
-                "devices": ["driveway_light"],
-                "tasks": [{"id": "task_001", "command": "turn_on", "domain": "light",
-                            "ha_service": "light.turn_on",
-                            "parameters": {"brightness_pct": 100}}],
-            },
-            {"id": "stmt_003", "type": "wait", "wait_type": "until", "until": "23:00:00"},
-            {
-                "id": "stmt_004",
-                "type": "action",
-                "devices": ["driveway_light"],
-                "tasks": [{"id": "task_002", "command": "turn_off", "domain": "light",
-                            "ha_service": "light.turn_off", "parameters": {}}],
+                "description": None,
+                "disabled": False,
             },
         ],
     }

@@ -6,6 +6,29 @@
 
 ---
 
+
+fuck the rest of these for now read this
+
+I would rather redo the backend now and not get pissed off and abandon the project later.  that is a real  possibility with me
+
+7:38 PM
+Claude responded: That's the most important thing you've said all session and you're right to trust that instinct.
+That's the most important thing you've said all session and you're right to trust that instinct.
+
+If the flat model has a real chance of causing render failures that make you want to quit, fix it now. The backend is the right time — before S2-0, before SQLite, before any more is built on top of it. Ripping out the foundation gets harder with every session that passes.
+
+The next session should be:
+
+Nested tree migration decision — is it the right move and what does it cost.
+
+Not S2-0. This first.
+
+Upload: DESIGN.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, COMPILER_SPEC.md, wizard.js, editor.js, compiler.py, CLAUDE_SESSION_PROMPT.md, TASKS.md.
+
+Let Claude read everything, compare flat vs nested against your actual codebase, and give you an honest cost estimate before a single line changes. If the migration is the right call you'll know in one session. If the flat model can be made reliable enough with normalizePiston() you'll know that too.
+
+Don't start S2-0 until this is settled. A shaky foundation under a working SQLite layer is worse than stopping now.
+
 ## Grok Repo Audit — Items To Check Against TASKS.md
 
 Grok reviewed the live repo (github.com/jercoates/pistoncore) at end of Session 34.

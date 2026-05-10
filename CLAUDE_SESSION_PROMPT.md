@@ -85,6 +85,10 @@ in the stack can be tested or verified.
 All Stage 2 backend tasks (S2-2 through S2-4) are deferred until after the
 wizard works and the round-trip smoke test (S3-1) passes.
 
+** note for this session **
+ Match WebCoRE exactly for all dialog flow, field behavior, and data collection — the if/condition/action/task dialogs, the operand picker, the device selector, all of it.
+PistonCore improvements are fine for the main screen layout, the debug/log screen, and globals being accessible from anywhere. Those aren't regressions from WebCoRE, they're upgrades.
+I'll capture that as a note at the top of WIZARD_REBUILD_SPEC.md when W-0 runs so it's clear what's a target match and what's intentionally different. That way future sessions don't accidentally "fix" something that was deliberately changed
 ---
 
 ## How to Start Every Session

@@ -14,7 +14,6 @@ PyScript for complex pistons is locked for V1. No debate, don't relitigate it.
 The four sample pistons (Low Battery, Door Chime, CO Alert, Water Leak) are the real V1 test. If those work, V1 is meaningful.
 HA has real limitations compared to Hubitat. That's known and accepted. Document them, work around them where possible, warn users clearly where not. Don't pretend HA can do things it can't.
 
-Note for start of Session B:
-Before starting editor.js work, add one item to TASKS.md S4-10:
-
-"The AI prompt files (write-a-piston.md and migrate-from-webcore.md) must be written against the nested tree model. Any AI generating flat ID-reference JSON ("then": ["stmt_002"]) will produce pistons that break the editor. When S4-10 is reached, the nested format examples in PISTON_FORMAT.md and COMPILER_SPEC.md Section 18 are the reference. Do not use any flat-model JSON examples anywhere in the prompt files."
+Match WebCoRE exactly for all dialog flow, field behavior, and data collection — the if/condition/action/task dialogs, the operand picker, the device selector, all of it.
+PistonCore improvements are fine for the main screen layout, the debug/log screen, and globals being accessible from anywhere. Those aren't regressions from WebCoRE, they're upgrades.
+I'll capture that as a note at the top of WIZARD_REBUILD_SPEC.md when W-0 runs so it's clear what's a target match and what's intentionally different. That way future sessions don't accidentally "fix" something that was deliberately changed

@@ -63,6 +63,15 @@ elegance, theoretical correctness — that is wrong. The spec wins.
 
 ---
 
+# File Editing Rule — Non-Negotiable
+
+**Jeremy does not edit files manually. He will only add content to the top or bottom
+of a file. Any change that requires editing the middle of a file must be delivered
+as a complete replacement file. No diffs, no line-number instructions, no partial
+patches. If it needs a middle edit, write the whole file.**
+
+---
+
 ## How to Start Every Session
 
 1. Read this file completely before saying anything
@@ -74,7 +83,43 @@ elegance, theoretical correctness — that is wrong. The spec wins.
 
 ---
 
-## Project Status — Session 38 Complete
+## Project Status — Session 39 Complete
+
+### What Was Done in Session 39 (S2-1 — HAClient Abstraction)
+
+**ha_client.py rewritten as HAClient class with module-level singleton.**
+
+Auth mode auto-detected on construction:
+- SUPERVISOR_TOKEN env var present → supervisor mode, URL = http://supervisor/core
+- No SUPERVISOR_TOKEN → token mode, reads ha_url + ha_token from config.json
+
+All existing module-level functions converted to instance methods. Public API
+signatures unchanged — get_devices, get_capabilities, get_services, get_all_states,
+get_services_for_domains, get_areas, get_ha_version, call_service, invalidate_cache.
+
+**reload_config() added.**
+Re-reads ha_url and ha_token from config.json and clears cache. No-op in supervisor
+mode. Call from settings-save endpoint after writing new config.
+
+**Bug 26 fixed:** ThreadPoolExecutor is now a persistent instance attribute
+(self._executor), created once in __init__, reused across all _run() calls.
+No more per-call pool creation and teardown.
+
+**Bug 27 fixed:** get_services cache key changed from svc:{entity_id} to
+svc:{domain}. Two entities in the same domain now share one cache entry.
+
+**endpoints.json externalization skipped.** The WebSocket path (/api/websocket)
+is stable HA protocol spec — not worth the file complexity. Decision final.
+
+**GAP-S39-1:** api.py and compiler.py import ha_client functions via module-level
+import. With the singleton pattern, callers must use
+`from ha_client import ha_client` not `import ha_client`. Audit needed in S2-2
+which already has api.py in scope.
+
+**Next task: S2-2 — device_map_meta — Wire Into Backend and Wizard**
+Upload: wizard.js, api.py, PISTON_FORMAT.md, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
 
 ### What Was Done in Session 38 (S2-0 — SQLite Error Logger)
 
@@ -98,10 +143,6 @@ that escapes a route handler, logs it as UNHANDLED_EXCEPTION with method+path
 as context, then re-raises so FastAPI still returns a 500.
 
 **GAP-S38-1:** get_recent() has no /api/logs endpoint yet. Fits Stage 4.
-
-**Next task: S2-1 — HAClient Abstraction + HA API Externalization**
-Upload: ha_client.py, main.py, DESIGN.md, COMPILER_SPEC.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -135,10 +176,6 @@ counter_variable` matching the corrected renderer. No code change needed.
 **New gaps opened:** GAP-S36-3 (wait 'until'/'state' render branches untested —
 deferred until wizard gets wait UI support).
 **Gaps resolved:** GAP-S36-1, GAP-S36-2, GAP-S37-1, wait field name.
-
-**Next task: S2-0 — Storage Architecture Spec + SQLite Setup**
-Upload: main.py, storage.py (if exists), DESIGN.md, MISSING_SPECS.md,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -178,29 +215,19 @@ Children live inside their parent nodes in then/else/statements/cases/default ar
 
 **Other fixes:**
 - GAP-S27-2: `else` branch renders only when `node.else.length > 0`. Empty array
-  (written by wizard skeleton) no longer produces ghost insertion point.
-- GAP-S27-4: `for` field names corrected (verified against wizard.js before fixing).
-- `piston_text` generation removed from `save()`. Field was removed in Session 35.
-- `_normalizePiston(p)` added, called on load.
-
-**New gaps opened:** GAP-S36-1, GAP-S36-2, GAP-S36-3.
-**Gaps resolved:** GAP-S27-2, GAP-S27-4.
+  no longer produces a blank else line.
+- `piston_text` generation removed from `save()`. Field is gone per PISTON_FORMAT.md v2.0.
+- `_normalizePiston` added on load: checks logic_version/ui_version against supported
+  max (throws on future version), removes malformed nodes recursively.
 
 ---
 
-### What Was Done in Session 35 (S-NESTED Session A — Spec + compiler.py)
+### Nested Tree Model — Summary (Sessions 35-37)
 
-**Root cause identified and corrected.**
-
-The flat statements array stored child statements as ID references. This made editor
-render reliability dependent on correct maintenance of ID reference lists across every
-insert, remove, move, and edit operation. Any bug in that maintenance produced silent
-render gaps. Since Jeremy edits pistons constantly, this was unacceptable.
-
-**Decision: migrate to nested tree model.**
-Control flow nodes own their children directly. `then`, `else`, `statements`,
-`else_ifs`, and `cases` contain child statement objects. No ID references between
-statements anywhere. The tree structure is explicit and self-contained.
+The statements array is a nested tree. Control flow nodes own their children directly.
+`then`, `else`, `statements`, `else_ifs`, and `cases` contain child statement objects.
+No ID references between statements anywhere. The tree structure is explicit and
+self-contained.
 
 **Spec files updated this session:**
 - `PISTON_FORMAT.md` — rewritten to nested tree model. `piston_text` field removed.

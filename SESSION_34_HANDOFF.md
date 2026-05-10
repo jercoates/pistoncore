@@ -240,6 +240,50 @@ their viewers will find useful. The approach that works for tools like this:
   to genuinely useful tools they haven't seen before
 Not something to think about until after S3-1 passes. File it away for now.
 
+---
+
+## Grok Updated Assessment — Flat Statements Model
+
+Grok reviewed the flat statements model with full context of the PyScript fallback.
+Conclusion: the architecture is validated. Key points worth preserving:
+
+### Validation
+The hybrid approach is smart — flat model for native YAML (simple pistons),
+same structured JSON handed to PyScript compiler for complex pistons. The flat
+model does not need to support insane nesting in native YAML because PyScript
+handles that. This is the right call.
+
+### Remaining Concerns (still valid, already tracked)
+1. Import fidelity — complex WebCoRE pistons with deep nesting, early exits,
+   and variable scoping must be preserved accurately during import even if they
+   go to PyScript. Losing structure on import means losing the piston.
+2. Round-trip integrity — the _removeNode/_insertAfter bugs flagged earlier
+   in this handoff can still create orphaned statements. Fix before S3-1.
+3. Wizard output consistency — wizard is the main creator, must produce clean
+   predictable structures both compilers can handle. Already a focus of S3-1.
+4. Future drag-and-drop — flat model works for this but needs solid helper
+   functions (find parent, get depth, validate tree). Not v1 but good to know.
+
+### Bottom Line
+Keep the flat model. Add normalizePiston() on load/save to keep structure
+healthy. Already tracked in the editor.js section of this handoff note.
+No new TASKS.md entries needed — confirms existing priorities are correct.
+
+---
+
+## Architectural Question — Flat vs Nested Tree Model
+
+Grok recommends migrating to a nested tree model before round-tripping is built.
+This is a significant architectural decision that needs a dedicated spec session
+before any action is taken. Do NOT act on this without Claude in context with
+DESIGN.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, and the full compiler.
+
+Key question: is the migration worth it at this stage, or does normalizePiston()
+on the flat model get us close enough?
+
+This is the first thing to discuss at the start of the next available spec session
+before S2-0 coding begins. Upload this handoff note and all spec files.
+
 ## Processing Instructions for Session 35
 
 1. Read CLAUDE_SESSION_PROMPT.md and TASKS.md first as always
@@ -247,3 +291,25 @@ Not something to think about until after S3-1 passes. File it away for now.
 3. Check item 2 (8-char UUID) against PISTON_FORMAT.md — clarify if needed
 4. Move this file to reference/ when done
 5. Proceed with S2-0
+
+---
+
+## CRITICAL — Nested Tree Migration Decision
+
+The absolute non-negotiable requirement for PistonCore is that the JSON
+renders correctly in the editor 100% of the time without fail.
+
+Grok recommends migrating from flat statements array to nested tree model
+specifically because the flat model's ID references are the primary source
+of render failures — orphaned nodes, broken parent links, missing IDs.
+
+The nested tree eliminates this entire class of failure because structure
+is explicit, not implied by ID references.
+
+This decision must be made BEFORE S3-1 round-trip testing. If the flat
+model cannot guarantee 100% render reliability, migrate now while the
+codebase is still manageable.
+
+First agenda item next spec session — upload DESIGN.md, PISTON_FORMAT.md,
+STATEMENT_TYPES.md, COMPILER_SPEC.md, wizard.js, editor.js, compiler.py.
+This overrides the S2-0 order if necessary.

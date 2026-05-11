@@ -1,5 +1,5 @@
 # PistonCore — Claude Session Prompt
-
+hey fuck head this is not a programing session until you read and understand what you keep missing read the entire document not skim
 **Project:** PistonCore — open-source WebCoRE-style visual automation builder for Home Assistant
 **Repo:** github.com/jercoates/pistoncore
 **Stack:** Python/FastAPI backend, Vanilla JS/HTML/CSS frontend, no framework
@@ -74,8 +74,10 @@ patches. If it needs a middle edit, write the whole file.**
 
 # Wizard Priority Rule — Current Focus
 
-**The wizard core bugs are fixed. The next priority is the smoke test (W-S5 / S3-1).**
-
+**THE WIZARD IS FUCKED READ BELOW I DONT GIVE A FUCK ABOUT THIS SHIT UNTILL ALL THE MENUES WORK AND POPULATE CORRECTLY.**
+  YOU CANT DO A SMOKE TEST UNTILL THE FUCKING THING WORKS
+  THERE AINT SHIT FIXED WITH THE WIZARD
+  GO THROUGH THE CONVERSATION PASTED BELOW AND FIGURE IT OUT THIS TIME AND NOT CRASH WHILE PROGRAMING
 Deploy the fixed wizard.js and editor.js, build Docker, and run the 14-step minimum
 viable piston flow from WIZARD_REBUILD_SPEC.md. If the smoke test passes, Stage 2
 backend work resumes. If it fails, document exactly which step fails and fix only that.

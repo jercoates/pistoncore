@@ -1,12 +1,12 @@
-// pistoncore/frontend/js/wizard.js — Session 41 full rewrite
-// All gaps from SESSION_41_WIZARD_AUDIT.md fixed in one pass.
+// pistoncore/frontend/js/wizard.js — Session 12 rewrite v2
+// WebCoRE-style modal wizard. ~580px wide, NOT full screen.
 //
 // KEY DESIGN RULES:
 // 1. Condition wizard is ONE screen — device + attribute + operator + value all visible at once
 // 2. Device picker for CONDITIONS opens as a sub-panel INSIDE the modal, not a full replacement
 // 3. Action device picker IS a full step (separate screen) because it's multi-select
 // 4. Back button always works by tracking a step stack
-// 5. Clicking an existing node opens the correct edit screen for that node type
+// 5. Clicking an existing condition/trigger opens the condition builder pre-populated
 
 const Wizard = (() => {
 
@@ -16,7 +16,7 @@ const Wizard = (() => {
   let _extra = {};
   let _step = null;
   let _sel = {};
-  let _stepStack = [];
+  let _stepStack = [];   // stack for back navigation
   let _deviceData = null;
 
   // ── Operators ─────────────────────────────────────────────
@@ -150,12 +150,14 @@ const Wizard = (() => {
   };
 
   // ── Allowed HA domains for device pickers ─────────────────
+  // Only controllable/monitorable entities. Everything else filtered out.
   const ALLOWED_DOMAINS = new Set([
     'light','switch','binary_sensor','sensor','media_player','cover','climate',
     'fan','lock','input_boolean','input_number','input_select','automation',
     'person','device_tracker','alarm_control_panel',
   ]);
 
+  // Filter + deduplicate a raw HA device list for display in any picker
   function _filterDevices(raw) {
     const seen = new Set();
     return (raw || []).filter(d => {
@@ -167,6 +169,7 @@ const Wizard = (() => {
     });
   }
 
+  // Given entity_id(s) from a variable's initial_value, return union of domain caps
   function _getCapsForDomain(entityIdOrList) {
     const ids = Array.isArray(entityIdOrList)
       ? entityIdOrList
@@ -245,7 +248,6 @@ const Wizard = (() => {
       services: [],
     },
   ];
-
   const VIRTUAL_DEVICES = [
     { entity_id:'__location__', friendly_name:'Location'     },
     { entity_id:'__time__',     friendly_name:'Time'         },
@@ -271,25 +273,26 @@ const Wizard = (() => {
 
   const STATEMENT_TYPES = {
     basic: [
-      { type:'if_block',   label:'If Block',  icon:'⟨/⟩', desc:'Execute different actions depending on conditions',  btn:'Add an if block', cls:'btn-primary' },
-      { type:'action',     label:'Action',    icon:'⟨/⟩', desc:'Control devices and execute tasks',                  btn:'Add an action',   cls:'btn-green'   },
-      { type:'timer',      label:'Timer',     icon:'⟨/⟩', desc:'Trigger execution at set time intervals',            btn:'Add a timer',     cls:'btn-orange'  },
+      { type:'if_block',   label:'If Block',  icon:'⟨/⟩', desc:'Execute different actions depending on conditions',  btn:'Add an if',      cls:'btn-primary' },
+      { type:'action',     label:'Action',    icon:'⟨/⟩', desc:'Control devices and execute tasks',                  btn:'Add an action',  cls:'btn-green'   },
+      { type:'timer',      label:'Timer',     icon:'⟨/⟩', desc:'Trigger execution at set time intervals',            btn:'Add a timer',    cls:'btn-orange'  },
     ],
     advanced: [
-      { type:'switch',     label:'Switch',    icon:'⟨/⟩', desc:'Compare an operand against a set of values',         btn:'Add a switch',    cls:'btn-primary' },
-      { type:'do_block',   label:'Do Block',  icon:'⟨/⟩', desc:'Organize several statements into a single block',    btn:'Add a do block',  cls:'btn-green'   },
-      { type:'on_event',   label:'On Event',  icon:'⟨/⟩', desc:'Execute statements only when certain events happen', btn:'Add an on event', cls:'btn-orange'  },
+      { type:'switch',     label:'Switch',    icon:'⟨/⟩', desc:'Compare an operand against a set of values',         btn:'Add a switch',   cls:'btn-primary' },
+      { type:'do_block',   label:'Do Block',  icon:'⟨/⟩', desc:'Organize several statements into a single block',    btn:'Add a do block', cls:'btn-green'   },
+      { type:'on_event',   label:'On Event',  icon:'⟨/⟩', desc:'Execute statements only when certain events happen', btn:'Add an on event',cls:'btn-orange'  },
     ],
     loops: [
-      { type:'for_loop',   label:'For Loop',      icon:'⟨/⟩', desc:'Execute statements for a set number of cycles',       btn:'Add a for loop',     cls:'btn-orange' },
-      { type:'for_each',   label:'For Each Loop', icon:'⟨/⟩', desc:'Execute statements for each device in a list',         btn:'Add a for each loop', cls:'btn-orange' },
-      { type:'while_loop', label:'While Loop',    icon:'⟨/⟩', desc:'Execute statements as long as a condition is met',     btn:'Add a while loop',   cls:'btn-orange' },
-      { type:'repeat_loop',label:'Repeat Loop',   icon:'⟨/⟩', desc:'Execute the same statements until a condition is met', btn:'Add a repeat loop',  cls:'btn-orange' },
-      { type:'break',      label:'Break',         icon:'⟨/⟩', desc:'Interrupt the inner most loop',                        btn:'Add a break',        cls:'btn-red'    },
-      { type:'exit',       label:'Exit',          icon:'⟨/⟩', desc:'Interrupt piston execution and exit immediately',       btn:'Add an exit',        cls:'btn-red'    },
+      { type:'for_loop',   label:'For Loop',     icon:'⟨/⟩', desc:'Execute statements for a set number of cycles',        btn:'Add a for loop',    cls:'btn-orange' },
+      { type:'for_each',   label:'For Each Loop',icon:'⟨/⟩', desc:'Execute statements for each device in a list',          btn:'Add a for each loop',cls:'btn-orange'},
+      { type:'while_loop', label:'While Loop',   icon:'⟨/⟩', desc:'Execute statements as long as a condition is met',      btn:'Add a while loop',  cls:'btn-orange' },
+      { type:'repeat_loop',label:'Repeat Loop',  icon:'⟨/⟩', desc:'Execute the same statements until a condition is met',  btn:'Add a repeat loop', cls:'btn-orange' },
+      { type:'break',      label:'Break',        icon:'⟨/⟩', desc:'Interrupt the inner most loop',                         btn:'Add a break',       cls:'btn-red'    },
+      { type:'exit',       label:'Exit',         icon:'⟨/⟩', desc:'Interrupt piston execution and exit immediately',        btn:'Add an exit',       cls:'btn-red'    },
     ],
   };
 
+  // ── Open / Close ──────────────────────────────────────────
   // ── Inject combo CSS once ─────────────────────────────────
   function _injectComboCSS() {
     if (document.getElementById('wiz-combo-css')) return;
@@ -315,7 +318,6 @@ const Wizard = (() => {
     document.head.appendChild(s);
   }
 
-  // ── Open / Close ──────────────────────────────────────────
   function open(context, editNode, extra) {
     _context  = context;
     _editNode = editNode || null;
@@ -339,12 +341,13 @@ const Wizard = (() => {
   }
 
   function _pushStep(fn) {
+    // Deduplicate — never push same function twice in a row
     const last = _stepStack[_stepStack.length - 1];
     if (last !== fn) _stepStack.push(fn);
   }
 
   function _back() {
-    _stepStack.pop();
+    _stepStack.pop(); // remove current
     const prev = _stepStack[_stepStack.length - 1];
     if (prev) { _stepStack.pop(); prev(); }
     else close();
@@ -354,129 +357,43 @@ const Wizard = (() => {
   function _route() {
     const ctx = _context;
 
-    // ── Edit existing nodes ──────────────────────────────────
-    if (_editNode) {
-      const t = _editNode.type;
-
-      // Condition / trigger / restriction edit
-      if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition') {
-        _sel.statement_class = 'condition';
-        if (_editNode.subject) {
-          _sel.subject_type   = _editNode.subject.type || 'device';
-          _sel.device_id      = _editNode.subject.entity_id || '';
-          _sel.device_label   = _editNode.subject.role || _editNode.subject.entity_id || '';
-          _sel.devices        = [_sel.device_id];
-          _sel.attribute      = _editNode.subject.capability || '';
-          _sel.attribute_type = _editNode.subject.attribute_type || '';
-        }
-        _sel.operator        = _editNode.operator || '';
-        _sel.aggregation     = _editNode.aggregation || 'any';
-        _sel.value           = _editNode.display_value || _editNode.value || '';
-        _sel.value2          = _editNode.value_to || '';
-        _sel.duration_amount = _editNode.duration || 1;
-        _sel.duration_unit   = _editNode.duration_unit || 'minutes';
-        _sel.interaction     = _editNode.interaction || 'any';
-        _goConditionBuilder();
-        return;
+    if (_editNode && (_editNode.type === 'trigger' || _editNode.type === 'condition' || _editNode.type === 'restriction') ||
+        ctx === 'edit_condition' && _editNode) {
+      _sel.statement_class = 'condition';
+      if (_editNode.subject) {
+        _sel.subject_type  = _editNode.subject.type || 'device';
+        _sel.device_id     = _editNode.subject.entity_id || '';
+        _sel.device_label  = _editNode.subject.role || _editNode.subject.entity_id || '';
+        _sel.devices       = [_sel.device_id];
+        _sel.attribute     = _editNode.subject.capability || '';
+        _sel.attribute_type = _editNode.subject.attribute_type || '';
       }
-
-      // Variable edit
-      if (t === 'variable') { _goVariablePicker(); return; }
-
-      // Location command edits
-      if (t === 'set_variable') { _goLocationCmd('set_variable'); return; }
-      if (t === 'wait')         { _goLocationCmd('wait');         return; }
-      if (t === 'log_message')  { _goLocationCmd('log');          return; }  // GAP-S40-1 fixed
-      if (t === 'call_piston')  { _goLocationCmd('execute_piston'); return; }
-
-      // Action edit — go directly to command picker (task context from editor)
-      if (t === 'action') {
-        // Pre-populate sel from the action node
-        _sel.devices      = _editNode.devices || [];
-        _sel.device_id    = _sel.devices[0] || '';
-        _sel.device_label = _sel.devices[0] || '';
-        if ((_editNode.tasks || []).length) {
-          const task = _editNode.tasks[0];
-          _sel.command      = task.command || '';
-          _sel.parameters   = task.parameters || {};
-        }
-        // Determine if it's a location action
-        if (_sel.device_id === '__location__' || (_editNode.devices||[]).includes('Location')) {
-          const task = (_editNode.tasks||[])[0];
-          if (task) _sel.location_cmd = task.command || '';
-          _goLocationCmdPicker();
-        } else {
-          _goCommandPicker();
-        }
-        return;
-      }
-
-      // Every / timer edit
-      if (t === 'every') {
-        _sel.interval      = _editNode.interval || 5;
-        _sel.interval_unit = _editNode.interval_unit || 'minutes';
-        _goTimerPicker();
-        return;
-      }
-
-      // For each edit
-      if (t === 'for_each') {
-        _sel.variable  = _editNode.variable || '$device';
-        _sel.list_role = _editNode.list_role || '';
-        _goForEachPicker();
-        return;
-      }
-
-      // For loop edit
-      if (t === 'for') {
-        _sel.for_start    = _editNode.start ?? 1;
-        _sel.for_end      = _editNode.end ?? 10;
-        _sel.for_step     = _editNode.step ?? 1;
-        _sel.for_counter  = _editNode.counter_variable || '';
-        _goForPicker();
-        return;
-      }
-
-      // Switch edit — show expression picker
-      if (t === 'switch') {
-        _sel.switch_expression = _editNode.expression || null;
-        _goSwitchPicker();
-        return;
-      }
-
-      // While edit — open condition builder to add/edit while condition
-      if (t === 'while') {
-        _sel.statement_class = 'condition';
-        _context = 'if_condition';
-        _extra = { 'block-id': _editNode.id };
-        _goConditionBuilder();
-        return;
-      }
-
-      // Exit edit — show value field
-      if (t === 'exit') {
-        _goExitPicker();
-        return;
-      }
-
-      // Repeat, do, on_event, break — no config needed, close
-      if (t === 'repeat' || t === 'do' || t === 'on_event' || t === 'break') {
-        close();
-        return;
-      }
+      _sel.operator        = _editNode.operator || '';
+      _sel.aggregation     = _editNode.aggregation || 'any';
+      _sel.value           = _editNode.value || '';
+      _sel.value2          = _editNode.value2 || '';
+      _sel.duration_amount = _editNode.duration_amount || 1;
+      _sel.duration_unit   = _editNode.duration_unit || 'minutes';
+      _sel.interaction     = _editNode.interaction || 'any';
+      _goConditionBuilder();
+      return;
     }
+    if (_editNode && _editNode.type === 'set_variable') { _goLocationCmd('set_variable'); return; }
+    if (_editNode && _editNode.type === 'wait')          { _goLocationCmd('wait');         return; }
+    if (_editNode && _editNode.type === 'log')           { _goLocationCmd('log');          return; }
+    if (_editNode && _editNode.type === 'action' && (_editNode.tasks||[]).length)  { _goCommandPicker(); return; }
+    if (_editNode && _editNode.type === 'variable')      { _goVariablePicker();            return; }
 
-    // ── New statement routing by context ─────────────────────
     if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
       _goConditionOrGroup();
     } else if (ctx === 'if_condition') {
       _sel.statement_class = 'condition';
       _goConditionBuilder();
+    } else if (ctx === 'action') {
+      _goStatementTypePicker();
     } else if (ctx === 'variable') {
       _goVariablePicker();
     } else if (ctx === 'task') {
-      // task context = adding a task to an existing action node
-      // _extra has block-id of the action node
       _goActionDevicePicker();
     } else {
       _goStatementTypePicker();
@@ -496,9 +413,7 @@ const Wizard = (() => {
       <div class="wiz-footer" id="wiz-footer">${footerHtml}</div>
     `;
     document.getElementById('wiz-x')?.addEventListener('click', close);
-    document.getElementById('wizard-backdrop').onclick = e => {
-      if (e.target === document.getElementById('wizard-backdrop')) close();
-    };
+    document.getElementById('wizard-backdrop').onclick = e => { if (e.target === document.getElementById('wizard-backdrop')) close(); };
   }
 
   // ── CONDITION OR GROUP ────────────────────────────────────
@@ -545,15 +460,39 @@ const Wizard = (() => {
     const needsDur  = NEEDS_DURATION.has(op);
     const needsTwo  = NEEDS_TWO_VALUES.has(op);
     const agg       = _sel.aggregation || 'any';
+    const isMulti   = (_sel.devices || []).length > 1;
     const attr      = _sel.attribute || '';
     const interaction = _sel.interaction || 'any';
-    const subjType  = _sel.subject_type || 'device';
 
     const backFn = _sel.statement_class === 'condition' && _context !== 'if_condition'
       ? _goConditionOrGroup : null;
 
-    // "Which interaction" only shows when subject is device AND device is selected
-    const showInteraction = subjType === 'device' && hasDevice;
+    // Build device <select> options from cached data + demo devices
+    const _buildDeviceOptions = () => {
+      const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+      const localDeviceVars = allLocals.filter(v => v.var_type === 'device');
+      let opts = `<option value="">Nothing selected</option>`;
+      if ((_deviceData||[]).length) {
+        opts += `<optgroup label="Physical devices">`;
+        opts += (_deviceData||[]).slice(0,300).map(d =>
+          `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)}</option>`
+        ).join('');
+        opts += `</optgroup>`;
+      }
+      if (localDeviceVars.length) {
+        opts += `<optgroup label="Local variables">`;
+        opts += localDeviceVars.map(v =>
+          `<option value="${_esc(v.name)}" data-label="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>device ${_esc(v.name)}</option>`
+        ).join('');
+        opts += `</optgroup>`;
+      }
+      opts += `<optgroup label="Demo devices">`;
+      opts += DEMO_DEVICES.map(d =>
+        `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)} (demo)</option>`
+      ).join('');
+      opts += `</optgroup>`;
+      return opts;
+    };
 
     _render(
       'Add a new condition',
@@ -571,48 +510,20 @@ const Wizard = (() => {
       <div class="wiz-row-label">What to compare</div>
       <div class="wiz-compare-row">
         <select id="wiz-subj-type" class="wiz-select-blue">
-          <option value="device"   ${subjType==='device'  ?'selected':''}>Physical device(s)</option>
-          <option value="variable" ${subjType==='variable'?'selected':''}>Variable</option>
-          <option value="time"     ${subjType==='time'    ?'selected':''}>Time</option>
-          <option value="date"     ${subjType==='date'    ?'selected':''}>Date</option>
-          <option value="mode"     ${subjType==='mode'    ?'selected':''}>Mode</option>
+          <option value="device"   ${(_sel.subject_type||'device')==='device'  ?'selected':''}>Physical device(s)</option>
+          <option value="variable" ${_sel.subject_type==='variable'            ?'selected':''}>Variable</option>
+          <option value="time"     ${_sel.subject_type==='time'                ?'selected':''}>Time</option>
+          <option value="date"     ${_sel.subject_type==='date'                ?'selected':''}>Date</option>
+          <option value="mode"     ${_sel.subject_type==='mode'                ?'selected':''}>Mode</option>
         </select>
-        <button class="wiz-device-pick-btn ${hasDevice?'has-value':''}" id="wiz-open-devpicker"
-          style="flex:1;min-width:120px;${subjType!=='device'?'display:none':''}">
+        <button class="wiz-device-pick-btn ${hasDevice?'has-value':''}" id="wiz-open-devpicker" style="flex:1;min-width:120px">
           ${hasDevice ? `<span class="wiz-device-tag">device</span> ${_esc(_sel.device_label||_sel.device_id)}` : 'Nothing selected'}
         </button>
-        <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}"
-          ${(!hasDevice || subjType!=='device')?'disabled':''}
-          style="${subjType!=='device'?'display:none':''}">
+        <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}" ${!hasDevice?'disabled':''}>
           <option value="">attribute...</option>
           ${(_sel._caps||[]).map(c=>`<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${attr===c.name?'selected':''}>${_esc(c.name)}</option>`).join('')}
         </select>
       </div>
-
-      ${subjType==='variable' ? `
-      <div style="margin-top:6px">
-        <select id="wiz-subj-var" class="wiz-select-blue wiz-select-full">
-          <option value="">Select a variable...</option>
-          ${(Editor.getPistonVariables ? Editor.getPistonVariables() : []).map(v=>
-            `<option value="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>${_esc(v.name)}</option>`
-          ).join('')}
-        </select>
-      </div>` : ''}
-
-      ${subjType==='time' ? `
-      <div style="margin-top:6px">
-        <input type="time" id="wiz-subj-time" class="wiz-value-input" value="${_esc(_sel.time_value||'')}" style="width:140px" />
-      </div>` : ''}
-
-      ${subjType==='date' ? `
-      <div style="margin-top:6px">
-        <input type="date" id="wiz-subj-date" class="wiz-value-input" value="${_esc(_sel.date_value||'')}" style="width:160px" />
-      </div>` : ''}
-
-      ${subjType==='mode' ? `
-      <div style="margin-top:6px">
-        <input type="text" id="wiz-subj-mode" class="wiz-value-input" placeholder="Mode name..." value="${_esc(_sel.mode_value||'')}" style="width:200px" />
-      </div>` : ''}
 
       <div id="wiz-dev-panel" style="display:none;margin-top:4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-raised)">
         <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">
@@ -622,7 +533,7 @@ const Wizard = (() => {
         <div id="wiz-dev-panel-list" style="max-height:260px;overflow-y:auto"></div>
       </div>
 
-      <div class="wiz-interaction-row" id="wiz-int-row" style="${showInteraction?'':'display:none'}">
+      <div class="wiz-interaction-row" id="wiz-int-row">
         <span class="wiz-row-label-inline">Which interaction</span>
         <select id="wiz-interaction" class="wiz-select-blue-sm">
           <option value="any"          ${interaction==='any'          ?'selected':''}>Any interaction</option>
@@ -683,13 +594,13 @@ const Wizard = (() => {
       <div class="wiz-footer-right">
         <button class="btn btn-ghost btn-sm" id="wiz-cog">⚙</button>
         <button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp?'':'disabled'}>Add more</button>
-        <button class="btn btn-primary btn-sm" id="wiz-add"      ${hasDevice&&hasOp?'':'disabled'}>${_editNode ? 'Save' : 'Add'}</button>
+        <button class="btn btn-primary btn-sm" id="wiz-add"      ${hasDevice&&hasOp?'':'disabled'}>Add</button>
       </div>
       `
     );
 
+    // Populate value widget on initial render
     if (needsVal) _renderValueWidget();
-    if (hasDevice && subjType === 'device') _loadCapsIntoSelect();
 
     document.getElementById('wiz-back-btn')?.addEventListener('click', backFn || close);
 
@@ -698,11 +609,7 @@ const Wizard = (() => {
       _goConditionBuilder();
     });
 
-    document.getElementById('wiz-subj-var')?.addEventListener('change', e => {
-      _sel.device_id = e.target.value;
-      _refreshConditionRows();
-    });
-
+    // ── Device picker button — inline panel ──────────────────
     document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
       const panel = document.getElementById('wiz-dev-panel');
       if (!panel) return;
@@ -726,6 +633,7 @@ const Wizard = (() => {
       }
     });
 
+    // Kick off HA device fetch silently
     if (!_deviceData) {
       API.getDevices().then(data => { _deviceData = data; }).catch(() => {});
     }
@@ -736,6 +644,8 @@ const Wizard = (() => {
       _sel.attribute_type = opt?.dataset.type || '';
       _renderValueWidget();
     });
+
+    if (_sel.device_id) _loadCapsIntoSelect();
 
     document.getElementById('wiz-operator')?.addEventListener('change', e => {
       _sel.operator = e.target.value;
@@ -748,7 +658,34 @@ const Wizard = (() => {
     document.getElementById('wiz-add-more')?.addEventListener('click', _commitConditionAndMore);
   }
 
-  // ── VALUE WIDGET ──────────────────────────────────────────
+  // Build device options from already-loaded data (used after async fetch)
+  function _buildDeviceOptions_static(physicalDevices) {
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const localDeviceVars = allLocals.filter(v => v.var_type === 'device');
+    let opts = `<option value="">Nothing selected</option>`;
+    if ((physicalDevices||[]).length) {
+      opts += `<optgroup label="Physical devices">`;
+      opts += (physicalDevices||[]).slice(0,300).map(d =>
+        `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)}</option>`
+      ).join('');
+      opts += `</optgroup>`;
+    }
+    if (localDeviceVars.length) {
+      opts += `<optgroup label="Local variables">`;
+      opts += localDeviceVars.map(v =>
+        `<option value="${_esc(v.name)}" data-label="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>device ${_esc(v.name)}</option>`
+      ).join('');
+      opts += `</optgroup>`;
+    }
+    opts += `<optgroup label="Demo devices">`;
+    opts += DEMO_DEVICES.map(d =>
+      `<option value="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}" ${_sel.device_id===d.entity_id?'selected':''}>${_esc(d.friendly_name)} (demo)</option>`
+    ).join('');
+    opts += `</optgroup>`;
+    return opts;
+  }
+
+  // Render the value widget based on attribute_type and val_type
   function _renderValueWidget() {
     const widget = document.getElementById('wiz-val-widget');
     if (!widget) return;
@@ -757,6 +694,7 @@ const Wizard = (() => {
     const cap = (_sel._caps||[]).find(c => c.name === _sel.attribute);
 
     if (valType !== 'value') {
+      // All free-text types use textarea so content wraps instead of scrolling
       const ph = valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...';
       widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="${ph}" style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
       const w2 = document.getElementById('wiz-val-widget-2');
@@ -776,13 +714,16 @@ const Wizard = (() => {
     } else if (attrType === 'numeric') {
       const unit = cap?.unit || '';
       widget.innerHTML = `<input type="number" id="wiz-val-1" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
+      // second value for between
       const w2 = document.getElementById('wiz-val-widget-2');
       if (w2) w2.innerHTML = `<input type="number" id="wiz-val-2" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value2||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
       return;
     } else {
+      // fallback — textarea so it wraps
       widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
     }
 
+    // second widget for between (non-numeric path)
     const w2 = document.getElementById('wiz-val-widget-2');
     if (w2) w2.innerHTML = `<input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />`;
   }
@@ -801,6 +742,7 @@ const Wizard = (() => {
     const lbl = document.getElementById('wiz-dur-label');
     if (lbl) lbl.textContent = durationLabel(op);
 
+    // Show/hide second value widget for between operators
     const andSpan = document.getElementById('wiz-between-and');
     const w2 = document.getElementById('wiz-val-widget-2');
     if (andSpan) andSpan.style.display = needsTwo ? '' : 'none';
@@ -815,15 +757,17 @@ const Wizard = (() => {
     document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
   }
 
-  // ── DEVICE PANEL (condition builder sub-panel) ────────────
+  // ── DEVICE PANEL ─────────────────────────────────────────
   function _renderDevPanelList(query) {
     const el = document.getElementById('wiz-dev-panel-list');
     if (!el) return;
     const q = query.toLowerCase();
 
+    // Filter + deduplicate physical devices
     const physical = _filterDevices(_deviceData).filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
+
     const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
     const localDeviceVars = allLocals.filter(v =>
       v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
@@ -851,7 +795,6 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
-    // Demo devices always shown, filtered by query
     html += `<div class="wiz-device-group-header">Demo devices</div>`;
     if (filteredDemos.length) {
       html += filteredDemos.map(d =>
@@ -874,23 +817,21 @@ const Wizard = (() => {
         _sel.attribute_type = '';
         _sel._caps = [];
 
+        // Close the panel — no full re-render
         document.getElementById('wiz-dev-panel').style.display = 'none';
 
+        // Update button label in place
         const btn = document.getElementById('wiz-open-devpicker');
         if (btn) {
           btn.innerHTML = `<span class="wiz-device-tag">device</span> ${_esc(_sel.device_label)}`;
           btn.classList.add('has-value');
         }
 
+        // Show orange banner
         const aggBar = document.getElementById('wiz-agg-bar');
         if (aggBar) aggBar.style.display = '';
 
-        // Show "Which interaction" now that a device is selected
-        const intRow = document.getElementById('wiz-int-row');
-        if (intRow && (_sel.subject_type || 'device') === 'device') {
-          intRow.style.display = '';
-        }
-
+        // Enable attr select and load caps
         const attrSel = document.getElementById('wiz-attr-select');
         if (attrSel) {
           attrSel.disabled = false;
@@ -898,9 +839,11 @@ const Wizard = (() => {
         }
         _loadCapsIntoSelect();
 
+        // Update selected highlight in list
         document.querySelectorAll('#wiz-dev-panel-list .wiz-device-row').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
 
+        // Re-check add button state
         _refreshConditionRows();
       });
     });
@@ -918,12 +861,15 @@ const Wizard = (() => {
       const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
       const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
       if (localVar) {
+        // initial_value may be entity_id (light.cave_light) or label (Cave Light)
+        // Try entity_id path first; if no dots found, look up entity by label in _deviceData
         const rawVal = String(localVar.initial_value || '');
         const entityIds = rawVal.split(',').map(s => s.trim()).filter(Boolean);
         const hasEntityIds = entityIds.some(id => id.includes('.'));
         if (hasEntityIds) {
           caps = _getCapsForDomain(entityIds);
         } else if (entityIds.length && _deviceData) {
+          // Try to resolve labels to entity_ids via _deviceData
           const resolved = entityIds.map(label => {
             const match = (_deviceData||[]).find(d =>
               d.friendly_name.toLowerCase() === label.toLowerCase());
@@ -931,6 +877,7 @@ const Wizard = (() => {
           }).filter(Boolean);
           caps = resolved.length ? _getCapsForDomain(resolved) : _getCapsForDomain('light.unknown');
         } else {
+          // No entity info — show light caps as sensible default for device variables
           caps = _getCapsForDomain('light.unknown');
         }
       } else {
@@ -941,6 +888,7 @@ const Wizard = (() => {
       }
     }
 
+    // Last resort: if still no caps, derive from entity_id domain directly
     if (!caps.length && _sel.device_id && _sel.device_id.includes('.')) {
       caps = _getCapsForDomain(_sel.device_id);
     }
@@ -979,57 +927,70 @@ const Wizard = (() => {
   }
 
   // ── COMMIT CONDITION ──────────────────────────────────────
-  // FIX: Path A (create new if node) only runs when context is NOT if_condition.
-  // Path B (append to existing if block) runs when context IS if_condition.
   function _commitCondition() {
     const node = _buildConditionNode();
     if (!node) return;
-
-    if (_context === 'if_condition') {
-      // Adding condition to EXISTING if block — pass blockId in meta
-      const blockId = _extra?.['block-id'] || null;
-      const meta = blockId ? { blockId } : {};
-      close();
-      Editor.insertStatement(_context, node, meta);
-    } else {
-      // New if block — wrap condition in an if node
-      const ifBlockId = _extra?.['block-id'] || _newId();
+    const ifBlockId = _extra?.['block-id'];
+    if (ifBlockId) {
+      // Adding first condition — wrap in a new if node
       const ifNode = {
-        type: 'if', id: ifBlockId, async: false,
-        conditions: [node], condition_operator: 'and',
-        then: [], else_ifs: [], else: [],
-        description: null, disabled: false,
+        type: 'if',
+        id: ifBlockId,
+        async: false,
+        conditions: [node],
+        condition_operator: 'and',
+        then: [],
+        else_ifs: [],
+        else: [],
+        description: null,
+        disabled: false,
       };
       const ctx = _context;
       close();
       Editor.insertStatement(ctx, ifNode);
+    } else if (_context === 'if_condition' && _extra?.['block-id'] === undefined) {
+      // if_condition context without block-id — shouldn't happen but guard it
+      Editor.insertStatement(_context, node);
+      close();
+    } else {
+      // Adding condition to existing if block via if_condition context
+      // block-id comes from the ghost click path stored in _extra
+      const blockId = _extra?.['block-id'] || null;
+      const meta = blockId ? { blockId } : {};
+      close();
+      Editor.insertStatement(_context, node, meta);
     }
   }
 
   function _commitConditionAndMore() {
     const node = _buildConditionNode();
     if (!node) return;
-
-    if (_context === 'if_condition') {
-      // Adding to existing if block
-      const blockId = _extra?.['block-id'] || null;
-      const meta = blockId ? { blockId } : {};
-      Editor.insertStatement(_context, node, meta);
-      _sel = { statement_class:'condition', group_operator: 'and' };
-    } else {
+    const ifBlockId = _extra?.['block-id'];
+    if (ifBlockId && _context !== 'if_condition') {
       // First condition on a new if block
-      const ifBlockId = _extra?.['block-id'] || _newId();
       const ifNode = {
-        type: 'if', id: ifBlockId, async: false,
-        conditions: [node], condition_operator: 'and',
-        then: [], else_ifs: [], else: [],
-        description: null, disabled: false,
+        type: 'if',
+        id: ifBlockId,
+        async: false,
+        conditions: [node],
+        condition_operator: 'and',
+        then: [],
+        else_ifs: [],
+        else: [],
+        description: null,
+        disabled: false,
       };
       Editor.insertStatement(_context, ifNode);
       // Switch context so next condition adds to the if block we just created
       _sel = { statement_class:'condition' };
       _context = 'if_condition';
       _extra = { 'block-id': ifBlockId };
+    } else {
+      // Adding to existing if block
+      const blockId = _extra?.['block-id'] || null;
+      const meta = blockId ? { blockId } : {};
+      Editor.insertStatement(_context, node, meta);
+      _sel = { statement_class:'condition', group_operator: 'and' };
     }
     _editNode = null;
     _stepStack = [];
@@ -1038,34 +999,14 @@ const Wizard = (() => {
 
   function _buildConditionNode() {
     const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
-    const subjType = _sel.subject_type || 'device';
-
-    let role = '';
-    let entity_id = '';
-
-    if (subjType === 'device') {
-      role = _sel.device_label || _sel.device_id || '';
-      entity_id = _sel.device_id || '';
-    } else if (subjType === 'variable') {
-      role = document.getElementById('wiz-subj-var')?.value || _sel.device_id || '';
-      entity_id = role;
-    } else if (subjType === 'time') {
-      role = 'time';
-      entity_id = document.getElementById('wiz-subj-time')?.value || _sel.time_value || '';
-    } else if (subjType === 'date') {
-      role = 'date';
-      entity_id = document.getElementById('wiz-subj-date')?.value || _sel.date_value || '';
-    } else if (subjType === 'mode') {
-      role = 'mode';
-      entity_id = document.getElementById('wiz-subj-mode')?.value || _sel.mode_value || '';
-    }
-
+    // role name (device_label) is the stable reference — entity_id goes into device_map only
+    const role = _sel.device_label || _sel.device_id || '';
     if (!role || !op) return null;
-
     const attrSel = document.getElementById('wiz-attr-select');
-    const attrVal  = attrSel ? attrSel.value : (_sel.attribute || '');
+    const attrVal = attrSel ? attrSel.value : (_sel.attribute || '');
     const attrType = attrSel ? (attrSel.selectedOptions[0]?.dataset.type || '') : (_sel.attribute_type || '');
 
+    // Binary sensor value translation — display_value stays friendly, compiled_value is "on"/"off"
     const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
     const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
     const isBinary = attrType === 'binary';
@@ -1076,17 +1017,20 @@ const Wizard = (() => {
       ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
       : rawVal1;
 
+    // Duration — only include when operator needs it
     const needsDur = NEEDS_DURATION.has(op);
     const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
     const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
 
+    // AND/OR group_operator — read from selector if present (adding to existing if block)
     const groupOpEl = document.getElementById('wiz-group-op-selector');
     const groupOp = groupOpEl ? groupOpEl.value : 'and';
 
+    // subject object — PISTON_FORMAT.md + editor.js _condLine reads c.subject
     const subject = {
-      type: subjType,
+      type: 'device',
       role: role,
-      entity_id: entity_id,
+      entity_id: _sel.device_id || '',
       capability: attrVal,
       attribute_type: attrType,
       device_class: _sel.device_class || null,
@@ -1147,61 +1091,29 @@ const Wizard = (() => {
   function _handleStatementType(type) {
     if (type === 'action')                           { _goActionDevicePicker(); return; }
     if (type === 'timer'  || type === 'every')       { _goTimerPicker();        return; }
-    if (type === 'for_each')                         { _goForEachPicker();       return; }
-    if (type === 'for_loop')                         { _goForPicker();           return; }
-    if (type === 'switch')                           { _goSwitchPicker();        return; }
-    if (type === 'exit')                             { _goExitPicker();          return; }
+    if (type === 'for_each')                         { _goForEachPicker();      return; }
+    if (type === 'repeat' || type === 'repeat_loop') { _goRepeatPicker();       return; }
 
-    // repeat — no config, insert directly (WebCoRE repeat has no count)
-    if (type === 'repeat' || type === 'repeat_loop') {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      close();
-      Editor.insertStatement(_context, {
-        type:'repeat', id:_newId(), async:false,
-        statements:[], until_conditions:[], condition_operator:'and',
-        description:null, disabled:false,
-      }, meta);
-      return;
-    }
-
-    // while — go to condition builder first (adds first while condition after insert)
-    if (type === 'while' || type === 'while_loop') {
-      const whileId = _newId();
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      // Insert the while node first, then open condition builder targeting it
-      Editor.insertStatement(_context, {
-        type:'while', id:whileId, async:false,
-        conditions:[], condition_operator:'and',
-        statements:[],
-        description:null, disabled:false,
-      }, meta);
-      // Now open wizard to add a condition to the while block
-      _context = 'if_condition';
-      _extra = { 'block-id': whileId };
-      _editNode = null;
-      _sel = { statement_class:'condition' };
-      _stepStack = [];
-      _goConditionBuilder();
-      return;
-    }
-
-    // if block — go to condition/group picker
     if (type === 'if' || type === 'if_block') {
+      // Store block-id in _extra — unified mechanism
       _extra = { 'block-id': _newId() };
       _sel.statement_class = 'condition';
       _goConditionOrGroup();
       return;
     }
 
-    // Skeletons for types with no config
-    const skeletons_alias = { do_block:'do', on_event:'on_event' };
-    const resolvedKey = skeletons_alias[type] || type;
-
-    const skeletonMap = {
+    // Skeletons for statement types that need no sub-wizard.
+    // All fields match STATEMENT_TYPES.md schemas exactly.
+    // _newId() is called inside the factory so each skeleton gets a fresh ID.
+    const _sk = () => ({
+      // PISTON_FORMAT.md common fields present on every statement
+      switch: {
+        type:'switch', id:_newId(), async:false,
+        expression:null, case_traversal_policy:'safe',
+        cases:[], default:[],
+        description:null, disabled:false,
+      },
+      // 'do_block' picker alias → type:'do'
       do: {
         type:'do', id:_newId(), async:false,
         statements:[],
@@ -1213,126 +1125,44 @@ const Wizard = (() => {
         statements:[],
         description:null, disabled:false,
       },
+      // 'for_loop' picker alias → type:'for'
+      for: {
+        type:'for', id:_newId(), async:false,
+        start:1, end:10, step:1, counter_variable:null,
+        statements:[],
+        description:null, disabled:false,
+      },
+      // 'while_loop' picker alias → type:'while'
+      while: {
+        type:'while', id:_newId(), async:false,
+        conditions:[], condition_operator:'and',
+        statements:[],
+        description:null, disabled:false,
+      },
       break: {
         type:'break', id:_newId(),
         description:null, disabled:false,
       },
-    };
+      exit: {
+        type:'exit', id:_newId(),
+        value:null,
+        description:null, disabled:false,
+      },
+    });
 
-    if (skeletonMap[resolvedKey]) {
-      const node = skeletonMap[resolvedKey];
+    // Normalize picker card type aliases to canonical skeleton keys
+    const skeletons = _sk();
+    const skeletons_alias = { do_block:'do', for_loop:'for', while_loop:'while' };
+    const resolvedKey = skeletons_alias[type] || type;
+    if (skeletons[resolvedKey]) {
+      const node = skeletons[resolvedKey];
+      const ctx = _context;
       const blockId = _extra?.['block-id'];
       const branch  = _extra?.['branch'] || 'then';
       const meta = blockId ? { blockId, branch } : undefined;
       close();
-      Editor.insertStatement(_context, node, meta);
+      Editor.insertStatement(ctx, node, meta);
     }
-  }
-
-  // ── FOR LOOP PICKER ───────────────────────────────────────
-  function _goForPicker() {
-    _step = 'for';
-    _pushStep(_goForPicker);
-    const pistonVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-      .filter(v => ['integer','decimal','dynamic'].includes(v.var_type));
-
-    _render('Add a for loop',
-      `<div class="wiz-desc">A FOR loop repeats statements for a preset number of iterations. You can use a counter variable that updates to reflect the current iteration index.</div>
-       <div class="wiz-row-label">Start value</div>
-       <input type="number" id="wiz-for-start" class="wiz-value-input wiz-dur-number" value="${_esc(String(_sel.for_start??1))}" />
-       <div class="wiz-row-label" style="margin-top:8px">End value</div>
-       <input type="number" id="wiz-for-end" class="wiz-value-input wiz-dur-number" value="${_esc(String(_sel.for_end??10))}" />
-       <div class="wiz-row-label" style="margin-top:8px">Step</div>
-       <input type="number" id="wiz-for-step" class="wiz-value-input wiz-dur-number" value="${_esc(String(_sel.for_step??1))}" min="1" />
-       <div class="wiz-row-label" style="margin-top:8px">Counter variable (optional)</div>
-       <select id="wiz-for-counter" class="wiz-select-blue wiz-select-full">
-         <option value="">Nothing selected</option>
-         ${pistonVars.map(v=>`<option value="${_esc(v.name)}" ${_sel.for_counter===v.name?'selected':''}>${_esc(v.name)} (${_esc(v.var_type)})</option>`).join('')}
-       </select>`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-for-back">← Back</button>
-       <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-for-save">${_editNode ? 'Save' : 'Add a statement'}</button>
-       </div>`
-    );
-    document.getElementById('wiz-for-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
-    document.getElementById('wiz-for-save')?.addEventListener('click', () => {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'for', id:_editNode?.id || _newId(), async:false,
-        start:   parseInt(document.getElementById('wiz-for-start')?.value||'1') || 1,
-        end:     parseInt(document.getElementById('wiz-for-end')?.value||'10') || 10,
-        step:    parseInt(document.getElementById('wiz-for-step')?.value||'1') || 1,
-        counter_variable: document.getElementById('wiz-for-counter')?.value || null,
-        statements:[], description:null, disabled:false,
-      };
-      close();
-      Editor.insertStatement(_context, node, meta);
-    });
-  }
-
-  // ── SWITCH PICKER ─────────────────────────────────────────
-  function _goSwitchPicker() {
-    _step = 'switch';
-    _pushStep(_goSwitchPicker);
-    const existingExpr = _sel.switch_expression?.expression || _sel.switch_expression?.data || '';
-    _render('Add a switch block',
-      `<div class="wiz-desc">A SWITCH block compares an expression against a list of possible values and executes actions based on which value matches.</div>
-       <div class="wiz-row-label">Expression to switch on</div>
-       <textarea id="wiz-switch-expr" class="wiz-expr-area" placeholder="e.g. $myVariable or an expression...">${_esc(existingExpr)}</textarea>`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-switch-back">← Back</button>
-       <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-switch-save">${_editNode ? 'Save' : 'Add a case'}</button>
-       </div>`
-    );
-    document.getElementById('wiz-switch-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
-    document.getElementById('wiz-switch-save')?.addEventListener('click', () => {
-      const expr = document.getElementById('wiz-switch-expr')?.value.trim() || '';
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'switch', id:_editNode?.id || _newId(), async:false,
-        expression: expr ? { type:'expression', expression: expr } : null,
-        case_traversal_policy:'safe',
-        cases:[], default:[],
-        description:null, disabled:false,
-      };
-      close();
-      Editor.insertStatement(_context, node, meta);
-    });
-  }
-
-  // ── EXIT PICKER ───────────────────────────────────────────
-  function _goExitPicker() {
-    _step = 'exit';
-    _pushStep(_goExitPicker);
-    const existingVal = _editNode?.value?.data !== undefined ? String(_editNode.value.data) :
-                        _editNode?.value?.expression || '';
-    _render('Add an exit',
-      `<div class="wiz-desc">Exit causes the piston to end execution immediately. You can optionally set a new piston state value.</div>
-       <div class="wiz-row-label">New piston state (optional)</div>
-       <input type="text" id="wiz-exit-val" class="wiz-value-input" placeholder="Leave blank for default..." value="${_esc(existingVal)}" />`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-exit-back">← Back</button>
-       <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-exit-save">${_editNode ? 'Save' : 'Add'}</button>
-       </div>`
-    );
-    document.getElementById('wiz-exit-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
-    document.getElementById('wiz-exit-save')?.addEventListener('click', () => {
-      const val = document.getElementById('wiz-exit-val')?.value.trim() || '';
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'exit', id:_editNode?.id || _newId(),
-        value: val ? { type:'expression', expression: val } : null,
-        description:null, disabled:false,
-      };
-      close();
-      Editor.insertStatement(_context, node, meta);
-    });
   }
 
   // ── ACTION DEVICE PICKER ──────────────────────────────────
@@ -1341,7 +1171,7 @@ const Wizard = (() => {
     _pushStep(_goActionDevicePicker);
     _render(
       'Add a new action',
-      `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The <em>Location</em> virtual device provides non-device-specific tasks like notifications, variable setting, and more.</div>
+      `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform.</div>
        <div class="wiz-selected-bar" id="wiz-sel-bar" style="display:none"><span id="wiz-sel-label"></span></div>
        <div class="wiz-search-row" style="margin:8px 0 4px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:var(--bg-raised)">
          <span style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Use the input box below to quickly search for devices</span>
@@ -1389,41 +1219,28 @@ const Wizard = (() => {
     if (!el) return;
     const q = query.toLowerCase();
 
+    // Filter + deduplicate physical devices
     const physical = _filterDevices(_deviceData).filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
+
+    // Piston device variables
     const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
     const pistonDevVars = allLocals.filter(v =>
       v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
-    );
-    // Filter virtual/system/demo by query but ALWAYS show the section headers
-    const filteredVirtual = VIRTUAL_DEVICES.filter(v =>
-      !q || v.friendly_name.toLowerCase().includes(q)
-    );
-    const filteredSystem = SYSTEM_VARS.filter(sv =>
-      !q || sv.toLowerCase().includes(q)
-    );
-    const filteredDemo = DEMO_DEVICES.filter(d =>
-      !q || d.friendly_name.toLowerCase().includes(q)
     );
 
     const sel = new Set(_sel.devices||[]);
 
     let html = '';
-
-    // Virtual devices — always shown (filtered by query)
-    html += `<div class="wiz-device-group-header">Virtual devices</div>`;
-    if (filteredVirtual.length) {
-      html += filteredVirtual.map(v => _actDevRow(v.entity_id, v.friendly_name, sel.has(v.entity_id))).join('');
-    } else {
-      html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
+    if (!q) {
+      html += `<div class="wiz-device-group-header">Virtual devices</div>`;
+      html += VIRTUAL_DEVICES.map(v => _actDevRow(v.entity_id, v.friendly_name, sel.has(v.entity_id))).join('');
     }
-
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0,150).map(d => _actDevRow(d.entity_id, d.friendly_name, sel.has(d.entity_id))).join('');
     }
-
     if (pistonDevVars.length) {
       html += `<div class="wiz-device-group-header">Piston variables</div>`;
       html += pistonDevVars.map(v =>
@@ -1433,29 +1250,18 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
-
-    // System variables — always shown (filtered)
-    html += `<div class="wiz-device-group-header">System variables</div>`;
-    if (filteredSystem.length) {
-      html += filteredSystem.map(sv => _actDevRow(sv, sv, sel.has(sv))).join('');
-    } else {
-      html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
-    }
-
-    // Demo devices — always shown (filtered)
-    html += `<div class="wiz-device-group-header">Demo devices</div>`;
-    if (filteredDemo.length) {
-      html += filteredDemo.map(d =>
+    if (!q) {
+      html += `<div class="wiz-device-group-header">System variables</div>`;
+      html += SYSTEM_VARS.map(sv => _actDevRow(sv, sv, sel.has(sv))).join('');
+      html += `<div class="wiz-device-group-header">Demo devices</div>`;
+      html += DEMO_DEVICES.map(d =>
         `<div class="wiz-device-row ${sel.has(d.entity_id)?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-demo-badge">demo</span>
         </div>`
       ).join('');
-    } else {
-      html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
     }
-
-    el.innerHTML = html;
+    el.innerHTML = html || `<div class="wiz-empty">No devices found.</div>`;
 
     el.querySelectorAll('.wiz-device-row').forEach(row => {
       row.addEventListener('click', () => {
@@ -1520,7 +1326,6 @@ const Wizard = (() => {
   function _goLocationCmdPicker() {
     _step = 'loc_cmd';
     _pushStep(_goLocationCmdPicker);
-    const isNew = !_editNode;
     _render(
       'Add a new task',
       `<div class="wiz-with-row"><span class="wiz-with-label">With...</span><span class="wiz-with-device">Location</span></div>
@@ -1532,25 +1337,21 @@ const Wizard = (() => {
        <div id="wiz-loc-params" style="margin-top:10px"></div>`,
       `<div class="wiz-footer-left">
          <button class="btn btn-ghost btn-sm" id="wiz-loc-back">← Back</button>
-         ${!isNew ? `<button class="btn btn-danger btn-sm" id="wiz-loc-del">Delete</button>` : ''}
+         ${_editNode ? `<button class="btn btn-danger btn-sm" id="wiz-loc-del">Delete</button>` : ''}
        </div>
        <div class="wiz-footer-right">
          <button class="btn btn-ghost btn-sm" id="wiz-loc-cog">⚙</button>
-         ${isNew ? `<button class="btn btn-primary btn-sm" id="wiz-loc-addmore" ${_sel.location_cmd?'':'disabled'}>Add more</button>` : ''}
-         <button class="btn btn-primary btn-sm" id="wiz-loc-save" ${_sel.location_cmd?'':'disabled'}>${isNew ? 'Add' : 'Save'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-loc-save" ${_sel.location_cmd?'':'disabled'}>Save</button>
        </div>`
     );
 
     document.getElementById('wiz-loc-back')?.addEventListener('click', _goActionDevicePicker);
     document.getElementById('wiz-loc-del')?.addEventListener('click', _deleteEditNode);
-    document.getElementById('wiz-loc-save')?.addEventListener('click', () => _saveLocationCmd(false));
-    document.getElementById('wiz-loc-addmore')?.addEventListener('click', () => _saveLocationCmd(true));
-
+    document.getElementById('wiz-loc-save')?.addEventListener('click', _saveLocationCmd);
     document.getElementById('wiz-loc-cmd')?.addEventListener('change', e => {
       _sel.location_cmd = e.target.value;
       _renderLocParams(e.target.value);
       document.getElementById('wiz-loc-save')?.removeAttribute('disabled');
-      document.getElementById('wiz-loc-addmore')?.removeAttribute('disabled');
     });
     if (_sel.location_cmd) _renderLocParams(_sel.location_cmd);
   }
@@ -1560,20 +1361,6 @@ const Wizard = (() => {
     _sel.device_id = '__location__';
     _sel.device_label = 'Location';
     _sel.devices = ['__location__'];
-    // Pre-populate from editNode
-    if (_editNode) {
-      if (cmd === 'set_variable') {
-        _sel.variable = _editNode.variable || '';
-        _sel.value    = _editNode.value?.expression || _editNode.value?.data || '';
-      } else if (cmd === 'wait') {
-        _sel.duration_amount = _editNode.duration || 1;
-        _sel.duration_unit   = _editNode.duration_unit || 'minutes';
-      } else if (cmd === 'log') {
-        _sel.message = _editNode.message?.data || _editNode.message || '';
-      } else if (cmd === 'execute_piston') {
-        _sel.target_piston_id = _editNode.target_piston_id || '';
-      }
-    }
     _goLocationCmdPicker();
   }
 
@@ -1602,8 +1389,8 @@ const Wizard = (() => {
           <select id="wiz-wait-u" class="wiz-select-blue-sm">
             <option value="milliseconds">milliseconds</option>
             <option value="seconds">seconds</option>
-            <option value="minutes" ${(_sel.duration_unit||'minutes')==='minutes'?'selected':''}>minutes</option>
-            <option value="hours"   ${(_sel.duration_unit||'')==='hours'?'selected':''}>hours</option>
+            <option value="minutes" selected>minutes</option>
+            <option value="hours">hours</option>
           </select>
         </div>`;
     } else if (cmd === 'log') {
@@ -1618,7 +1405,7 @@ const Wizard = (() => {
         <div class="wiz-row-label">Piston to execute</div>
         <select id="wiz-ep-target" class="wiz-select-blue wiz-select-full">
           <option value="">Select piston...</option>
-          ${(App.state.pistons||[]).map(p=>`<option value="${_esc(p.id)}" ${_sel.target_piston_id===p.id?'selected':''}>${_esc(p.name)}</option>`).join('')}
+          ${(App.state.pistons||[]).map(p=>`<option value="${_esc(p.id)}">${_esc(p.name)}</option>`).join('')}
         </select>`;
     } else if (cmd === 'send_notification') {
       el.innerHTML = `
@@ -1626,33 +1413,12 @@ const Wizard = (() => {
         <textarea id="wiz-notif-msg" class="wiz-expr-area">${_esc(_sel.message||'')}</textarea>
         <div class="wiz-row-label" style="margin-top:8px">Title (optional)</div>
         <input type="text" id="wiz-notif-title" class="wiz-value-input" value="${_esc(_sel.title||'')}" />`;
-    } else if (cmd === 'http_request') {
-      el.innerHTML = `
-        <div class="wiz-row-label">URL</div>
-        <input type="text" id="wiz-http-url" class="wiz-value-input" placeholder="https://..." value="${_esc(_sel.http_url||'')}" />
-        <div class="wiz-row-label" style="margin-top:8px">Method</div>
-        <select id="wiz-http-method" class="wiz-select-blue-sm">
-          <option value="GET" ${(_sel.http_method||'GET')==='GET'?'selected':''}>GET</option>
-          <option value="POST" ${(_sel.http_method||'')==='POST'?'selected':''}>POST</option>
-          <option value="PUT" ${(_sel.http_method||'')==='PUT'?'selected':''}>PUT</option>
-          <option value="DELETE" ${(_sel.http_method||'')==='DELETE'?'selected':''}>DELETE</option>
-        </select>
-        <div class="wiz-row-label" style="margin-top:8px">Body (optional, JSON)</div>
-        <textarea id="wiz-http-body" class="wiz-expr-area" placeholder="{}">${_esc(_sel.http_body||'')}</textarea>`;
-    } else if (cmd === 'set_mode') {
-      el.innerHTML = `
-        <div class="wiz-row-label">Mode name</div>
-        <input type="text" id="wiz-setmode-val" class="wiz-value-input" placeholder="Mode name..." value="${_esc(_sel.mode_value||'')}" />`;
-    } else if (cmd === 'raise_event') {
-      el.innerHTML = `
-        <div class="wiz-row-label">Event name</div>
-        <input type="text" id="wiz-event-name" class="wiz-value-input" placeholder="Event name..." value="${_esc(_sel.event_name||'')}" />
-        <div class="wiz-row-label" style="margin-top:8px">Event data (optional, JSON)</div>
-        <textarea id="wiz-event-data" class="wiz-expr-area" placeholder="{}">${_esc(_sel.event_data||'')}</textarea>`;
+    } else {
+      el.innerHTML = `<div class="wiz-desc" style="margin-top:8px">Parameters for <strong>${_esc(cmd)}</strong> — coming soon.</div>`;
     }
   }
 
-  function _saveLocationCmd(addMore) {
+  function _saveLocationCmd() {
     const cmd = _sel.location_cmd;
     if (!cmd) return;
     let node;
@@ -1676,66 +1442,25 @@ const Wizard = (() => {
     } else if (cmd === 'log') {
       node = { type:'log_message', id:_editNode?.id||_newId(),
         message: { type:'literal', data: document.getElementById('wiz-log-msg')?.value||'' },
-        level:   document.getElementById('wiz-log-lvl')?.value||'info',
-        description: null, disabled: false };
+        level:   document.getElementById('wiz-log-lvl')?.value||'info' };
     } else if (cmd === 'execute_piston') {
       node = { type:'call_piston', id:_editNode?.id||_newId(),
         target_piston_id: document.getElementById('wiz-ep-target')?.value||'',
-        target_piston_name: document.getElementById('wiz-ep-target')?.value||'',
-        description: null, disabled: false };
+        target_piston_name: document.getElementById('wiz-ep-target')?.value||'' };
     } else if (cmd === 'send_notification') {
       node = { type:'action', id:_editNode?.id||_newId(),
         devices: ['Location'],
-        tasks: [{ id: _taskId(), command:'persistent_notification.create', domain:'notify',
+        tasks: [{ id: _newId(), command:'persistent_notification.create', domain:'notify',
           ha_service:'persistent_notification.create',
           parameters:{ message: document.getElementById('wiz-notif-msg')?.value||'',
-                       title:   document.getElementById('wiz-notif-title')?.value||'' },
-          description: null }],
-        description: null, disabled: false };
-    } else if (cmd === 'http_request') {
-      node = { type:'action', id:_editNode?.id||_newId(),
-        devices: ['Location'],
-        tasks: [{ id: _taskId(), command:'http_request', domain:'location', ha_service:'location.http_request',
-          parameters:{
-            url:    document.getElementById('wiz-http-url')?.value||'',
-            method: document.getElementById('wiz-http-method')?.value||'GET',
-            body:   document.getElementById('wiz-http-body')?.value||'',
-          }, description: null }],
-        description: null, disabled: false };
-    } else if (cmd === 'set_mode') {
-      node = { type:'action', id:_editNode?.id||_newId(),
-        devices: ['Location'],
-        tasks: [{ id: _taskId(), command:'set_mode', domain:'location', ha_service:'location.set_mode',
-          parameters:{ mode: document.getElementById('wiz-setmode-val')?.value||'' },
-          description: null }],
-        description: null, disabled: false };
-    } else if (cmd === 'raise_event') {
-      node = { type:'action', id:_editNode?.id||_newId(),
-        devices: ['Location'],
-        tasks: [{ id: _taskId(), command:'raise_event', domain:'location', ha_service:'location.raise_event',
-          parameters:{
-            event_type: document.getElementById('wiz-event-name')?.value||'',
-            event_data: document.getElementById('wiz-event-data')?.value||'',
-          }, description: null }],
-        description: null, disabled: false };
+                       title:   document.getElementById('wiz-notif-title')?.value||'' }}]};
     } else {
       node = { type:'action', id:_editNode?.id||_newId(),
         devices: ['Location'],
-        tasks: [{ id: _taskId(), command: cmd, domain:'location', ha_service:`location.${cmd}`, parameters:{}, description: null }],
-        description: null, disabled: false };
+        tasks: [{ id: _newId(), command: cmd, domain:'location', ha_service:`location.${cmd}`, parameters:{} }] };
     }
-
     Editor.insertStatement(_context, node);
-
-    if (addMore) {
-      // Reset for another location task
-      _sel.location_cmd = '';
-      _sel.variable = ''; _sel.value = ''; _sel.message = '';
-      _editNode = null;
-      _goLocationCmdPicker();
-    } else {
-      close();
-    }
+    close();
   }
 
   // ── PHYSICAL DEVICE COMMAND PICKER ────────────────────────
@@ -1743,7 +1468,6 @@ const Wizard = (() => {
     _step = 'cmd';
     _pushStep(_goCommandPicker);
     const label = _sel.device_label || _sel.device_id || 'device';
-    const isNew = !_editNode;
     _render(
       'Add a new task',
       `<div class="wiz-with-row"><span class="wiz-with-label">With...</span><span class="wiz-with-device">{${_esc(label)}}</span></div>
@@ -1754,35 +1478,27 @@ const Wizard = (() => {
        <div id="wiz-cmd-params"></div>`,
       `<div class="wiz-footer-left">
          <button class="btn btn-ghost btn-sm" id="wiz-cmd-back">← Back</button>
-         ${!isNew?`<button class="btn btn-danger btn-sm" id="wiz-cmd-del">Delete</button>`:''}
+         ${_editNode?`<button class="btn btn-danger btn-sm" id="wiz-cmd-del">Delete</button>`:''}
        </div>
        <div class="wiz-footer-right">
          <button class="btn btn-ghost btn-sm" id="wiz-cmd-cog">⚙</button>
-         ${isNew ? `<button class="btn btn-primary btn-sm" id="wiz-cmd-addmore" disabled>Add more</button>` : ''}
-         <button class="btn btn-primary btn-sm" id="wiz-cmd-save" disabled>${isNew ? 'Add' : 'Save'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-cmd-save" disabled>Save</button>
        </div>`
     );
 
     document.getElementById('wiz-cmd-back')?.addEventListener('click', _goActionDevicePicker);
     document.getElementById('wiz-cmd-del')?.addEventListener('click', _deleteEditNode);
-    document.getElementById('wiz-cmd-save')?.addEventListener('click', () => _saveDeviceCmd(false));
-    document.getElementById('wiz-cmd-addmore')?.addEventListener('click', () => _saveDeviceCmd(true));
+    document.getElementById('wiz-cmd-save')?.addEventListener('click', _saveDeviceCmd);
 
     const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
     if (demo) {
       const sel = document.getElementById('wiz-cmd');
       if (sel) {
         sel.innerHTML = `<option value="">Please select a command</option>` +
-          demo.services.map(s => `<option value="${_esc(s)}" ${_sel.command===s?'selected':''}>${_esc(s.replace(/_/g,' '))}</option>`).join('');
-        if (_sel.command) {
-          document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
-          document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');
-        }
+          demo.services.map(s => `<option value="${_esc(s)}">${_esc(s.replace(/_/g,' '))}</option>`).join('');
         sel.addEventListener('change', e => {
           _sel.command = e.target.value;
-          const ok = !!e.target.value;
-          document.getElementById('wiz-cmd-save')?.toggleAttribute('disabled', !ok);
-          document.getElementById('wiz-cmd-addmore')?.toggleAttribute('disabled', !ok);
+          document.getElementById('wiz-cmd-save')?.toggleAttribute('disabled', !e.target.value);
         });
       }
       return;
@@ -1797,20 +1513,20 @@ const Wizard = (() => {
           sel.innerHTML = `<option value="">Please select a command</option>` +
             services.map(s=>`<option value="${_esc(s.service)}" ${_sel.command===s.service?'selected':''}>${_esc(s.label||s.service)}</option>`).join('');
         } else {
-          sel.innerHTML = `<option value="">Please select a command</option>` +
-            ['turn_on','turn_off','toggle'].map(c=>`<option value="${_esc(c)}" ${_sel.command===c?'selected':''}>${c.replace(/_/g,' ')}</option>`).join('');
+          ['turn_on','turn_off','toggle'].forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.textContent = c.replace(/_/g,' ');
+            sel.appendChild(opt);
+          });
         }
         if (_sel.command) {
           _renderCmdParams(_sel.command, services);
           document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
-          document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');
         }
         sel.addEventListener('change', e => {
           _sel.command = e.target.value;
           _renderCmdParams(e.target.value, services);
-          const ok = !!e.target.value;
-          document.getElementById('wiz-cmd-save')?.toggleAttribute('disabled', !ok);
-          document.getElementById('wiz-cmd-addmore')?.toggleAttribute('disabled', !ok);
+          document.getElementById('wiz-cmd-save')?.toggleAttribute('disabled', !e.target.value);
         });
       }
     } catch(e) {
@@ -1836,19 +1552,24 @@ const Wizard = (() => {
       </div>`).join('');
   }
 
-  function _saveDeviceCmd(addMore) {
+  function _saveDeviceCmd() {
     const command = document.getElementById('wiz-cmd')?.value || _sel.command;
     if (!command) return;
     const params = {};
     document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
+    // domain from the first selected device's entity_id
     const firstDeviceId = (_sel.devices || [])[0] || _sel.device_id || '';
     const domain = firstDeviceId.includes('.') ? firstDeviceId.split('.')[0] : (firstDeviceId || 'homeassistant');
 
+    // devices array must contain role labels (friendly names), not entity_ids
+    // _sel.devices contains entity_ids from the picker — map back to labels
+    // For single device: use device_label. For multiple: build from el data-label attrs.
     let deviceLabels;
     if ((_sel.devices || []).length <= 1) {
       deviceLabels = [_sel.device_label || _sel.device_id || ''];
     } else {
+      // Build label map from rendered rows
       const labelMap = {};
       document.querySelectorAll('#wiz-act-devlist .wiz-device-row').forEach(row => {
         if (row.dataset.id && row.dataset.label) labelMap[row.dataset.id] = row.dataset.label;
@@ -1856,41 +1577,23 @@ const Wizard = (() => {
       deviceLabels = (_sel.devices || []).map(id => labelMap[id] || id);
     }
 
-    // Build the task
-    const newTask = {
-      id: _taskId(),
-      command: command,
-      domain: domain,
-      ha_service: domain + '.' + command,
-      parameters: params,
+    Editor.insertStatement(_context, {
+      type: 'action',
+      id: _editNode?.id || _newId(),
+      async: false,
+      devices: deviceLabels,
+      tasks: [{
+        id: 'task_' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(b=>b.toString(16).padStart(2,'0')).join(''),
+        command: command,
+        domain: domain,
+        ha_service: domain + '.' + command,
+        parameters: params,
+        description: null,
+      }],
       description: null,
-    };
-
-    if (_editNode && _editNode.type === 'action') {
-      // Editing existing action — replace/update task in it
-      const updatedNode = { ..._editNode };
-      updatedNode.tasks = [newTask]; // single task edit for now
-      Editor.insertStatement(_context, updatedNode,
-        _extra['block-id'] ? { blockId: _extra['block-id'], branch: _extra['branch'] || 'then' } : undefined);
-    } else {
-      // New action node
-      Editor.insertStatement(_context, {
-        type: 'action', id: _editNode?.id || _newId(), async: false,
-        devices: deviceLabels,
-        tasks: [newTask],
-        description: null, disabled: false,
-      }, _extra['block-id'] ? { blockId: _extra['block-id'], branch: _extra['branch'] || 'then' } : undefined);
-    }
-
-    if (addMore) {
-      // Keep same devices, reset command selection for another task
-      _sel.command = '';
-      _sel.parameters = {};
-      _editNode = null;
-      _goCommandPicker();
-    } else {
-      close();
-    }
+      disabled: false,
+    }, _extra['block-id'] ? { blockId: _extra['block-id'], branch: _extra['branch'] || 'then' } : undefined);
+    close();
   }
 
   // ── VARIABLE PICKER ───────────────────────────────────────
@@ -1932,7 +1635,7 @@ const Wizard = (() => {
        <div class="wiz-footer-right">
          <button class="btn btn-ghost btn-sm" id="wiz-var-cog">⚙</button>
          <button class="btn btn-primary btn-sm" id="wiz-var-add">Add more</button>
-         <button class="btn btn-primary btn-sm" id="wiz-var-done">${_editNode ? 'Save' : 'Add'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-var-done">Add</button>
        </div>`
     );
 
@@ -1995,167 +1698,207 @@ const Wizard = (() => {
   function _varInitSubHtml(type) {
     if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
     if (type === 'device') {
-      return `<button class="wiz-device-pick-btn ${_sel.initial_device_id?'has-value':''}" id="wiz-vinit-devbtn">
-        ${_sel.initial_device_id
-          ? `<span class="wiz-device-tag">device</span> ${_esc(_sel.initial_device_label||_sel.initial_device_id)}`
-          : 'Select device...'}
+      const label = _sel.initial_device_label || '';
+      return `<button class="wiz-device-pick-btn wiz-initval-devbtn ${label?'has-value':''}" id="wiz-vinit-devbtn">
+        ${label ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : 'Nothing selected'}
       </button>`;
     }
     if (type === 'variable') {
-      const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-      return `<select id="wiz-vinit-varsel" class="wiz-select-blue" style="flex:1">
-        <option value="">Select variable...</option>
-        ${vars.map(v=>`<option value="${_esc(v.name)}" ${_sel.initial_variable===v.name?'selected':''}>${_esc(v.name)}</option>`).join('')}
-      </select>`;
+      const locals  = (Editor.getPistonVariables ? Editor.getPistonVariables() : []);
+      const sysvars = SYSTEM_VARS;
+      const makeSect = (title, items) => items.length
+        ? `<div class="wiz-device-group-header">${_esc(title)}</div>` +
+          items.map(v => `<div class="wiz-device-row wiz-vinit-var-row" data-var="${_esc(typeof v==='string'?v:v.name)}" data-label="${_esc(typeof v==='string'?v:v.name)}">
+            <span class="wiz-dev-prefix">${_esc(typeof v==='string'?'system':v.var_type||'dynamic')}</span>
+            <span class="wiz-dev-label">${_esc(typeof v==='string'?v:v.name)}</span>
+          </div>`).join('')
+        : '';
+      return `<div class="wiz-device-list" style="max-height:180px;overflow-y:auto" id="wiz-vinit-varlist">
+        ${makeSect('Local variables', locals)}
+        ${makeSect('System variables', sysvars)}
+        ${!locals.length ? '<div class="wiz-empty" style="padding:8px">No variables defined yet.</div>' : ''}
+      </div>`;
     }
-    const ph = type === 'expression' ? 'Expression...' : type === 'argument' ? 'Argument...' : 'Value...';
-    return `<input type="text" id="wiz-vinit-val" class="wiz-value-input" style="flex:1" placeholder="${ph}" value="${_esc(_sel.initial_value||'')}" />`;
+    if (type === 'expression') {
+      return `<textarea id="wiz-vinit-val" class="wiz-expr-area" placeholder="Expression...">${_esc(_sel.initial_value||'')}</textarea>`;
+    }
+    return `<input type="text" id="wiz-vinit-val" class="wiz-value-input" value="${_esc(_sel.initial_value||'')}" placeholder="${type==='argument'?'Argument name...':'Value...'}" />`;
   }
 
   function _wireVarInitSub(type) {
     if (type === 'device') {
       document.getElementById('wiz-vinit-devbtn')?.addEventListener('click', () => {
+        _sel.var_type = document.getElementById('wiz-vt')?.value || _sel.var_type;
+        _sel.name     = document.getElementById('wiz-vname')?.value || _sel.name;
+        _sel.initial_value_type = 'device';
         _goVarInitDevicePicker();
       });
     }
     if (type === 'variable') {
-      document.getElementById('wiz-vinit-varsel')?.addEventListener('change', e => {
-        _sel.initial_variable = e.target.value;
+      document.getElementById('wiz-vinit-varlist')?.querySelectorAll('.wiz-vinit-var-row').forEach(row => {
+        row.addEventListener('click', () => {
+          _sel.initial_variable = row.dataset.var;
+          document.querySelectorAll('.wiz-vinit-var-row').forEach(r => r.classList.remove('selected'));
+          row.classList.add('selected');
+        });
       });
     }
   }
 
-  // ── VAR INIT DEVICE PICKER ────────────────────────────────
   function _goVarInitDevicePicker() {
-    _step = 'varinit_dev';
-    _pushStep(_goVarInitDevicePicker);
+    const body = document.getElementById('wiz-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="wiz-inline-picker-header">
+        <button class="btn btn-ghost btn-sm" id="wiz-varinit-back">← Back</button>
+        <span style="font-size:13px;color:var(--text-secondary)">Select a device</span>
+      </div>
+      <div class="wiz-search-row" style="margin:8px 0 4px">
+        <input type="text" id="wiz-varinit-search" placeholder="Search devices..." autocomplete="off"
+          style="flex:1;background:transparent;border:none;color:var(--text-primary);font-size:13px;padding:4px;outline:none" />
+      </div>
+      <div class="wiz-device-list" id="wiz-varinit-devlist">
+        <div class="wiz-loading"><div class="spinner"></div></div>
+      </div>
+    `;
+    const footer = document.getElementById('wiz-footer');
+    if (footer) footer.innerHTML = `<button class="btn btn-ghost btn-sm" id="wiz-varinit-cancel">Cancel</button>`;
+    document.getElementById('wiz-varinit-back')?.addEventListener('click', _goVariablePicker);
+    document.getElementById('wiz-varinit-cancel')?.addEventListener('click', close);
 
-    const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-      .filter(v => v.var_type === 'device');
-
-    _render('Select a device',
-      `<div class="wiz-search-row" style="margin:8px 0 4px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:var(--bg-raised)">
-         <input type="text" id="wiz-varinit-search" placeholder="Search devices..." autocomplete="off" style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
-       </div>
-       <div class="wiz-device-list" id="wiz-varinit-devlist" style="max-height:320px;overflow-y:auto"></div>`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-varinit-back">← Back</button>`
-    );
-
-    document.getElementById('wiz-varinit-back')?.addEventListener('click', () => {
-      _sel.var_type = document.getElementById('wiz-vt')?.value || _sel.var_type;
-      _sel.name     = document.getElementById('wiz-vname')?.value || _sel.name;
-      _goVariablePicker();
+    let _ft = null;
+    document.getElementById('wiz-varinit-search')?.addEventListener('input', e => {
+      clearTimeout(_ft);
+      _ft = setTimeout(() => _renderVarInitDevList(e.target.value.trim()), 200);
     });
 
-    const render = (q) => {
-      const el = document.getElementById('wiz-varinit-devlist');
-      if (!el) return;
-      const lq = (q||'').toLowerCase();
-      const physical = _filterDevices(_deviceData).filter(d =>
-        !lq || d.friendly_name.toLowerCase().includes(lq) || d.entity_id.toLowerCase().includes(lq)
-      );
-      let html = '';
-      if (pistonDevVars.length) {
-        html += `<div class="wiz-device-group-header">Piston variables</div>`;
-        html += pistonDevVars.filter(v => !lq || v.name.toLowerCase().includes(lq)).map(v =>
-          `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===v.name?'selected':''}"
-            data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
-            <span class="wiz-dev-prefix">device</span>
-            <span class="wiz-dev-label">${_esc(v.name)}</span>
-          </div>`
-        ).join('');
-      }
-      if (physical.length) {
-        html += `<div class="wiz-device-group-header">Physical devices</div>`;
-        html += physical.slice(0, 150).map(d =>
-          `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===d.entity_id?'selected':''}"
-            data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
-            <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-            <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(d.entity_id)}</span>
-          </div>`
-        ).join('');
-      }
-      el.innerHTML = html || `<div class="wiz-empty">No devices found.</div>`;
-      el.querySelectorAll('.wiz-varinit-row').forEach(row => {
-        row.addEventListener('click', () => {
-          _sel.initial_device_id    = row.dataset.id;
-          _sel.initial_device_label = row.dataset.label;
-          _sel.initial_value_type   = 'device';
-          _sel.var_type = document.getElementById('wiz-vt')?.value || _sel.var_type;
-          _sel.name     = document.getElementById('wiz-vname')?.value || _sel.name;
-          _goVariablePicker();
-        });
-      });
-    };
-
+    _renderVarInitDevList('');
     if (!_deviceData) {
-      API.getDevices().then(data => { _deviceData = data; render(''); }).catch(() => render(''));
-    } else {
-      render('');
+      API.getDevices().then(data => {
+        _deviceData = data;
+        _renderVarInitDevList(document.getElementById('wiz-varinit-search')?.value || '');
+      }).catch(() => {});
     }
+  }
 
-    let ft = null;
-    document.getElementById('wiz-varinit-search')?.addEventListener('input', e => {
-      clearTimeout(ft);
-      ft = setTimeout(() => render(e.target.value.trim()), 150);
+  function _renderVarInitDevList(query) {
+    const el = document.getElementById('wiz-varinit-devlist');
+    if (!el) return;
+    const q = query.toLowerCase();
+    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+    const pistonDevVars = allLocals.filter(v => v.var_type === 'device');
+    // Filter + deduplicate physical devices
+    const physical = _filterDevices(_deviceData).filter(d =>
+      !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
+    );
+
+    let html = '';
+    if (!q) {
+      html += `<div class="wiz-device-group-header">Virtual devices</div>`;
+      html += VIRTUAL_DEVICES.map(v =>
+        `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===v.entity_id?'selected':''}"
+          data-id="${_esc(v.entity_id)}" data-label="${_esc(v.friendly_name)}">
+          <span class="wiz-dev-label">${_esc(v.friendly_name)}</span>
+        </div>`
+      ).join('');
+    }
+    if (physical.length) {
+      html += `<div class="wiz-device-group-header">Physical devices</div>`;
+      html += physical.slice(0, 150).map(d =>
+        `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===d.entity_id?'selected':''}"
+          data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(d.entity_id)}</span>
+        </div>`
+      ).join('');
+    }
+    const filteredPistonVars = pistonDevVars.filter(v => !q || v.name.toLowerCase().includes(q));
+    if (filteredPistonVars.length) {
+      html += `<div class="wiz-device-group-header">Piston variables</div>`;
+      html += filteredPistonVars.map(v =>
+        `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===v.name?'selected':''}"
+          data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+          <span class="wiz-dev-prefix">device</span>
+          <span class="wiz-dev-label">${_esc(v.name)}</span>
+        </div>`
+      ).join('');
+    }
+    el.innerHTML = html || `<div class="wiz-empty">No devices found.</div>`;
+
+    el.querySelectorAll('.wiz-varinit-row').forEach(row => {
+      row.addEventListener('click', () => {
+        _sel.initial_device_id    = row.dataset.id;
+        _sel.initial_device_label = row.dataset.label;
+        _sel.initial_value_type   = 'device';
+        _goVariablePicker();
+      });
     });
   }
 
   // ── TIMER PICKER ──────────────────────────────────────────
   function _goTimerPicker() {
-    _step = 'timer';
-    _pushStep(_goTimerPicker);
-    const isNew = !_editNode;
     _render('Add a timer',
       `<div class="wiz-desc">A timer will trigger execution of the piston at set time intervals.</div>
        <div class="wiz-row-label">Every...</div>
        <div class="wiz-duration-inputs">
          <input type="number" id="wiz-timer-n" class="wiz-dur-number" value="${_sel.interval||5}" min="1" />
          <select id="wiz-timer-u" class="wiz-select-blue-sm">
-           <option value="milliseconds" ${(_sel.interval_unit||'')==='milliseconds'?'selected':''}>milliseconds</option>
-           <option value="seconds"      ${(_sel.interval_unit||'')==='seconds'     ?'selected':''}>seconds</option>
-           <option value="minutes"      ${(_sel.interval_unit||'minutes')==='minutes'?'selected':''}>minutes</option>
-           <option value="hours"        ${(_sel.interval_unit||'')==='hours'       ?'selected':''}>hours</option>
-           <option value="days"         ${(_sel.interval_unit||'')==='days'        ?'selected':''}>days</option>
-           <option value="weeks"        ${(_sel.interval_unit||'')==='weeks'       ?'selected':''}>weeks</option>
-           <option value="months"       ${(_sel.interval_unit||'')==='months'      ?'selected':''}>months</option>
-           <option value="years"        ${(_sel.interval_unit||'')==='years'       ?'selected':''}>years</option>
+           <option value="seconds">seconds</option>
+           <option value="minutes" selected>minutes</option>
+           <option value="hours">hours</option>
          </select>
        </div>`,
       `<button class="btn btn-ghost btn-sm" id="wiz-timer-back">← Back</button>
-       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-timer-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
+       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-timer-save">Save</button></div>`
     );
-    document.getElementById('wiz-timer-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-timer-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
       const blockId = _extra?.['block-id'];
       const branch  = _extra?.['branch'] || 'then';
       const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'every', id:_editNode?.id || _newId(), async:false,
+      Editor.insertStatement(_context, {
+        type:'every', id:_newId(), async:false,
         interval: parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
         interval_unit: document.getElementById('wiz-timer-u')?.value||'minutes',
         at_minute:null, at_time:null,
         only_on_days:[], only_on_dom:[], only_on_months:[],
         statements:[],
         description:null, disabled:false,
-      };
+      }, meta);
       close();
-      Editor.insertStatement(_context, node, meta);
     });
   }
 
-  // ── REPEAT PICKER — removed (WebCoRE repeat has no config) ─
-  // repeat inserts directly from _handleStatementType now
+  function _goRepeatPicker() {
+    _render('Add a repeat loop',
+      `<div class="wiz-row-label">Repeat</div>
+       <div class="wiz-duration-inputs">
+         <input type="number" id="wiz-rep-n" class="wiz-dur-number" value="${_sel.times||1}" min="1" />
+         <span style="padding:0 8px;color:var(--text-muted);font-size:13px">times</span>
+       </div>`,
+      `<button class="btn btn-ghost btn-sm" id="wiz-rep-back">← Back</button>
+       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-rep-save">Save</button></div>`
+    );
+    document.getElementById('wiz-rep-back')?.addEventListener('click', _goStatementTypePicker);
+    document.getElementById('wiz-rep-save')?.addEventListener('click', () => {
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      Editor.insertStatement(_context, {
+        type:'repeat', id:_newId(), async:false,
+        statements:[], until_conditions:[], condition_operator:'and',
+        description:null, disabled:false,
+      }, meta);
+      close();
+    });
+  }
 
   function _goForEachPicker() {
-    _step = 'for_each';
-    _pushStep(_goForEachPicker);
     const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
       .filter(v => v.var_type === 'device');
     const varOptions = pistonDevVars.map(v =>
       `<option value="${_esc(v.name)}" ${(_sel.variable||'$device')===v.name?'selected':''}>${_esc(v.name)}</option>`
     ).join('');
-    const isNew = !_editNode;
 
     _render('Add a for each loop',
       `<div class="wiz-desc">Executes the same statements for each device in a device list.</div>
@@ -2171,13 +1914,16 @@ const Wizard = (() => {
        <div class="wiz-row-label" style="margin-top:10px">For each device in (role name)</div>
        <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role or variable name..." value="${_esc(_sel.list_role||'')}" />`,
       `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
-       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
+       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">Save</button></div>`
     );
-    document.getElementById('wiz-fe-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-fe-back')?.addEventListener('click', _goStatementTypePicker);
+
+    // Show/hide custom text input when "Type a name..." selected
     document.getElementById('wiz-fe-var')?.addEventListener('change', e => {
       const custom = document.getElementById('wiz-fe-var-custom');
       if (custom) custom.style.display = e.target.value === '__custom__' ? '' : 'none';
     });
+
     document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
       const varSel = document.getElementById('wiz-fe-var')?.value || '$device';
       const varCustom = document.getElementById('wiz-fe-var-custom')?.value || '';
@@ -2185,15 +1931,14 @@ const Wizard = (() => {
       const blockId = _extra?.['block-id'];
       const branch  = _extra?.['branch'] || 'then';
       const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'for_each', id:_editNode?.id || _newId(), async:false,
+      Editor.insertStatement(_context, {
+        type:'for_each', id:_newId(), async:false,
         variable: variable || '$device',
         list_role: document.getElementById('wiz-fe-list')?.value||'',
         statements:[],
         description:null, disabled:false,
-      };
+      }, meta);
       close();
-      Editor.insertStatement(_context, node, meta);
     });
   }
 
@@ -2208,15 +1953,10 @@ const Wizard = (() => {
 
   // ── Helpers ───────────────────────────────────────────────
   function _newId() {
+    // PISTON_FORMAT.md: stmt_ + 8 character lowercase hex
     return 'stmt_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
       .map(b => b.toString(16).padStart(2,'0')).join('');
   }
-
-  function _taskId() {
-    return 'task_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(16).padStart(2,'0')).join('');
-  }
-
   function _esc(s) {
     return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }

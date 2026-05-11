@@ -31,7 +31,8 @@ from fastapi.security import APIKeyHeader
 
 import storage
 from compiler import Compiler
-from ha_client import ha_client, HAClientError
+import ha_client
+from ha_client import HAClientError
 import context_builder
 from context_builder import ContextBuildError
 

@@ -782,19 +782,21 @@ const Editor = (() => {
   //   If statementData.id already exists anywhere in the nested tree → replace in-place.
   //   If not found → insert after _selectedId, or append to top level.
   //
-  // if_condition context: wizard passes blockId in meta. Editor finds the if block
-  // and upserts the condition into its conditions array.
-  //
-  // branch context: wizard passes blockId + branch in meta when inserting a statement
-  // into a specific branch of a control flow node (then/else/statements).
+  // if_condition context: wizard passes blockId in meta argument. The editor finds that
+  // if block in the tree by ID and upserts the condition into its conditions array.
+  // GAP-S36-1 resolved: _blockId stamp mechanism replaced with meta argument in Session C.
   function insertStatement(context, statementData, meta) {
     if (context === 'if_condition') {
+      // blockId comes from meta.blockId (set by wizard via _commitConditionAndMore)
+      // or from the ghost's data-block-id attribute passed through extra (ghost click path
+      // sets context directly and the ghost data is not in meta — handled below by fallthrough).
       const blockId = (meta && meta.blockId) || null;
       if (blockId) {
         const block = _findNode(blockId);
         if (block) {
           block.conditions = block.conditions || [];
           const ci = block.conditions.findIndex(c => c.id === statementData.id);
+          // statementData is already clean — no _blockId to strip
           if (ci >= 0) block.conditions[ci] = statementData;
           else block.conditions.push(statementData);
           _markUnsaved(true);
@@ -803,24 +805,6 @@ const Editor = (() => {
         }
       }
       // No blockId or block not found — fall through to statement insert
-    }
-
-    // Branch insertion: meta.blockId + meta.branch — insert into a specific child array
-    if (meta && meta.blockId && meta.branch) {
-      const block = _findNode(meta.blockId);
-      if (block) {
-        const branch = meta.branch; // 'then', 'else', 'statements'
-        if (!statementData.id) statementData.id = _nextStmtId();
-        // Check replace first
-        const replaced = _replaceNode(statementData);
-        if (!replaced) {
-          block[branch] = block[branch] || [];
-          block[branch].push(statementData);
-        }
-        _markUnsaved(true);
-        render();
-        return;
-      }
     }
 
     if (context === 'trigger' || statementData.type === 'trigger' || statementData.is_trigger) {

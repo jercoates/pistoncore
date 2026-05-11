@@ -149,26 +149,6 @@ const Wizard = (() => {
     ],
   };
 
-  // ── Allowed HA domains for device pickers ─────────────────
-  // Only controllable/monitorable entities. Everything else filtered out.
-  const ALLOWED_DOMAINS = new Set([
-    'light','switch','binary_sensor','sensor','media_player','cover','climate',
-    'fan','lock','input_boolean','input_number','input_select','automation',
-    'person','device_tracker','alarm_control_panel',
-  ]);
-
-  // Filter + deduplicate a raw HA device list for display in any picker
-  function _filterDevices(raw) {
-    const seen = new Set();
-    return (raw || []).filter(d => {
-      const domain = (d.entity_id || '').split('.')[0];
-      if (!ALLOWED_DOMAINS.has(domain)) return false;
-      if (seen.has(d.entity_id)) return false;
-      seen.add(d.entity_id);
-      return true;
-    });
-  }
-
   // Given entity_id(s) from a variable's initial_value, return union of domain caps
   function _getCapsForDomain(entityIdOrList) {
     const ids = Array.isArray(entityIdOrList)
@@ -581,13 +561,6 @@ const Wizard = (() => {
           </select>
         </div>
       </div>
-
-      ${_context === 'if_condition' ? `
-      <div class="wiz-row-label" style="margin-top:10px">Connect to previous condition with</div>
-      <select id="wiz-group-op-selector" class="wiz-select-blue wiz-select-full">
-        <option value="and" ${(_sel.group_operator||'and')==='and'?'selected':''}>AND — all conditions must be true</option>
-        <option value="or"  ${(_sel.group_operator||'and')==='or' ?'selected':''}>OR — any condition must be true</option>
-      </select>` : ''}
       `,
       `
       <button class="btn btn-ghost btn-sm" id="wiz-back-btn">${backFn ? '← Back' : 'Cancel'}</button>
@@ -763,14 +736,12 @@ const Wizard = (() => {
     if (!el) return;
     const q = query.toLowerCase();
 
-    // Filter + deduplicate physical devices
-    const physical = _filterDevices(_deviceData).filter(d =>
+    const physical = (_deviceData||[]).filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
-
     const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const localDeviceVars = allLocals.filter(v =>
-      v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
+    const localDeviceVars = allLocals.filter(v => v.var_type === 'device' &&
+      (!q || v.name.toLowerCase().includes(q))
     );
     const filteredDemos = DEMO_DEVICES.filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q)
@@ -787,7 +758,7 @@ const Wizard = (() => {
       ).join('');
     }
     if (localDeviceVars.length) {
-      html += `<div class="wiz-device-group-header">Piston variables</div>`;
+      html += `<div class="wiz-device-group-header">Local variables</div>`;
       html += localDeviceVars.map(v =>
         `<div class="wiz-device-row ${_sel.device_id===v.name?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
           <span class="wiz-dev-prefix">device</span>
@@ -795,6 +766,7 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
+    // Demo devices — always show section, filtered by query
     html += `<div class="wiz-device-group-header">Demo devices</div>`;
     if (filteredDemos.length) {
       html += filteredDemos.map(d =>
@@ -932,33 +904,21 @@ const Wizard = (() => {
     if (!node) return;
     const ifBlockId = _extra?.['block-id'];
     if (ifBlockId) {
-      // Adding first condition — wrap in a new if node
       const ifNode = {
         type: 'if',
         id: ifBlockId,
-        async: false,
         conditions: [node],
         condition_operator: 'and',
         then: [],
         else_ifs: [],
         else: [],
-        description: null,
-        disabled: false,
       };
       const ctx = _context;
       close();
       Editor.insertStatement(ctx, ifNode);
-    } else if (_context === 'if_condition' && _extra?.['block-id'] === undefined) {
-      // if_condition context without block-id — shouldn't happen but guard it
+    } else {
       Editor.insertStatement(_context, node);
       close();
-    } else {
-      // Adding condition to existing if block via if_condition context
-      // block-id comes from the ghost click path stored in _extra
-      const blockId = _extra?.['block-id'] || null;
-      const meta = blockId ? { blockId } : {};
-      close();
-      Editor.insertStatement(_context, node, meta);
     }
   }
 
@@ -966,31 +926,26 @@ const Wizard = (() => {
     const node = _buildConditionNode();
     if (!node) return;
     const ifBlockId = _extra?.['block-id'];
-    if (ifBlockId && _context !== 'if_condition') {
-      // First condition on a new if block
+    if (ifBlockId) {
       const ifNode = {
         type: 'if',
         id: ifBlockId,
-        async: false,
         conditions: [node],
         condition_operator: 'and',
         then: [],
         else_ifs: [],
         else: [],
-        description: null,
-        disabled: false,
       };
       Editor.insertStatement(_context, ifNode);
-      // Switch context so next condition adds to the if block we just created
       _sel = { statement_class:'condition' };
       _context = 'if_condition';
       _extra = { 'block-id': ifBlockId };
     } else {
-      // Adding to existing if block
-      const blockId = _extra?.['block-id'] || null;
-      const meta = blockId ? { blockId } : {};
+      const meta = (_context === 'if_condition' && _extra?.['block-id'])
+        ? { blockId: _extra['block-id'] }
+        : {};
       Editor.insertStatement(_context, node, meta);
-      _sel = { statement_class:'condition', group_operator: 'and' };
+      _sel = { statement_class:'condition' };
     }
     _editNode = null;
     _stepStack = [];
@@ -1017,38 +972,23 @@ const Wizard = (() => {
       ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
       : rawVal1;
 
-    // Duration — only include when operator needs it
-    const needsDur = NEEDS_DURATION.has(op);
-    const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
-    const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
-
-    // AND/OR group_operator — read from selector if present (adding to existing if block)
-    const groupOpEl = document.getElementById('wiz-group-op-selector');
-    const groupOp = groupOpEl ? groupOpEl.value : 'and';
-
-    // subject object — PISTON_FORMAT.md + editor.js _condLine reads c.subject
-    const subject = {
-      type: 'device',
-      role: role,
-      entity_id: _sel.device_id || '',
-      capability: attrVal,
-      attribute_type: attrType,
-      device_class: _sel.device_class || null,
-    };
-
     return {
+      // PISTON_FORMAT.md condition schema
       id: _editNode?.id || _newId(),
       is_trigger: isTrigger(op),
-      subject,
       aggregation: document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
+      role: role,
+      attribute: attrVal,
+      attribute_type: attrType,
+      device_class: _sel.device_class || null,
       operator: op,
       display_value: rawVal1,
       compiled_value: compiledVal1,
       value_to: rawVal2 || null,
-      duration: durAmount,
-      duration_unit: durUnit,
+      duration: parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || null,
+      duration_unit: document.getElementById('wiz-dur-unit')?.value || 'minutes',
       interaction: document.getElementById('wiz-interaction')?.value || 'any',
-      group_operator: groupOp,
+      group_operator: 'and',
     };
   }
 
@@ -1157,11 +1097,8 @@ const Wizard = (() => {
     if (skeletons[resolvedKey]) {
       const node = skeletons[resolvedKey];
       const ctx = _context;
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
       close();
-      Editor.insertStatement(ctx, node, meta);
+      Editor.insertStatement(ctx, node);
     }
   }
 
@@ -1218,18 +1155,9 @@ const Wizard = (() => {
     const el = document.getElementById('wiz-act-devlist');
     if (!el) return;
     const q = query.toLowerCase();
-
-    // Filter + deduplicate physical devices
-    const physical = _filterDevices(_deviceData).filter(d =>
+    const physical = (_deviceData||[]).filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
-
-    // Piston device variables
-    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const pistonDevVars = allLocals.filter(v =>
-      v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
-    );
-
     const sel = new Set(_sel.devices||[]);
 
     let html = '';
@@ -1240,15 +1168,6 @@ const Wizard = (() => {
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0,150).map(d => _actDevRow(d.entity_id, d.friendly_name, sel.has(d.entity_id))).join('');
-    }
-    if (pistonDevVars.length) {
-      html += `<div class="wiz-device-group-header">Piston variables</div>`;
-      html += pistonDevVars.map(v =>
-        `<div class="wiz-device-row ${sel.has(v.name)?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
-          <span class="wiz-dev-prefix">device</span>
-          <span class="wiz-dev-label">${_esc(v.name)}</span>
-        </div>`
-      ).join('');
     }
     if (!q) {
       html += `<div class="wiz-device-group-header">System variables</div>`;
@@ -1557,42 +1476,18 @@ const Wizard = (() => {
     if (!command) return;
     const params = {};
     document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
-
-    // domain from the first selected device's entity_id
-    const firstDeviceId = (_sel.devices || [])[0] || _sel.device_id || '';
-    const domain = firstDeviceId.includes('.') ? firstDeviceId.split('.')[0] : (firstDeviceId || 'homeassistant');
-
-    // devices array must contain role labels (friendly names), not entity_ids
-    // _sel.devices contains entity_ids from the picker — map back to labels
-    // For single device: use device_label. For multiple: build from el data-label attrs.
-    let deviceLabels;
-    if ((_sel.devices || []).length <= 1) {
-      deviceLabels = [_sel.device_label || _sel.device_id || ''];
-    } else {
-      // Build label map from rendered rows
-      const labelMap = {};
-      document.querySelectorAll('#wiz-act-devlist .wiz-device-row').forEach(row => {
-        if (row.dataset.id && row.dataset.label) labelMap[row.dataset.id] = row.dataset.label;
-      });
-      deviceLabels = (_sel.devices || []).map(id => labelMap[id] || id);
-    }
-
     Editor.insertStatement(_context, {
       type: 'action',
       id: _editNode?.id || _newId(),
-      async: false,
-      devices: deviceLabels,
+      devices: _sel.devices || [_sel.device_label || _sel.device_id],
       tasks: [{
-        id: 'task_' + Array.from(crypto.getRandomValues(new Uint8Array(4))).map(b=>b.toString(16).padStart(2,'0')).join(''),
+        id: _newId(),
         command: command,
-        domain: domain,
-        ha_service: domain + '.' + command,
+        domain: (_sel.device_id || '').split('.')[0] || '',
+        ha_service: command,
         parameters: params,
-        description: null,
       }],
-      description: null,
-      disabled: false,
-    }, _extra['block-id'] ? { blockId: _extra['block-id'], branch: _extra['branch'] || 'then' } : undefined);
+    });
     close();
   }
 
@@ -1786,9 +1681,8 @@ const Wizard = (() => {
     if (!el) return;
     const q = query.toLowerCase();
     const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const pistonDevVars = allLocals.filter(v => v.var_type === 'device');
-    // Filter + deduplicate physical devices
-    const physical = _filterDevices(_deviceData).filter(d =>
+    const localDeviceVars = allLocals.filter(v => v.var_type === 'device');
+    const physical = (_deviceData || []).filter(d =>
       !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
     );
 
@@ -1812,10 +1706,10 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
-    const filteredPistonVars = pistonDevVars.filter(v => !q || v.name.toLowerCase().includes(q));
-    if (filteredPistonVars.length) {
-      html += `<div class="wiz-device-group-header">Piston variables</div>`;
-      html += filteredPistonVars.map(v =>
+    const filteredLocals = localDeviceVars.filter(v => !q || v.name.toLowerCase().includes(q));
+    if (filteredLocals.length) {
+      html += `<div class="wiz-device-group-header">Local variables</div>`;
+      html += filteredLocals.map(v =>
         `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===v.name?'selected':''}"
           data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
           <span class="wiz-dev-prefix">device</span>
@@ -1853,9 +1747,7 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-timer-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
+      // STATEMENT_TYPES.md Section 9 — field is interval_unit, not unit
       Editor.insertStatement(_context, {
         type:'every', id:_newId(), async:false,
         interval: parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
@@ -1864,7 +1756,7 @@ const Wizard = (() => {
         only_on_days:[], only_on_dom:[], only_on_months:[],
         statements:[],
         description:null, disabled:false,
-      }, meta);
+      });
       close();
     });
   }
@@ -1881,63 +1773,34 @@ const Wizard = (() => {
     );
     document.getElementById('wiz-rep-back')?.addEventListener('click', _goStatementTypePicker);
     document.getElementById('wiz-rep-save')?.addEventListener('click', () => {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
       Editor.insertStatement(_context, {
         type:'repeat', id:_newId(), async:false,
         statements:[], until_conditions:[], condition_operator:'and',
         description:null, disabled:false,
-      }, meta);
+      });
       close();
     });
   }
 
   function _goForEachPicker() {
-    const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-      .filter(v => v.var_type === 'device');
-    const varOptions = pistonDevVars.map(v =>
-      `<option value="${_esc(v.name)}" ${(_sel.variable||'$device')===v.name?'selected':''}>${_esc(v.name)}</option>`
-    ).join('');
-
     _render('Add a for each loop',
       `<div class="wiz-desc">Executes the same statements for each device in a device list.</div>
-       <div class="wiz-row-label">Store current device in variable</div>
-       <div class="wiz-value-inputs">
-         <select id="wiz-fe-var" class="wiz-select-blue" style="flex:1">
-           <option value="$device" ${(_sel.variable||'$device')==='$device'?'selected':''}>$device (system default)</option>
-           ${varOptions}
-           <option value="__custom__">Type a name...</option>
-         </select>
-         <input type="text" id="wiz-fe-var-custom" class="wiz-value-input" placeholder="Variable name..." style="display:none;flex:1" value="${_esc(_sel.variable||'')}" />
-       </div>
-       <div class="wiz-row-label" style="margin-top:10px">For each device in (role name)</div>
-       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role or variable name..." value="${_esc(_sel.list_role||'')}" />`,
+       <div class="wiz-row-label">For each device in</div>
+       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role..." value="${_esc(_sel.list_role||'')}" />
+       <div class="wiz-row-label" style="margin-top:10px">Store current device in variable</div>
+       <input type="text" id="wiz-fe-var" class="wiz-value-input" value="${_esc(_sel.variable||'$device')}" />`,
       `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
        <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">Save</button></div>`
     );
     document.getElementById('wiz-fe-back')?.addEventListener('click', _goStatementTypePicker);
-
-    // Show/hide custom text input when "Type a name..." selected
-    document.getElementById('wiz-fe-var')?.addEventListener('change', e => {
-      const custom = document.getElementById('wiz-fe-var-custom');
-      if (custom) custom.style.display = e.target.value === '__custom__' ? '' : 'none';
-    });
-
     document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
-      const varSel = document.getElementById('wiz-fe-var')?.value || '$device';
-      const varCustom = document.getElementById('wiz-fe-var-custom')?.value || '';
-      const variable = varSel === '__custom__' ? varCustom : varSel;
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
       Editor.insertStatement(_context, {
         type:'for_each', id:_newId(), async:false,
-        variable: variable || '$device',
+        variable: document.getElementById('wiz-fe-var')?.value||'$device',
         list_role: document.getElementById('wiz-fe-list')?.value||'',
         statements:[],
         description:null, disabled:false,
-      }, meta);
+      });
       close();
     });
   }

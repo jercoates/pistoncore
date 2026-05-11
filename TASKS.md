@@ -30,6 +30,14 @@ One task per session. Do not combine tasks.
 Do not start a task without reading its listed spec files first.
 Upload only the files needed for that task — nothing extra.
 
+**Gap Assignment Rule — Non-Negotiable:**
+Every gap created at the end of a session must be assigned to the most logical
+future session before the session closes. Never leave a gap unassigned.
+Assign gaps to the session where the relevant file is already open, or where
+the fix fits naturally in sequence. Do not assign gaps to a random future session
+— assign them to the right one. A gap assigned to the wrong session is as bad
+as an unassigned gap because it forces unnecessary file loading and context switching.
+
 ---
 
 ## STAGE W — Wizard Rebuild
@@ -270,22 +278,35 @@ editor.js: insertStatement() branch insertion via meta.blockId + meta.branch.
 
 ---
 
-## Unassigned Gaps
+## Open Gaps — All Assigned
 
-### GAP-S28-4: 6 test pistons in tests/pistons/ not yet created
-Fits after S3-1. Must use nested tree JSON per PISTON_FORMAT.md v2.0.
+All gaps must be assigned to a specific session when created. Never leave a gap unassigned.
 
-### GAP-S40-1: _route() checks wrong type for log statement edit
-`_route()` in wizard.js checks `_editNode.type === 'log'` to re-open a log statement
-for editing, but `_saveLocationCmd` writes `type:'log_message'`. Clicking an existing
-log statement will not open the edit dialog correctly.
-Fix: change `'log'` to `'log_message'` in the `_route()` type check.
-Assign to W-S6 or first session that has wizard.js open.
+### GAP-S28-4 → S3-1: 6 test pistons in tests/pistons/ not yet created
+Must use nested tree JSON per PISTON_FORMAT.md v2.0. Create during smoke test session.
 
-### GAP-S40-2: Task IDs in _saveLocationCmd use stmt_ prefix instead of task_
-Lines 1453 and 1460 in wizard.js call `_newId()` for task IDs inside action nodes
-written by `_saveLocationCmd`. `_newId()` generates `stmt_` prefix IDs. PISTON_FORMAT.md
-requires task IDs to use `task_` prefix (e.g. `task_a3f8c2d1`).
-Fix: use a `_newTaskId()` helper or inline `'task_' + ...` for task IDs in these two places.
-Also check `_saveDeviceCmd` — already fixed in Session 40 to use `task_` prefix inline.
-Assign to W-S6 or first session that has wizard.js open.
+### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
+Needs a working piston to test against. Do in S3-2 after smoke test passes.
+
+### GAP-S34-1 → S4-15: _compile_single_condition has no warnings param
+Low priority operational hardening. Assigned to S4-15.
+
+### GAP-S38-1 → S2-2: /api/logs route missing from api.py
+Add while api.py is open in S2-2.
+
+### GAP-S39-1 → S2-2: ha_client import pattern wrong in api.py and compiler.py
+Must change `import ha_client` to `from ha_client import ha_client`. Audit all
+call sites in both files. Do in S2-2 when api.py is already open.
+
+### GAP-S40-1 → W-S5: _route() checks wrong type for log statement edit
+`_route()` checks `_editNode.type === 'log'` but node is stored as `'log_message'`.
+Fix: change `'log'` to `'log_message'` in the `_route()` type check in wizard.js.
+Fix before smoke test — wizard.js is already open that session.
+
+### GAP-S40-2 → W-S5: Task IDs in _saveLocationCmd use stmt_ prefix instead of task_
+`_newId()` generates `stmt_` prefix. Task IDs must use `task_` prefix per PISTON_FORMAT.md.
+Fix: inline `'task_' + ...` for task IDs in _saveLocationCmd (same pattern as _saveDeviceCmd).
+Fix before smoke test — wizard.js is already open that session.
+
+### GAP-S30-3 → S4-15: Double config load per compile call
+Low priority operational hardening. Assigned to S4-15.

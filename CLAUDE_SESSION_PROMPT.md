@@ -291,6 +291,13 @@ After writing or modifying any code, before ending the session, Claude must:
    it to TASKS.md as a named gap entry (GAP-SXX-N format).
 5. Report all gaps found (fixed or deferred) before closing the session.
 
+**Gap Assignment Rule — Non-Negotiable:**
+Every gap must be assigned to the most logical future session before this session
+closes. Assign to the session where the relevant file is already open, or where
+the fix fits naturally in sequence. Never assign to a random session — assign to
+the right one. A gap assigned to the wrong session forces unnecessary file loading
+and context switching, which is exactly what this project is trying to avoid.
+
 This is not optional. A session that produces code without a gap review is incomplete.
 
 ---

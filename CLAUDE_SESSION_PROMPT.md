@@ -74,21 +74,21 @@ patches. If it needs a middle edit, write the whole file.**
 
 # Wizard Priority Rule — Current Focus
 
-**The wizard is the current top priority. Nothing else gets worked on until the
-wizard works end-to-end on a simple piston.**
+**The wizard core bugs are fixed. The next priority is the smoke test (W-S5 / S3-1).**
 
-The backend, compiler, and editor have all been through major structural work.
-The blocking problem is the wizard — it cannot produce valid JSON for even a
-simple if/then/action piston reliably. Until the wizard works, nothing else
-in the stack can be tested or verified.
+Deploy the fixed wizard.js and editor.js, build Docker, and run the 14-step minimum
+viable piston flow from WIZARD_REBUILD_SPEC.md. If the smoke test passes, Stage 2
+backend work resumes. If it fails, document exactly which step fails and fix only that.
 
-All Stage 2 backend tasks (S2-2 through S2-4) are deferred until after the
-wizard works and the round-trip smoke test (S3-1) passes.
+All Stage 2 backend tasks (S2-2 through S2-4) remain deferred until the smoke test passes.
 
-** note for this session **
- Match WebCoRE exactly for all dialog flow, field behavior, and data collection — the if/condition/action/task dialogs, the operand picker, the device selector, all of it.
-PistonCore improvements are fine for the main screen layout, the debug/log screen, and globals being accessible from anywhere. Those aren't regressions from WebCoRE, they're upgrades.
-I'll capture that as a note at the top of WIZARD_REBUILD_SPEC.md when W-0 runs so it's clear what's a target match and what's intentionally different. That way future sessions don't accidentally "fix" something that was deliberately changed
+**WebCoRE match rule (permanent):**
+Match WebCoRE exactly for all dialog flow, field behavior, and data collection —
+the if/condition/action/task dialogs, the operand picker, the device selector, all of it.
+PistonCore improvements are fine for the main screen layout, the debug/log screen,
+and globals being accessible from anywhere. Those are upgrades, not regressions.
+Do not accidentally revert intentional improvements.
+
 ---
 
 ## How to Start Every Session
@@ -102,91 +102,86 @@ I'll capture that as a note at the top of WIZARD_REBUILD_SPEC.md when W-0 runs s
 
 ---
 
-## Project Status — Session 39 Complete
+## Project Status — Session 40 Complete
+
+### What Was Done in Session 40 (W-0 + W-S1 through W-S4)
+
+**WIZARD_REBUILD_SPEC.md written.**
+Complete spec of every wizard dialog, every field, every JSON output, every device
+picker rule, complete 14-step minimum viable piston flow, and 7 bugs in fix order.
+Written from WebCoRE source (webcore1.txt, webcore3.txt) against PISTON_FORMAT.md
+and STATEMENT_TYPES.md. Now in the repo as authoritative wizard target.
+
+**wizard.js — 7 bugs fixed + additional improvements:**
+
+Bug 1 — Condition subject format: `_buildConditionNode()` now writes the `subject`
+object the editor reads. Previous flat `role`/`attribute` fields caused conditions
+to render blank in the editor. Now writes:
+`{ type:'device', role:'...', entity_id:'...', capability:'...', attribute_type:'...', device_class:null }`
+
+Bug 2 — Statement inserted at wrong level: All statement types (timer, repeat,
+for_each, skeletons: do/switch/while/on_event/for/break/exit) now pass
+`{ blockId, branch }` meta through to editor on insert.
+
+Bug 3 — Piston variables missing from device picker: All pickers now call
+`Editor.getPistonVariables()` filtered to `var_type === 'device'` and show them
+under "Piston variables" section.
+
+Bug 4 — Wrong/duplicate HA entities: `ALLOWED_DOMAINS` constant added.
+`_filterDevices()` helper applies domain filter + entity_id deduplication.
+Applied to `_renderActDevList`, `_renderDevPanelList`, `_renderVarInitDevList`.
+
+Bug 5 — `ha_service` wrong: `_saveDeviceCmd()` now writes `domain + '.' + command`
+(e.g. `light.turn_on` not `turn_on`). `devices` array uses role labels not entity_ids.
+
+Bug 6 — AND/OR between conditions: AND/OR selector visible in condition builder
+when context is `if_condition`. Written to `group_operator` on condition node.
+
+Bug 7 — Delete: Confirmed working. No code change needed.
+
+Additional: `_goForEachPicker()` upgraded with variable dropdown filtered to
+device-type piston vars (with custom name fallback). Section labels standardized
+to "Piston variables" everywhere.
+
+**editor.js — branch insertion fix:**
+`insertStatement()` now handles `meta.blockId` + `meta.branch`. Statements inserted
+inside `if.then`, `if.else`, or `node.statements` land in the correct child array
+instead of always appending to the top level.
+
+**Next task: W-S5 — Smoke Test**
+Deploy, build Docker, run 14-step flow from WIZARD_REBUILD_SPEC.md.
+Upload: WIZARD_REBUILD_SPEC.md, wizard.js, editor.js, PISTON_FORMAT.md,
+STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
 
 ### What Was Done in Session 39 (S2-1 — HAClient Abstraction)
 
 **ha_client.py rewritten as HAClient class with module-level singleton.**
-
-Auth mode auto-detected on construction:
-- SUPERVISOR_TOKEN env var present → supervisor mode, URL = http://supervisor/core
-- No SUPERVISOR_TOKEN → token mode, reads ha_url + ha_token from config.json
-
-All existing module-level functions converted to instance methods. Public API
-signatures unchanged — get_devices, get_capabilities, get_services, get_all_states,
-get_services_for_domains, get_areas, get_ha_version, call_service, invalidate_cache.
-
-**reload_config() added.**
-Re-reads ha_url and ha_token from config.json and clears cache. No-op in supervisor
-mode. Call from settings-save endpoint after writing new config.
-
-**Bug 26 fixed:** ThreadPoolExecutor is now a persistent instance attribute
-(self._executor), created once in __init__, reused across all _run() calls.
-No more per-call pool creation and teardown.
-
-**Bug 27 fixed:** get_services cache key changed from svc:{entity_id} to
-svc:{domain}. Two entities in the same domain now share one cache entry.
-
-**endpoints.json externalization skipped.** The WebSocket path (/api/websocket)
-is stable HA protocol spec — not worth the file complexity. Decision final.
-
-**GAP-S39-1:** api.py and compiler.py import ha_client functions via module-level
-import. With the singleton pattern, callers must use
-`from ha_client import ha_client` not `import ha_client`. Audit needed in S2-2
-which already has api.py in scope — deferred until after wizard is working.
-
-**Decision end of Session 39:** Stage 2 backend work (S2-2 through S2-4) is
-deferred. The wizard is broken and is the real blocker. Next work is a full
-wizard rebuild spec written against the WebCoRE source code.
-
-**Next task: W-0 — Wizard Rebuild Spec**
-Upload: wizard.js, CLAUDE_SESSION_PROMPT.md, TASKS.md,
-app.js (WebCoRE), piston.module.html (WebCoRE), dashboard.module.html (WebCoRE)
+Auth mode auto-detected. reload_config() added. Bug 26 fixed. Bug 27 fixed.
+endpoints.json externalization skipped (decision final).
+GAP-S39-1 opened → assigned to S2-2 (deferred).
 
 ---
 
 ### What Was Done in Session 38 (S2-0 — SQLite Error Logger)
 
-**error_logger.py created (new file).**
-Single ErrorLogger class. One table: error_logs. WAL mode enabled on init.
-30-day purge runs on every startup. Module-level singleton — import `error_logger`
-from anywhere in the backend that needs to log.
-
-Schema columns: id, timestamp, piston_id, piston_name, level, code, message,
-context, stack_trace, session_id, user_agent, ha_version, pistoncore_version, metadata.
-Four indexes: timestamp, piston_id, level, code.
-session_id / user_agent / ha_version / pistoncore_version stored as NULL for now.
-
-Auto-captures active exception traceback on error-level log calls when no
-stack_trace is passed and sys.exc_info()[0] is not None.
-
-**main.py updated.**
-Added: traceback import, Request to FastAPI imports, error_logger import.
-Added: _log_unhandled_exceptions middleware — catches any unhandled exception
-that escapes a route handler, logs it as UNHANDLED_EXCEPTION with method+path
-as context, then re-raises so FastAPI still returns a 500.
-
-**GAP-S38-1:** get_recent() has no /api/logs endpoint yet. Fits Stage 4.
+**error_logger.py created. main.py updated.**
+GAP-S38-1 opened → assigned to S2-2 (deferred).
 
 ---
 
-### What Was Done in Session 37 (S-NESTED Session C — wizard.js audit + field name fixes)
+### What Was Done in Session 37 (S-NESTED Session C)
 
-**wizard.js audited and fixed. editor.js updated for GAP-S36-1 and GAP-S36-2.**
-
-**GAP-S36-1 resolved:** `_blockId` stamp mechanism replaced with `meta` argument.
-**GAP-S36-2 resolved:** `_deepReId(node)` added to editor.js.
-**GAP-S37-1 found and resolved same session:** `set_variable` value field fix.
-**wait field name fix:** unit → duration_unit, duration parsed as int.
-**GAP-S27-4:** Confirmed closed.
+wizard.js audited and fixed. editor.js updated for GAP-S36-1 and GAP-S36-2.
+wait field name fixed. GAP-S27-4 confirmed closed.
 
 ---
 
-### What Was Done in Session 36 (S-NESTED Session B — editor.js)
+### What Was Done in Session 36 (S-NESTED Session B)
 
-**editor.js fully migrated to nested tree model.**
-All statement tree operations now work directly on the nested object tree.
-No flat statements array. No stmtMap. No ID references between statements.
+editor.js fully migrated to nested tree model. No flat statements array.
+No stmtMap. No ID references between statements.
 
 ---
 
@@ -200,9 +195,9 @@ No ID references between statements anywhere.
 
 ### What Was Done in Sessions 32-34
 
-**S1-6: Fat compiler context assembly. COMPLETE.**
-**S1-7 session 3: COMPLETE.** else_ifs, time condition fix, PyScript spec.
-**S1-8: Template compliance pass. COMPLETE.**
+S1-6: Fat compiler context assembly. COMPLETE.
+S1-7 session 3: COMPLETE. else_ifs, time condition fix, PyScript spec.
+S1-8: Template compliance pass. COMPLETE.
 
 ---
 
@@ -215,12 +210,11 @@ When specs conflict, this is the resolution order:
 4. COMPILER_SPEC.md — compiler behavior (current as of Session 35)
 5. PYSCRIPT_COMPILER_SPEC.md — PyScript compiler (written Session 24 — current)
 6. FRONTEND_SPEC.md — frontend behavior (current as of Session 24)
-7. WIZARD_SPEC.md — wizard behavior (current as of Session 24)
-8. WIZARD_REBUILD_SPEC.md — wizard rebuild target (to be written in W-0)
-9. HA_LIMITATIONS.md — known HA gotchas
-10. AI_PROMPT_SPEC.md — AI prompt file requirements
+7. WIZARD_REBUILD_SPEC.md — wizard rebuild target (written Session 40 — supersedes WIZARD_SPEC.md)
+8. HA_LIMITATIONS.md — known HA gotchas
+9. AI_PROMPT_SPEC.md — AI prompt file requirements
 
-**When WIZARD_REBUILD_SPEC.md exists, it supersedes WIZARD_SPEC.md.**
+**WIZARD_REBUILD_SPEC.md supersedes WIZARD_SPEC.md for all wizard behavior.**
 
 ---
 
@@ -253,6 +247,7 @@ decisions. Move processed files there, don't delete them.
 ## Reference Documents
 
 - **TASKS.md** — what to work on and in what order (always upload this)
+- **WIZARD_REBUILD_SPEC.md** — authoritative wizard target (always upload for wizard sessions)
 - **MISSING_SPECS.md** — specs that must be written before certain tasks can be coded
 
 ---

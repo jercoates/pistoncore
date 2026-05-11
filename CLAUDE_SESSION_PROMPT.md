@@ -149,6 +149,22 @@ inside `if.then`, `if.else`, or `node.statements` land in the correct child arra
 instead of always appending to the top level.
 
 **Next task: W-S5 — Smoke Test**
+
+
+**fuck this shit do this**
+Upload these files to start:
+CLAUDE_SESSION_PROMPT.md, TASKS.md, WIZARD_REBUILD_SPEC.md, wizard.js, editor.js, api.py, ha_client.py, PISTON_FORMAT.md, STATEMENT_TYPES.md
+Then say this:
+"This is a wizard UI session. Read WIZARD_REBUILD_SPEC.md completely. Read wizard.js completely. Read editor.js completely. Do not touch the backend until the wizard UI works.
+There are two breaking bugs that must be fixed first before anything else:
+GAP-S40-3: action picker shows no physical devices — the domain filter broke completely
+GAP-S40-4: command picker returns 500 — ha_client import wrong in api.py
+After fixing those two, the real work is making the wizard menus match WebCoRE exactly — the flow, the screen order, what populates when, what shows in each picker. The WebCoRE source files are in the reference folder. The wizard currently does not match WebCoRE's flow. Read the spec, read the code, then tell me every place the current wizard.js does NOT match what WIZARD_REBUILD_SPEC.md says it should do before writing a single line of code."
+The WebCoRE source files are in reference/. Upload webcore1.txt and webcore3.txt alongside the other files so Claude can compare the actual WebCoRE dialogs against what PistonCore shows the user.
+DO NOT CODE UNTIL I TELL YOU THIS TIME
+THIS IS NOT ABOUT THE BEHIND THE SCENES SHIT ITS WHAT THE USER SEES AND THE IMPUT FLOW
+** your shit continued**
+That last instruction is the key — make Claude audit the gaps between the spec and the code first, show you the list, get your approval, then fix them in order. No more diving into code blind.
 Deploy, build Docker, run 14-step flow from WIZARD_REBUILD_SPEC.md.
 Upload: WIZARD_REBUILD_SPEC.md, wizard.js, editor.js, PISTON_FORMAT.md,
 STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md

@@ -411,6 +411,15 @@ const Wizard = (() => {
         return;
       }
 
+      // If block edit — open condition/group picker to add a condition
+      if (t === 'if') {
+        _context = 'if_condition';
+        _extra = { 'block-id': _editNode.id };
+        _sel.statement_class = 'condition';
+        _goConditionOrGroup();
+        return;
+      }
+
       // Every / timer edit
       if (t === 'every') {
         _sel.interval      = _editNode.interval || 5;
@@ -703,6 +712,21 @@ const Wizard = (() => {
       _refreshConditionRows();
     });
 
+    document.getElementById('wiz-subj-time')?.addEventListener('change', e => {
+      _sel.time_value = e.target.value;
+      _refreshConditionRows();
+    });
+
+    document.getElementById('wiz-subj-date')?.addEventListener('change', e => {
+      _sel.date_value = e.target.value;
+      _refreshConditionRows();
+    });
+
+    document.getElementById('wiz-subj-mode')?.addEventListener('input', e => {
+      _sel.mode_value = e.target.value;
+      _refreshConditionRows();
+    });
+
     document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
       const panel = document.getElementById('wiz-dev-panel');
       if (!panel) return;
@@ -793,7 +817,22 @@ const Wizard = (() => {
     const needsVal = NEEDS_VALUE.has(op);
     const needsDur = NEEDS_DURATION.has(op);
     const needsTwo = NEEDS_TWO_VALUES.has(op);
-    const hasDevice = !!_sel.device_id;
+
+    // "Has subject" is true for device (has device_id) OR for any other subject type
+    // that has a value entered (variable selected, time entered, date entered, mode entered)
+    const subjType = _sel.subject_type || 'device';
+    let hasSubject = false;
+    if (subjType === 'device') {
+      hasSubject = !!_sel.device_id;
+    } else if (subjType === 'variable') {
+      hasSubject = !!(document.getElementById('wiz-subj-var')?.value || _sel.device_id);
+    } else if (subjType === 'time') {
+      hasSubject = !!(document.getElementById('wiz-subj-time')?.value || _sel.time_value);
+    } else if (subjType === 'date') {
+      hasSubject = !!(document.getElementById('wiz-subj-date')?.value || _sel.date_value);
+    } else if (subjType === 'mode') {
+      hasSubject = !!(document.getElementById('wiz-subj-mode')?.value || _sel.mode_value);
+    }
 
     document.getElementById('wiz-value-row')?.classList.toggle('hidden', !needsVal);
     document.getElementById('wiz-dur-row')?.classList.toggle('hidden', !needsDur);
@@ -810,7 +849,7 @@ const Wizard = (() => {
 
     if (needsVal) _renderValueWidget();
 
-    const ok = hasDevice && !!op;
+    const ok = hasSubject && !!op;
     document.getElementById('wiz-add')?.toggleAttribute('disabled', !ok);
     document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
   }

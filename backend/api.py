@@ -692,10 +692,43 @@ def duplicate_piston(piston_id: str):
     raise HTTPException(status_code=501, detail="Duplicate not yet implemented.")
 
 
-@router.post("/pistons/import", status_code=501)
-def import_piston():
-    """Import a piston from Snapshot JSON. Not yet implemented — returns 501. See S2-x."""
-    raise HTTPException(status_code=501, detail="Import not yet implemented.")
+@router.post("/pistons/import", status_code=201)
+def import_piston(piston: dict = Body(...)):
+    """
+    Import a piston from Snapshot JSON (DESIGN.md Section 6.3).
+    Accepts the full piston body, assigns a new ID, applies spec defaults,
+    validates device_map, and saves. Returns the saved piston.
+
+    device_map values may be empty arrays (Snapshot) or populated (Backup).
+    Role mapping — filling empty device_map entries with real entity IDs —
+    is handled by the frontend import dialog after this call returns.
+    """
+    import datetime
+
+    # Always assign a fresh ID on import — DESIGN.md Section 6.7
+    piston.pop("id", None)
+    piston.pop("compile_target", None)  # compiler owns this
+
+    piston.setdefault("name", "Imported Piston")
+    piston.setdefault("description", "")
+    piston.setdefault("folder", None)
+    piston.setdefault("mode", "single")
+    piston.setdefault("enabled", True)
+    piston.setdefault("logic_version", 1)
+    piston.setdefault("ui_version", 1)
+    piston.setdefault("device_map", {})
+    piston.setdefault("device_map_meta", {})
+    piston.setdefault("variables", [])
+    piston.setdefault("statements", [])
+
+    piston["device_map"] = _validate_device_map(piston["device_map"])
+
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    piston["created_at"] = now
+    piston["modified_at"] = now
+
+    saved = storage.save_piston(piston)
+    return saved
 
 
 @router.get("/pistons/{piston_id}/export", status_code=501)

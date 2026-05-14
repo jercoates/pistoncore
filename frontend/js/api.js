@@ -87,6 +87,16 @@ const API = {
     return _fetch(`/pistons/${id}`, { method: 'DELETE' });
   },
 
+  async importPiston(piston) {
+    // POST /pistons/import — saves Snapshot JSON, returns saved piston with new ID.
+    // device_map may be empty (Snapshot) or populated (Backup).
+    // Frontend handles role mapping after this call.
+    return _fetch('/pistons/import', {
+      method: 'POST',
+      body: JSON.stringify(piston),
+    });
+  },
+
   async compilePiston(id) {
     // Returns YAML strings without writing to HA
     return _fetch(`/pistons/${id}/compile`, { method: 'POST' });

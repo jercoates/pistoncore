@@ -226,88 +226,9 @@ const ListPage = (() => {
   }
 
   function showImportDialog() {
-    // Import modal — paste JSON, URL, or upload .piston file
-    const backdrop = document.getElementById('wizard-backdrop');
-    const modal = document.getElementById('wizard-modal');
-    if (!backdrop || !modal) return;
-
-    modal.innerHTML = `
-      <div class="wizard-header">
-        <span class="wizard-context-label">Import Piston</span>
-      </div>
-      <div class="wizard-body">
-        <div class="import-tabs">
-          <div class="import-tab active" data-pane="paste">Paste JSON</div>
-          <div class="import-tab" data-pane="url">From URL</div>
-        </div>
-        <div class="import-pane active" id="import-pane-paste">
-          <textarea id="import-json" placeholder='Paste piston JSON here...'></textarea>
-        </div>
-        <div class="import-pane" id="import-pane-url">
-          <input type="text" id="import-url" placeholder="https://..." style="width:100%" />
-          <div style="font-size:12px; color:var(--text-muted); margin-top:8px">
-            Paste a URL to a raw .piston or .json file.
-          </div>
-        </div>
-        <div id="import-error"></div>
-      </div>
-      <div class="wizard-footer">
-        <div class="wizard-footer-actions">
-          <button class="btn" id="import-cancel">Cancel</button>
-          <button class="btn btn-primary" id="import-confirm">Import</button>
-        </div>
-      </div>
-    `;
-
-    backdrop.classList.add('open');
-
-    // Tab switching
-    modal.querySelectorAll('.import-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        modal.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
-        modal.querySelectorAll('.import-pane').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(`import-pane-${tab.dataset.pane}`)?.classList.add('active');
-      });
-    });
-
-    document.getElementById('import-cancel')?.addEventListener('click', () => {
-      backdrop.classList.remove('open');
-    });
-
-    document.getElementById('import-confirm')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('import-error');
-      if (errorEl) errorEl.innerHTML = '';
-
-      const activePane = modal.querySelector('.import-tab.active')?.dataset.pane;
-      let pistonJson;
-
-      try {
-        if (activePane === 'paste') {
-          const raw = document.getElementById('import-json')?.value.trim();
-          if (!raw) throw new Error('Paste your piston JSON first.');
-          pistonJson = JSON.parse(raw);
-        } else {
-          const url = document.getElementById('import-url')?.value.trim();
-          if (!url) throw new Error('Enter a URL first.');
-          const resp = await fetch(url);
-          if (!resp.ok) throw new Error(`Could not fetch URL (${resp.status}).`);
-          pistonJson = await resp.json();
-        }
-
-        // Strip ID so backend assigns a fresh one
-        delete pistonJson.id;
-        const saved = await API.createPiston(pistonJson);
-        backdrop.classList.remove('open');
-        _allPistons.push(saved);
-        App.navigate('status', { pistonId: saved.id });
-
-      } catch (e) {
-        if (errorEl) {
-          errorEl.innerHTML = `<div class="banner banner-error" style="margin-top:12px">⚠ ${_esc(e.message)}</div>`;
-        }
-      }
-    });
+    // Delegates to Editor.openImport() — paste modal + role mapping flow.
+    // DESIGN.md Section 6.3.
+    Editor.openImport();
   }
 
   function copyAIPrompt() {

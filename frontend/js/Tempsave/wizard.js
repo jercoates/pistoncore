@@ -1,39 +1,25 @@
-// pistoncore/frontend/js/wizard.js
-// Rewritten to match WebCoRE source (webcore1.txt / webcore3.txt) dialog-by-dialog.
+// pistoncore/frontend/js/wizard.js — Session 41 full rewrite
+// All gaps from SESSION_41_WIZARD_AUDIT.md fixed in one pass.
 //
-// WebCoRE dialogs matched:
-//   dialog-edit-statement  → _goStatementTypePicker / per-type config pages
-//   dialog-edit-condition  → _goConditionOrGroup / _goConditionBuilder / _goGroupBuilder
-//   dialog-edit-task       → _goActionDevicePicker / _goCommandPicker / _goLocationCmdPicker
-//   dialog-edit-variable   → _goVariablePicker
-//   comparison template    → condition left/operator/right/time rows
-//   operand template       → _renderValueWidget
-//
-// PistonCore-specific additions preserved:
-//   • Globals accessible from anywhere (top bar — handled outside wizard)
-//   • Nested tree JSON output (PISTON_FORMAT.md v2.0)
-//   • Demo device fallback when no HA connection
-//
-// KEY DESIGN INVARIANTS (from Session 41, kept):
-//   1. Condition wizard is ONE screen — device + attribute + operator + value all visible at once
-//   2. Device picker for CONDITIONS opens as a sub-panel INSIDE the modal, not a full replacement
-//   3. Action device picker IS a full step (separate screen) — it's multi-select
-//   4. Back button always works by tracking a step stack
-//   5. Clicking an existing node opens the correct edit screen for that node type
+// KEY DESIGN RULES:
+// 1. Condition wizard is ONE screen — device + attribute + operator + value all visible at once
+// 2. Device picker for CONDITIONS opens as a sub-panel INSIDE the modal, not a full replacement
+// 3. Action device picker IS a full step (separate screen) because it's multi-select
+// 4. Back button always works by tracking a step stack
+// 5. Clicking an existing node opens the correct edit screen for that node type
 
 const Wizard = (() => {
 
   // ── State ─────────────────────────────────────────────────
-  let _context  = null;
+  let _context = null;
   let _editNode = null;
-  let _extra    = {};
-  let _step     = null;
-  let _sel      = {};
+  let _extra = {};
+  let _step = null;
+  let _sel = {};
   let _stepStack = [];
   let _deviceData = null;
 
-  // ── WebCoRE operator lists ────────────────────────────────
-  // Matching comparison template options from webcore3.txt
+  // ── Operators ─────────────────────────────────────────────
   const CONDITIONS = [
     'is','is any of','is not','is not any of',
     'is between','is not between','is even','is odd',
@@ -68,13 +54,9 @@ const Wizard = (() => {
     'is any and stays any of','is away and stays away from',
   ]);
 
-  // "timed" operators — WebCoRE comparison template: timed==1 → "In the last...", timed==2 → "For..."
-  const NEEDS_DURATION_INTHELAST = new Set([
+  const NEEDS_DURATION = new Set([
     'changed','did not change',
     'was','was any of','was not','was not any of',
-  ]);
-
-  const NEEDS_DURATION_FOR = new Set([
     'stays','stays equal to','stays any of',
     'stays away from','stays away from any of','stays unchanged',
     'is any and stays any of','is away and stays away from',
@@ -83,16 +65,7 @@ const Wizard = (() => {
   const NEEDS_TWO_VALUES = new Set(['is between','is not between']);
 
   const isTrigger = op => TRIGGERS.includes(op);
-
-  function _durationLabel(op) {
-    if (NEEDS_DURATION_INTHELAST.has(op)) return 'In the last...';
-    if (NEEDS_DURATION_FOR.has(op))      return 'For...';
-    return '';
-  }
-
-  function _needsDuration(op) {
-    return NEEDS_DURATION_INTHELAST.has(op) || NEEDS_DURATION_FOR.has(op);
-  }
+  const durationLabel = op => op && op.startsWith('stays') ? 'For the next...' : 'In the last...';
 
   // ── Static capability map by HA domain ────────────────────
   const DOMAIN_CAPS = {
@@ -176,6 +149,7 @@ const Wizard = (() => {
     ],
   };
 
+  // ── Allowed HA domains for device pickers ─────────────────
   const ALLOWED_DOMAINS = new Set([
     'light','switch','binary_sensor','sensor','media_player','cover','climate',
     'fan','lock','input_boolean','input_number','input_select','automation',
@@ -208,7 +182,7 @@ const Wizard = (() => {
     return [...seen.values()];
   }
 
-  // ── Demo devices (fallback when no HA connection) ─────────
+  // ── Built-in demo devices ─────────────────────────────────
   const DEMO_DEVICES = [
     {
       entity_id: '__demo_light__',
@@ -272,7 +246,6 @@ const Wizard = (() => {
     },
   ];
 
-  // ── Virtual / system devices (for action device picker) ───
   const VIRTUAL_DEVICES = [
     { entity_id:'__location__', friendly_name:'Location'     },
     { entity_id:'__time__',     friendly_name:'Time'         },
@@ -285,7 +258,6 @@ const Wizard = (() => {
     '$currentEventDevice','$previousEventDevice','$device','$devices','$location',
   ];
 
-  // ── Location (virtual) commands — matches WebCoRE exactly ─
   const LOCATION_COMMANDS = [
     { id:'set_variable',      label:'Set variable...'           },
     { id:'execute_piston',    label:'Execute piston...'         },
@@ -297,30 +269,26 @@ const Wizard = (() => {
     { id:'raise_event',       label:'Raise an event...'         },
   ];
 
-  // ── Statement type cards — matches WebCoRE designer.items ─
-  // WebCoRE: simple = [if, action, every], advanced = [switch, do, on, for, each, while, repeat, break, exit]
   const STATEMENT_TYPES = {
     basic: [
-      { type:'if_block',   label:'If Block',  desc:'Execute different actions depending on conditions you set',  btn:'Add an if block', cls:'btn-primary' },
-      { type:'action',     label:'Action',    desc:'Actions represent a collection of tasks devices have to perform', btn:'Add a task',   cls:'btn-green'   },
-      { type:'timer',      label:'Timer',     desc:'Timers trigger piston runs at regular intervals',            btn:'Add a timer',     cls:'btn-orange'  },
+      { type:'if_block',   label:'If Block',  icon:'⟨/⟩', desc:'Execute different actions depending on conditions',  btn:'Add an if block', cls:'btn-primary' },
+      { type:'action',     label:'Action',    icon:'⟨/⟩', desc:'Control devices and execute tasks',                  btn:'Add an action',   cls:'btn-green'   },
+      { type:'timer',      label:'Timer',     icon:'⟨/⟩', desc:'Trigger execution at set time intervals',            btn:'Add a timer',     cls:'btn-orange'  },
     ],
     advanced: [
-      { type:'switch',     label:'Switch',    desc:'A SWITCH block compares an expression against a list of possible values',  btn:'Add a switch',    cls:'btn-primary' },
-      { type:'do_block',   label:'Do Block',  desc:'Organize several statements into a single block',            btn:'Add a do block',  cls:'btn-green'   },
-      { type:'on_event',   label:'On Event',  desc:'Execute statements only when certain events happen',         btn:'Add an on event', cls:'btn-orange'  },
-      { type:'for_loop',   label:'For Loop',      desc:'A FOR loop repeats statements for a preset number of iterations',     btn:'Add a for loop',     cls:'btn-orange' },
-      { type:'for_each',   label:'For Each Loop', desc:'A FOR EACH loop repeats statements for each device in a device list', btn:'Add a for each loop', cls:'btn-orange' },
-      { type:'while_loop', label:'While Loop',    desc:'A WHILE loop executes statements while a condition is true',          btn:'Add a while loop',   cls:'btn-orange' },
-      { type:'repeat_loop',label:'Repeat Loop',   desc:'A REPEAT loop executes statements until a condition is met',          btn:'Add a repeat loop',  cls:'btn-orange' },
-      { type:'break',      label:'Break',         desc:'Interrupt the inner most loop',                                       btn:'Add a break',        cls:'btn-red'    },
-      { type:'exit',       label:'Exit',          desc:'Return causes the piston to end the evaluation stage',                btn:'Add an exit',        cls:'btn-red'    },
+      { type:'switch',     label:'Switch',    icon:'⟨/⟩', desc:'Compare an operand against a set of values',         btn:'Add a switch',    cls:'btn-primary' },
+      { type:'do_block',   label:'Do Block',  icon:'⟨/⟩', desc:'Organize several statements into a single block',    btn:'Add a do block',  cls:'btn-green'   },
+      { type:'on_event',   label:'On Event',  icon:'⟨/⟩', desc:'Execute statements only when certain events happen', btn:'Add an on event', cls:'btn-orange'  },
+    ],
+    loops: [
+      { type:'for_loop',   label:'For Loop',      icon:'⟨/⟩', desc:'Execute statements for a set number of cycles',       btn:'Add a for loop',     cls:'btn-orange' },
+      { type:'for_each',   label:'For Each Loop', icon:'⟨/⟩', desc:'Execute statements for each device in a list',         btn:'Add a for each loop', cls:'btn-orange' },
+      { type:'while_loop', label:'While Loop',    icon:'⟨/⟩', desc:'Execute statements as long as a condition is met',     btn:'Add a while loop',   cls:'btn-orange' },
+      { type:'repeat_loop',label:'Repeat Loop',   icon:'⟨/⟩', desc:'Execute the same statements until a condition is met', btn:'Add a repeat loop',  cls:'btn-orange' },
+      { type:'break',      label:'Break',         icon:'⟨/⟩', desc:'Interrupt the inner most loop',                        btn:'Add a break',        cls:'btn-red'    },
+      { type:'exit',       label:'Exit',          icon:'⟨/⟩', desc:'Interrupt piston execution and exit immediately',       btn:'Add an exit',        cls:'btn-red'    },
     ],
   };
-
-  // ── Weekday helpers ────────────────────────────────────────
-  const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-  const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   // ── Inject combo CSS once ─────────────────────────────────
   function _injectComboCSS() {
@@ -359,16 +327,14 @@ const Wizard = (() => {
     _injectComboCSS();
     const modal = document.getElementById('wizard-modal');
     if (modal) modal.style.display = 'flex';
-    const bd = document.getElementById('wizard-backdrop');
-    if (bd) bd.style.display = 'block';
+    document.getElementById('wizard-backdrop').style.display = 'block';
     _route();
   }
 
   function close() {
     const modal = document.getElementById('wizard-modal');
     if (modal) modal.style.display = 'none';
-    const bd = document.getElementById('wizard-backdrop');
-    if (bd) bd.style.display = 'none';
+    document.getElementById('wizard-backdrop').style.display = 'none';
     _context = null; _editNode = null; _sel = {}; _stepStack = [];
   }
 
@@ -388,6 +354,7 @@ const Wizard = (() => {
   function _route() {
     const ctx = _context;
 
+    // ── Edit existing nodes ──────────────────────────────────
     if (_editNode) {
       const t = _editNode.type;
 
@@ -409,10 +376,6 @@ const Wizard = (() => {
         _sel.duration_amount = _editNode.duration || 1;
         _sel.duration_unit   = _editNode.duration_unit || 'minutes';
         _sel.interaction     = _editNode.interaction || 'any';
-        // Time condition fields
-        _sel.time_only_on_days   = _editNode.only_on_days   || [];
-        _sel.time_only_on_dom    = _editNode.only_on_dom    || [];
-        _sel.time_only_on_months = _editNode.only_on_months || [];
         _goConditionBuilder();
         return;
       }
@@ -423,19 +386,21 @@ const Wizard = (() => {
       // Location command edits
       if (t === 'set_variable') { _goLocationCmd('set_variable'); return; }
       if (t === 'wait')         { _goLocationCmd('wait');         return; }
-      if (t === 'log_message')  { _goLocationCmd('log');          return; }
+      if (t === 'log_message')  { _goLocationCmd('log');          return; }  // GAP-S40-1 fixed
       if (t === 'call_piston')  { _goLocationCmd('execute_piston'); return; }
 
-      // Action edit
+      // Action edit — go directly to command picker (task context from editor)
       if (t === 'action') {
+        // Pre-populate sel from the action node
         _sel.devices      = _editNode.devices || [];
         _sel.device_id    = _sel.devices[0] || '';
         _sel.device_label = _sel.devices[0] || '';
         if ((_editNode.tasks || []).length) {
           const task = _editNode.tasks[0];
-          _sel.command    = task.command || '';
-          _sel.parameters = task.parameters || {};
+          _sel.command      = task.command || '';
+          _sel.parameters   = task.parameters || {};
         }
+        // Determine if it's a location action
         if (_sel.device_id === '__location__' || (_editNode.devices||[]).includes('Location')) {
           const task = (_editNode.tasks||[])[0];
           if (task) _sel.location_cmd = task.command || '';
@@ -446,7 +411,7 @@ const Wizard = (() => {
         return;
       }
 
-      // If block edit — open condition/group picker
+      // If block edit — open condition/group picker to add a condition
       if (t === 'if') {
         _context = 'if_condition';
         _extra = { 'block-id': _editNode.id };
@@ -457,13 +422,8 @@ const Wizard = (() => {
 
       // Every / timer edit
       if (t === 'every') {
-        _sel.interval           = _editNode.interval || 5;
-        _sel.interval_unit      = _editNode.interval_unit || 'minutes';
-        _sel.at_minute          = _editNode.at_minute ?? null;
-        _sel.at_time            = _editNode.at_time ?? null;
-        _sel.only_on_days       = _editNode.only_on_days   || [];
-        _sel.only_on_dom        = _editNode.only_on_dom    || [];
-        _sel.only_on_months     = _editNode.only_on_months || [];
+        _sel.interval      = _editNode.interval || 5;
+        _sel.interval_unit = _editNode.interval_unit || 'minutes';
         _goTimerPicker();
         return;
       }
@@ -478,23 +438,22 @@ const Wizard = (() => {
 
       // For loop edit
       if (t === 'for') {
-        _sel.for_start   = _editNode.start ?? 1;
-        _sel.for_end     = _editNode.end ?? 10;
-        _sel.for_step    = _editNode.step ?? 1;
-        _sel.for_counter = _editNode.counter_variable || '';
+        _sel.for_start    = _editNode.start ?? 1;
+        _sel.for_end      = _editNode.end ?? 10;
+        _sel.for_step     = _editNode.step ?? 1;
+        _sel.for_counter  = _editNode.counter_variable || '';
         _goForPicker();
         return;
       }
 
-      // Switch edit
+      // Switch edit — show expression picker
       if (t === 'switch') {
         _sel.switch_expression = _editNode.expression || null;
-        _sel.switch_ctp        = _editNode.case_traversal_policy || 'safe';
         _goSwitchPicker();
         return;
       }
 
-      // While edit — add condition
+      // While edit — open condition builder to add/edit while condition
       if (t === 'while') {
         _sel.statement_class = 'condition';
         _context = 'if_condition';
@@ -503,13 +462,13 @@ const Wizard = (() => {
         return;
       }
 
-      // Exit edit
+      // Exit edit — show value field
       if (t === 'exit') {
         _goExitPicker();
         return;
       }
 
-      // Repeat, do, on_event, break — no config
+      // Repeat, do, on_event, break — no config needed, close
       if (t === 'repeat' || t === 'do' || t === 'on_event' || t === 'break') {
         close();
         return;
@@ -525,6 +484,8 @@ const Wizard = (() => {
     } else if (ctx === 'variable') {
       _goVariablePicker();
     } else if (ctx === 'task') {
+      // task context = adding a task to an existing action node
+      // _extra has block-id of the action node
       _goActionDevicePicker();
     } else {
       _goStatementTypePicker();
@@ -549,108 +510,7 @@ const Wizard = (() => {
     };
   }
 
-  // ─────────────────────────────────────────────────────────
-  // STATEMENT TYPE PICKER (dialog-edit-statement page 0)
-  // Matches WebCoRE: "Add a new statement" with basic & advanced cards
-  // ─────────────────────────────────────────────────────────
-  function _goStatementTypePicker() {
-    _step = 'stmt_type';
-    _pushStep(_goStatementTypePicker);
-
-    const cardSection = (types) => types.map(t => `
-      <div class="wiz-stmt-card" data-stype="${_esc(t.type)}">
-        <div class="wiz-stmt-name">${_esc(t.label)}</div>
-        <div class="wiz-stmt-desc">${_esc(t.desc)}</div>
-        <button class="btn ${_esc(t.cls)} btn-sm wiz-stmt-btn">${_esc(t.btn)}</button>
-      </div>`).join('');
-
-    _render('Add a new statement',
-      `<div class="wiz-section-label">Basic statements</div>
-       <div class="wiz-card-grid">${cardSection(STATEMENT_TYPES.basic)}</div>
-       <div class="wiz-section-label" style="margin-top:14px">Advanced statements</div>
-       <div class="wiz-card-grid">${cardSection(STATEMENT_TYPES.advanced)}</div>`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-stmt-cancel">Cancel</button>`
-    );
-
-    document.getElementById('wiz-stmt-cancel')?.addEventListener('click', close);
-    document.querySelectorAll('[data-stype]').forEach(card => {
-      card.addEventListener('click', () => _handleStatementType(card.dataset.stype));
-    });
-  }
-
-  function _handleStatementType(type) {
-    if (type === 'action')                             { _goActionDevicePicker(); return; }
-    if (type === 'timer'  || type === 'every')         { _goTimerPicker();        return; }
-    if (type === 'for_each')                           { _goForEachPicker();      return; }
-    if (type === 'for_loop')                           { _goForPicker();          return; }
-    if (type === 'switch')                             { _goSwitchPicker();       return; }
-    if (type === 'exit')                               { _goExitPicker();         return; }
-
-    // if block — condition/group picker
-    if (type === 'if' || type === 'if_block') {
-      _extra = { 'block-id': _newId() };
-      _sel.statement_class = 'condition';
-      _goConditionOrGroup();
-      return;
-    }
-
-    // repeat — no config (WebCoRE repeat has no count in designer)
-    if (type === 'repeat' || type === 'repeat_loop') {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      close();
-      Editor.insertStatement(_context, {
-        type:'repeat', id:_newId(), async:false,
-        statements:[], until_conditions:[], condition_operator:'and',
-        description:null, disabled:false,
-      }, meta);
-      return;
-    }
-
-    // while — insert node then open condition builder
-    if (type === 'while' || type === 'while_loop') {
-      const whileId = _newId();
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      Editor.insertStatement(_context, {
-        type:'while', id:whileId, async:false,
-        conditions:[], condition_operator:'and',
-        statements:[],
-        description:null, disabled:false,
-      }, meta);
-      _context = 'if_condition';
-      _extra = { 'block-id': whileId };
-      _editNode = null;
-      _sel = { statement_class:'condition' };
-      _stepStack = [];
-      _goConditionBuilder();
-      return;
-    }
-
-    // Skeleton nodes — no config needed
-    const skeletonMap = {
-      do:       { type:'do',       id:_newId(), async:false, statements:[],  description:null, disabled:false },
-      do_block: { type:'do',       id:_newId(), async:false, statements:[],  description:null, disabled:false },
-      on_event: { type:'on_event', id:_newId(), async:false, conditions:[], condition_operator:'and', statements:[], description:null, disabled:false },
-      break:    { type:'break',    id:_newId(), description:null, disabled:false },
-    };
-
-    const node = skeletonMap[type];
-    if (node) {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      close();
-      Editor.insertStatement(_context, node, meta);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // CONDITION OR GROUP PICKER (dialog-edit-condition page 0)
-  // Matches WebCoRE: two cards — Condition | Group
-  // ─────────────────────────────────────────────────────────
+  // ── CONDITION OR GROUP ────────────────────────────────────
   function _goConditionOrGroup() {
     _step = 'cog';
     _pushStep(_goConditionOrGroup);
@@ -682,44 +542,27 @@ const Wizard = (() => {
     });
   }
 
-  // ─────────────────────────────────────────────────────────
-  // CONDITION BUILDER (dialog-edit-condition page 1 + comparison template)
-  // One screen: subject type + device picker sub-panel + attribute + operator + value + duration
-  // Plus time condition extras: days of week, days of month, months of year
-  // ─────────────────────────────────────────────────────────
+  // ── CONDITION BUILDER ─────────────────────────────────────
   function _goConditionBuilder() {
     _step = 'cond';
     _pushStep(_goConditionBuilder);
 
-    const op       = _sel.operator || '';
-    const hasDevice= !!_sel.device_id;
-    const hasOp    = !!op;
-    const needsVal = NEEDS_VALUE.has(op);
-    const needsDur = _needsDuration(op);
-    const needsTwo = NEEDS_TWO_VALUES.has(op);
-    const agg      = _sel.aggregation || 'any';
-    const attr     = _sel.attribute || '';
+    const op        = _sel.operator || '';
+    const hasDevice = !!_sel.device_id;
+    const hasOp     = !!op;
+    const needsVal  = NEEDS_VALUE.has(op);
+    const needsDur  = NEEDS_DURATION.has(op);
+    const needsTwo  = NEEDS_TWO_VALUES.has(op);
+    const agg       = _sel.aggregation || 'any';
+    const attr      = _sel.attribute || '';
     const interaction = _sel.interaction || 'any';
-    const subjType = _sel.subject_type || 'device';
-    const isTimeSubj = subjType === 'time';
+    const subjType  = _sel.subject_type || 'device';
 
-    // Back button: go to condition/group chooser only if we came from there
-    const backFn = (_sel.statement_class === 'condition' && _context !== 'if_condition')
+    const backFn = _sel.statement_class === 'condition' && _context !== 'if_condition'
       ? _goConditionOrGroup : null;
 
+    // "Which interaction" only shows when subject is device AND device is selected
     const showInteraction = subjType === 'device' && hasDevice;
-
-    // Time-only extras (days of week, dom, months) — matches WebCoRE comparison template
-    const odw = _sel.time_only_on_days || [];
-    const odm = _sel.time_only_on_dom  || [];
-    const omy = _sel.time_only_on_months || [];
-
-    const daysCheckboxes = WEEKDAYS.map((d,i) =>
-      `<label class="wiz-check-label"><input type="checkbox" class="wiz-dow-cb" value="${i+1}" ${odw.includes(i+1)?'checked':''}> ${d}</label>`
-    ).join('');
-    const monthsCheckboxes = MONTHS.map((m,i) =>
-      `<label class="wiz-check-label"><input type="checkbox" class="wiz-moy-cb" value="${i+1}" ${omy.includes(i+1)?'checked':''}> ${m}</label>`
-    ).join('');
 
     _render(
       'Add a new condition',
@@ -780,7 +623,6 @@ const Wizard = (() => {
         <input type="text" id="wiz-subj-mode" class="wiz-value-input" placeholder="Mode name..." value="${_esc(_sel.mode_value||'')}" style="width:200px" />
       </div>` : ''}
 
-      <!-- Device sub-panel — opens inline (condition picker design rule) -->
       <div id="wiz-dev-panel" style="display:none;margin-top:4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-raised)">
         <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">
           <input type="text" id="wiz-dev-panel-search" placeholder="Search devices..." autocomplete="off"
@@ -789,7 +631,6 @@ const Wizard = (() => {
         <div id="wiz-dev-panel-list" style="max-height:260px;overflow-y:auto"></div>
       </div>
 
-      <!-- Which interaction (WebCoRE operand template: showInteraction) -->
       <div class="wiz-interaction-row" id="wiz-int-row" style="${showInteraction?'':'display:none'}">
         <span class="wiz-row-label-inline">Which interaction</span>
         <select id="wiz-interaction" class="wiz-select-blue-sm">
@@ -799,10 +640,9 @@ const Wizard = (() => {
         </select>
       </div>
 
-      <!-- Operator (WebCoRE: "What kind of comparison?") -->
       <div class="wiz-row-label">What kind of comparison?</div>
       <select id="wiz-operator" class="wiz-select-blue wiz-select-full ${op?'has-value':''} ${isTrigger(op)?'is-trigger':''}">
-        <option value="" style="display:none" disabled>Select a comparison...</option>
+        <option value="">Select a comparison...</option>
         <optgroup label="⚡ Triggers — fire when this happens">
           ${TRIGGERS.map(t=>`<option value="${_esc(t)}" ${op===t?'selected':''}>⚡ ${_esc(t)}</option>`).join('')}
         </optgroup>
@@ -811,9 +651,8 @@ const Wizard = (() => {
         </optgroup>
       </select>
 
-      <!-- Value (WebCoRE: "Compare to" / "Between...") -->
       <div id="wiz-value-row" class="${needsVal?'':'hidden'}">
-        <div class="wiz-row-label">${needsTwo ? 'Between...' : 'Compare to'}</div>
+        <div class="wiz-row-label">Value</div>
         <div class="wiz-value-inputs" id="wiz-val-inputs">
           <select id="wiz-val-type" class="wiz-select-blue-sm" style="align-self:flex-start">
             <option value="value">Value</option>
@@ -823,14 +662,13 @@ const Wizard = (() => {
           </select>
           <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
             <span id="wiz-val-widget" style="display:block;width:100%"></span>
-            ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">...and...</span><span id="wiz-val-widget-2" style="display:block;width:100%"></span>` : ''}
+            ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">and</span><span id="wiz-val-widget-2" style="display:block;width:100%"></span>` : ''}
           </div>
         </div>
       </div>
 
-      <!-- Duration (WebCoRE: "In the last..." / "For...") -->
       <div id="wiz-dur-row" class="${needsDur?'':'hidden'}">
-        <div class="wiz-row-label" id="wiz-dur-label">${_durationLabel(op)||'For...'}</div>
+        <div class="wiz-row-label" id="wiz-dur-label">${durationLabel(op)}</div>
         <div class="wiz-duration-inputs">
           <input type="number" id="wiz-dur-amount" class="wiz-dur-number" value="${_sel.duration_amount||1}" min="1" />
           <select id="wiz-dur-unit" class="wiz-select-blue-sm">
@@ -842,15 +680,6 @@ const Wizard = (() => {
         </div>
       </div>
 
-      <!-- Time extras (WebCoRE: only on these days/months — shown when subject is time) -->
-      ${isTimeSubj ? `
-      <div class="wiz-row-label" style="margin-top:10px">Only on these days of the week...</div>
-      <div class="wiz-check-group" id="wiz-dow-group">${daysCheckboxes}</div>
-      <div class="wiz-row-label" style="margin-top:8px">Only on these months of the year...</div>
-      <div class="wiz-check-group" id="wiz-moy-group">${monthsCheckboxes}</div>
-      ` : ''}
-
-      <!-- Group operator connector (shown when adding to existing if block) -->
       ${_context === 'if_condition' ? `
       <div class="wiz-row-label" style="margin-top:10px">Connect to previous condition with</div>
       <select id="wiz-group-op-selector" class="wiz-select-blue wiz-select-full">
@@ -898,7 +727,6 @@ const Wizard = (() => {
       _refreshConditionRows();
     });
 
-    // Device sub-panel toggle
     document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
       const panel = document.getElementById('wiz-dev-panel');
       if (!panel) return;
@@ -944,7 +772,7 @@ const Wizard = (() => {
     document.getElementById('wiz-add-more')?.addEventListener('click', _commitConditionAndMore);
   }
 
-  // ── Value widget (operand template — constant/variable/expression) ────
+  // ── VALUE WIDGET ──────────────────────────────────────────
   function _renderValueWidget() {
     const widget = document.getElementById('wiz-val-widget');
     if (!widget) return;
@@ -954,7 +782,7 @@ const Wizard = (() => {
 
     if (valType !== 'value') {
       const ph = valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...';
-      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="${ph}" style="width:100%;min-height:100px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
+      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="${ph}" style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
       const w2 = document.getElementById('wiz-val-widget-2');
       if (w2) w2.innerHTML = `<textarea id="wiz-val-2" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:64px;resize:vertical;box-sizing:border-box">${_esc(_sel.value2||'')}</textarea>`;
       return;
@@ -966,7 +794,7 @@ const Wizard = (() => {
       </select>`;
     } else if (attrType === 'enum' && cap?.values?.length) {
       widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue wiz-select-full">
-        <option value="" style="display:none" disabled>Nothing selected</option>
+        <option value="">Select...</option>
         ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
       </select>`;
     } else if (attrType === 'numeric') {
@@ -976,7 +804,7 @@ const Wizard = (() => {
       if (w2) w2.innerHTML = `<input type="number" id="wiz-val-2" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value2||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
       return;
     } else {
-      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:100px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
+      widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:140px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
     }
 
     const w2 = document.getElementById('wiz-val-widget-2');
@@ -987,9 +815,11 @@ const Wizard = (() => {
     const op = document.getElementById('wiz-operator')?.value || '';
     _sel.operator = op;
     const needsVal = NEEDS_VALUE.has(op);
-    const needsDur = _needsDuration(op);
+    const needsDur = NEEDS_DURATION.has(op);
     const needsTwo = NEEDS_TWO_VALUES.has(op);
 
+    // "Has subject" is true for device (has device_id) OR for any other subject type
+    // that has a value entered (variable selected, time entered, date entered, mode entered)
     const subjType = _sel.subject_type || 'device';
     let hasSubject = false;
     if (subjType === 'device') {
@@ -1008,7 +838,7 @@ const Wizard = (() => {
     document.getElementById('wiz-dur-row')?.classList.toggle('hidden', !needsDur);
 
     const lbl = document.getElementById('wiz-dur-label');
-    if (lbl) lbl.textContent = _durationLabel(op) || 'For...';
+    if (lbl) lbl.textContent = durationLabel(op);
 
     const andSpan = document.getElementById('wiz-between-and');
     const w2 = document.getElementById('wiz-val-widget-2');
@@ -1024,7 +854,7 @@ const Wizard = (() => {
     document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
   }
 
-  // ── Device sub-panel (condition builder) ──────────────────
+  // ── DEVICE PANEL (condition builder sub-panel) ────────────
   function _renderDevPanelList(query) {
     const el = document.getElementById('wiz-dev-panel-list');
     if (!el) return;
@@ -1060,6 +890,7 @@ const Wizard = (() => {
         </div>`
       ).join('');
     }
+    // Demo devices always shown, filtered by query
     html += `<div class="wiz-device-group-header">Demo devices</div>`;
     if (filteredDemos.length) {
       html += filteredDemos.map(d =>
@@ -1093,8 +924,11 @@ const Wizard = (() => {
         const aggBar = document.getElementById('wiz-agg-bar');
         if (aggBar) aggBar.style.display = '';
 
+        // Show "Which interaction" now that a device is selected
         const intRow = document.getElementById('wiz-int-row');
-        if (intRow && (_sel.subject_type || 'device') === 'device') intRow.style.display = '';
+        if (intRow && (_sel.subject_type || 'device') === 'device') {
+          intRow.style.display = '';
+        }
 
         const attrSel = document.getElementById('wiz-attr-select');
         if (attrSel) {
@@ -1150,44 +984,22 @@ const Wizard = (() => {
       caps = _getCapsForDomain(_sel.device_id);
     }
     _sel._caps = caps;
-
-    // Auto-select: keep existing selection if valid, otherwise default to first cap
-    const currentAttr = _sel.attribute || '';
-    const hasExisting = caps.some(c => c.name === currentAttr);
-    const autoSelect  = hasExisting ? currentAttr : (caps[0]?.name || '');
-    if (autoSelect && !hasExisting) {
-      _sel.attribute      = autoSelect;
-      _sel.attribute_type = caps[0]?.attribute_type || '';
-    }
-
     sel.innerHTML = `<option value="">attribute...</option>` +
-      caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${autoSelect===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
+      caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
     sel.disabled = caps.length === 0;
-
-    // Immediately re-render value widget so it shows the right input, not a textarea
-    _renderValueWidget();
-    _refreshConditionRows();
   }
 
-  // ─────────────────────────────────────────────────────────
-  // GROUP BUILDER (dialog-edit-condition-group)
-  // Logical operator + negation
-  // ─────────────────────────────────────────────────────────
+  // ── GROUP BUILDER ─────────────────────────────────────────
   function _goGroupBuilder() {
     _step = 'group';
     _pushStep(_goGroupBuilder);
     _render(
       'Add a new condition group',
-      `<div class="wiz-desc">A group is a container for other conditions or groups and allows building more complex logic.</div>
-       <div class="wiz-row-label">Logical Operator</div>
+      `<div class="wiz-desc">A group is a collection of conditions joined by a logical operator.</div>
+       <div class="wiz-row-label">Group operator</div>
        <select id="wiz-group-op" class="wiz-select-blue wiz-select-full">
-         <option value="and">Logical AND</option>
-         <option value="or">Logical OR</option>
-       </select>
-       <div class="wiz-row-label" style="margin-top:10px">Whole group negation</div>
-       <select id="wiz-group-neg" class="wiz-select-blue wiz-select-full">
-         <option value="0">Not negated</option>
-         <option value="1">Negated</option>
+         <option value="AND">AND — all conditions must be true</option>
+         <option value="OR">OR — any condition must be true</option>
        </select>`,
       `<button class="btn btn-ghost btn-sm" id="wiz-grp-back">← Back</button>
        <div class="wiz-footer-right">
@@ -1198,25 +1010,28 @@ const Wizard = (() => {
     document.getElementById('wiz-grp-add')?.addEventListener('click', () => {
       Editor.insertStatement(_context, {
         type:'group', id:_newId(),
-        operator:  document.getElementById('wiz-group-op')?.value  || 'and',
-        negated:   document.getElementById('wiz-group-neg')?.value === '1',
-        conditions:[], group_operator:'and',
+        group_operator: document.getElementById('wiz-group-op')?.value || 'AND',
+        conditions:[],
       });
       close();
     });
   }
 
-  // ── Commit condition ──────────────────────────────────────
+  // ── COMMIT CONDITION ──────────────────────────────────────
+  // FIX: Path A (create new if node) only runs when context is NOT if_condition.
+  // Path B (append to existing if block) runs when context IS if_condition.
   function _commitCondition() {
     const node = _buildConditionNode();
     if (!node) return;
 
     if (_context === 'if_condition') {
+      // Adding condition to EXISTING if block — pass blockId in meta
       const blockId = _extra?.['block-id'] || null;
       const meta = blockId ? { blockId } : {};
       close();
       Editor.insertStatement(_context, node, meta);
     } else {
+      // New if block — wrap condition in an if node
       const ifBlockId = _extra?.['block-id'] || _newId();
       const ifNode = {
         type: 'if', id: ifBlockId, async: false,
@@ -1235,11 +1050,13 @@ const Wizard = (() => {
     if (!node) return;
 
     if (_context === 'if_condition') {
+      // Adding to existing if block
       const blockId = _extra?.['block-id'] || null;
       const meta = blockId ? { blockId } : {};
       Editor.insertStatement(_context, node, meta);
       _sel = { statement_class:'condition', group_operator: 'and' };
     } else {
+      // First condition on a new if block
       const ifBlockId = _extra?.['block-id'] || _newId();
       const ifNode = {
         type: 'if', id: ifBlockId, async: false,
@@ -1248,6 +1065,7 @@ const Wizard = (() => {
         description: null, disabled: false,
       };
       Editor.insertStatement(_context, ifNode);
+      // Switch context so next condition adds to the if block we just created
       _sel = { statement_class:'condition' };
       _context = 'if_condition';
       _extra = { 'block-id': ifBlockId };
@@ -1290,30 +1108,19 @@ const Wizard = (() => {
     const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
     const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
     const isBinary = attrType === 'binary';
-    const BINARY_COMPILED = {
-      open:'on', closed:'off', detected:'on', clear:'off',
-      active:'on', inactive:'off', wet:'on', dry:'off',
-      home:'on', away:'off', locked:'off', unlocked:'on',
-      on:'on', off:'off',
-    };
+    const BINARY_COMPILED = { open:'on', closed:'off', detected:'on', clear:'off',
+      active:'on', inactive:'off', wet:'on', dry:'off', home:'on', away:'off',
+      locked:'off', unlocked:'on', on:'on', off:'off' };
     const compiledVal1 = isBinary
       ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
       : rawVal1;
 
-    const needsDur = _needsDuration(op);
+    const needsDur = NEEDS_DURATION.has(op);
     const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
     const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
 
     const groupOpEl = document.getElementById('wiz-group-op-selector');
     const groupOp = groupOpEl ? groupOpEl.value : 'and';
-
-    // Time extras
-    const odw = subjType === 'time'
-      ? [...document.querySelectorAll('.wiz-dow-cb:checked')].map(cb => parseInt(cb.value))
-      : (_sel.time_only_on_days || []);
-    const omy = subjType === 'time'
-      ? [...document.querySelectorAll('.wiz-moy-cb:checked')].map(cb => parseInt(cb.value))
-      : (_sel.time_only_on_months || []);
 
     const subject = {
       type: subjType,
@@ -1324,7 +1131,7 @@ const Wizard = (() => {
       device_class: _sel.device_class || null,
     };
 
-    const node = {
+    return {
       id: _editNode?.id || _newId(),
       is_trigger: isTrigger(op),
       subject,
@@ -1338,29 +1145,138 @@ const Wizard = (() => {
       interaction: document.getElementById('wiz-interaction')?.value || 'any',
       group_operator: groupOp,
     };
-
-    if (subjType === 'time') {
-      node.only_on_days    = odw;
-      node.only_on_months  = omy;
-    }
-
-    return node;
   }
 
-  // ─────────────────────────────────────────────────────────
-  // STATEMENT CONFIG SCREENS (dialog-edit-statement page 1)
-  // ─────────────────────────────────────────────────────────
+  // ── STATEMENT TYPE PICKER ─────────────────────────────────
+  function _goStatementTypePicker() {
+    _step = 'stmt_type';
+    _pushStep(_goStatementTypePicker);
 
-  // ── FOR LOOP (WebCoRE: start/end/step operands + counter variable) ───
+    const cardSection = (title, types) => `
+      <div class="wiz-section-label">${_esc(title)}</div>
+      <div class="wiz-card-grid">
+        ${types.map(t=>`
+          <div class="wiz-stmt-card" data-stype="${_esc(t.type)}">
+            <div class="wiz-stmt-icon">${t.icon}</div>
+            <div class="wiz-stmt-name">${_esc(t.label)}</div>
+            <div class="wiz-stmt-desc">${_esc(t.desc)}</div>
+            <button class="btn ${t.cls} btn-sm wiz-stmt-btn">${_esc(t.btn)}</button>
+          </div>`).join('')}
+      </div>`;
+
+    _render('',
+      cardSection('Basic statements', STATEMENT_TYPES.basic) +
+      cardSection('Advanced statements', STATEMENT_TYPES.advanced) +
+      `<div class="wiz-card-grid">${STATEMENT_TYPES.loops.map(t=>`
+        <div class="wiz-stmt-card" data-stype="${_esc(t.type)}">
+          <div class="wiz-stmt-icon">${t.icon}</div>
+          <div class="wiz-stmt-name">${_esc(t.label)}</div>
+          <div class="wiz-stmt-desc">${_esc(t.desc)}</div>
+          <button class="btn ${t.cls} btn-sm wiz-stmt-btn">${_esc(t.btn)}</button>
+        </div>`).join('')}</div>`,
+      `<button class="btn btn-ghost btn-sm" id="wiz-stmt-cancel">Cancel</button>`
+    );
+
+    document.getElementById('wiz-stmt-cancel')?.addEventListener('click', close);
+    document.querySelectorAll('[data-stype]').forEach(card => {
+      card.addEventListener('click', () => _handleStatementType(card.dataset.stype));
+    });
+  }
+
+  function _handleStatementType(type) {
+    if (type === 'action')                           { _goActionDevicePicker(); return; }
+    if (type === 'timer'  || type === 'every')       { _goTimerPicker();        return; }
+    if (type === 'for_each')                         { _goForEachPicker();       return; }
+    if (type === 'for_loop')                         { _goForPicker();           return; }
+    if (type === 'switch')                           { _goSwitchPicker();        return; }
+    if (type === 'exit')                             { _goExitPicker();          return; }
+
+    // repeat — no config, insert directly (WebCoRE repeat has no count)
+    if (type === 'repeat' || type === 'repeat_loop') {
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      close();
+      Editor.insertStatement(_context, {
+        type:'repeat', id:_newId(), async:false,
+        statements:[], until_conditions:[], condition_operator:'and',
+        description:null, disabled:false,
+      }, meta);
+      return;
+    }
+
+    // while — go to condition builder first (adds first while condition after insert)
+    if (type === 'while' || type === 'while_loop') {
+      const whileId = _newId();
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      // Insert the while node first, then open condition builder targeting it
+      Editor.insertStatement(_context, {
+        type:'while', id:whileId, async:false,
+        conditions:[], condition_operator:'and',
+        statements:[],
+        description:null, disabled:false,
+      }, meta);
+      // Now open wizard to add a condition to the while block
+      _context = 'if_condition';
+      _extra = { 'block-id': whileId };
+      _editNode = null;
+      _sel = { statement_class:'condition' };
+      _stepStack = [];
+      _goConditionBuilder();
+      return;
+    }
+
+    // if block — go to condition/group picker
+    if (type === 'if' || type === 'if_block') {
+      _extra = { 'block-id': _newId() };
+      _sel.statement_class = 'condition';
+      _goConditionOrGroup();
+      return;
+    }
+
+    // Skeletons for types with no config
+    const skeletons_alias = { do_block:'do', on_event:'on_event' };
+    const resolvedKey = skeletons_alias[type] || type;
+
+    const skeletonMap = {
+      do: {
+        type:'do', id:_newId(), async:false,
+        statements:[],
+        description:null, disabled:false,
+      },
+      on_event: {
+        type:'on_event', id:_newId(), async:false,
+        conditions:[], condition_operator:'and',
+        statements:[],
+        description:null, disabled:false,
+      },
+      break: {
+        type:'break', id:_newId(),
+        description:null, disabled:false,
+      },
+    };
+
+    if (skeletonMap[resolvedKey]) {
+      const node = skeletonMap[resolvedKey];
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      close();
+      Editor.insertStatement(_context, node, meta);
+    }
+  }
+
+  // ── FOR LOOP PICKER ───────────────────────────────────────
   function _goForPicker() {
     _step = 'for';
     _pushStep(_goForPicker);
     const pistonVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
       .filter(v => ['integer','decimal','dynamic'].includes(v.var_type));
-    const isNew = !_editNode;
 
     _render('Add a for loop',
-      `<div class="wiz-desc">A FOR loop is an iteration block that allows you to repeat the same action for a preset number of times. You can optionally use a counter variable that will be updated to reflect the current iteration index.</div>
+      `<div class="wiz-desc">A FOR loop repeats statements for a preset number of iterations. You can use a counter variable that updates to reflect the current iteration index.</div>
        <div class="wiz-row-label">Start value</div>
        <input type="number" id="wiz-for-start" class="wiz-value-input wiz-dur-number" value="${_esc(String(_sel.for_start??1))}" />
        <div class="wiz-row-label" style="margin-top:8px">End value</div>
@@ -1374,10 +1290,10 @@ const Wizard = (() => {
        </select>`,
       `<button class="btn btn-ghost btn-sm" id="wiz-for-back">← Back</button>
        <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-for-save">${isNew ? 'Add a statement' : 'Save'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-for-save">${_editNode ? 'Save' : 'Add a statement'}</button>
        </div>`
     );
-    document.getElementById('wiz-for-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-for-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
     document.getElementById('wiz-for-save')?.addEventListener('click', () => {
       const blockId = _extra?.['block-id'];
       const branch  = _extra?.['branch'] || 'then';
@@ -1395,89 +1311,30 @@ const Wizard = (() => {
     });
   }
 
-  // ── FOR EACH (WebCoRE: counter variable + list of devices) ───────────
-  function _goForEachPicker() {
-    _step = 'for_each';
-    _pushStep(_goForEachPicker);
-    const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-      .filter(v => v.var_type === 'device');
-    const varOptions = pistonDevVars.map(v =>
-      `<option value="${_esc(v.name)}" ${(_sel.variable||'$device')===v.name?'selected':''}>${_esc(v.name)}</option>`
-    ).join('');
-    const isNew = !_editNode;
-
-    _render('Add a for each loop',
-      `<div class="wiz-desc">A FOR EACH loop is an iteration block that allows you to repeat the same action for each device in a device list</div>
-       <div class="wiz-row-label">Counter variable (optional)</div>
-       <div class="wiz-value-inputs">
-         <select id="wiz-fe-var" class="wiz-select-blue" style="flex:1">
-           <option value="$device" ${(_sel.variable||'$device')==='$device'?'selected':''}>$device (system default)</option>
-           ${varOptions}
-           <option value="__custom__">Type a name...</option>
-         </select>
-         <input type="text" id="wiz-fe-var-custom" class="wiz-value-input" placeholder="Variable name..." style="display:none;flex:1" value="${_esc(_sel.variable||'')}" />
-       </div>
-       <div class="wiz-row-label" style="margin-top:10px">List of devices</div>
-       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role or variable name..." value="${_esc(_sel.list_role||'')}" />`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
-       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
-    );
-    document.getElementById('wiz-fe-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
-    document.getElementById('wiz-fe-var')?.addEventListener('change', e => {
-      const custom = document.getElementById('wiz-fe-var-custom');
-      if (custom) custom.style.display = e.target.value === '__custom__' ? '' : 'none';
-    });
-    document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
-      const varSel    = document.getElementById('wiz-fe-var')?.value || '$device';
-      const varCustom = document.getElementById('wiz-fe-var-custom')?.value || '';
-      const variable  = varSel === '__custom__' ? varCustom : varSel;
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      const node = {
-        type:'for_each', id:_editNode?.id || _newId(), async:false,
-        variable: variable || '$device',
-        list_role: document.getElementById('wiz-fe-list')?.value||'',
-        statements:[], description:null, disabled:false,
-      };
-      close();
-      Editor.insertStatement(_context, node, meta);
-    });
-  }
-
-  // ── SWITCH (WebCoRE: expression operand) ─────────────────────────────
+  // ── SWITCH PICKER ─────────────────────────────────────────
   function _goSwitchPicker() {
     _step = 'switch';
     _pushStep(_goSwitchPicker);
     const existingExpr = _sel.switch_expression?.expression || _sel.switch_expression?.data || '';
-    const isNew = !_editNode;
-
     _render('Add a switch block',
-      `<div class="wiz-desc">A SWITCH block is a decisional block designed to compare an expression against a list of possible values and execute actions depending on their matching.</div>
-       <div class="wiz-row-label">Expression</div>
-       <textarea id="wiz-switch-expr" class="wiz-expr-area" placeholder="e.g. $myVariable or an expression...">${_esc(existingExpr)}</textarea>
-       ${!isNew ? `
-       <div class="wiz-row-label" style="margin-top:10px">Case Traversal Policy</div>
-       <select id="wiz-switch-ctp" class="wiz-select-blue wiz-select-full">
-         <option value="safe" ${(_sel.switch_ctp||'safe')==='safe'?'selected':''}>Safe (auto-break after matching a case) (default)</option>
-         <option value="fallthrough" ${(_sel.switch_ctp||'')==='fallthrough'?'selected':''}>Fall-through (programmer style)</option>
-       </select>` : ''}`,
+      `<div class="wiz-desc">A SWITCH block compares an expression against a list of possible values and executes actions based on which value matches.</div>
+       <div class="wiz-row-label">Expression to switch on</div>
+       <textarea id="wiz-switch-expr" class="wiz-expr-area" placeholder="e.g. $myVariable or an expression...">${_esc(existingExpr)}</textarea>`,
       `<button class="btn btn-ghost btn-sm" id="wiz-switch-back">← Back</button>
        <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-switch-save">${isNew ? 'Add a case' : 'Save'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-switch-save">${_editNode ? 'Save' : 'Add a case'}</button>
        </div>`
     );
-    document.getElementById('wiz-switch-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-switch-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
     document.getElementById('wiz-switch-save')?.addEventListener('click', () => {
       const expr = document.getElementById('wiz-switch-expr')?.value.trim() || '';
-      const ctp  = document.getElementById('wiz-switch-ctp')?.value || 'safe';
       const blockId = _extra?.['block-id'];
       const branch  = _extra?.['branch'] || 'then';
       const meta = blockId ? { blockId, branch } : undefined;
       const node = {
         type:'switch', id:_editNode?.id || _newId(), async:false,
         expression: expr ? { type:'expression', expression: expr } : null,
-        case_traversal_policy: ctp,
+        case_traversal_policy:'safe',
         cases:[], default:[],
         description:null, disabled:false,
       };
@@ -1486,24 +1343,22 @@ const Wizard = (() => {
     });
   }
 
-  // ── EXIT (WebCoRE: new piston state operand) ──────────────────────────
+  // ── EXIT PICKER ───────────────────────────────────────────
   function _goExitPicker() {
     _step = 'exit';
     _pushStep(_goExitPicker);
     const existingVal = _editNode?.value?.data !== undefined ? String(_editNode.value.data) :
                         _editNode?.value?.expression || '';
-    const isNew = !_editNode;
-
     _render('Add an exit',
-      `<div class="wiz-desc">Return causes the piston to end the evaluation stage and set the piston state to the value provided.</div>
-       <div class="wiz-row-label">New piston state</div>
+      `<div class="wiz-desc">Exit causes the piston to end execution immediately. You can optionally set a new piston state value.</div>
+       <div class="wiz-row-label">New piston state (optional)</div>
        <input type="text" id="wiz-exit-val" class="wiz-value-input" placeholder="Leave blank for default..." value="${_esc(existingVal)}" />`,
       `<button class="btn btn-ghost btn-sm" id="wiz-exit-back">← Back</button>
        <div class="wiz-footer-right">
-         <button class="btn btn-primary btn-sm" id="wiz-exit-save">${isNew ? 'Add' : 'Save'}</button>
+         <button class="btn btn-primary btn-sm" id="wiz-exit-save">${_editNode ? 'Save' : 'Add'}</button>
        </div>`
     );
-    document.getElementById('wiz-exit-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-exit-back')?.addEventListener('click', _editNode ? close : _goStatementTypePicker);
     document.getElementById('wiz-exit-save')?.addEventListener('click', () => {
       const val = document.getElementById('wiz-exit-val')?.value.trim() || '';
       const blockId = _extra?.['block-id'];
@@ -1519,102 +1374,13 @@ const Wizard = (() => {
     });
   }
 
-  // ── TIMER (WebCoRE: "Every..." with full scheduling options) ──────────
-  function _goTimerPicker() {
-    _step = 'timer';
-    _pushStep(_goTimerPicker);
-    const isNew = !_editNode;
-
-    const unit    = _sel.interval_unit || 'minutes';
-    const odw     = _sel.only_on_days    || [];
-    const odm     = _sel.only_on_dom     || [];
-    const omy     = _sel.only_on_months  || [];
-
-    // Days of week checkboxes
-    const dowHtml = WEEKDAYS.map((d,i) =>
-      `<label class="wiz-check-label"><input type="checkbox" class="wiz-timer-dow" value="${i}" ${odw.includes(i)?'checked':''}> ${d}</label>`
-    ).join('');
-
-    // Months checkboxes
-    const moyHtml = MONTHS.map((m,i) =>
-      `<label class="wiz-check-label"><input type="checkbox" class="wiz-timer-moy" value="${i+1}" ${omy.includes(i+1)?'checked':''}> ${m}</label>`
-    ).join('');
-
-    // "Only during these hours" — shows only for ms/s/m units (matching WebCoRE)
-    const showHours = ['milliseconds','seconds','minutes'].includes(unit);
-    const showAtMin = unit === 'hours';
-    const showAtTime = !['milliseconds','seconds','minutes','hours'].includes(unit);
-
-    _render('Add a timer',
-      `<div class="wiz-desc">Timers trigger piston runs at regular intervals.</div>
-       <div class="wiz-row-label">Every...</div>
-       <div class="wiz-duration-inputs">
-         <input type="number" id="wiz-timer-n" class="wiz-dur-number" value="${_sel.interval||5}" min="1" />
-         <select id="wiz-timer-u" class="wiz-select-blue-sm">
-           <option value="milliseconds" ${unit==='milliseconds'?'selected':''}>milliseconds</option>
-           <option value="seconds"      ${unit==='seconds'     ?'selected':''}>seconds</option>
-           <option value="minutes"      ${unit==='minutes'     ?'selected':''}>minutes</option>
-           <option value="hours"        ${unit==='hours'       ?'selected':''}>hours</option>
-           <option value="days"         ${unit==='days'        ?'selected':''}>days</option>
-           <option value="weeks"        ${unit==='weeks'       ?'selected':''}>weeks</option>
-           <option value="months"       ${unit==='months'      ?'selected':''}>months</option>
-           <option value="years"        ${unit==='years'       ?'selected':''}>years</option>
-         </select>
-       </div>
-       ${showAtMin ? `
-       <div class="wiz-row-label" style="margin-top:10px">At this minute of the hour...</div>
-       <input type="number" id="wiz-timer-atmin" class="wiz-value-input wiz-dur-number" min="0" max="59" value="${_esc(String(_sel.at_minute??0))}" />` : ''}
-       ${showAtTime ? `
-       <div class="wiz-row-label" style="margin-top:10px">At this time...</div>
-       <input type="time" id="wiz-timer-attime" class="wiz-value-input" value="${_esc(_sel.at_time||'00:00')}" style="width:140px" />` : ''}
-       <div class="wiz-row-label" style="margin-top:10px">Only on these days of the week...</div>
-       <div class="wiz-check-group">${dowHtml}</div>
-       <div class="wiz-row-label" style="margin-top:8px">Only on these months of the year...</div>
-       <div class="wiz-check-group">${moyHtml}</div>`,
-      `<button class="btn btn-ghost btn-sm" id="wiz-timer-back">← Back</button>
-       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-timer-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
-    );
-
-    // Re-render when unit changes (shows/hides at-minute, at-time)
-    document.getElementById('wiz-timer-u')?.addEventListener('change', e => {
-      _sel.interval_unit = e.target.value;
-      _sel.interval = parseInt(document.getElementById('wiz-timer-n')?.value||'5');
-      _goTimerPicker();
-    });
-
-    document.getElementById('wiz-timer-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
-    document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
-      const blockId = _extra?.['block-id'];
-      const branch  = _extra?.['branch'] || 'then';
-      const meta = blockId ? { blockId, branch } : undefined;
-      const selUnit = document.getElementById('wiz-timer-u')?.value || 'minutes';
-      const node = {
-        type:'every', id:_editNode?.id || _newId(), async:false,
-        interval:      parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
-        interval_unit: selUnit,
-        at_minute:  showAtMin  ? (parseInt(document.getElementById('wiz-timer-atmin')?.value||'0') || 0) : null,
-        at_time:    showAtTime ? (document.getElementById('wiz-timer-attime')?.value || null) : null,
-        only_on_days:    [...document.querySelectorAll('.wiz-timer-dow:checked')].map(cb => parseInt(cb.value)),
-        only_on_dom:     [],
-        only_on_months:  [...document.querySelectorAll('.wiz-timer-moy:checked')].map(cb => parseInt(cb.value)),
-        statements:[],
-        description:null, disabled:false,
-      };
-      close();
-      Editor.insertStatement(_context, node, meta);
-    });
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // ACTION DEVICE PICKER (dialog-edit-task, statement.d selection)
-  // Matches WebCoRE: "Devices" multiselect with Location + physical + variables + system
-  // ─────────────────────────────────────────────────────────
+  // ── ACTION DEVICE PICKER ──────────────────────────────────
   function _goActionDevicePicker() {
     _step = 'act_dev';
     _pushStep(_goActionDevicePicker);
     _render(
       'Add a new action',
-      `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The <em>Location</em> virtual device provides a way to execute some non-device-specific tasks, such as sending notifications, communicating with integrated apps, and more.</div>
+      `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The <em>Location</em> virtual device provides non-device-specific tasks like notifications, variable setting, and more.</div>
        <div class="wiz-selected-bar" id="wiz-sel-bar" style="display:none"><span id="wiz-sel-label"></span></div>
        <div class="wiz-search-row" style="margin:8px 0 4px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:var(--bg-raised)">
          <span style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Use the input box below to quickly search for devices</span>
@@ -1669,6 +1435,7 @@ const Wizard = (() => {
     const pistonDevVars = allLocals.filter(v =>
       v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
     );
+    // Filter virtual/system/demo by query but ALWAYS show the section headers
     const filteredVirtual = VIRTUAL_DEVICES.filter(v =>
       !q || v.friendly_name.toLowerCase().includes(q)
     );
@@ -1683,7 +1450,7 @@ const Wizard = (() => {
 
     let html = '';
 
-    // Virtual devices (Location first — matches WebCoRE)
+    // Virtual devices — always shown (filtered by query)
     html += `<div class="wiz-device-group-header">Virtual devices</div>`;
     if (filteredVirtual.length) {
       html += filteredVirtual.map(v => _actDevRow(v.entity_id, v.friendly_name, sel.has(v.entity_id))).join('');
@@ -1706,7 +1473,7 @@ const Wizard = (() => {
       ).join('');
     }
 
-    // System variables
+    // System variables — always shown (filtered)
     html += `<div class="wiz-device-group-header">System variables</div>`;
     if (filteredSystem.length) {
       html += filteredSystem.map(sv => _actDevRow(sv, sv, sel.has(sv))).join('');
@@ -1714,7 +1481,7 @@ const Wizard = (() => {
       html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
     }
 
-    // Demo devices
+    // Demo devices — always shown (filtered)
     html += `<div class="wiz-device-group-header">Demo devices</div>`;
     if (filteredDemo.length) {
       html += filteredDemo.map(d =>
@@ -1788,10 +1555,7 @@ const Wizard = (() => {
     document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !on || !ids.length);
   }
 
-  // ─────────────────────────────────────────────────────────
-  // LOCATION COMMAND PICKER (dialog-edit-task — Location device)
-  // Matches WebCoRE: "With... Location / Do... [select command]"
-  // ─────────────────────────────────────────────────────────
+  // ── LOCATION COMMAND PICKER ───────────────────────────────
   function _goLocationCmdPicker() {
     _step = 'loc_cmd';
     _pushStep(_goLocationCmdPicker);
@@ -1801,7 +1565,7 @@ const Wizard = (() => {
       `<div class="wiz-with-row"><span class="wiz-with-label">With...</span><span class="wiz-with-device">Location</span></div>
        <div class="wiz-do-label">Do...</div>
        <select id="wiz-loc-cmd" class="wiz-select-blue wiz-select-full">
-         <option value="" style="display:none" disabled>Please select a command</option>
+         <option value="">Please select a command</option>
          ${LOCATION_COMMANDS.map(c=>`<option value="${_esc(c.id)}" ${_sel.location_cmd===c.id?'selected':''}>${_esc(c.label)}</option>`).join('')}
        </select>
        <div id="wiz-loc-params" style="margin-top:10px"></div>`,
@@ -1835,6 +1599,7 @@ const Wizard = (() => {
     _sel.device_id = '__location__';
     _sel.device_label = 'Location';
     _sel.devices = ['__location__'];
+    // Pre-populate from editNode
     if (_editNode) {
       if (cmd === 'set_variable') {
         _sel.variable = _editNode.variable || '';
@@ -1891,8 +1656,8 @@ const Wizard = (() => {
       el.innerHTML = `
         <div class="wiz-row-label">Piston to execute</div>
         <select id="wiz-ep-target" class="wiz-select-blue wiz-select-full">
-          <option value="" style="display:none" disabled>Select piston...</option>
-          ${(App.state?.pistons||[]).map(p=>`<option value="${_esc(p.id)}" ${_sel.target_piston_id===p.id?'selected':''}>${_esc(p.name)}</option>`).join('')}
+          <option value="">Select piston...</option>
+          ${(App.state.pistons||[]).map(p=>`<option value="${_esc(p.id)}" ${_sel.target_piston_id===p.id?'selected':''}>${_esc(p.name)}</option>`).join('')}
         </select>`;
     } else if (cmd === 'send_notification') {
       el.innerHTML = `
@@ -1953,10 +1718,9 @@ const Wizard = (() => {
         level:   document.getElementById('wiz-log-lvl')?.value||'info',
         description: null, disabled: false };
     } else if (cmd === 'execute_piston') {
-      const pid = document.getElementById('wiz-ep-target')?.value||'';
-      const pname = (App.state?.pistons||[]).find(p=>p.id===pid)?.name || pid;
       node = { type:'call_piston', id:_editNode?.id||_newId(),
-        target_piston_id: pid, target_piston_name: pname,
+        target_piston_id: document.getElementById('wiz-ep-target')?.value||'',
+        target_piston_name: document.getElementById('wiz-ep-target')?.value||'',
         description: null, disabled: false };
     } else if (cmd === 'send_notification') {
       node = { type:'action', id:_editNode?.id||_newId(),
@@ -2003,6 +1767,7 @@ const Wizard = (() => {
     Editor.insertStatement(_context, node);
 
     if (addMore) {
+      // Reset for another location task
       _sel.location_cmd = '';
       _sel.variable = ''; _sel.value = ''; _sel.message = '';
       _editNode = null;
@@ -2012,10 +1777,7 @@ const Wizard = (() => {
     }
   }
 
-  // ─────────────────────────────────────────────────────────
-  // PHYSICAL DEVICE COMMAND PICKER (dialog-edit-task)
-  // Matches WebCoRE: "With... {device} / Do... [select command] / [parameters]"
-  // ─────────────────────────────────────────────────────────
+  // ── PHYSICAL DEVICE COMMAND PICKER ────────────────────────
   async function _goCommandPicker() {
     _step = 'cmd';
     _pushStep(_goCommandPicker);
@@ -2026,7 +1788,7 @@ const Wizard = (() => {
       `<div class="wiz-with-row"><span class="wiz-with-label">With...</span><span class="wiz-with-device">{${_esc(label)}}</span></div>
        <div class="wiz-do-label">Do...</div>
        <select id="wiz-cmd" class="wiz-select-blue wiz-select-full">
-         <option value="" style="display:none" disabled>Please select a command</option>
+         <option value="">Please select a command</option>
        </select>
        <div id="wiz-cmd-params"></div>`,
       `<div class="wiz-footer-left">
@@ -2049,7 +1811,7 @@ const Wizard = (() => {
     if (demo) {
       const sel = document.getElementById('wiz-cmd');
       if (sel) {
-        sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
+        sel.innerHTML = `<option value="">Please select a command</option>` +
           demo.services.map(s => `<option value="${_esc(s)}" ${_sel.command===s?'selected':''}>${_esc(s.replace(/_/g,' '))}</option>`).join('');
         if (_sel.command) {
           document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
@@ -2071,10 +1833,10 @@ const Wizard = (() => {
       const sel = document.getElementById('wiz-cmd');
       if (sel) {
         if (services.length) {
-          sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
+          sel.innerHTML = `<option value="">Please select a command</option>` +
             services.map(s=>`<option value="${_esc(s.service)}" ${_sel.command===s.service?'selected':''}>${_esc(s.label||s.service)}</option>`).join('');
         } else {
-          sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
+          sel.innerHTML = `<option value="">Please select a command</option>` +
             ['turn_on','turn_off','toggle'].map(c=>`<option value="${_esc(c)}" ${_sel.command===c?'selected':''}>${c.replace(/_/g,' ')}</option>`).join('');
         }
         if (_sel.command) {
@@ -2103,7 +1865,7 @@ const Wizard = (() => {
     if (!svc?.fields || !Object.keys(svc.fields).length) { el.innerHTML=''; return; }
     el.innerHTML = Object.entries(svc.fields).map(([key,field])=>`
       <div class="wiz-param-section">
-        <div class="wiz-row-label">${_esc(field.name||key)}${field.optional?' (optional)':''}</div>
+        <div class="wiz-row-label">${_esc(field.name||key)}</div>
         ${field.selector?.number
           ? `<input type="number" class="wiz-value-input" data-param="${_esc(key)}" min="${field.selector.number.min??''}" max="${field.selector.number.max??''}" value="${_sel.parameters?.[key]??field.selector.number.min??0}" />`
           : field.selector?.select
@@ -2133,6 +1895,7 @@ const Wizard = (() => {
       deviceLabels = (_sel.devices || []).map(id => labelMap[id] || id);
     }
 
+    // Build the task
     const newTask = {
       id: _taskId(),
       command: command,
@@ -2143,10 +1906,13 @@ const Wizard = (() => {
     };
 
     if (_editNode && _editNode.type === 'action') {
-      const updatedNode = { ..._editNode, tasks: [newTask] };
+      // Editing existing action — replace/update task in it
+      const updatedNode = { ..._editNode };
+      updatedNode.tasks = [newTask]; // single task edit for now
       Editor.insertStatement(_context, updatedNode,
         _extra['block-id'] ? { blockId: _extra['block-id'], branch: _extra['branch'] || 'then' } : undefined);
     } else {
+      // New action node
       Editor.insertStatement(_context, {
         type: 'action', id: _editNode?.id || _newId(), async: false,
         devices: deviceLabels,
@@ -2156,6 +1922,7 @@ const Wizard = (() => {
     }
 
     if (addMore) {
+      // Keep same devices, reset command selection for another task
       _sel.command = '';
       _sel.parameters = {};
       _editNode = null;
@@ -2165,26 +1932,21 @@ const Wizard = (() => {
     }
   }
 
-  // ─────────────────────────────────────────────────────────
-  // VARIABLE PICKER (dialog-edit-variable)
-  // Matches WebCoRE exactly: type select + name + initial value options + NOTE
-  // ─────────────────────────────────────────────────────────
+  // ── VARIABLE PICKER ───────────────────────────────────────
   function _goVariablePicker() {
     _step = 'var';
     _pushStep(_goVariablePicker);
+    const BASIC = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
+    const ADV   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
     const initType = _sel.initial_value_type || 'nothing';
-
-    // WebCoRE type list exactly
-    const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
-    const ADV_TYPES   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
 
     const warnIcon = initType !== 'nothing' ? '<span class="wiz-initval-warn">&#9650;</span>' : '';
     _render(
-      `${_editNode ? 'Edit' : 'Add a new'} variable`,
+      'Add a new variable',
       `<div class="wiz-compare-row">
          <select id="wiz-vt" class="wiz-select-blue">
-           <optgroup label="Basic">${BASIC_TYPES.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
-           <optgroup label="Advanced lists">${ADV_TYPES.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
+           <optgroup label="Basic">${BASIC.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
+           <optgroup label="Advanced lists">${ADV.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
          </select>
          <input type="text" id="wiz-vname" class="wiz-value-input" placeholder="Variable name..." value="${_esc(_sel.name||'')}" />
        </div>
@@ -2203,12 +1965,12 @@ const Wizard = (() => {
          <div class="wiz-initval-right" id="wiz-vinit-sub">${_varInitSubHtml(initType)}</div>
        </div>
 
-       <div class="wiz-var-initval-note">NOTE: By assigning an initial value to the variable, you are instructing the piston to initialize the variable on every run to that initial value. While you can change the value of the variable during a piston run, the variable will revert to its initial value on subsequent piston runs. If you plan on storing data in this variable that needs to persist between piston runs, leave the value as <em>Nothing selected</em>.</div>`,
+       <div class="wiz-var-initval-note">NOTE: By assigning an initial value to the variable, you are instructing the piston to initialize the variable on every run to that initial value. If you plan on storing data in this variable that needs to persist between piston runs, leave the value as <em>Nothing Selected</em>.</div>`,
 
       `<button class="btn btn-ghost btn-sm" id="wiz-var-cancel">Cancel</button>
        <div class="wiz-footer-right">
          <button class="btn btn-ghost btn-sm" id="wiz-var-cog">⚙</button>
-         ${!_editNode ? `<button class="btn btn-primary btn-sm" id="wiz-var-add">Add more</button>` : ''}
+         <button class="btn btn-primary btn-sm" id="wiz-var-add">Add more</button>
          <button class="btn btn-primary btn-sm" id="wiz-var-done">${_editNode ? 'Save' : 'Add'}</button>
        </div>`
     );
@@ -2226,7 +1988,6 @@ const Wizard = (() => {
     });
     _wireVarInitSub(initType);
 
-    // WebCoRE var type → internal type
     const VAR_TYPE_MAP = {
       'Dynamic':'dynamic','String (text)':'string','Boolean (true/false)':'boolean',
       'Number (integer)':'integer','Number (decimal)':'decimal','Large number (long)':'long',
@@ -2236,7 +1997,6 @@ const Wizard = (() => {
       'Large number list (long)':'long_list','Date and Time list':'datetime_list',
       'Date list (date only)':'date_list','Time list (time only)':'time_list',
     };
-
     const save = () => {
       const name = document.getElementById('wiz-vname')?.value.trim();
       if (!name) { document.getElementById('wiz-vname')?.focus(); return null; }
@@ -2283,7 +2043,7 @@ const Wizard = (() => {
     if (type === 'variable') {
       const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
       return `<select id="wiz-vinit-varsel" class="wiz-select-blue" style="flex:1">
-        <option value="" style="display:none" disabled>Nothing selected</option>
+        <option value="">Select variable...</option>
         ${vars.map(v=>`<option value="${_esc(v.name)}" ${_sel.initial_variable===v.name?'selected':''}>${_esc(v.name)}</option>`).join('')}
       </select>`;
     }
@@ -2304,7 +2064,7 @@ const Wizard = (() => {
     }
   }
 
-  // ── Variable initial value device picker ──────────────────
+  // ── VAR INIT DEVICE PICKER ────────────────────────────────
   function _goVarInitDevicePicker() {
     _step = 'varinit_dev';
     _pushStep(_goVarInitDevicePicker);
@@ -2377,6 +2137,102 @@ const Wizard = (() => {
     document.getElementById('wiz-varinit-search')?.addEventListener('input', e => {
       clearTimeout(ft);
       ft = setTimeout(() => render(e.target.value.trim()), 150);
+    });
+  }
+
+  // ── TIMER PICKER ──────────────────────────────────────────
+  function _goTimerPicker() {
+    _step = 'timer';
+    _pushStep(_goTimerPicker);
+    const isNew = !_editNode;
+    _render('Add a timer',
+      `<div class="wiz-desc">A timer will trigger execution of the piston at set time intervals.</div>
+       <div class="wiz-row-label">Every...</div>
+       <div class="wiz-duration-inputs">
+         <input type="number" id="wiz-timer-n" class="wiz-dur-number" value="${_sel.interval||5}" min="1" />
+         <select id="wiz-timer-u" class="wiz-select-blue-sm">
+           <option value="milliseconds" ${(_sel.interval_unit||'')==='milliseconds'?'selected':''}>milliseconds</option>
+           <option value="seconds"      ${(_sel.interval_unit||'')==='seconds'     ?'selected':''}>seconds</option>
+           <option value="minutes"      ${(_sel.interval_unit||'minutes')==='minutes'?'selected':''}>minutes</option>
+           <option value="hours"        ${(_sel.interval_unit||'')==='hours'       ?'selected':''}>hours</option>
+           <option value="days"         ${(_sel.interval_unit||'')==='days'        ?'selected':''}>days</option>
+           <option value="weeks"        ${(_sel.interval_unit||'')==='weeks'       ?'selected':''}>weeks</option>
+           <option value="months"       ${(_sel.interval_unit||'')==='months'      ?'selected':''}>months</option>
+           <option value="years"        ${(_sel.interval_unit||'')==='years'       ?'selected':''}>years</option>
+         </select>
+       </div>`,
+      `<button class="btn btn-ghost btn-sm" id="wiz-timer-back">← Back</button>
+       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-timer-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
+    );
+    document.getElementById('wiz-timer-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-timer-save')?.addEventListener('click', () => {
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      const node = {
+        type:'every', id:_editNode?.id || _newId(), async:false,
+        interval: parseInt(document.getElementById('wiz-timer-n')?.value||'5'),
+        interval_unit: document.getElementById('wiz-timer-u')?.value||'minutes',
+        at_minute:null, at_time:null,
+        only_on_days:[], only_on_dom:[], only_on_months:[],
+        statements:[],
+        description:null, disabled:false,
+      };
+      close();
+      Editor.insertStatement(_context, node, meta);
+    });
+  }
+
+  // ── REPEAT PICKER — removed (WebCoRE repeat has no config) ─
+  // repeat inserts directly from _handleStatementType now
+
+  function _goForEachPicker() {
+    _step = 'for_each';
+    _pushStep(_goForEachPicker);
+    const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
+      .filter(v => v.var_type === 'device');
+    const varOptions = pistonDevVars.map(v =>
+      `<option value="${_esc(v.name)}" ${(_sel.variable||'$device')===v.name?'selected':''}>${_esc(v.name)}</option>`
+    ).join('');
+    const isNew = !_editNode;
+
+    _render('Add a for each loop',
+      `<div class="wiz-desc">Executes the same statements for each device in a device list.</div>
+       <div class="wiz-row-label">Store current device in variable</div>
+       <div class="wiz-value-inputs">
+         <select id="wiz-fe-var" class="wiz-select-blue" style="flex:1">
+           <option value="$device" ${(_sel.variable||'$device')==='$device'?'selected':''}>$device (system default)</option>
+           ${varOptions}
+           <option value="__custom__">Type a name...</option>
+         </select>
+         <input type="text" id="wiz-fe-var-custom" class="wiz-value-input" placeholder="Variable name..." style="display:none;flex:1" value="${_esc(_sel.variable||'')}" />
+       </div>
+       <div class="wiz-row-label" style="margin-top:10px">For each device in (role name)</div>
+       <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role or variable name..." value="${_esc(_sel.list_role||'')}" />`,
+      `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
+       <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
+    );
+    document.getElementById('wiz-fe-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+    document.getElementById('wiz-fe-var')?.addEventListener('change', e => {
+      const custom = document.getElementById('wiz-fe-var-custom');
+      if (custom) custom.style.display = e.target.value === '__custom__' ? '' : 'none';
+    });
+    document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
+      const varSel = document.getElementById('wiz-fe-var')?.value || '$device';
+      const varCustom = document.getElementById('wiz-fe-var-custom')?.value || '';
+      const variable = varSel === '__custom__' ? varCustom : varSel;
+      const blockId = _extra?.['block-id'];
+      const branch  = _extra?.['branch'] || 'then';
+      const meta = blockId ? { blockId, branch } : undefined;
+      const node = {
+        type:'for_each', id:_editNode?.id || _newId(), async:false,
+        variable: variable || '$device',
+        list_role: document.getElementById('wiz-fe-list')?.value||'',
+        statements:[],
+        description:null, disabled:false,
+      };
+      close();
+      Editor.insertStatement(_context, node, meta);
     });
   }
 

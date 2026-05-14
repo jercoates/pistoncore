@@ -247,23 +247,26 @@ const Editor = (() => {
 
       if (t === 'if') {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': id }));
+        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
-        ln(`<span class="kw">when true</span>`, pad);
+        ln(`<span class="kw">then</span>`, pad);
         _actionLines(node.then || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
         (node.else_ifs || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
-          (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': eib.id }));
-          gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': eib.id });
-          ln(`<span class="kw">when true</span>`, pad);
+          (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
+          ln(`<span class="kw">then</span>`, pad);
+          // else_if children are in eib.statements (nested objects)
           _actionLines(eib.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else_if', 'block-id': eib.id });
         });
-        // Always render when false so users can add statements to the else branch.
-        ln(`<span class="kw">when false</span>`, pad);
-        _actionLines(node.else || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+        // GAP-S27-2 fix: only render else branch when it has at least one child object.
+        // Wizard writes else: [] on new if blocks — that must not produce a ghost insertion point.
+        if (node.else && node.else.length > 0) {
+          ln(`<span class="kw">else</span>`, pad);
+          _actionLines(node.else, depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+        }
         ln(`<span class="kw">end if;</span>`, pad);
 
       } else if (t === 'action') {
@@ -295,8 +298,7 @@ const Editor = (() => {
 
       } else if (t === 'while') {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: 'condition', 'parent-block': id }));
-        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">do</span>`, pad);
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
@@ -308,8 +310,7 @@ const Editor = (() => {
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">until</span>`, pad);
-        (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: 'condition', 'parent-block': id }));
-        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
@@ -361,14 +362,12 @@ const Editor = (() => {
         ln(`<span class="kw">end every;</span>`, pad);
 
       } else if (t === 'on_event') {
-        // on_event has conditions[] (triggers), not event_name — per STATEMENT_TYPES.md
-        ln(`<span class="kw">on events</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    <span class="doc-bolt">⚡</span> ${_condLine(c)}`, pad + 1, { id: c.id, type: 'trigger', 'parent-block': id }));
-        gh('· add a new event condition', 'if_condition', pad + 1, { 'block-id': id });
+        const evtPart = node.event_name ? _esc(node.event_name) : '<span class="doc-ph">[event]</span>';
+        ln(`<span class="kw">on event</span> ${evtPart}`, pad, { id, type: t });
         ln(`<span class="kw">do</span>`, pad);
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
-        ln(`<span class="kw">end on;</span>`, pad);
+        ln(`<span class="kw">end on event;</span>`, pad);
 
       } else if (t === 'wait') {
         const w = node.wait_type === 'duration'
@@ -422,23 +421,17 @@ const Editor = (() => {
   // ── Inline helpers ───────────────────────────────────────
   function _condLine(c) {
     if (!c) return '<span class="doc-ph">[condition]</span>';
-    // aggregation is always shown when present — device count is unknowable at render time
-    const AGG_LABELS = { any: 'Any of', all: 'All of', none: 'None of' };
-    const agg = c.aggregation && c.aggregation !== 'null' && c.aggregation !== 'any'
-      ? `<span class="kw">${_esc(AGG_LABELS[c.aggregation] || c.aggregation)}</span> `
+    const deviceCount = Array.isArray(c.devices) ? c.devices.length : (c.subject ? 1 : 0);
+    const agg = c.aggregation && c.aggregation !== 'null' && deviceCount > 1
+      ? `<span class="kw">${_esc({any:'Any of',all:'All of',none:'None of'}[c.aggregation]||c.aggregation)}</span> `
       : '';
     const subj = _subj(c.subject);
     const attr = c.subject?.capability ? ` <span class="doc-attr">${_esc(c.subject.capability)}</span>` : '';
     const op   = c.operator ? ` <span class="kw">${_esc(c.operator)}</span>` : '';
-    // display_value is the wizard-written friendly value; fall back to value/value_from
-    const rawVal = c.display_value !== undefined && c.display_value !== ''
-      ? String(c.display_value)
-      : (c.value !== undefined ? String(c.value) : (c.value_from !== undefined ? String(c.value_from) : ''));
-    const val  = rawVal ? ` ${_esc(rawVal)}` : '';
-    const val2 = c.value_to !== undefined && c.value_to !== '' ? ` <span class="kw">and</span> ${_esc(String(c.value_to))}` : '';
-    const dur  = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))} ${_esc(c.duration_unit||'')}` : '';
+    const val  = c.display_value !== undefined ? ` ${_esc(String(c.display_value))}` : '';
+    const dur  = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))}` : '';
     const gop  = c.group_operator ? ` <span class="kw doc-gop">${_esc(c.group_operator)}</span>` : '';
-    return `${agg}${subj}${attr}${op}${val}${val2}${dur}${gop}`;
+    return `${agg}${subj}${attr}${op}${val}${dur}${gop}`;
   }
 
   function _subj(s) {
@@ -446,7 +439,6 @@ const Editor = (() => {
     if (s.type === 'device')   return _dr(s.role || s.entity_id || 'device');
     if (s.type === 'variable') return _dv('$', s.name || '');
     if (s.type === 'global')   return _dv('@', s.name || '');
-    // time/date/mode — show the type as a keyword; value comes from _condLine's val part
     return `<span class="kw">${_esc(s.type || '')}</span>`;
   }
 
@@ -508,28 +500,20 @@ const Editor = (() => {
     if (stmt) {
       _selectStmt(stmt.dataset.id);
       const node = _findAnyNode(stmt.dataset.id);
-      // Pass parent-block so the wizard knows which if/while/etc to update on save
-      const parentBlock = stmt.dataset['parent-block'] || null;
-      if (node) _openWizardForEdit(node, parentBlock);
+      if (node) _openWizardForEdit(node);
     }
   }
 
-  function _openWizardForEdit(node, parentBlockId) {
+  function _openWizardForEdit(node) {
     const t = node.type;
     if (t === 'trigger' || t === 'condition' || t === 'restriction') {
-      // If condition lives inside a block, pass block-id so wizard saves back to it
-      if (parentBlockId) {
-        Wizard.open('if_condition', node, { 'block-id': parentBlockId });
-      } else {
-        Wizard.open('edit_condition', node, {});
-      }
+      Wizard.open('edit_condition', node, {});
     } else if (t === 'variable') {
       Wizard.open('variable', node, {});
     } else if (t === 'set_variable' || t === 'wait' || t === 'log_message' || t === 'action' || t === 'call_piston') {
       Wizard.open('task', node, {});
     } else if (t === 'if') {
-      // Clicking the 'if' keyword opens the condition/group picker to add a condition.
-      Wizard.open('if_condition', null, { 'block-id': node.id });
+      Wizard.open('if_condition', node.conditions?.[0] || null, { 'block-id': node.id });
     } else {
       Wizard.open(t, node, {});
     }
@@ -566,47 +550,6 @@ const Editor = (() => {
     return null;
   }
 
-  // Finds a condition node by id anywhere in the nested statement tree.
-  // Searches node.conditions[], node.until_conditions[], and all child arrays recursively.
-  function _findCondition(id, nodes) {
-    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
-    for (const node of nodes) {
-      if (!node) continue;
-      for (const arr of [node.conditions || [], node.until_conditions || []]) {
-        const hit = arr.find(c => c && c.id === id);
-        if (hit) return hit;
-      }
-      for (const eib of (node.else_ifs || [])) {
-        const hit = (eib.conditions || []).find(c => c && c.id === id);
-        if (hit) return hit;
-        const deep = _findCondition(id, eib.statements || []);
-        if (deep) return deep;
-      }
-      const found = _findCondition(id, node.then || []) ||
-                    _findCondition(id, node.else || []) ||
-                    _findCondition(id, node.statements || []) ||
-                    _findCondition(id, node.default || []);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  // Finds an else_if block by its id, searching all if nodes in the tree.
-  function _findElseIf(eibId, nodes) {
-    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
-    for (const node of nodes) {
-      if (!node) continue;
-      for (const eib of (node.else_ifs || [])) {
-        if (eib.id === eibId) return eib;
-      }
-      const found = _findElseIf(eibId, node.then || []) ||
-                    _findElseIf(eibId, node.else || []) ||
-                    _findElseIf(eibId, node.statements || []);
-      if (found) return found;
-    }
-    return null;
-  }
-
   // Search triggers, conditions, variables, then the nested statement tree.
   // Use this anywhere you need to find a node by ID regardless of which section it lives in.
   function _findAnyNode(id) {
@@ -615,8 +558,7 @@ const Editor = (() => {
     return inArr(_piston.triggers) ||
            inArr(_piston.conditions) ||
            inArr(_piston.variables) ||
-           _findNode(id) ||
-           _findCondition(id);
+           _findNode(id);
   }
 
   // Recursive tree splice — removes the node with the given ID from wherever it
@@ -865,26 +807,16 @@ const Editor = (() => {
 
     // Branch insertion: meta.blockId + meta.branch — insert into a specific child array
     if (meta && meta.blockId && meta.branch) {
-      if (!statementData.id) statementData.id = _nextStmtId();
-      // Check replace first — if this is an edit, it's already in the tree
-      const replaced = _replaceNode(statementData);
-      if (replaced) { _markUnsaved(true); render(); return; }
-      // else_if_statements: blockId is an else_if object id, not a statement id
-      // We need to find the else_if inside any if node's else_ifs array
-      if (meta.branch === 'else_if_statements') {
-        const eib = _findElseIf(meta.blockId);
-        if (eib) {
-          eib.statements = eib.statements || [];
-          eib.statements.push(statementData);
-          _markUnsaved(true); render(); return;
-        }
-      }
-      // Standard branch: then / else / statements / default
       const block = _findNode(meta.blockId);
       if (block) {
-        const branch = meta.branch;
-        block[branch] = block[branch] || [];
-        block[branch].push(statementData);
+        const branch = meta.branch; // 'then', 'else', 'statements'
+        if (!statementData.id) statementData.id = _nextStmtId();
+        // Check replace first
+        const replaced = _replaceNode(statementData);
+        if (!replaced) {
+          block[branch] = block[branch] || [];
+          block[branch].push(statementData);
+        }
         _markUnsaved(true);
         render();
         return;
@@ -998,30 +930,11 @@ const Editor = (() => {
     }
   }
 
-  function deleteStatement(id) {
-    // Called by wizard with the specific node id — does not require _selectedId
-    if (!id) return;
-    const tryRemoveFromArr = (arr, id) => {
-      if (!arr) return false;
-      const i = arr.findIndex(n => n.id === id);
-      if (i !== -1) { arr.splice(i, 1); return true; }
-      return false;
-    };
-    if (!tryRemoveFromArr(_piston.triggers, id) &&
-        !tryRemoveFromArr(_piston.conditions, id) &&
-        !tryRemoveFromArr(_piston.variables, id)) {
-      _removeNode(id);
-    }
-    if (_selectedId === id) _selectedId = null;
-    _markUnsaved(true);
-    render();
-  }
-
   return {
     load,
     save,
     insertStatement,
-    deleteStatement,
+    deleteStatement: _deleteSelected,
     getPistonVariables: () => (_piston?.variables || []),
   };
 

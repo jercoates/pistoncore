@@ -723,6 +723,19 @@ def import_piston(piston: dict = Body(...)):
 
     piston["device_map"] = _validate_device_map(piston["device_map"])
 
+    # Ensure every device_map role has a matching device variable in the define block.
+    # This is a core requirement — without it the define block is empty and the piston
+    # is uneditable. The AI prompt should produce these but this is the safety net.
+    existing_var_names = {v.get("name") for v in piston["variables"] if isinstance(v, dict)}
+    for role in piston["device_map"]:
+        if role not in existing_var_names:
+            piston["variables"].append({
+                "id": "var_" + __import__("uuid").uuid4().hex[:8],
+                "name": role,
+                "var_type": "device",
+                "display_name": role.replace("_", " "),
+            })
+
     now = datetime.datetime.utcnow().isoformat() + "Z"
     piston["created_at"] = now
     piston["modified_at"] = now

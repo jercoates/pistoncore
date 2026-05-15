@@ -409,7 +409,8 @@ const Wizard = (() => {
           _sel.attribute      = _editNode.subject.capability || '';
           _sel.attribute_type = _editNode.subject.attribute_type || '';
         } else if (_editNode.role || _editNode.attribute) {
-          // Flat-field format: imported pistons store role/attribute directly on condition
+          // Flat-field format: imported pistons store role/attribute directly on condition.
+          // Resolve role name → entity_id via the piston's device_map so caps load correctly.
           const role = _editNode.role || '';
           if (role === 'time') {
             _sel.subject_type = 'time';
@@ -422,16 +423,21 @@ const Wizard = (() => {
             _sel.mode_value   = _editNode.value || '';
           } else {
             _sel.subject_type   = 'device';
-            _sel.device_id      = _editNode.entity_id || role;
             _sel.device_label   = role;
-            _sel.devices        = [_sel.device_id];
+            // Resolve role → first entity_id from device_map so _loadCapsIntoSelect works
+            const deviceMap = Editor.getDeviceMap ? Editor.getDeviceMap() : {};
+            const entityIds = deviceMap[role] || [];
+            _sel.device_id    = entityIds[0] || _editNode.entity_id || role;
+            _sel.devices      = [_sel.device_id];
             _sel.attribute      = _editNode.attribute || _editNode.capability || '';
             _sel.attribute_type = _editNode.attribute_type || '';
           }
         }
         _sel.operator        = _editNode.operator || '';
         _sel.aggregation     = _editNode.aggregation || 'any';
-        _sel.value           = _editNode.display_value || _editNode.value || '';
+        // display_value may be title-case (e.g. "Active") but dropdown options are lowercase.
+        // Use compiled_value first (always lowercase), fall back to lowercased display_value.
+        _sel.value           = _editNode.compiled_value || (_editNode.display_value || _editNode.value || '').toLowerCase() || '';
         _sel.value2          = _editNode.value_to || '';
         _sel.duration_amount = _editNode.duration || 1;
         _sel.duration_unit   = _editNode.duration_unit || 'minutes';

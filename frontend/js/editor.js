@@ -161,7 +161,7 @@ const Editor = (() => {
     const gh = (text, ctx, indent, extra = {}) => {
       const attrs = Object.entries(extra).map(([k,v]) => `data-${k}="${_esc(String(v))}"`).join(' ');
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="doc-line doc-ghost"><span class="doc-ln"></span><span class="doc-lc" ${ind}><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
+      lines.push(`<div class="doc-line doc-ghost"><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
     };
 
     // Comment header
@@ -1072,6 +1072,7 @@ const Editor = (() => {
     insertStatement,
     deleteStatement,
     getPistonVariables: () => (_piston?.variables || []),
+    getDeviceMap: () => (_piston?.device_map || {}),
   };
 
 })();

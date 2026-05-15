@@ -98,6 +98,7 @@ const Editor = (() => {
     const isPy = (p.compile_target || '').toLowerCase().includes('pyscript');
 
     container.innerHTML = `
+      <div style="display:flex;flex-direction:column;height:100%;min-height:0">
       <div class="editor-toolbar">
         <div class="editor-tb-left">
           <button class="etb-icon" id="btn-editor-cancel" title="Cancel — return to status page">✕</button>
@@ -131,6 +132,7 @@ const Editor = (() => {
       <div class="editor-doc" id="editor-doc">
         ${_renderDocument(p, isSimple)}
       </div>
+      </div>
     `;
 
     _wireEvents();
@@ -153,13 +155,13 @@ const Editor = (() => {
       ].filter(Boolean).join(' ');
       const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
+      lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
 
     const gh = (text, ctx, indent, extra = {}) => {
       const attrs = Object.entries(extra).map(([k,v]) => `data-${k}="${_esc(String(v))}"`).join(' ');
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="doc-line doc-ghost" ${ind}><span class="doc-ln"></span><span class="doc-lc"><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
+      lines.push(`<div class="doc-line doc-ghost"><span class="doc-ln"></span><span class="doc-lc" ${ind}><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
     };
 
     // Comment header
@@ -243,7 +245,7 @@ const Editor = (() => {
       const cls = ['doc-line', id ? 'doc-stmt' : '', sel ? 'doc-selected' : '', cut ? 'doc-cut' : ''].filter(Boolean).join(' ');
       const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="${cls}" ${attrs} ${ind}><span class="doc-ln">${num.n++}</span><span class="doc-lc">${html}</span></div>`);
+      lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
 
     (childNodes || []).forEach(node => {
@@ -550,14 +552,18 @@ const Editor = (() => {
     if (stmt) {
       _selectStmt(stmt.dataset.id);
       const node = _findAnyNode(stmt.dataset.id);
-      // Pass parent-block so the wizard knows which if/while/etc to update on save
-      const parentBlock = stmt.dataset['parent-block'] || null;
-      if (node) _openWizardForEdit(node, parentBlock);
+      const parentBlock = stmt.dataset['parentBlock'] || stmt.dataset['parent-block'] || null;
+      // Pass the rendered data-type as a fallback — condition nodes from imported
+      // pistons may have no type field, but the renderer always sets data-type correctly.
+      const renderedType = stmt.dataset.type || null;
+      if (node) _openWizardForEdit(node, parentBlock, renderedType);
     }
   }
 
-  function _openWizardForEdit(node, parentBlockId) {
-    const t = node.type;
+  function _openWizardForEdit(node, parentBlockId, renderedType) {
+    // Use node.type if present; fall back to the data-type the renderer stamped on the element.
+    // Imported condition nodes have no type field — the renderer sets data-type="condition"/"trigger".
+    const t = node.type || renderedType || '';
     if (t === 'trigger' || t === 'condition' || t === 'restriction') {
       // If condition lives inside a block, pass block-id so wizard saves back to it
       if (parentBlockId) {

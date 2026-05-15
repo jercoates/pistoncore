@@ -255,15 +255,13 @@ const Editor = (() => {
 
       if (t === 'if') {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': id }));
-        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
         ln(`<span class="kw">then</span>`, pad);
         _actionLines(node.then || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
         (node.else_ifs || []).forEach(eib => {
           ln(`<span class="kw">else if</span>`, pad);
-          (eib.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': eib.id }));
-          gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': eib.id });
+          _renderConditionBlock(eib.conditions, eib.condition_operator, eib.id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">then</span>`, pad);
           _actionLines(eib.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id });
@@ -303,8 +301,7 @@ const Editor = (() => {
 
       } else if (t === 'while') {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: 'condition', 'parent-block': id }));
-        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
         ln(`<span class="kw">do</span>`, pad);
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
@@ -316,8 +313,7 @@ const Editor = (() => {
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
         ln(`<span class="kw">until</span>`, pad);
-        (node.until_conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: 'condition', 'parent-block': id }));
-        gh('· add a new condition', 'if_condition', pad + 1, { 'block-id': id });
+        _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
@@ -371,8 +367,7 @@ const Editor = (() => {
       } else if (t === 'on_event') {
         // on_event has conditions[] (triggers), not event_name — per STATEMENT_TYPES.md
         ln(`<span class="kw">on events</span>`, pad, { id, type: t });
-        (node.conditions || []).forEach(c => ln(`    <span class="doc-bolt">⚡</span> ${_condLine(c)}`, pad + 1, { id: c.id, type: 'trigger', 'parent-block': id }));
-        gh('· add a new event condition', 'if_condition', pad + 1, { 'block-id': id });
+        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
         ln(`<span class="kw">do</span>`, pad);
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
@@ -481,8 +476,7 @@ const Editor = (() => {
     const val  = rawVal ? ` ${_esc(rawVal)}` : '';
     const val2 = c.value_to !== undefined && c.value_to !== '' ? ` <span class="kw">and</span> ${_esc(String(c.value_to))}` : '';
     const dur  = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))} ${_esc(c.duration_unit||'')}` : '';
-    const gop  = c.group_operator ? ` <span class="kw doc-gop">${_esc(c.group_operator)}</span>` : '';
-    return `${agg}${subj}${attr}${op}${val}${val2}${dur}${gop}`;
+    return `${agg}${subj}${attr}${op}${val}${val2}${dur}`;
   }
 
   function _subj(s) {
@@ -492,6 +486,26 @@ const Editor = (() => {
     if (s.type === 'global')   return _dv('@', s.name || '');
     // time/date/mode/expression — show the type as a keyword; value comes from _condLine's val part
     return `<span class="kw">${_esc(s.type || '')}</span>`;
+  }
+
+  // Renders a conditions array with the block's condition_operator shown as a
+  // separate clickable line between each condition. Used by if, while, repeat,
+  // on_event, else_if blocks. blockId is the parent block's id.
+  function _renderConditionBlock(conditions, conditionOperator, blockId, pad, ln, gh, addGhostText) {
+    const op = conditionOperator || 'and';
+    const ind = pad > 0 ? `style="padding-left:calc(var(--doc-indent)*${pad + 1})"` : '';
+    (conditions || []).forEach((c, i) => {
+      ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': blockId });
+      // Between conditions: render clickable and/or operator line (not a doc-stmt)
+      if (i < conditions.length - 1) {
+        // Injected directly — not via ln() to avoid doc-stmt class
+        // (handled separately in _handleDocClick via .doc-condop)
+        // We push directly to the lines array — but we don't have access here.
+        // Use ln() with a special marker type that _handleDocClick skips for stmt selection.
+        ln(`<span class="doc-condop" data-condop-block="${_esc(blockId)}">${_esc(op)}</span>`, pad + 1, { id: `condop_${_esc(blockId)}_${i}`, type: 'condition_operator' });
+      }
+    });
+    gh(addGhostText, 'if_condition', pad + 1, { 'block-id': blockId });
   }
 
   function _val(v) {
@@ -548,13 +562,24 @@ const Editor = (() => {
       Wizard.open(ctx, null, extra);
       return;
     }
+    // Condition operator (and/or) line click — open operator editor dialog
+    const condop = e.target.closest('.doc-condop');
+    if (condop) {
+      const blockId = condop.dataset.condopBlock;
+      if (blockId) {
+        const block = _findNode(blockId) || _findElseIf(blockId);
+        const currentOp = block?.condition_operator || 'and';
+        Wizard.open('condition_operator', null, { 'block-id': blockId, 'condition-operator': currentOp });
+      }
+      return;
+    }
     const stmt = e.target.closest('.doc-stmt');
     if (stmt) {
+      // Skip condition_operator pseudo-statements — handled above
+      if (stmt.dataset.type === 'condition_operator') return;
       _selectStmt(stmt.dataset.id);
       const node = _findAnyNode(stmt.dataset.id);
       const parentBlock = stmt.dataset['parentBlock'] || stmt.dataset['parent-block'] || null;
-      // Pass the rendered data-type as a fallback — condition nodes from imported
-      // pistons may have no type field, but the renderer always sets data-type correctly.
       const renderedType = stmt.dataset.type || null;
       if (node) _openWizardForEdit(node, parentBlock, renderedType);
     }
@@ -1073,6 +1098,15 @@ const Editor = (() => {
     deleteStatement,
     getPistonVariables: () => (_piston?.variables || []),
     getDeviceMap: () => (_piston?.device_map || {}),
+    updateConditionOperator(blockId, operator) {
+      // Find the block (if, while, repeat, on_event, else_if) and update its condition_operator
+      const block = _findNode(blockId) || _findElseIf(blockId);
+      if (block) {
+        block.condition_operator = operator;
+        _markUnsaved(true);
+        render();
+      }
+    },
   };
 
 })();

@@ -1456,8 +1456,7 @@ html.light-mode .doc-attr   { color: #1a4a8a; }
   padding: 7px 12px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 50;
 }
 
@@ -2197,8 +2196,19 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 }
 .wiz-var-initval-note em { font-style: italic; }
 
-/* ── Define block: inline device/value label ── */
-.doc-dev-inline {
+/* Condition operator line (and/or between conditions) — clickable */
+.doc-condop {
+  color: var(--teal);
+  cursor: pointer;
+  font-weight: 500;
+  border-radius: 3px;
+  padding: 0 4px;
+  transition: background 0.1s;
+}
+.doc-condop:hover {
+  background: var(--teal-bg);
+  outline: 1px solid var(--teal-dim);
+}
   color: var(--text-primary);
 }
 

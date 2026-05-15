@@ -550,7 +550,9 @@ const Wizard = (() => {
     }
 
     // ── New statement routing by context ─────────────────────
-    if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
+    if (ctx === 'condition_operator') {
+      _goConditionOperatorEditor();
+    } else if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
       _goConditionOrGroup();
     } else if (ctx === 'if_condition') {
       _sel.statement_class = 'condition';
@@ -1239,7 +1241,38 @@ const Wizard = (() => {
     });
   }
 
-  // ── Commit condition ──────────────────────────────────────
+  // ── Condition operator editor (and/or line click) ────────
+  // Opens when user clicks the and/or line between conditions.
+  // Edits condition_operator on the owning if/while/repeat/on_event block.
+  function _goConditionOperatorEditor() {
+    _step = 'condop';
+    const blockId = _extra?.['block-id'] || null;
+
+    const currentOp = _extra?.['condition-operator'] || _sel.condition_operator || 'and';
+
+    _render(
+      'Edit condition group',
+      `<div class="wiz-desc">Choose how the conditions in this block connect to each other.</div>
+       <div class="wiz-row-label">Logical Operator</div>
+       <select id="wiz-condop-op" class="wiz-select-blue wiz-select-full">
+         <option value="and" ${currentOp === 'and' ? 'selected' : ''}>Logical AND — all conditions must be true</option>
+         <option value="or"  ${currentOp === 'or'  ? 'selected' : ''}>Logical OR — any condition must be true</option>
+       </select>`,
+      `<button class="btn btn-ghost btn-sm" id="wiz-condop-cancel">Cancel</button>
+       <div class="wiz-footer-right">
+         <button class="btn btn-primary btn-sm" id="wiz-condop-save">Save</button>
+       </div>`
+    );
+
+    document.getElementById('wiz-condop-cancel')?.addEventListener('click', close);
+    document.getElementById('wiz-condop-save')?.addEventListener('click', () => {
+      const op = document.getElementById('wiz-condop-op')?.value || 'and';
+      if (blockId && Editor.updateConditionOperator) {
+        Editor.updateConditionOperator(blockId, op);
+      }
+      close();
+    });
+  }
   function _commitCondition() {
     const node = _buildConditionNode();
     if (!node) return;

@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 40 complete (W-S1 through W-S4 — wizard + editor bug fixes)
+**Last Updated:** Session 44 complete (W-S5 — editor rendering fixes)
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -11,8 +11,9 @@
 **Get to a clean round-trip on a simple piston:**
 wizard writes JSON → backend saves it → compiler reads it → frontend renders it correctly
 
-The wizard bugs have been fixed. Next step is to deploy and run the smoke test (S3-1).
-If the smoke test passes, Stage 2 backend work can resume.
+The editor rendering fixes from W-S5 are deployed. The next step is continuing the
+rendering audit (GAP-S43-2) and remaining wizard gaps. The smoke test is far off —
+do not reference it as a near-term milestone.
 
 ---
 
@@ -88,34 +89,55 @@ Written to `group_operator` on the condition node.
 
 ---
 
-### W-S5: Editor Rendering Fix — Make Imported Pistons Usable ← NEXT SESSION
+### W-S5: Editor Rendering Fix — Make Imported Pistons Usable ✅ DONE (Session 44)
 
-**What this is:** Fix all rendering gaps found when importing kitchen_motion_test.json.
-The piston came in completely unusable. These must be fixed before anything else.
+**Fixed in editor.js:**
+- GAP-S43-3: `_condLine()` flat-field normalization — imported conditions now render
+  correctly. Added group object guard (renders summary instead of garbage).
+- `_subj()`: null-safe fallback to `[device]` placeholder.
+- `if` renderer: `when true`/`when false` reverted to `then`/`else` — matches WebCoRE
+  and STATEMENT_TYPES.md spec. Also fixed for `else if` branches.
 
-**Fixes required in priority order:**
+**Fixed in wizard.js:**
+- GAP-S40-2: Added `_condId()` helper — condition IDs now use `cond_` prefix per spec.
+  `_buildConditionNode()` uses it instead of `_newId()`.
+- GAP-S40-1: Verified already correct — `_route()` checks `t === 'log_message'` and
+  passes `'log'` as the command ID, which is consistent throughout. No change needed.
+- `_route()` edit-condition: now handles flat-field imported conditions. Pre-fills
+  device, attribute, operator correctly when editing an imported condition.
 
-1. **GAP-S43-3 — _condLine() flat field format (editor.js)**
-   Conditions on imported pistons render blank. _condLine() only handles the
-   subject object format that wizard writes. Imported JSON has flat fields
-   (role, attribute directly on the condition). Fix _condLine() to handle both.
+**Gaps found this session:**
+- GAP-S44-1: Group condition editing — no way to click into a group to edit its
+  contents. Groups render as one-line summary only. Assigned to W-S7.
+- GAP-S44-2: GAP-S43-5 (define block verify) and GAP-S43-2 (full rendering audit)
+  still open — assigned to W-S6 below.
 
-2. **GAP-S43-5 verification — define block (api.py fix already deployed)**
-   Confirm device variables now appear in the define block after the api.py fix.
-   If the editor still doesn't render them correctly, fix editor.js too.
+---
 
-3. **GAP-S43-2 — Full editor rendering audit**
-   Side-by-side comparison of PistonCore editor vs WebCoRE for the same piston.
-   Every line must match WebCoRE's display exactly per the non-negotiable requirement.
+### W-S6: Editor Rendering Audit + Remaining Wizard Gaps ← NEXT SESSION
 
-4. **GAP-S43-1 — Placeholder standard**
-   Define `__placeholder_<domain>__` convention. Update list.js import flow to
-   detect placeholders same as empty arrays. Update AI prompt files.
+**What this is:** Systematic side-by-side comparison of PistonCore editor output vs
+WebCoRE for the same imported piston. Fix every line that doesn't match. Also pick up
+any remaining wizard rendering issues found during testing.
 
-5. **GAP-S40-1 — _route() log type check (wizard.js)**
-6. **GAP-S40-2 — Task ID prefix (wizard.js)**
+**Items to work through:**
 
-**Do not attempt the smoke test until all items above pass.**
+1. **GAP-S43-5 verification** — confirm define block shows all device roles after
+   api.py fix. If editor still doesn't render device variables correctly, fix editor.js.
+
+2. **GAP-S43-2 — Full rendering audit** — open the imported kitchen_motion piston,
+   compare every line to WebCoRE. Document every mismatch. Fix them.
+   Known likely issues:
+   - Task commands render as raw strings (`turn_on`) not friendly labels (`Turn on`)
+   - Action block `with`/`do`/`end with` structure vs WebCoRE display
+   - Condition rendering edge cases not caught by flat-field fix
+
+3. **GAP-S43-1 — Placeholder standard** — define `__placeholder_<domain>__` convention.
+   Update list.js import flow to detect placeholders same as empty arrays.
+
+4. **GAP-S44-1 — Group condition display** (if time allows — low priority)
+
+**Do not attempt smoke test. There is too much still broken.**
 
 **Upload for this session:**
 editor.js, wizard.js, list.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md,
@@ -123,9 +145,10 @@ PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
-### W-S6: Smoke Test — Full Round-Trip on One Simple Piston (was W-S5)
+### W-S7: Smoke Test — Full Round-Trip on One Simple Piston (far off — do not rush)
 
-**What this is:** Deploy the fixed files and test the minimum viable piston flow.
+**What this is:** Deploy and test the minimum viable piston flow end to end.
+Only attempt once W-S6 rendering audit passes and imported pistons look correct.
 
 **The 14-step test (from WIZARD_REBUILD_SPEC.md):**
 1. Open editor on new piston
@@ -143,13 +166,6 @@ PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 13. Editor re-renders showing complete piston
 14. Save succeeds
 
-**Also verify:**
-- No duplicate or wrong-domain entities in any picker
-- Piston variables from define block appear in action picker
-- Conditions render correctly in the editor (not blank)
-- AND/OR works when adding a second condition
-- Saved piston JSON is valid nested tree (check in browser devtools or backend log)
-
 **If any step fails:** Document exactly which step and what happened.
 Do not start fixing things mid-smoke-test — finish the test first, then fix.
 
@@ -159,16 +175,15 @@ STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
-### W-S6+: Remaining Wizard Areas (after smoke test passes)
+### W-S8+: Remaining Wizard Areas (after smoke test passes)
 
-To be scoped after S3-1 passes. Known remaining gaps from WIZARD_REBUILD_SPEC.md:
+To be scoped after smoke test passes. Known remaining gaps from WIZARD_REBUILD_SPEC.md:
 
 - For loop detail screen (start/end/step fields, counter variable dropdown)
 - Switch detail screen (expression operand)
 - Every/timer detail screen (full time options — days of week, months, etc.)
 - Globals in device pickers (deferred until global variable creation implemented)
-- Drag and drop reordering in editor (safe to add after smoke test — editor.js only,
-  uses existing `_removeNode` + `_insertAfter`, no JSON format changes)
+- Drag and drop reordering in editor (safe to add after smoke test — editor.js only)
 
 ---
 
@@ -290,6 +305,14 @@ for them yet. When wait wizard UI is built, verify render branches against STATE
 
 ## DONE — Completed Sessions
 
+### Session 44 — W-S5: Editor Rendering Fixes ✅
+editor.js: _condLine() flat-field normalization (GAP-S43-3 closed), group object guard,
+_subj() null-safe, if renderer reverted to then/else (matches WebCoRE + spec).
+wizard.js: _condId() helper added (cond_ prefix for condition IDs), _buildConditionNode()
+uses it, _route() edit-condition pre-fill handles flat-field imported conditions.
+GAP-S40-1 and GAP-S40-2 verified closed (already correct before this session).
+New gaps: GAP-S44-1 (group editing) → W-S7.
+
 ### Session 43 — S2-4: Import Role Mapping Flow ✅
 POST /pistons/import implemented (api.py). API.importPiston() added (api.js).
 Import paste modal + "Rebuild piston items" role mapping dialog implemented in
@@ -343,55 +366,46 @@ Add while api.py is open in S2-2.
 Must change `import ha_client` to `from ha_client import ha_client`. Audit all
 call sites in both files. Do in S2-2 when api.py is already open.
 
-### GAP-S40-1 → W-S5: _route() checks wrong type for log statement edit
-`_route()` checks `_editNode.type === 'log'` but node is stored as `'log_message'`.
-Fix: change `'log'` to `'log_message'` in the `_route()` type check in wizard.js.
-Fix before smoke test — wizard.js is already open that session.
+### GAP-S40-1 → CLOSED: _route() log type check — verified correct, no fix needed
+`_route()` correctly checks `t === 'log_message'` and passes `'log'` as the command ID.
+`'log'` is the internal command ID used consistently throughout _goLocationCmd and
+_renderLocParams. This was never a bug. Closed Session 44.
 
-### GAP-S40-2 → W-S5: Task IDs in _saveLocationCmd use stmt_ prefix instead of task_
-`_newId()` generates `stmt_` prefix. Task IDs must use `task_` prefix per PISTON_FORMAT.md.
-Fix: inline `'task_' + ...` for task IDs in _saveLocationCmd (same pattern as _saveDeviceCmd).
-Fix before smoke test — wizard.js is already open that session.
+### GAP-S40-2 → CLOSED: Task IDs in _saveLocationCmd — already fixed before S44
+All task ID generation in _saveLocationCmd uses `_taskId()` correctly.
+Condition IDs additionally fixed in Session 44: added `_condId()` helper,
+`_buildConditionNode()` now generates `cond_` prefixed IDs per spec.
 
 ### GAP-S30-3 → S4-15: Double config load per compile call
 Low priority operational hardening. Assigned to S4-15.
 
-### GAP-S43-1 → W-S5: Placeholder entity ID standard not yet implemented
+### GAP-S43-1 → W-S6: Placeholder entity ID standard not yet implemented
 AI-generated pistons currently put fake entity IDs in device_map (e.g.
 "binary_sensor.kitchen_motion"). Import flow only triggers role mapping when
 device_map values are empty arrays — populated fake IDs bypass it entirely.
-Fix: define placeholder convention `__placeholder_<domain>__`
-(e.g. `__placeholder_binary_sensor__`, `__placeholder_switch__`).
+Fix: define placeholder convention `__placeholder_<domain>__`.
 Update import flow in list.js to treat any entity ID starting with
 `__placeholder_` as unmapped, same as empty array.
 Update AI prompt files to use this format instead of invented entity IDs.
-AI prompt files must also always include device-type variable entries in the
-`variables` array for every role in `device_map` — the define block renders
-from `variables`, not from `device_map`. Backend safety net is in place
-(GAP-S43-5) but the prompt must produce correct JSON regardless.
 
-### GAP-S43-2 → W-S5: Editor rendering does not match WebCoRE exactly
-Importing kitchen_motion_test.json showed the piston renders in the editor but
-does not match WebCoRE's display exactly. Full audit required — compare
-editor output side-by-side with WebCoRE for the same piston.
+### GAP-S43-2 → W-S6: Editor rendering does not match WebCoRE exactly
+Full audit required — compare editor output side-by-side with WebCoRE for the
+same piston. Fix every line that doesn't match.
 Upload: editor.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md, PISTON_FORMAT.md.
 
-### GAP-S43-3 → W-S5: _condLine() only handles subject object format, not flat fields
-Imported JSON has flat condition fields (role, attribute, operator, display_value
-directly on the condition node). Wizard-written JSON wraps these in a subject object.
-_condLine() calls _subj(c.subject) — returns empty string when subject is missing.
-Fix: _condLine() must handle both formats — check for c.subject first, fall back
-to flat fields (c.role, c.attribute) when subject is absent.
-This is why conditions rendered blank on the imported piston.
+### GAP-S43-3 → CLOSED: _condLine() flat field format — fixed Session 44
+`_condLine()` now normalizes flat-field conditions to subject-object format before
+rendering. Both wizard-written (subject object) and imported (flat fields) conditions
+now render correctly.
 
 ### GAP-S43-4 → S2-3: Snapshot export not yet implemented
 POST /pistons/{id}/export still returns 501. Needed for community sharing and
 AI migration flow. Implement in S2-3 when api.py is open.
 
-### GAP-S43-5 → W-S5: define block empty on import — FIXED in Session 43
-api.py import_piston() now auto-generates device-type variable entries in the
-variables array for every device_map role that has no matching variable.
-This is a backend safety net — the AI prompt must also always produce these.
-Verify the fix works in W-S5 by importing a piston and confirming the define
-block shows all roles. Also verify: editor renders device variables correctly
-when var_type is "device".
+### GAP-S43-5 → W-S6: define block verify after api.py fix
+Confirm device variables appear in define block after api.py import fix.
+Verify editor renders device variables correctly when var_type is "device".
+
+### GAP-S44-1 → W-S7: Group condition editing not implemented
+Groups render as a one-line summary. No way to click into a group to edit its
+conditions. Group editing UI must be built before groups are usable.

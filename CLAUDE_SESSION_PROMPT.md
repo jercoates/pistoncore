@@ -99,55 +99,54 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 6. Never write code that conflicts with the specs — specs are the authority
 ---
 
-## Project Status — Session 43 Complete
+## Project Status — Session 44 Complete
 
-### What Was Done in Session 43
+### What Was Done in Session 44
 
-**Import flow implemented — api.py, api.js, list.js.**
+**editor.js and wizard.js — rendering and wizard pre-fill fixes.**
 
-- `POST /pistons/import` implemented in api.py (was 501 stub). Strips incoming ID,
-  assigns fresh UUID, applies spec defaults, validates device_map, saves and returns.
-- `API.importPiston()` added to api.js.
-- Import paste modal + "Rebuild piston items" role mapping dialog added to list.js.
-  Matches WebCoRE behavior exactly: one searchable dropdown per unmapped role,
-  Ignore skips mapping and opens editor, Continue saves device_map then opens editor.
-- Import flow correctly detects unmapped roles via empty arrays in device_map.
+**editor.js — 3 fixes:**
+
+1. `_condLine()` flat-field normalization (GAP-S43-3 CLOSED): Imported pistons store
+   `role`, `attribute`, `operator` directly on the condition object with no `subject`
+   sub-object. `_condLine()` now detects this and builds a synthetic subject before
+   proceeding. Both wizard-written (subject object) and imported (flat fields) conditions
+   now render correctly. Also added a group object guard: if `c.type === 'group'`,
+   renders a readable summary instead of garbage.
+
+2. `_subj()` null-safe: Was returning empty string for null subject. Now returns a
+   `[device]` placeholder so nothing renders invisibly blank.
+
+3. `if` renderer: `when true`/`when false` reverted to `then`/`else` — matches WebCoRE
+   and STATEMENT_TYPES.md spec. Also corrected for `else if` branches.
+
+**wizard.js — 3 fixes:**
+
+4. `_condId()` added: New helper generating `cond_` + 8 hex. `_buildConditionNode()`
+   now uses it. Condition IDs correctly use `cond_` prefix per spec.
+
+5. GAP-S40-1 verified CLOSED: `_route()` correctly checks `t === 'log_message'` and
+   passes `'log'` as the command ID, consistent throughout. No bug.
+
+6. GAP-S40-2 verified CLOSED: `_saveLocationCmd` already uses `_taskId()`. The
+   additional fix this session: `_condId()` for condition IDs (separate issue found).
+
+7. `_route()` edit-condition flat-field pre-fill: When editing an imported condition
+   with no `subject` object, wizard now reads `_editNode.role`, `_editNode.attribute`
+   etc. to pre-fill the condition builder correctly.
 
 **Gaps found this session:**
+- GAP-S44-1: Group condition editing not implemented → W-S7
 
-- GAP-S43-1: Placeholder entity ID standard needed. AI-generated pistons use fake
-  entity IDs that bypass the role mapping dialog. Fix: `__placeholder_<domain>__`
-  convention. Assigned to W-S5.
-- GAP-S43-2: Editor rendering does not match WebCoRE exactly. Full audit needed.
-  Assigned to W-S5.
-- GAP-S43-3: Condition rendering needs verification against STATEMENT_TYPES.md.
-  Assigned to W-S5.
-- GAP-S43-4: Snapshot export (POST /pistons/{id}/export) still 501. Assigned to S2-3.
+### Priority order for next session (W-S6 — Rendering Audit):
+1. GAP-S43-5: Verify define block shows device roles after api.py fix
+2. GAP-S43-2: Full editor rendering audit — side-by-side vs WebCoRE, fix every mismatch
+3. GAP-S43-1: Placeholder standard — list.js import flow + AI prompt files
 
-**Additional critical finding — define block empty on import:**
-The import did not populate the define block at all. The define block renders
-from `p.variables` — but imported JSON had `"variables": []`. Device roles live
-in `device_map`, not `variables`. This is a core failure — without the define
-block the piston is completely uneditable.
-FIXED in Session 43: api.py import_piston() now auto-generates device-type
-variable entries in variables[] for every device_map role that has no matching
-variable. This is a backend safety net. AI prompt files must also always produce
-these entries. (GAP-S43-5)
+**Smoke test is not a near-term milestone. Do not reference it as next.**
 
-**Additional critical finding — _condLine() flat field format:**
-Imported JSON conditions have flat fields (role, attribute, operator directly on
-the condition). Wizard-written conditions wrap these in a subject object.
-_condLine() only handles the subject object format — conditions on imported
-pistons render blank. Fix: _condLine() must handle both formats. (GAP-S43-3)
-
-**Key insight from this session:**
-Importing a real piston JSON exposed a significant number of spec gaps that
-testing the wizard alone would never have caught. The import path is a critical
-integration test for the entire stack — editor rendering, JSON format consistency,
-define block population, condition display. These must all be fixed before the
-smoke test is meaningful.
-
-### What Was Done in Session 42
+Upload: editor.js, wizard.js, list.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md,
+PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 **editor.js and wizard.js — comprehensive bug fix pass.**
 
@@ -336,15 +335,13 @@ missing by reading the actual WebCoRE source, not from screenshots or transcript
   `break`, or `cancel_pending_tasks` is added, explaining the blocking/PyScript
   behavior. Not yet implemented.
 
-### Priority order for next session (W-S5 — Editor Rendering Fix):
-1. GAP-S43-3 (_condLine flat field format) — conditions render blank on import
+### Priority order for next session (W-S6 — Rendering Audit):
+1. GAP-S43-5 (_condLine flat field format) — conditions render blank on import
 2. GAP-S43-5 verification — confirm define block populates after api.py fix
 3. GAP-S43-2 (full editor rendering audit vs WebCoRE)
 4. GAP-S43-1 (placeholder standard + list.js + AI prompt files)
-5. GAP-S40-1 (_route() log type check in wizard.js)
-6. GAP-S40-2 (task ID prefix in wizard.js)
 
-**Do not attempt smoke test until all of the above pass.**
+**Do not attempt smoke test. There is too much still broken.**
 
 Upload: editor.js, wizard.js, list.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md,
 PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md

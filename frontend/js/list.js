@@ -3,6 +3,12 @@
 // Page 1 — Piston List
 // The home screen. Loads all pistons, groups by folder, renders rows.
 // Handles search, new piston, import, folder creation.
+//
+// Session 45 (W-S6) — GAP-S43-1: Placeholder entity ID standard
+// Import unmapped filter now treats entity IDs starting with "__placeholder_"
+// as unmapped, same as empty arrays. AI-generated pistons should use
+// __placeholder_<domain>__ (e.g. "__placeholder_light__") instead of
+// invented entity IDs so the role mapping dialog appears on import.
 
 const ListPage = (() => {
 
@@ -236,6 +242,19 @@ const ListPage = (() => {
   //         Matches WebCoRE "Rebuild piston items" dialog exactly.
   //         Ignore → saves piston as-is, opens editor.
   //         Continue → saves populated device_map, opens editor.
+  //
+  // Unmapped detection (GAP-S43-1 fix):
+  //   A role is considered unmapped if its device_map value is:
+  //   - An empty array []
+  //   - An array containing only placeholder entity IDs (strings starting with "__placeholder_")
+  //   AI-generated pistons use __placeholder_<domain>__ format (e.g. "__placeholder_light__")
+  //   so the role mapping dialog correctly fires on import.
+
+  // Returns true if a device_map value array is unmapped (empty or all placeholders).
+  function _isUnmapped(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return true;
+    return ids.every(id => typeof id === 'string' && id.startsWith('__placeholder_'));
+  }
 
   function _showImportPasteModal() {
     document.getElementById('pc-import-modal')?.remove();
@@ -302,8 +321,9 @@ const ListPage = (() => {
 
       backdrop.remove();
 
+      // Unmapped = empty array OR all-placeholder entity IDs
       const unmapped = Object.entries(saved.device_map || {})
-        .filter(([, ids]) => !Array.isArray(ids) || ids.length === 0)
+        .filter(([, ids]) => _isUnmapped(ids))
         .map(([role]) => role);
 
       if (unmapped.length > 0) {

@@ -1,0 +1,147 @@
+{
+  "id": "ab12cd35",
+  "name": "Kitchen Motion 1",
+  "description": "",
+  "folder": null,
+  "mode": "restart",
+  "enabled": true,
+  "logic_version": 1,
+  "ui_version": 1,
+  "compile_target": "native_script",
+  "created_at": "2025-07-12T07:16:13Z",
+  "modified_at": "2025-09-16T19:14:54Z",
+  "device_map": {
+    "Motion_sensor": ["__placeholder_binary_sensor__"],
+    "Light_Sensor": ["__placeholder_sensor__"],
+    "Lights": ["__placeholder_switch__"]
+  },
+  "device_map_meta": {
+    "Motion_sensor": { "cardinality": "single" },
+    "Light_Sensor": { "cardinality": "single" },
+    "Lights": { "cardinality": "single" }
+  },
+  "variables": [],
+  "statements": [
+    {
+      "id": "stmt_00000001",
+      "type": "if",
+      "async": false,
+      "conditions": [
+        {
+          "id": "cond_00000001",
+          "is_trigger": true,
+          "aggregation": "any",
+          "role": "Motion_sensor",
+          "attribute": "motion",
+          "attribute_type": "binary",
+          "device_class": "motion",
+          "operator": "changes to",
+          "display_value": "Active",
+          "compiled_value": "on",
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "subscription_method": "auto"
+        },
+        {
+          "id": "cond_00000002",
+          "is_trigger": false,
+          "aggregation": "any",
+          "role": "Light_Sensor",
+          "attribute": "illuminance",
+          "attribute_type": "numeric",
+          "device_class": "illuminance",
+          "operator": "is less than",
+          "display_value": "800lux",
+          "compiled_value": "800",
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "subscription_method": "auto"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_00000002",
+          "type": "action",
+          "async": false,
+          "devices": ["Lights"],
+          "tasks": [
+            {
+              "id": "task_00000001",
+              "command": "turn_on",
+              "domain": "switch",
+              "ha_service": "switch.turn_on",
+              "parameters": {},
+              "description": null
+            }
+          ],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
+    },
+    {
+      "id": "stmt_00000003",
+      "type": "if",
+      "async": false,
+      "conditions": [
+        {
+          "id": "cond_00000003",
+          "is_trigger": true,
+          "aggregation": "any",
+          "role": "Motion_sensor",
+          "attribute": "motion",
+          "attribute_type": "binary",
+          "device_class": "motion",
+          "operator": "changes to",
+          "display_value": "Inactive",
+          "compiled_value": "off",
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "subscription_method": "auto"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_00000004",
+          "type": "wait",
+          "wait_type": "duration",
+          "duration": 5,
+          "duration_unit": "m",
+          "description": null,
+          "disabled": false
+        },
+        {
+          "id": "stmt_00000005",
+          "type": "action",
+          "async": false,
+          "devices": ["Lights"],
+          "tasks": [
+            {
+              "id": "task_00000002",
+              "command": "turn_off",
+              "domain": "switch",
+              "ha_service": "switch.turn_off",
+              "parameters": {},
+              "description": null
+            }
+          ],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
+    }
+  ]
+}

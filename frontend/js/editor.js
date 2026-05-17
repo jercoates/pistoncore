@@ -17,6 +17,15 @@
 //   not inside subject object). Group condition guard added.
 // _subj: null-safe fallback to placeholder.
 // if renderer: reverted when true/when false → then/else (matches WebCoRE + spec).
+//
+// Session 45 (W-S6) — Rendering audit fixes
+// _friendlyCmd(): new helper — converts snake_case command names to Title Case
+//   so task lines render "Turn on" not "turn_on", matching WebCoRE and STATEMENT_TYPES.md.
+// log_message: "log" → "do Log message" per STATEMENT_TYPES.md Section 16.
+// wait (duration): "wait N unit" → "do Wait N unit" per Section 14.
+// wait (until): "wait until" → "do Wait until" per Section 15.
+// call_piston: "execute piston" → "do Execute piston" per Section 17.
+// cancel_pending_tasks: "cancel all pending tasks" → "do Cancel all pending tasks" per Section 18.
 
 const Editor = (() => {
 
@@ -278,16 +287,16 @@ const Editor = (() => {
         ln(`<span class="kw">do</span>`, pad);
         // tasks are embedded objects inside the action node — not child statements
         (node.tasks || []).forEach(task => {
+          const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
           const params = task.parameters
             ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
             : '';
-          ln(`${_esc(task.service || task.command || 'call service')}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
+          ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
         });
         gh('· add a new task', 'task', pad + 2, { 'block-id': id });
         ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
-        const dv = node.variable ? _esc(node.variable) : _dr(node.list_role || '');
         const lv = _dr(node.list_role || '');
         // node.variable already contains $ prefix (e.g. "$device") per STATEMENT_TYPES.md
         const dvSpan = node.variable
@@ -374,19 +383,20 @@ const Editor = (() => {
         ln(`<span class="kw">end on;</span>`, pad);
 
       } else if (t === 'wait') {
+        // All wait variants prefix with "do" per STATEMENT_TYPES.md Sections 14 and 15.
         const w = node.wait_type === 'duration'
-          ? `<span class="kw">wait</span> ${_esc(String(node.duration||''))} ${_esc(node.duration_unit||node.unit||'')};`
+          ? `<span class="kw">do</span> <span class="kw">Wait</span> ${_esc(String(node.duration||''))} ${_esc(node.duration_unit||node.unit||'')};`
           : node.wait_type === 'until'
-          ? `<span class="kw">wait until</span> ${_esc(node.until||'')};`
+          ? `<span class="kw">do</span> <span class="kw">Wait until</span> ${_esc(node.until||'')};`
           : node.wait_type === 'state'
-          ? `<span class="kw">wait for state</span> ${_condLine(node.condition || {})};`
-          : `<span class="kw">wait</span>;`;
+          ? `<span class="kw">do</span> <span class="kw">Wait for state</span> ${_condLine(node.condition || {})};`
+          : `<span class="kw">do</span> <span class="kw">Wait</span>;`;
         ln(w, pad, { id, type: t });
 
       } else if (t === 'wait_for_state') {
         // wait_for_state has a conditions array + optional timeout, not a single condition object.
         // Renders as a multi-line block per STATEMENT_TYPES.md Section 15b.
-        ln(`<span class="kw">wait for state</span>`, pad, { id, type: t });
+        ln(`<span class="kw">do</span> <span class="kw">Wait for state</span>`, pad, { id, type: t });
         (node.conditions || []).forEach(c => ln(`    ${_condLine(c)}`, pad + 1));
         if (node.timeout_seconds !== undefined && node.timeout_seconds !== null) {
           const secs = node.timeout_seconds;
@@ -398,10 +408,13 @@ const Editor = (() => {
         }
 
       } else if (t === 'set_variable') {
+        // node.variable stored as-is from wizard (user types name without $).
+        // _dv prepends $ for display. If user already typed $, renders $$name — GAP-S45-1.
         ln(`<span class="kw">set variable</span> ${_dv('$', node.variable || '')} = ${_val(node.value)};`, pad, { id, type: t });
 
       } else if (t === 'log_message') {
-        ln(`<span class="kw">log</span> <span class="doc-str">"${_esc(node.message?.data || node.message || '')}"</span>;`, pad, { id, type: t });
+        // "do Log message" per STATEMENT_TYPES.md Section 16.
+        ln(`<span class="kw">do</span> <span class="kw">Log message</span> <span class="doc-str">{"${_esc(node.message?.data || node.message || '')}"}</span>;`, pad, { id, type: t });
 
       } else if (t === 'exit') {
         ln(`<span class="kw">exit</span>${node.value !== undefined ? ' ' + _val(node.value) : ''};`, pad, { id, type: t });
@@ -410,10 +423,12 @@ const Editor = (() => {
         ln(`<span class="kw">break</span>;`, pad, { id, type: t });
 
       } else if (t === 'call_piston') {
-        ln(`<span class="kw">execute piston</span> ${_esc(node.target_piston_name || node.target_piston_id || '')};`, pad, { id, type: t });
+        // "do Execute piston" per STATEMENT_TYPES.md Section 17.
+        ln(`<span class="kw">do</span> <span class="kw">Execute piston</span> ${_esc(node.target_piston_name || node.target_piston_id || '')};`, pad, { id, type: t });
 
       } else if (t === 'cancel_pending_tasks') {
-        ln(`<span class="kw">cancel all pending tasks</span>;`, pad, { id, type: t });
+        // "do Cancel all pending tasks" per STATEMENT_TYPES.md Section 18.
+        ln(`<span class="kw">do</span> <span class="kw">Cancel all pending tasks</span>;`, pad, { id, type: t });
 
       } else {
         // Unknown type — render a visible error placeholder, never silently skip
@@ -423,6 +438,20 @@ const Editor = (() => {
   }
 
   // ── Inline helpers ───────────────────────────────────────
+
+  // Converts a snake_case command name to Title Case for display.
+  // "turn_on" → "Turn on", "set_volume_level" → "Set volume level"
+  // "light.turn_on" → "Turn on" (strips domain prefix if present)
+  // If the command is already human-readable (no underscores), returns as-is capitalized.
+  function _friendlyCmd(cmd) {
+    if (!cmd) return 'call service';
+    // Strip domain prefix (e.g. "light.turn_on" → "turn_on")
+    const bare = cmd.includes('.') ? cmd.split('.').slice(1).join('.') : cmd;
+    // Replace underscores with spaces, capitalize first word only
+    const spaced = bare.replace(/_/g, ' ');
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+
   function _condLine(c) {
     if (!c) return '<span class="doc-ph">[condition]</span>';
 
@@ -498,10 +527,6 @@ const Editor = (() => {
       ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': blockId });
       // Between conditions: render clickable and/or operator line (not a doc-stmt)
       if (i < conditions.length - 1) {
-        // Injected directly — not via ln() to avoid doc-stmt class
-        // (handled separately in _handleDocClick via .doc-condop)
-        // We push directly to the lines array — but we don't have access here.
-        // Use ln() with a special marker type that _handleDocClick skips for stmt selection.
         ln(`<span class="doc-condop" data-condop-block="${_esc(blockId)}">${_esc(op)}</span>`, pad + 1, { id: `condop_${_esc(blockId)}_${i}`, type: 'condition_operator' });
       }
     });

@@ -25,6 +25,7 @@ actions, same outcomes.
 
 **The tiebreaker for compiler decisions:** does it produce the right behavior in HA?
 **The tiebreaker for UI/wizard decisions:** does it match what WebCoRE users expect?
+
 ---
 
 # Non-Negotiable Requirement — Read Before Any Architecture Discussion
@@ -38,6 +39,7 @@ wrong structure, orphaned nodes — the tool has failed at its core purpose.
 This requirement overrides any argument about implementation convenience. It is why
 the data model was migrated from flat ID references to a nested tree in Session 35.
 Do not propose solutions that trade render reliability for implementation simplicity.
+
 ---
 
 # Decision Stability Rule
@@ -50,12 +52,6 @@ The nested tree migration in Session 35 is the model for this exception — the 
 model was a documented decision that turned out to break the non-negotiable requirement
 above. The decision was correctly reversed.
 
-If Claude finds itself arguing that a documented decision should stay even though it
-breaks the non-negotiable requirement, that is wrong. The requirement wins.
-
-If Claude finds itself arguing to revisit a decision for any other reason — preference,
-elegance, theoretical correctness — that is wrong. The spec wins.
-
 ---
 
 # File Editing Rule — Non-Negotiable
@@ -65,6 +61,9 @@ of a file. Any change that requires editing the middle of a file must be deliver
 as a complete replacement file. No diffs, no line-number instructions, no partial
 patches. If it needs a middle edit, write the whole file.**
 
+**Do not write any file until all necessary files for that task have been read first.
+If a fix requires seeing file X, read file X before writing anything.**
+
 ---
 
 # Wizard Priority Rule — Current Focus
@@ -72,15 +71,10 @@ patches. If it needs a middle edit, write the whole file.**
 **THE WIZARD IS THE CURRENT FOCUS. Everything else is deferred until every wizard
 menu works correctly and matches WebCoRE's user-facing flow.**
 
-The smoke test (14-step minimum viable piston flow from WIZARD_REBUILD_SPEC.md)
-must pass before any Stage 2 backend work resumes.
-
 **WebCoRE match rule (permanent):**
-Match WebCoRE exactly for all dialog flow, field behavior, and data collection —
-the if/condition/action/task dialogs, the operand picker, the device selector, all of it.
+Match WebCoRE exactly for all dialog flow, field behavior, and data collection.
 PistonCore improvements are fine for: globals accessible from anywhere (top bar),
 debug/log screen, and main screen layout. Those are upgrades, not regressions.
-Do not accidentally revert intentional improvements.
 
 **HA Limitations rule (permanent):**
 Before adding any WebCoRE operator or feature to the wizard, check HA_LIMITATIONS.md.
@@ -97,296 +91,136 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 4. Show proposed changes as text first — get approval before writing to files
 5. Never remove existing spec content without explicit approval
 6. Never write code that conflicts with the specs — specs are the authority
+
 ---
 
-## Project Status — Session 44 Complete
+## Project Status — Session 45 Complete (W-S6 partial)
 
-### What Was Done in Session 44
+### What Was Done in Session 45
+
+Session ran into credit limits and did not complete cleanly. The following
+were completed and delivered:
+
+**editor.js — 8 fixes delivered:**
+
+1. `_friendlyCmd()` — new helper converts snake_case command to Title Case.
+   `turn_on` → `Turn on`, `set_volume_level` → `Set volume level`.
+   Strips domain prefix (`light.turn_on` → `Turn on`).
+   Action task lines now render with friendly labels matching WebCoRE.
+
+2. `log_message` — `log "..."` → `do Log message {"..."}` per STATEMENT_TYPES.md Section 16.
+
+3. `wait` (duration) — `wait N unit` → `do Wait N unit` per Section 14.
+
+4. `wait` (until) — `wait until` → `do Wait until` per Section 15.
+
+5. `call_piston` — `execute piston` → `do Execute piston` per Section 17.
+
+6. `cancel_pending_tasks` — `cancel all pending tasks` → `do Cancel all pending tasks` per Section 18.
+
+7. Aggregation — `Any of` now always shown for device conditions.
+   Previously suppressed when aggregation was `any`. WebCoRE always shows it.
+
+8. `modified_at` fallback — header now reads `p.modified_at || p.updated_at`.
+   Imported pistons use `modified_at`; editor-saved pistons may use `updated_at`.
+
+9. Device variables in define block — `var_type === 'device'` variables never show
+   `= value`. Device roles have no meaningful initial value to display.
+
+**list.js — 1 fix delivered:**
+
+10. `_isUnmapped()` helper — import role mapping dialog now fires for placeholder
+    entity IDs (`__placeholder_<domain>__`) in addition to empty arrays.
+    GAP-S43-1 CLOSED.
+
+**wizard.js — PARTIALLY DELIVERED (session ran out):**
+
+- `_goVariablePicker()` — `initial_value_type` pre-fill fix was written but
+  the session faulted during delivery. Verify this landed correctly:
+  Device variables created by api.py import have no `initial_value_type` set.
+  Opening and saving them should NOT write back an initial value.
+  The fix: only use stored `initial_value_type` if explicitly present on `_editNode`.
+
+- Delete button on variable edit dialog — was to be added this session.
+  Confirm it is present in the delivered wizard.js before testing.
+
+**Condition brackets — NOT DONE. Wrong approach identified:**
+The `{ }` text characters added to `_renderConditionBlock` this session are WRONG
+and must be removed next session. WebCoRE uses CSS vertical sidebar lines (visual
+block connectors like a code editor), NOT literal `{ }` characters in the text.
+This is a CSS rendering feature, not text content. See the red-circled lines in
+the WebCoRE screenshot — they are drawn borders on the left side of indented blocks.
+
+**Scroll broken in editor — not investigated this session.**
+
+**Compile/deploy path not yet testable:**
+Device_map still has placeholder entity IDs after import. Role mapping dialog
+must complete successfully AND save real entity IDs before any compile test works.
+This path has not been verified end-to-end yet.
+
+---
+
+### Gaps from Session 45
+
+**GAP-S45-1 → S4-16:** `set_variable` wizard does not normalize `$` prefix.
+If user types `$varName` in the variable name field, editor renders `$$varName`.
+Low priority. Fix in S4-16.
+
+**GAP-S45-2 → W-S6 continuation:** Condition bracket rendering is wrong.
+`{ }` text characters must be removed from `_renderConditionBlock`.
+Replace with CSS vertical connector lines matching WebCoRE sidebar style.
+This is a pure CSS/HTML rendering change in editor.js.
+
+**GAP-S45-3 → W-S6 continuation:** Scroll broken in editor — not investigated.
+Likely a CSS overflow issue on the editor-doc container. Investigate and fix.
+
+**GAP-S45-4 → W-S6 continuation:** Compile/deploy test path not yet verified.
+Role mapping flow must be tested end-to-end with a real piston before
+any compile test is attempted. Add explicit task to TASKS.md.
+
+---
+
+### Priority order for next session (W-S6 continuation):
+
+1. Verify wizard.js Delete button on variable edit dialog is present and working
+2. Remove `{ }` text brackets from `_renderConditionBlock` (GAP-S45-2)
+   Replace with CSS vertical sidebar connector lines matching WebCoRE
+3. Fix scroll broken in editor (GAP-S45-3)
+4. Verify role mapping flow end-to-end with kitchen_motion_test2.json (GAP-S45-4)
+5. GAP-S44-1 — group condition editing (low priority, if time)
+
+**Do not attempt smoke test. Rendering and role mapping must work first.**
+
+Upload for next session:
+editor.js, wizard.js, list.js, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+## What Was Done in Session 44 (W-S5)
 
 **editor.js and wizard.js — rendering and wizard pre-fill fixes.**
 
-**editor.js — 3 fixes:**
+editor.js: `_condLine()` flat-field normalization (GAP-S43-3 CLOSED), group object guard,
+`_subj()` null-safe, `if` renderer reverted to `then`/`else` (matches WebCoRE + spec).
 
-1. `_condLine()` flat-field normalization (GAP-S43-3 CLOSED): Imported pistons store
-   `role`, `attribute`, `operator` directly on the condition object with no `subject`
-   sub-object. `_condLine()` now detects this and builds a synthetic subject before
-   proceeding. Both wizard-written (subject object) and imported (flat fields) conditions
-   now render correctly. Also added a group object guard: if `c.type === 'group'`,
-   renders a readable summary instead of garbage.
+wizard.js: `_condId()` helper added (cond_ prefix for condition IDs),
+`_buildConditionNode()` uses it, `_route()` edit-condition pre-fill handles
+flat-field imported conditions.
 
-2. `_subj()` null-safe: Was returning empty string for null subject. Now returns a
-   `[device]` placeholder so nothing renders invisibly blank.
-
-3. `if` renderer: `when true`/`when false` reverted to `then`/`else` — matches WebCoRE
-   and STATEMENT_TYPES.md spec. Also corrected for `else if` branches.
-
-**wizard.js — 3 fixes:**
-
-4. `_condId()` added: New helper generating `cond_` + 8 hex. `_buildConditionNode()`
-   now uses it. Condition IDs correctly use `cond_` prefix per spec.
-
-5. GAP-S40-1 verified CLOSED: `_route()` correctly checks `t === 'log_message'` and
-   passes `'log'` as the command ID, consistent throughout. No bug.
-
-6. GAP-S40-2 verified CLOSED: `_saveLocationCmd` already uses `_taskId()`. The
-   additional fix this session: `_condId()` for condition IDs (separate issue found).
-
-7. `_route()` edit-condition flat-field pre-fill: When editing an imported condition
-   with no `subject` object, wizard now reads `_editNode.role`, `_editNode.attribute`
-   etc. to pre-fill the condition builder correctly.
-
-**Gaps found this session:**
-- GAP-S44-1: Group condition editing not implemented → W-S7
-
-### Priority order for next session (W-S6 — Rendering Audit):
-1. GAP-S43-5: Verify define block shows device roles after api.py fix
-2. GAP-S43-2: Full editor rendering audit — side-by-side vs WebCoRE, fix every mismatch
-3. GAP-S43-1: Placeholder standard — list.js import flow + AI prompt files
-
-**Smoke test is not a near-term milestone. Do not reference it as next.**
-
-Upload: editor.js, wizard.js, list.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
-**editor.js and wizard.js — comprehensive bug fix pass.**
-
-Both files delivered as complete replacements. Deploy both.
-
-**editor.js — 10 bugs fixed:**
-
-1. `then` → `when true` (if branch label — matches WebCoRE exactly)
-2. `then` → `when true` inside each else_if branch
-3. `else` was hidden behind `node.else.length > 0` guard → `when false` now always
-   renders unconditionally with `node.else || []` as safe fallback. Fresh if blocks
-   now immediately show both `when true` and `when false` with insertion points.
-4. Added `· add a new condition` ghost link to else_if blocks — previously missing,
-   you could not add conditions to an else_if
-5. `on_event` renderer was using `node.event_name` (field that doesn't exist) →
-   now iterates `node.conditions[]` with ⚡ bolts, matching STATEMENT_TYPES.md
-6. Aggregation label never rendered — `deviceCount > 1` check used `c.devices`
-   which never exists on condition nodes. Now shows aggregation whenever set to
-   something other than `any`
-7. `display_value` only — condition lines missed values for time/between operators.
-   Now falls back `display_value` → `value` → `value_from`, and renders `value_to`
-   for between operators
-8. `insertStatement` for `else_if_statements` branch crashed silently — added
-   `_findElseIf()` helper and dedicated branch handling
-9. Clicking an `if` node opened condition editor with `conditions[0]` — now opens
-   the statement picker targeting the `then` branch
-10. `deleteStatement` was aliased to `_deleteSelected` which ignores its argument —
-    wrote a real `deleteStatement(id)` function that takes the id directly
-
-**editor.js — additional fixes found after full audit (Session 42 continued):**
-
-11. Condition lines inside if/while/repeat/on_event blocks had no `id` — they were
-    not clickable at all. Now every condition line in the statement tree is rendered
-    as a `doc-stmt` with its id and a `parent-block` attribute pointing to its
-    owning block.
-12. `_findAnyNode` could not find condition nodes inside the statement tree —
-    only top-level triggers/conditions were searchable. Added `_findCondition()`
-    helper that recursively walks `conditions[]` and `until_conditions[]` inside
-    every node. `_findAnyNode` now calls it as a final fallback.
-13. Clicking a condition inside an if/while/etc block opened the wrong wizard screen
-    and had no parent block context, so saving the edit created a new if block instead
-    of updating the existing condition. `_handleDocClick` now reads `data-parent-block`
-    from the element and passes it to `_openWizardForEdit`.
-14. `_openWizardForEdit` for condition types now opens `if_condition` context with
-    the parent `block-id` when the condition lives inside a block — so the wizard
-    saves the edited condition back to the correct conditions array.
-15. `while` and `repeat` blocks now render `· add a new condition` ghost links
-    below their condition lines — previously only if blocks had this link.
-16. Clicking the `if` keyword now opens the condition/group picker (to add a
-    condition), not the statement type picker. This matches WebCoRE behavior.
-
-**wizard.js — fixes in this session:**
-
-1. Auto-selects first attribute when device is picked and immediately re-renders
-   value widget — fixes the giant empty textarea bug when device + operator selected
-   but attribute not yet chosen
-2. Group builder: AND/OR only (XOR and "Followed by" removed — not implementable
-   in HA per HA_LIMITATIONS.md)
-3. Group builder: "Whole group negation" field added (Not negated / Negated)
-4. Condition builder: `when true`/`when false` labels corrected throughout
-5. `on_event` conditions rendered with ⚡ and `· add a new event condition` link
-6. Aggregation rendering fixed
-7. Condition value fallback chain fixed (display_value → value → value_from)
-8. Time condition: `only_on_days` and `only_on_months` checkboxes written to JSON
-9. Timer: full scheduling options (at_minute, at_time, days, months checkboxes)
-10. Timer: unit re-renders the screen to show/hide at_minute / at_time fields correctly
-
-**wizard.js — fixes from previous session (still in this file):**
-
-- All edit paths fixed — clicking existing nodes opens correct screen for every type
-- `_commitCondition`/`_commitConditionAndMore` logic bug fixed — adding condition
-  to existing if block no longer creates a new if block
-- `when true`/`when false` context preserved through else_if branch insertion
-- `else_if_statements` branch routing added to `insertStatement`
-- `deleteStatement(id)` called correctly from wizard delete
-- Command picker: "Add" for new tasks, "Save" for edits; "Add more" button present
-- Location picker: http_request, set_mode, raise_event param fields added
-- Virtual/system/demo device sections always visible during action picker search
-- "Which interaction" hidden by default, shows only when device selected
-- Subject type switching shows correct sub-widget (Variable/Time/Date/Mode)
-- `repeat` inserts directly — no fake "N times" count field (WebCoRE repeat has no count)
-- `while` inserts node first then opens condition builder
-- `switch` shows expression picker before inserting
-- `for` shows start/end/step/counter screen before inserting
-- `exit` shows value field screen before inserting
-- Timer unit dropdown includes all units: ms/s/m/h/d/w/months/years
+GAP-S40-1 and GAP-S40-2 verified CLOSED.
+New gap: GAP-S44-1 (group editing) → W-S7.
 
 ---
 
-## Next Session Start Instructions
+## What Was Done in Session 43 (S2-4 — Import Role Mapping)
 
-Upload these files:
-`CLAUDE_SESSION_PROMPT.md, TASKS.md, WIZARD_REBUILD_SPEC.md, wizard.js, editor.js,
-PISTON_FORMAT.md, STATEMENT_TYPES.md`
-
-Then say this word for word:
-
-"This is a wizard UI session. Read everything uploaded completely.
-The wizard and editor have had a major bug fix pass in Session 42.
-Deploy the new wizard.js and editor.js, build Docker, then run the 14-step
-minimum viable piston flow from WIZARD_REBUILD_SPEC.md step by step.
-Document exactly which step fails and what happens. Fix only that step.
-Do not touch any other file. Do not touch the backend.
-The goal is a passing smoke test. Nothing else matters until it passes."
-
-DO NOT CODE UNTIL YOU HAVE RUN THE SMOKE TEST AND KNOW WHAT FAILS.
-
----
-
-## Known Remaining Wizard Gaps (after Session 42)
-
-Sourced directly from WebCoRE template files (webcore3.txt) — these are confirmed
-missing by reading the actual WebCoRE source, not from screenshots or transcripts.
-
-### CRITICAL — Blocks cannot be used without these:
-
-- **GAP-WIZ-1: Switch has no case editor.**
-  WebCoRE has `dialog-edit-case`: Case type (Single value / Range), value operand,
-  second value operand for Range, footer: "Add a statement" (new) / "Save" (edit).
-  PistonCore: you can add a switch block but cannot add any cases to it. The block
-  is completely non-functional. This must be fixed before switch is usable.
-
-### MISSING FIELDS — confirmed from WebCoRE templates:
-
-- **GAP-WIZ-2: Condition builder — single device only.**
-  WebCoRE operand template uses a multi-select for Physical device(s). A user who
-  had "Any of {Front Door, Back Door, Side Door}" in WebCoRE cannot replicate it.
-  PistonCore condition builder only picks one device at a time.
-
-- **GAP-WIZ-3: Condition builder — Preset type missing.**
-  WebCoRE operand template has type `s` = Preset: Sunrise / Noon / Sunset / Midnight.
-  This is extremely common in automations ("happens daily at Sunset"). PistonCore
-  has no Preset option in the subject type selector.
-
-- **GAP-WIZ-4: Condition builder — time filter fields incomplete.**
-  WebCoRE comparison template shows when subject is virtual "time":
-    - "Only on these days of the week" ✓ present in PistonCore
-    - "Only on these days of the month" (1-31 + last/second-last/third-last) MISSING
-    - "Only on these weeks of the month" (1-5 + last/second-last/third-last) MISSING
-    - "Only on these months of the year" ✓ present in PistonCore
-
-- **GAP-WIZ-5: Timer — missing filter fields.**
-  WebCoRE `dialog-edit-statement` for `every` type shows conditionally:
-    - if ms/s: "Only during these minutes..." (multi-select 0-59) MISSING
-    - if ms/s/m: "Only during these hours..." (multi-select 0-23) MISSING
-    - if not w/n/y: "Only on these days of the week" ✓ present
-    - if not n/y (no owm): "Only on these days of the month" (1-31 + ordinals) MISSING
-    - if not n/y (no odm): "Only on these weeks of the month" (1-5 + ordinals) MISSING
-    - if not y: "Only on these months of the year" ✓ present
-    - if hours unit: "At this minute of the hour" (single select 0-59) ✓ present
-    - if weekly unit: "On this day of the week" (single select) MISSING
-    - if monthly/yearly unit: "On this day of the month" (two selects) MISSING
-    - if yearly unit: "On this month of the year" (single select) MISSING
-
-- **GAP-WIZ-6: Task command picker — "Only during these modes" missing.**
-  WebCoRE `dialog-edit-task` has a "Only during these modes" multi-select after
-  the command parameters. Lets users restrict a task to specific HA modes.
-  PistonCore has no mode restriction field in the command picker.
-
-- **GAP-WIZ-7: Variable picker — "Assignment type" missing.**
-  WebCoRE `dialog-edit-variable` shows "Assignment type" (Dynamic / Constant)
-  when an initial value is set and the type is not Device. PistonCore omits this.
-
-- **GAP-WIZ-8: For loop — start/end/step are literal numbers only.**
-  WebCoRE shows full operand widget (type selector) for start, end, and step —
-  users can use variables or expressions, not just literal numbers. PistonCore
-  uses plain number inputs.
-
-- **GAP-WIZ-9: Exit — full operand widget missing.**
-  WebCoRE `dialog-edit-statement` for `exit` shows a full operand widget for
-  "New piston state" (type selector: Value / Variable / Expression / Argument).
-  PistonCore shows a plain text input only.
-
-- **GAP-WIZ-10: For each — "List of devices" is free-text, not an operand widget.**
-  WebCoRE shows a full operand widget (Physical device / Variable / etc) for the
-  device list. PistonCore has a free-text role name field. Acceptable for v1 since
-  role names are what the compiler needs, but not a match for WebCoRE.
-
-- **GAP-WIZ-11: Task picker — existing tasks not shown above/below insert point.**
-  WebCoRE `dialog-edit-task` shows existing tasks on the action node above and
-  below the current insert position, clickable to reorder. PistonCore shows only
-  the current task being edited. No way to see or manage multiple tasks.
-
-- **GAP-WIZ-12: PyScript-only statement warning missing.**
-  STATEMENT_TYPES.md requires the wizard to display a clear warning when `on_event`,
-  `break`, or `cancel_pending_tasks` is added, explaining the blocking/PyScript
-  behavior. Not yet implemented.
-
-### Priority order for next session (W-S6 — Rendering Audit):
-1. GAP-S43-5 (_condLine flat field format) — conditions render blank on import
-2. GAP-S43-5 verification — confirm define block populates after api.py fix
-3. GAP-S43-2 (full editor rendering audit vs WebCoRE)
-4. GAP-S43-1 (placeholder standard + list.js + AI prompt files)
-
-**Do not attempt smoke test. There is too much still broken.**
-
-Upload: editor.js, wizard.js, list.js, STATEMENT_TYPES.md, WIZARD_REBUILD_SPEC.md,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
----
-
-## What Was Done in Session 40 (W-0 + W-S1 through W-S4)
-
-**WIZARD_REBUILD_SPEC.md written.**
-Complete spec of every wizard dialog, every field, every JSON output, every device
-picker rule, complete 14-step minimum viable piston flow, and 7 bugs in fix order.
-Written from WebCoRE source (webcore1.txt, webcore3.txt) against PISTON_FORMAT.md
-and STATEMENT_TYPES.md. Now in the repo as authoritative wizard target.
-
-All Stage 2 backend tasks (S2-2 through S2-4) remain deferred until smoke test passes.
-
----
-
-## What Was Done in Session 39 (S2-1 — HAClient Abstraction)
-
-**ha_client.py rewritten as HAClient class with module-level singleton.**
-Auth mode auto-detected. reload_config() added. Bug 26 fixed. Bug 27 fixed.
-endpoints.json externalization skipped (decision final).
-GAP-S39-1 opened → assigned to S2-2 (deferred).
-
----
-
-## What Was Done in Session 38 (S2-0 — SQLite Error Logger)
-
-**error_logger.py created. main.py updated.**
-GAP-S38-1 opened → assigned to S2-2 (deferred).
-
----
-
-## What Was Done in Session 37 (S-NESTED Session C)
-
-wizard.js audited and fixed. editor.js updated for GAP-S36-1 and GAP-S36-2.
-wait field name fixed. GAP-S27-4 confirmed closed.
-
----
-
-## What Was Done in Session 36 (S-NESTED Session B)
-
-editor.js fully migrated to nested tree model. No flat statements array.
-No stmtMap. No ID references between statements.
+POST /pistons/import implemented (api.py). API.importPiston() added (api.js).
+Import paste modal + "Rebuild piston items" role mapping dialog implemented in
+list.js matching WebCoRE flow. Ignore skips to editor, Continue saves device_map.
+api.py import endpoint creates device variable entries from device_map roles
+(safety net — ensures define block is populated on import).
+Gaps: GAP-S43-1 (CLOSED S45), GAP-S43-2 (partial), GAP-S43-3 (CLOSED S44),
+GAP-S43-4 (S2-3), GAP-S43-5 (CLOSED S45).
 
 ---
 
@@ -395,14 +229,6 @@ No stmtMap. No ID references between statements.
 The statements array is a nested tree. Control flow nodes own their children directly.
 `then`, `else`, `statements`, `else_ifs`, and `cases` contain child statement objects.
 No ID references between statements anywhere.
-
----
-
-## What Was Done in Sessions 32-34
-
-S1-6: Fat compiler context assembly. COMPLETE.
-S1-7 session 3: COMPLETE. else_ifs, time condition fix, PyScript spec.
-S1-8: Template compliance pass. COMPLETE.
 
 ---
 
@@ -428,6 +254,10 @@ When specs conflict, this is the resolution order:
 The AI prompt files must be written against the **nested tree model only**.
 Any AI generating flat ID-reference JSON will produce pistons that break the editor.
 
+AI-generated pistons must use `__placeholder_<domain>__` for all entity IDs in
+device_map (e.g. `"Kitchen Light": ["__placeholder_light__"]`). Never invent
+real entity IDs. The import flow detects placeholders and fires the role mapping dialog.
+
 ---
 
 ## Build Target — Docker Now, Addon Last
@@ -440,6 +270,10 @@ Any AI generating flat ID-reference JSON will produce pistons that break the edi
 
 **If it is not explicitly deferred to v2 or v3 in the specs, it is v1.**
 
+**`when true` / `when false` per-condition sub-blocks** — Deferred to v2.
+These are per-condition action branches (TCP/TEP) visible in WebCoRE. Jeremy does
+not use them. They add significant complexity. Do not implement in v1.
+
 ---
 
 ## Reference Folder
@@ -449,18 +283,12 @@ decisions. Move processed files there, don't delete them.
 
 ---
 
-## Reference Documents
-
-- **TASKS.md** — what to work on and in what order (always upload this)
-- **WIZARD_REBUILD_SPEC.md** — authoritative wizard target (always upload for wizard sessions)
-- **MISSING_SPECS.md** — specs that must be written before certain tasks can be coded
-
----
+## Deploy Commands
 
 ```bash
 cd /mnt/user/appdata/pistoncore-dev
 git pull
-docker build -t pistoncore .
+docker build --no-cache -t pistoncore .
 docker stop pistoncore && docker rm pistoncore
 docker run -d \
   --name pistoncore \
@@ -471,9 +299,7 @@ docker run -d \
   pistoncore
 ```
 
-**PISTONCORE_BASE_URL env var:** Set this in docker-compose.yml to your Unraid
-server IP so the frontend can reach the backend from other machines on the LAN.
-Example: `PISTONCORE_BASE_URL=http://192.168.1.10:7777`
+Note: always use `--no-cache` on the build step or browser cache will serve old JS.
 
 ---
 
@@ -488,8 +314,7 @@ Never emit HA YAML structure as Python inline strings in compiler methods.
 
 After writing or modifying any code, before ending the session, Claude must:
 
-1. Review all changed functions for gaps between what the code does and what the
-   spec requires.
+1. Review all changed functions for gaps between what the code does and what the spec requires.
 2. Review all call sites of changed functions for broken callers not yet updated.
 3. Check for any implicit assumptions in the new code not confirmed by the spec.
 4. For each gap found: fix it now if it fits the current session scope, or add
@@ -498,8 +323,7 @@ After writing or modifying any code, before ending the session, Claude must:
 
 **Gap Assignment Rule — Non-Negotiable:**
 Every gap must be assigned to the most logical future session before this session
-closes. A gap assigned to the wrong session forces unnecessary file loading and
-context switching. Assign to the right one.
+closes. Assign to the right one — wrong assignment forces unnecessary file loading.
 
 This is not optional. A session that produces code without a gap review is incomplete.
 
@@ -512,3 +336,6 @@ programming background. Direct and concise. Plain language over technical
 jargon. Show proposed changes as text before writing files. Humor is welcome.
 
 When something is unclear, ask one question — not five.
+
+Redirect the sesion: FIX THE LOCKING UP PROBLEM
+The file size problem — the fix going forward is to split wizard.js into smaller files by dialog group. That's a one-session refactor that would make every future session faster and more reliable. Worth doing before the next round of fixes.

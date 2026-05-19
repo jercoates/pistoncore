@@ -306,5 +306,8 @@ Priorities realigned: vertical lines → globals system → smoke test.
 ### GAP-S46-1 → CLOSED S46: Delete button added to _goVariablePicker
 ### GAP-S46-2 → CLOSED S46: Device variable = value suppression fixed
 ### GAP-S46-3 → CLOSED S46: Aggregation 'Any of' fixed in _condLine
-### GAP-S46-4 → G-3: Imported globals fall into piston variables — globals system unbuilt
+### GAP-S46-5 → W-S8: Import modal has no file picker — paste-only
+Add `<input type="file" accept=".json,.piston">` to the import modal in list.js.
+On file select, read contents and drop into the existing textarea. Rest of import
+flow is unchanged — no backend work needed. Small addition to list.js only.
 ### GAP-S30-3 → S4-16: Double config load per compile call

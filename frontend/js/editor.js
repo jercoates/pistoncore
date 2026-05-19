@@ -267,11 +267,11 @@ const Editor = (() => {
     // Block body wrappers — produce a solid continuous border-left connector line
     // matching WebCoRE's vertical sidebar lines.
     // Position: 44px (doc-ln gutter) + N * 2rem (doc-indent per level).
-    // This lands the line exactly at the left edge of the indented child text,
-    // matching how WebCoRE draws its block connector lines.
+    // This lands the line exactly at the left edge of the indented child text.
+    // border-left is applied via .doc-block-body in style.css; only margin-left varies.
     const bOpen = (indentLevel) => {
       const offset = `calc(44px + var(--doc-indent) * ${indentLevel})`;
-      lines.push(`<div class="doc-block-body" style="margin-left:${offset};border-left:2px solid rgba(56,200,200,0.35)">`);
+      lines.push(`<div class="doc-block-body" style="margin-left:${offset}">`);
     };
     const bClose = () => { lines.push(`</div>`); };
 

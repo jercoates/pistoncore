@@ -1573,6 +1573,14 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 /* Line content */
 .doc-lc { flex: 1; white-space: pre-wrap; word-break: break-word; padding-right: 12px; }
 
+/* Block body wrapper — vertical connector line matching WebCoRE sidebar lines.
+   margin-left is set inline per nesting level (44px gutter + N*2rem indent).
+   border-left draws the continuous vertical line spanning the full block height. */
+.doc-block-body {
+  border-left: 2px solid rgba(56, 200, 200, 0.35);
+  min-height: 24px;
+}
+
 /* ── Syntax colors ── */
 .kw       { color: var(--teal); }
 .doc-cmt  { color: #4a8a4a; }

@@ -94,105 +94,51 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 45 Complete (W-S6 partial)
+## Project Status — Session 46 Complete
 
-### What Was Done in Session 45
+### What Was Done in Session 46
 
-Session ran into credit limits and did not complete cleanly. The following
-were completed and delivered:
+**editor.js — 3 fixes:**
+- Scroll fixed: `flex:1;overflow-y:auto;min-height:0` added inline to `editor-doc` div. Confirmed working.
+- Device variable `= value` suppression: define block skips `valueStr` when `var_type === 'device'`.
+  This fix was documented in S45 but never landed in the file.
+- Aggregation `Any of` always shown: `isDeviceSubj` check added so `Any of` always renders
+  for device conditions. Non-device subjects still suppress it when aggregation is `any`.
+- GAP-S45-2 confirmed already clean — no `{ }` text in _renderConditionBlock.
 
-**editor.js — 8 fixes delivered:**
+**wizard.js — split into 6 files (DEPLOYED and working):**
+- wizard-core.js, wizard-statement.js, wizard-condition.js, wizard-loops.js,
+  wizard-action.js, wizard-variable.js
+- Shared state exposed via `window.WizardCore` with getter/setter properties
+- Public API unchanged: `Wizard.open()` and `Wizard.close()`
+- Delete button added to `_goVariablePicker` footer when `_editNode` is set (GAP-S46-1 CLOSED)
 
-1. `_friendlyCmd()` — new helper converts snake_case command to Title Case.
-   `turn_on` → `Turn on`, `set_volume_level` → `Set volume level`.
-   Strips domain prefix (`light.turn_on` → `Turn on`).
-   Action task lines now render with friendly labels matching WebCoRE.
+**index.html updated** — 6 new script tags replace the single wizard.js tag. Load order critical:
+wizard-core.js first, then statement/condition/loops/action/variable.
 
-2. `log_message` — `log "..."` → `do Log message {"..."}` per STATEMENT_TYPES.md Section 16.
+**Globals situation assessed:**
+- GlobalsDrawer.open() called from list.js but object does not exist
+- No backend API endpoints for globals
+- No globals storage
+- Imported pistons with globals dump them into piston variables (GAP-S46-4)
+- Full globals system is 4 sessions of work (G-1 through G-4 in TASKS.md)
 
-3. `wait` (duration) — `wait N unit` → `do Wait N unit` per Section 14.
-
-4. `wait` (until) — `wait until` → `do Wait until` per Section 15.
-
-5. `call_piston` — `execute piston` → `do Execute piston` per Section 17.
-
-6. `cancel_pending_tasks` — `cancel all pending tasks` → `do Cancel all pending tasks` per Section 18.
-
-7. Aggregation — `Any of` now always shown for device conditions.
-   Previously suppressed when aggregation was `any`. WebCoRE always shows it.
-
-8. `modified_at` fallback — header now reads `p.modified_at || p.updated_at`.
-   Imported pistons use `modified_at`; editor-saved pistons may use `updated_at`.
-
-9. Device variables in define block — `var_type === 'device'` variables never show
-   `= value`. Device roles have no meaningful initial value to display.
-
-**list.js — 1 fix delivered:**
-
-10. `_isUnmapped()` helper — import role mapping dialog now fires for placeholder
-    entity IDs (`__placeholder_<domain>__`) in addition to empty arrays.
-    GAP-S43-1 CLOSED.
-
-**wizard.js — PARTIALLY DELIVERED (session ran out):**
-
-- `_goVariablePicker()` — `initial_value_type` pre-fill fix was written but
-  the session faulted during delivery. Verify this landed correctly:
-  Device variables created by api.py import have no `initial_value_type` set.
-  Opening and saving them should NOT write back an initial value.
-  The fix: only use stored `initial_value_type` if explicitly present on `_editNode`.
-
-- Delete button on variable edit dialog — was to be added this session.
-  Confirm it is present in the delivered wizard.js before testing.
-
-**Condition brackets — NOT DONE. Wrong approach identified:**
-The `{ }` text characters added to `_renderConditionBlock` this session are WRONG
-and must be removed next session. WebCoRE uses CSS vertical sidebar lines (visual
-block connectors like a code editor), NOT literal `{ }` characters in the text.
-This is a CSS rendering feature, not text content. See the red-circled lines in
-the WebCoRE screenshot — they are drawn borders on the left side of indented blocks.
-
-**Scroll broken in editor — not investigated this session.**
-
-**Compile/deploy path not yet testable:**
-Device_map still has placeholder entity IDs after import. Role mapping dialog
-must complete successfully AND save real entity IDs before any compile test works.
-This path has not been verified end-to-end yet.
+**Priorities realigned for remainder of project:**
+1. Vertical structure lines (W-S7) — biggest visual gap
+2. Role mapping + wizard smoke test (W-S8)
+3. Globals system end-to-end (G-1 → G-2 → G-3 → G-4)
+4. Compile/deploy smoke test (S3-1) — only after globals and role mapping work
 
 ---
 
-### Gaps from Session 45
+### Priority order for next session (W-S7):
 
-**GAP-S45-1 → S4-16:** `set_variable` wizard does not normalize `$` prefix.
-If user types `$varName` in the variable name field, editor renders `$$varName`.
-Low priority. Fix in S4-16.
-
-**GAP-S45-2 → W-S6 continuation:** Condition bracket rendering is wrong.
-`{ }` text characters must be removed from `_renderConditionBlock`.
-Replace with CSS vertical connector lines matching WebCoRE sidebar style.
-This is a pure CSS/HTML rendering change in editor.js.
-
-**GAP-S45-3 → W-S6 continuation:** Scroll broken in editor — not investigated.
-Likely a CSS overflow issue on the editor-doc container. Investigate and fix.
-
-**GAP-S45-4 → W-S6 continuation:** Compile/deploy test path not yet verified.
-Role mapping flow must be tested end-to-end with a real piston before
-any compile test is attempted. Add explicit task to TASKS.md.
-
----
-
-### Priority order for next session (W-S6 continuation):
-
-1. Verify wizard.js Delete button on variable edit dialog is present and working
-2. Remove `{ }` text brackets from `_renderConditionBlock` (GAP-S45-2)
-   Replace with CSS vertical sidebar connector lines matching WebCoRE
-3. Fix scroll broken in editor (GAP-S45-3)
-4. Verify role mapping flow end-to-end with kitchen_motion_test2.json (GAP-S45-4)
-5. GAP-S44-1 — group condition editing (low priority, if time)
-
-**Do not attempt smoke test. Rendering and role mapping must work first.**
+1. Vertical structure lines in editor.js — CSS border-left connector lines on indented
+   block containers matching WebCoRE sidebar style. Apply to all block types.
+   Pure editor.js change, no backend needed.
 
 Upload for next session:
-editor.js, wizard.js, list.js, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -337,5 +283,5 @@ jargon. Show proposed changes as text before writing files. Humor is welcome.
 
 When something is unclear, ask one question — not five.
 
-Redirect the sesion: FIX THE LOCKING UP PROBLEM
-The file size problem — the fix going forward is to split wizard.js into smaller files by dialog group. That's a one-session refactor that would make every future session faster and more reliable. Worth doing before the next round of fixes.
+Redirect the session: vertical structure lines in editor.js are the next priority (W-S7).
+The wizard.js split is complete and deployed. Do not revisit it.

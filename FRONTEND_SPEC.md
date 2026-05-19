@@ -1,6 +1,6 @@
 # PistonCore Frontend Specification
 
-**Version:** 0.6
+**Version:** 0.7
 **Status:** Draft — For Developer Use
 **Last Updated:** May 2026
 
@@ -225,7 +225,7 @@ Each piston shows on a single row:
 
 ### Global Variables Drawer
 
-Accessible from the header area. A slide-out panel from the right showing all global variables and their current values — read only.
+A `[Global Variables]` button is present in the header area. **This button exists but the drawer is not yet implemented.** Clicking it has no effect in v1. Do not build the slide-out panel until this is scheduled for implementation.
 
 ### Buttons
 
@@ -427,6 +427,18 @@ Never show "Running..." indefinitely.
 └─────────────────────────────────────────────────────┘
 ```
 
+### editor-doc div
+
+The `#editor-doc` div (the scrollable action tree container) must have the following inline styles applied directly:
+
+```
+flex: 1;
+overflow-y: auto;
+min-height: 0;
+```
+
+These are required for correct flex/scroll behavior inside the editor layout. Do not rely on stylesheet rules alone — apply them inline.
+
 ### Simple / Advanced Mode Toggle
 
 Single global toggle. **Default is Advanced.**
@@ -533,6 +545,10 @@ The entire action tree is wrapped in `execute / end execute;` — rendered autom
 - Statement numbers appear on the left side (used by Trace mode)
 - Line numbers are NOT shown — trace uses statement numbers, not line numbers
 
+### Vertical Structure Lines
+
+Vertical structure lines (connecting parent blocks to their children visually) are **not yet implemented.** Do not add them until this is scheduled for a specific session.
+
 ### Ghost Text — Primary Insertion Method
 
 At every valid insertion point, ghost text appears inline in a muted color. Ghost text is always visible at valid insertion points — not only on hover.
@@ -602,6 +618,10 @@ One screen — everything visible at once:
 - Operator dropdown below that (Triggers first ⚡, then Conditions)
 - Value row appears below operator when needed — textarea for free text types
 
+### Aggregation — Any of (Device Subject Conditions)
+
+When the subject of a condition is a device (or device group), the **"Any of"** aggregation selector is **always shown**, regardless of how many devices are selected. Do not hide it for single-device selections. This matches WebCoRE behavior.
+
 ### Operator Order
 
 Triggers appear **first** with ⚡ prefix. Conditions appear second. This order is non-negotiable.
@@ -650,6 +670,63 @@ This must appear BEFORE the user picks the target piston, not after.
 
 If capability data is being fetched: show a loading spinner. Never show an empty dropdown.
 If capability data fails to load: show error with a Retry button.
+
+---
+
+## Wizard JavaScript Architecture
+
+The wizard is split into six files. Each file owns a distinct concern. All wizard files are loaded together; there is no dynamic import.
+
+| File | Responsibility |
+|---|---|
+| `wizard-core.js` | Modal lifecycle, step navigation, sentence builder, Done/Cancel/Back, shared state |
+| `wizard-statement.js` | Statement type picker (first step for action insertion) |
+| `wizard-condition.js` | Condition builder, operator list, value input, group builder |
+| `wizard-loops.js` | Repeat, For Each, While, For Loop step flows |
+| `wizard-action.js` | With block, service call, set variable, log, call piston, break, exit |
+| `wizard-variable.js` | Variable define step (used when adding entries to the define block) |
+
+### Shared State — window.WizardCore
+
+Wizard state that must be shared across files is exposed via `window.WizardCore` with explicit getter and setter properties. Files must never reach into another file's internal variables directly.
+
+```javascript
+// wizard-core.js sets up:
+window.WizardCore = {
+  get currentStep() { ... },
+  set currentStep(v) { ... },
+  get selections() { ... },
+  set selections(v) { ... },
+  // ... other shared properties
+};
+```
+
+Accessing shared wizard state from any other wizard file:
+```javascript
+// Correct
+const step = window.WizardCore.currentStep;
+window.WizardCore.selections = newSelections;
+
+// Wrong — never reach into another file's scope directly
+```
+
+---
+
+## define Block — Variable Display Rules
+
+Variable entries in the `define` block follow these display rules:
+
+- **Local variables (non-device):** Show name and current value. Example: `myCounter = 0`
+- **Device variables:** Show name only. **Never show `= value` for device variables.** The value of a device variable is a live entity reference, not a scalar — displaying it as `= value` is misleading and must never occur.
+
+Example of correct define block rendering:
+```
+define
+  myCounter = 0
+  motionSensor           ← device variable, no = value
+  frontDoorLock          ← device variable, no = value
+end define;
+```
 
 ---
 
@@ -720,6 +797,8 @@ Do not implement these until they are decided:
 4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 31.
 5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 29.
 6. **Global variable management UI** — create/edit/delete flows defined in DESIGN.md Section 7. Implement from there.
+7. **Vertical structure lines** — not yet implemented. Schedule before building.
+8. **GlobalsDrawer panel** — button exists, panel not yet implemented.
 
 ---
 

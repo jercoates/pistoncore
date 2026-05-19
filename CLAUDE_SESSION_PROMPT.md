@@ -285,3 +285,14 @@ When something is unclear, ask one question — not five.
 
 Redirect the session: vertical structure lines in editor.js are the next priority (W-S7).
 The wizard.js split is complete and deployed. Do not revisit it.
+## Spec Debt — Address After W-S8
+
+The following spec files are known outdated (per Grok audit May 2026).
+Do not fix these during code sessions. Each needs its own dedicated doc session.
+
+- FRONTEND_SPEC.md — HIGH. Wizard split, editor fixes, globals drawer status.
+- WIZARD_SPEC.md — Mark as deprecated, WIZARD_REBUILD_SPEC.md supersedes it.
+- COMPILER_SPEC.md — Backend is ahead of this doc. Needs a pass after S3-1.
+- PROGRESS_TRACKER.md — Low effort. Just needs recent session entries added.
+- write-a-piston.md — Still a placeholder. Must be written against nested tree model
+  before AI prompt files can be used. See AI_PROMPT_SPEC.md for requirements.

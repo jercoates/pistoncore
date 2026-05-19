@@ -296,3 +296,97 @@ Do not fix these during code sessions. Each needs its own dedicated doc session.
 - PROGRESS_TRACKER.md — Low effort. Just needs recent session entries added.
 - write-a-piston.md — Still a placeholder. Must be written against nested tree model
   before AI prompt files can be used. See AI_PROMPT_SPEC.md for requirements.
+  
+  
+  Important note from Grok
+ # Grok Audit — Wizard Split Review (May 2026)
+
+## Overall Assessment
+Good progress — splitting was the right move. Code is now much more maintainable.
+Current state: Functional but fragile / incomplete.
+
+## What's Working Well
+- Clean separation of concerns (core, condition, action, loops, variable, statement)
+- wizard-core.js holds shared state and helpers solidly
+- Routing and modal rendering logic looks stable
+- Major flows (condition builder, action picker, variable) are present
+- Flat-field condition handling for imports preserved
+
+## Major Issues / Risks
+
+**1. State Sharing is Dangerous**
+All files directly mutate WizardCore.sel, WizardCore.context, etc.
+Works for now but easy to break with race conditions or stale closures.
+
+**2. Missing Coordination Between Files**
+Functions like _goConditionBuilder(), _goActionDevicePicker(), _goVariablePicker()
+are defined across files but called from wizard-core.js. If any file fails to load
+or has a syntax error, the whole wizard dies silently with no indication of which
+file caused the problem.
+
+**3. Import / Edit Round-trip Still Weak**
+Flat-field condition normalization exists but looks incomplete in some paths.
+kitchen_motion_test2.json likely still has rendering/editing issues because
+_buildConditionNode and _commitCondition don't perfectly match what the editor
+renderer expects.
+
+**4. Globals & Device Mapping**
+Globals barely started (just drawer stub). Role mapping on import is partially
+there but fragile.
+
+**5. Error Handling & Edge Cases**
+Very little defensive coding (null checks, fallbacks). Large functions still exist
+especially in condition and action files.
+
+## Grok's Recommendation
+Don't touch anything else yet. Stabilize what you have first.
+
+## Quick Test Plan (do before next code session)
+1. Create new simple piston → Add if block → Add condition with real device
+2. Import kitchen_motion_test2.json → Does it render cleanly? Can you edit conditions?
+3. Add action with real device → Does command picker work?
+4. Try adding a variable
+Document exactly what breaks or feels wrong.
+
+---
+
+## Prompt for Wizard Stabilization Session (use before W-S7)
+
+Add this as a session between W-S7 (vertical lines) and W-S8 (smoke test):
+
+```
+Review the split wizard files (wizard-core.js, wizard-condition.js, wizard-action.js,
+wizard-loops.js, wizard-statement.js, wizard-variable.js).
+
+Current problems identified by code review:
+- State sharing across files is risky — all files mutate WizardCore.sel directly
+- Some flows don't fully support imported pistons (flat condition format)
+- Missing robustness and null safety
+
+Tasks:
+1. Add null-safety and defensive coding in key functions:
+   _buildConditionNode, _commitCondition, device picker flows, _loadCapsIntoSelect
+2. Make sure editing an existing condition from an imported piston works correctly
+   end-to-end (flat-field format → pre-fill → save → correct JSON output)
+3. Add console.log statements at the start of all major _go* functions so we can
+   trace the flow when things break
+4. Fix any obvious bugs found during the review
+
+Output the updated files that need changes plus a short summary of what was fixed.
+
+Upload: wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, STATEMENT_TYPES.md, PISTON_FORMAT.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
+```
+
+---
+
+## Notes for TASKS.md
+Add a new task W-S7b (between vertical lines and smoke test):
+
+**W-S7b: Wizard Stabilization + Debug Logging**
+- Null safety pass on _buildConditionNode, _commitCondition, device picker flows
+- Verify imported piston condition edit round-trip works end-to-end
+- Add console.log at start of all _go* functions for debug tracing
+- Fix obvious bugs found during review
+- Do NOT add features — stabilize only

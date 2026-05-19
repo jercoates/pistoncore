@@ -45,9 +45,43 @@ See DONE section below.
 
 ---
 
-### W-S6: Editor Rendering Audit Continuation ← NEXT SESSION
+### W-S7: Deploy Wizard Split + Smoke Test ← NEXT SESSION
 
-**What this is:** Continue the rendering audit started in Session 45.
+**What this is:** Deploy the 6-file wizard split produced in Session 46, verify it works,
+then proceed with role mapping and vertical structure lines.
+
+**Step 1 — Deploy split (first thing):**
+- Copy wizard-core.js, wizard-statement.js, wizard-condition.js, wizard-loops.js,
+  wizard-action.js, wizard-variable.js to frontend/js/
+- Update HTML: replace `<script src="js/wizard.js">` with 6 new script tags in load order:
+  wizard-core.js → wizard-statement.js → wizard-condition.js → wizard-loops.js → wizard-action.js → wizard-variable.js
+- Rebuild Docker --no-cache, verify wizard opens
+
+**Step 2 — Basic wizard smoke test (all must pass):**
+- New piston → add if block → add condition → add action
+- Edit existing condition (pre-fill must work)
+- Edit existing variable → Delete button must be present and functional (GAP-S46-1 CLOSED)
+
+**Step 3 — GAP-S45-4 — Role mapping end-to-end:**
+- Import kitchen_motion_test2.json, confirm role mapping dialog fires for all placeholders
+- Map roles to real entities, save, verify render
+
+**Step 4 — Vertical structure lines (highest visual priority per Grok audit):**
+- CSS border-left connector lines on indented block containers in editor.js
+- Apply to: if/then/else, with/do/end with, while, repeat, for_each, every
+- This is the #1 visual gap vs WebCoRE
+
+**Step 5 — GAP-S44-1 (if time):** Group condition editing
+
+**Upload for this session:**
+wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+### W-S6: Editor Rendering Audit Continuation — COMPLETE (Session 46)
+
+**What this was:** Continue the rendering audit started in Session 45.
 Fix the wrong bracket implementation, scroll, and verify role mapping end-to-end.
 
 **Items in priority order:**
@@ -202,6 +236,17 @@ Significant complexity. Do not implement in v1.
 
 ## DONE — Completed Sessions
 
+### Session 46 — W-S6 complete + wizard.js split ✅
+editor.js: scroll fix (flex:1;overflow-y:auto;min-height:0 on editor-doc), device variable = value
+suppression in define block (skips valueStr when var_type === 'device'), aggregation 'Any of'
+always shown for device conditions (isDeviceSubj check). GAP-S45-2 confirmed already clean.
+GAP-S45-3 CLOSED. GAP-S46-2 CLOSED. GAP-S46-3 CLOSED.
+wizard.js (2480 lines) split into 6 files: wizard-core.js, wizard-statement.js,
+wizard-condition.js, wizard-loops.js, wizard-action.js, wizard-variable.js.
+WizardCore namespace — shared state via window.WizardCore getters/setters.
+GAP-S46-1 CLOSED — Delete button in _goVariablePicker when editing.
+HTML script tag update required before deploy — see SESSION_46_NOTES.md.
+
 ### Session 45 — W-S6 partial: Editor rendering audit + placeholder fix ✅ (partial)
 editor.js: _friendlyCmd() added (snake_case → Title Case for task commands),
 log_message/wait/call_piston/cancel_pending_tasks do-keyword prefixes added,
@@ -253,7 +298,10 @@ All 7 bugs from WIZARD_REBUILD_SPEC.md fixed. See W-S5 entry for full list.
 ### GAP-S43-4 → S2-3: Snapshot export not yet implemented (POST /pistons/{id}/export returns 501)
 ### GAP-S44-1 → W-S6: Group condition editing not implemented
 ### GAP-S45-1 → S4-16: set_variable wizard doesn't normalize $ prefix (cosmetic)
-### GAP-S45-2 → W-S6: Wrong { } text brackets in _renderConditionBlock — replace with CSS sidebar lines
-### GAP-S45-3 → W-S6: Scroll broken in editor — investigate CSS overflow on editor-doc
+### GAP-S45-2 → CLOSED S46: No { } brackets found in editor.js — already clean
+### GAP-S45-3 → CLOSED S46: Scroll fixed — flex:1;overflow-y:auto;min-height:0 added inline to editor-doc
 ### GAP-S45-4 → W-S6: Role mapping end-to-end not yet verified — must pass before compile test
+### GAP-S46-1 → W-S6: Delete button missing from _goVariablePicker footer — add when _editNode is set, wire to _deleteEditNode()
+### GAP-S46-2 → CLOSED S46: Device variable = value suppression fix from S45 never landed — fixed in editor.js define block (skip valueStr when var_type === 'device')
+### GAP-S46-3 → CLOSED S46: Aggregation 'Any of' still suppressed for device conditions — fixed in _condLine (isDeviceSubj check)
 ### GAP-S30-3 → S4-16: Double config load per compile call

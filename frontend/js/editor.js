@@ -138,7 +138,7 @@ const Editor = (() => {
 
       <div id="editor-notice"></div>
 
-      <div class="editor-doc" id="editor-doc">
+      <div class="editor-doc" id="editor-doc" style="flex:1;overflow-y:auto;min-height:0">
         ${_renderDocument(p, isSimple)}
       </div>
       </div>
@@ -194,7 +194,7 @@ const Editor = (() => {
       const typeKw = _kw(_typeLabel(v.var_type));
       const varName = _esc(v.name || '');
       let valueStr = '';
-      if (v.initial_value !== undefined && v.initial_value !== '') {
+      if (v.var_type !== 'device' && v.initial_value !== undefined && v.initial_value !== '') {
         valueStr = ` = <span class="doc-dev-inline">${_esc(String(v.initial_value))}</span>`;
       }
       ln(`${typeKw} ${varName}${valueStr} ;`, 1, { id: v.id, type: 'variable' });
@@ -490,9 +490,10 @@ const Editor = (() => {
       }
     }
 
-    // aggregation is always shown when present — device count is unknowable at render time
+    // aggregation is always shown for device conditions — device count is unknowable at render time
     const AGG_LABELS = { any: 'Any of', all: 'All of', none: 'None of' };
-    const agg = c.aggregation && c.aggregation !== 'null' && c.aggregation !== 'any'
+    const isDeviceSubj = subject?.type === 'device';
+    const agg = c.aggregation && c.aggregation !== 'null' && (isDeviceSubj || c.aggregation !== 'any')
       ? `<span class="kw">${_esc(AGG_LABELS[c.aggregation] || c.aggregation)}</span> `
       : '';
     const subj = _subj(subject);

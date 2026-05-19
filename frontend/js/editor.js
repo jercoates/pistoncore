@@ -174,12 +174,10 @@ const Editor = (() => {
       lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
 
-    const gh = (text, ctx, indent, extra = {}, activeDepths = []) => {
+    const gh = (text, ctx, indent, extra = {}) => {
       const attrs = Object.entries(extra).map(([k,v]) => `data-${k}="${_esc(String(v))}"`).join(' ');
-      const shadows = activeDepths.map(d => `inset ${44 + d * 32}px 0 0 0 rgba(56,200,200,0.35)`);
-      const shadowStyle = shadows.length ? `style="box-shadow:${shadows.join(',')}"` : '';
-      const lcStyle = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="doc-line doc-ghost" ${shadowStyle}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${lcStyle}><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
+      const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
+      lines.push(`<div class="doc-line doc-ghost"><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}><span class="ghost" data-insert="${_esc(ctx)}" ${attrs}>· ${_esc(text)}</span></span></div>`);
     };
 
     // Comment header
@@ -252,81 +250,76 @@ const Editor = (() => {
 
 
   // ── Nested tree renderer ─────────────────────────────────
-  // childNodes:   array of statement objects at this level (NOT IDs)
-  // depth:        nesting depth for indentation
-  // lines/num/gh: shared output state
-  // activeDepths: array of indent levels that currently have an open block line.
-  //   Each entry is a pad value (e.g. 1, 3) whose block line should be drawn on
-  //   every line rendered while that block is open. Passed down through recursion.
-  //   box-shadow: inset draws a 2px vertical stripe at exactly (44px + level*32px)
-  //   from the left edge of .doc-line, stacking one shadow per active depth.
-  function _actionLines(childNodes, depth, lines, num, gh, activeDepths) {
+  // childNodes: array of statement objects at this level (NOT IDs)
+  // depth:      nesting depth for indentation
+  // All recursive calls pass child object arrays directly from the node.
+  //
+  // Vertical structure lines are drawn by wrapping block content in a
+  // <div class="doc-block-body"> with a data-indent attribute. The CSS
+  // ::before pseudo-element on .doc-block-body draws the solid vertical line
+  // positioned at exactly (44px + indent * 32px) from the left — matching
+  // the left edge of the block's keyword text. Multiple nested wrappers
+  // produce multiple side-by-side lines, one per nesting level.
+  function _actionLines(childNodes, depth, lines, num, gh) {
     const pad = Math.min(depth, 7);
-    activeDepths = activeDepths || [];
 
-    // Build the box-shadow value for a line given the currently active block depths.
-    // Each active depth draws a 2px inset line at: 44px (gutter) + level*32px (indent).
-    // --doc-indent is 2rem = 32px at default font size.
-    const _shadow = (depths) => {
-      if (!depths.length) return '';
-      const shadows = depths.map(d => {
-        const px = 44 + d * 32;
-        return `inset ${px}px 0 0 0 rgba(56,200,200,0.35)`;
-      });
-      return `box-shadow:${shadows.join(',')};`;
-    };
-
-    const ln = (html, indent, opts = {}, depthsOverride) => {
+    const ln = (html, indent, opts = {}) => {
       const { id, type } = opts;
       const sel = id && id === _selectedId;
       const cut = id && id === _cutId;
       const cls = ['doc-line', id ? 'doc-stmt' : '', sel ? 'doc-selected' : '', cut ? 'doc-cut' : ''].filter(Boolean).join(' ');
       const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
-      const depths = depthsOverride || activeDepths;
-      const shadow = _shadow(depths);
-      const lineStyle = shadow ? `style="${shadow}"` : '';
-      const lcStyle = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
-      lines.push(`<div class="${cls}" ${attrs} ${lineStyle}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${lcStyle}>${html}</span></div>`);
+      const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
+      lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
 
+    // bOpen/bClose wrap block content in a positioned div whose ::before draws
+    // the vertical connector line. data-indent tells CSS where to place the line.
+    // The line position = 44px (doc-ln width) + pad * 32px (one --doc-indent per level).
+    const bOpen = (indentLevel) => {
+      lines.push(`<div class="doc-block-body" data-indent="${indentLevel}">`);
+    };
+    const bClose = () => { lines.push(`</div>`); };
+
     (childNodes || []).forEach(node => {
-      if (!node || !node.id) return; // guard against malformed nodes
+      if (!node || !node.id) return;
       const id = node.id;
       const t = node.type;
 
       if (t === 'if') {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
-        // Open a block line at pad level — all children get this depth in their shadow
-        const inner = [...activeDepths, pad];
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition', inner);
-        ln(`<span class="kw">then</span>`, pad);
-        _actionLines(node.then || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id }, inner);
-        (node.else_ifs || []).forEach(eib => {
-          ln(`<span class="kw">else if</span>`, pad);
-          _renderConditionBlock(eib.conditions, eib.condition_operator, eib.id, pad, ln, gh, '· add a new condition', inner);
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">then</span>`, pad);
-          _actionLines(eib.statements || [], depth + 2, lines, num, gh, inner);
-          gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id }, inner);
-        });
-        ln(`<span class="kw">else</span>`, pad);
-        _actionLines(node.else || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id }, inner);
+          _actionLines(node.then || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
+          (node.else_ifs || []).forEach(eib => {
+            ln(`<span class="kw">else if</span>`, pad);
+            _renderConditionBlock(eib.conditions, eib.condition_operator, eib.id, pad, ln, gh, '· add a new condition');
+            ln(`<span class="kw">then</span>`, pad);
+            _actionLines(eib.statements || [], depth + 2, lines, num, gh);
+            gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id });
+          });
+          ln(`<span class="kw">else</span>`, pad);
+          _actionLines(node.else || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+        bClose();
         ln(`<span class="kw">end if;</span>`, pad);
 
       } else if (t === 'action') {
         ln(`<span class="kw">with</span>`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
-        ln(`<span class="kw">do</span>`, pad);
-        (node.tasks || []).forEach(task => {
-          const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
-          const params = task.parameters
-            ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
-            : '';
-          ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
-        });
-        gh('· add a new task', 'task', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
+          ln(`<span class="kw">do</span>`, pad);
+          (node.tasks || []).forEach(task => {
+            const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
+            const params = task.parameters
+              ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
+              : '';
+            ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
+          });
+          gh('· add a new task', 'task', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
@@ -335,29 +328,32 @@ const Editor = (() => {
           ? `<span class="doc-var">${_esc(node.variable)}</span>`
           : _dr(node.list_role || '');
         ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end for each;</span>`, pad);
 
       } else if (t === 'while') {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition', inner);
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end while;</span>`, pad);
 
       } else if (t === 'repeat') {
         ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
-        ln(`<span class="kw">until</span>`, pad);
-        _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition', inner);
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">until</span>`, pad);
+          _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+        bClose();
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
@@ -368,54 +364,61 @@ const Editor = (() => {
         const toPart   = node.end   !== undefined ? _esc(String(node.end))   : '<span class="doc-ph">to</span>';
         const stepPart = node.step !== undefined && node.step !== 1 ? ` step ${_esc(String(node.step))}` : '';
         ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end for;</span>`, pad);
 
       } else if (t === 'do') {
         ln(`<span class="kw">do</span>`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end do;</span>`, pad);
 
       } else if (t === 'switch') {
         const subjPart = node.expression ? _val(node.expression) : '<span class="doc-ph">[subject]</span>';
         ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        (node.cases || []).forEach(c => {
-          ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
-          const caseInner = [...inner, pad + 1];
-          _actionLines(c.statements || [], depth + 3, lines, num, gh, caseInner);
-          gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id }, caseInner);
-        });
-        if (node.default !== undefined) {
-          ln(`<span class="kw">default:</span>`, pad + 1);
-          const defInner = [...inner, pad + 1];
-          _actionLines(node.default || [], depth + 3, lines, num, gh, defInner);
-          gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id }, defInner);
-        }
+        bOpen(pad);
+          (node.cases || []).forEach(c => {
+            ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
+            bOpen(pad + 1);
+              _actionLines(c.statements || [], depth + 3, lines, num, gh);
+              gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id });
+            bClose();
+          });
+          if (node.default !== undefined) {
+            ln(`<span class="kw">default:</span>`, pad + 1);
+            bOpen(pad + 1);
+              _actionLines(node.default || [], depth + 3, lines, num, gh);
+              gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id });
+            bClose();
+          }
+        bClose();
         ln(`<span class="kw">end switch;</span>`, pad);
 
       } else if (t === 'every') {
         const interval = node.interval !== undefined ? _esc(String(node.interval)) : '<span class="doc-ph">?</span>';
         const unit = _esc(node.interval_unit || '');
         ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end every;</span>`, pad);
 
       } else if (t === 'on_event') {
         ln(`<span class="kw">on events</span>`, pad, { id, type: t });
-        const inner = [...activeDepths, pad];
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition', inner);
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh, inner);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id }, inner);
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end on;</span>`, pad);
 
       } else if (t === 'wait') {
@@ -548,16 +551,15 @@ const Editor = (() => {
   // Renders a conditions array with the block's condition_operator shown as a
   // separate clickable line between each condition. Used by if, while, repeat,
   // on_event, else_if blocks. blockId is the parent block's id.
-  function _renderConditionBlock(conditions, conditionOperator, blockId, pad, ln, gh, addGhostText, activeDepths) {
-    activeDepths = activeDepths || [];
+  function _renderConditionBlock(conditions, conditionOperator, blockId, pad, ln, gh, addGhostText) {
     const op = conditionOperator || 'and';
     (conditions || []).forEach((c, i) => {
-      ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': blockId }, activeDepths);
+      ln(`    ${_condLine(c)}`, pad + 1, { id: c.id, type: c.is_trigger ? 'trigger' : 'condition', 'parent-block': blockId });
       if (i < conditions.length - 1) {
-        ln(`<span class="doc-condop" data-condop-block="${_esc(blockId)}">${_esc(op)}</span>`, pad + 1, { id: `condop_${_esc(blockId)}_${i}`, type: 'condition_operator' }, activeDepths);
+        ln(`<span class="doc-condop" data-condop-block="${_esc(blockId)}">${_esc(op)}</span>`, pad + 1, { id: `condop_${_esc(blockId)}_${i}`, type: 'condition_operator' });
       }
     });
-    gh(addGhostText, 'if_condition', pad + 1, { 'block-id': blockId }, activeDepths);
+    gh(addGhostText, 'if_condition', pad + 1, { 'block-id': blockId });
   }
 
   function _val(v) {

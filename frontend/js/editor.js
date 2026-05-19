@@ -26,6 +26,13 @@
 // wait (until): "wait until" → "do Wait until" per Section 15.
 // call_piston: "execute piston" → "do Execute piston" per Section 17.
 // cancel_pending_tasks: "cancel all pending tasks" → "do Cancel all pending tasks" per Section 18.
+//
+// Session 47 (W-S7) — Vertical structure lines
+// bOpen/bClose helpers push a wrapper div around each block's child content.
+// border-left on .doc-block-body produces a continuous solid vertical line matching
+// WebCoRE's sidebar connector lines. Indent offset ensures the line sits in the gutter
+// left of the text, not inside it. Applied to all block types: if/then/else,
+// while, repeat, for, for each, every, do, switch cases/default, on_event, action/with.
 
 const Editor = (() => {
 
@@ -257,6 +264,17 @@ const Editor = (() => {
       lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
 
+    // Block body wrappers — produce a solid continuous border-left connector line
+    // matching WebCoRE's vertical sidebar lines.
+    // Position: 44px (doc-ln gutter) + N * 2rem (doc-indent per level).
+    // This lands the line exactly at the left edge of the indented child text,
+    // matching how WebCoRE draws its block connector lines.
+    const bOpen = (indentLevel) => {
+      const offset = `calc(44px + var(--doc-indent) * ${indentLevel})`;
+      lines.push(`<div class="doc-block-body" style="margin-left:${offset};border-left:2px solid rgba(56,200,200,0.35)">`);
+    };
+    const bClose = () => { lines.push(`</div>`); };
+
     (childNodes || []).forEach(node => {
       if (!node || !node.id) return; // guard against malformed nodes
       const id = node.id;
@@ -264,36 +282,40 @@ const Editor = (() => {
 
       if (t === 'if') {
         ln(`<span class="kw">if</span>`, pad, { id, type: t });
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
-        ln(`<span class="kw">then</span>`, pad);
-        _actionLines(node.then || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
-        (node.else_ifs || []).forEach(eib => {
-          ln(`<span class="kw">else if</span>`, pad);
-          _renderConditionBlock(eib.conditions, eib.condition_operator, eib.id, pad, ln, gh, '· add a new condition');
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">then</span>`, pad);
-          _actionLines(eib.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id });
-        });
-        // Always render else so users can add statements to the else branch.
-        ln(`<span class="kw">else</span>`, pad);
-        _actionLines(node.else || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+          _actionLines(node.then || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'then', 'block-id': id });
+          (node.else_ifs || []).forEach(eib => {
+            ln(`<span class="kw">else if</span>`, pad);
+            _renderConditionBlock(eib.conditions, eib.condition_operator, eib.id, pad, ln, gh, '· add a new condition');
+            ln(`<span class="kw">then</span>`, pad);
+            _actionLines(eib.statements || [], depth + 2, lines, num, gh);
+            gh('· add a new statement', 'action', pad + 2, { branch: 'else_if_statements', 'block-id': eib.id });
+          });
+          // Always render else so users can add statements to the else branch.
+          ln(`<span class="kw">else</span>`, pad);
+          _actionLines(node.else || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+        bClose();
         ln(`<span class="kw">end if;</span>`, pad);
 
       } else if (t === 'action') {
         ln(`<span class="kw">with</span>`, pad, { id, type: t });
-        (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
-        ln(`<span class="kw">do</span>`, pad);
-        // tasks are embedded objects inside the action node — not child statements
-        (node.tasks || []).forEach(task => {
-          const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
-          const params = task.parameters
-            ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
-            : '';
-          ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
-        });
-        gh('· add a new task', 'task', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
+          ln(`<span class="kw">do</span>`, pad);
+          // tasks are embedded objects inside the action node — not child statements
+          (node.tasks || []).forEach(task => {
+            const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
+            const params = task.parameters
+              ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
+              : '';
+            ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
+          });
+          gh('· add a new task', 'task', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
@@ -303,26 +325,32 @@ const Editor = (() => {
           ? `<span class="doc-var">${_esc(node.variable)}</span>`
           : _dr(node.list_role || '');
         ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end for each;</span>`, pad);
 
       } else if (t === 'while') {
         ln(`<span class="kw">while</span>`, pad, { id, type: t });
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end while;</span>`, pad);
 
       } else if (t === 'repeat') {
         ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
-        ln(`<span class="kw">until</span>`, pad);
-        _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">until</span>`, pad);
+          _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+        bClose();
         ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
@@ -335,15 +363,19 @@ const Editor = (() => {
         const toPart   = node.end   !== undefined ? _esc(String(node.end))   : '<span class="doc-ph">to</span>';
         const stepPart = node.step !== undefined && node.step !== 1 ? ` step ${_esc(String(node.step))}` : '';
         ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end for;</span>`, pad);
 
       } else if (t === 'do') {
         ln(`<span class="kw">do</span>`, pad, { id, type: t });
+        bOpen(pad);
         _actionLines(node.statements || [], depth + 2, lines, num, gh);
         gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end do;</span>`, pad);
 
       } else if (t === 'switch') {
@@ -351,35 +383,45 @@ const Editor = (() => {
         // node.default is the default branch array (not node.default_statements).
         const subjPart = node.expression ? _val(node.expression) : '<span class="doc-ph">[subject]</span>';
         ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
+        bOpen(pad);
         (node.cases || []).forEach(c => {
           ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
+          bOpen(pad + 1);
           _actionLines(c.statements || [], depth + 3, lines, num, gh);
           gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id });
+          bClose();
         });
         // node.default is [] when no default, undefined means not present at all
         if (node.default !== undefined) {
           ln(`<span class="kw">default:</span>`, pad + 1);
+          bOpen(pad + 1);
           _actionLines(node.default || [], depth + 3, lines, num, gh);
           gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id });
+          bClose();
         }
+        bClose();
         ln(`<span class="kw">end switch;</span>`, pad);
 
       } else if (t === 'every') {
         const interval = node.interval !== undefined ? _esc(String(node.interval)) : '<span class="doc-ph">?</span>';
         const unit = _esc(node.interval_unit || '');
         ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end every;</span>`, pad);
 
       } else if (t === 'on_event') {
         // on_event has conditions[] (triggers), not event_name — per STATEMENT_TYPES.md
         ln(`<span class="kw">on events</span>`, pad, { id, type: t });
-        _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
-        ln(`<span class="kw">do</span>`, pad);
-        _actionLines(node.statements || [], depth + 2, lines, num, gh);
-        gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bOpen(pad);
+          _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
+          ln(`<span class="kw">do</span>`, pad);
+          _actionLines(node.statements || [], depth + 2, lines, num, gh);
+          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+        bClose();
         ln(`<span class="kw">end on;</span>`, pad);
 
       } else if (t === 'wait') {

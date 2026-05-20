@@ -154,14 +154,30 @@ const Editor = (() => {
     _wireEvents();
     _markUnsaved(false);
 
-    // Measure the actual rendered doc-ln width and set --doc-ln-width so that
-    // .doc-block-body::before lines position correctly at any zoom level.
+    // After paint, measure actual gutter width and indent size, then set
+    // --block-left inline on every .doc-block-body so ::before lines land
+    // at exactly the right position regardless of zoom or screen size.
     requestAnimationFrame(() => {
-      const ln = document.querySelector('.doc-ln');
-      if (ln) {
-        const w = ln.getBoundingClientRect().width;
-        document.documentElement.style.setProperty('--doc-ln-width', `${w}px`);
+      const lnEl = document.querySelector('.doc-ln');
+      if (!lnEl) return;
+      const gutterW = lnEl.getBoundingClientRect().width;
+      // Measure --doc-indent by checking a doc-lc with known padding-left level
+      // Fall back to 32px (2rem at 16px base) if not measurable
+      const lcEl = document.querySelector('.doc-lc[style*="padding-left"]');
+      let indentPx = 32;
+      if (lcEl) {
+        const match = lcEl.style.paddingLeft.match(/calc\(var\(--doc-indent\)\s*\*\s*(\d+)\)/);
+        if (match) {
+          const level = parseInt(match[1]);
+          const computed = parseFloat(getComputedStyle(lcEl).paddingLeft);
+          if (level > 0) indentPx = computed / level;
+        }
       }
+      document.querySelectorAll('.doc-block-body').forEach(el => {
+        const indent = parseInt(el.dataset.indent || '0');
+        const left = gutterW + indent * indentPx - 6;
+        el.style.setProperty('--block-left', `${left}px`);
+      });
     });
   }
 

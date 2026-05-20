@@ -153,6 +153,16 @@ const Editor = (() => {
 
     _wireEvents();
     _markUnsaved(false);
+
+    // Measure the actual rendered doc-ln width and set --doc-ln-width so that
+    // .doc-block-body::before lines position correctly at any zoom level.
+    requestAnimationFrame(() => {
+      const ln = document.querySelector('.doc-ln');
+      if (ln) {
+        const w = ln.getBoundingClientRect().width;
+        document.documentElement.style.setProperty('--doc-ln-width', `${w}px`);
+      }
+    });
   }
 
   // ── Document renderer ────────────────────────────────────

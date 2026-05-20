@@ -313,8 +313,8 @@ const Editor = (() => {
       const t = node.type;
 
       if (t === 'if') {
-        ln(`<span class="kw">if</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">if</span>`, pad, { id, type: t });
           _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">then</span>`, pad);
           _actionLines(node.then || [], depth + 2, lines, num, gh);
@@ -329,12 +329,12 @@ const Editor = (() => {
           ln(`<span class="kw">else</span>`, pad);
           _actionLines(node.else || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { branch: 'else', 'block-id': id });
+          ln(`<span class="kw">end if;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end if;</span>`, pad);
 
       } else if (t === 'action') {
-        ln(`<span class="kw">with</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">with</span>`, pad, { id, type: t });
           (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
           ln(`<span class="kw">do</span>`, pad);
           (node.tasks || []).forEach(task => {
@@ -345,42 +345,42 @@ const Editor = (() => {
             ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
           });
           gh('· add a new task', 'task', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end with;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end with;</span>`, pad);
 
       } else if (t === 'for_each') {
         const lv = _dr(node.list_role || '');
         const dvSpan = node.variable
           ? `<span class="doc-var">${_esc(node.variable)}</span>`
           : _dr(node.list_role || '');
-        ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end for each;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end for each;</span>`, pad);
 
       } else if (t === 'while') {
-        ln(`<span class="kw">while</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">while</span>`, pad, { id, type: t });
           _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end while;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end while;</span>`, pad);
 
       } else if (t === 'repeat') {
-        ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
           ln(`<span class="kw">until</span>`, pad);
           _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
+          ln(`<span class="kw">end repeat;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end repeat;</span>`, pad);
 
       } else if (t === 'for') {
         const varPart = node.counter_variable
@@ -389,63 +389,63 @@ const Editor = (() => {
         const fromPart = node.start !== undefined ? _esc(String(node.start)) : '<span class="doc-ph">from</span>';
         const toPart   = node.end   !== undefined ? _esc(String(node.end))   : '<span class="doc-ph">to</span>';
         const stepPart = node.step !== undefined && node.step !== 1 ? ` step ${_esc(String(node.step))}` : '';
-        ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end for;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end for;</span>`, pad);
 
       } else if (t === 'do') {
-        ln(`<span class="kw">do</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">do</span>`, pad, { id, type: t });
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end do;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end do;</span>`, pad);
 
       } else if (t === 'switch') {
         const subjPart = node.expression ? _val(node.expression) : '<span class="doc-ph">[subject]</span>';
-        ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">switch</span> (${subjPart})`, pad, { id, type: t });
           (node.cases || []).forEach(c => {
-            ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
             bOpen(pad + 1);
+              ln(`<span class="kw">case</span> ${_esc(String(c.value ?? ''))}<span class="kw">:</span>`, pad + 1);
               _actionLines(c.statements || [], depth + 3, lines, num, gh);
               gh('· add a new statement', 'action', pad + 3, { 'block-id': c.id || id });
             bClose();
           });
           if (node.default !== undefined) {
-            ln(`<span class="kw">default:</span>`, pad + 1);
             bOpen(pad + 1);
+              ln(`<span class="kw">default:</span>`, pad + 1);
               _actionLines(node.default || [], depth + 3, lines, num, gh);
               gh('· add a new statement', 'action', pad + 3, { branch: 'default', 'block-id': id });
             bClose();
           }
+          ln(`<span class="kw">end switch;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end switch;</span>`, pad);
 
       } else if (t === 'every') {
         const interval = node.interval !== undefined ? _esc(String(node.interval)) : '<span class="doc-ph">?</span>';
         const unit = _esc(node.interval_unit || '');
-        ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end every;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end every;</span>`, pad);
 
       } else if (t === 'on_event') {
-        ln(`<span class="kw">on events</span>`, pad, { id, type: t });
         bOpen(pad);
+          ln(`<span class="kw">on events</span>`, pad, { id, type: t });
           _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
           gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          ln(`<span class="kw">end on;</span>`, pad);
         bClose();
-        ln(`<span class="kw">end on;</span>`, pad);
 
       } else if (t === 'wait') {
         const w = node.wait_type === 'duration'

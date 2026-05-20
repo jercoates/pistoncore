@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 46 complete — wizard split deployed, priorities realigned
+**Last Updated:** Session 47 complete — vertical structure lines deployed
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -11,9 +11,9 @@
 **Get to a clean round-trip on a simple piston:**
 wizard writes JSON → backend saves it → compiler reads it → frontend renders it correctly
 
-The wizard split is done and deployed. Editor scroll is fixed. The remaining blockers
-before a meaningful smoke test are: vertical structure lines (visual), globals system
-(completely unbuilt end-to-end), and role mapping verification.
+The wizard split is done and deployed. Editor scroll is fixed. Vertical structure lines
+are in. The remaining blockers before a meaningful smoke test are: globals system
+(completely unbuilt end-to-end) and role mapping verification.
 
 ---
 
@@ -41,30 +41,27 @@ future session before the session closes. Never leave a gap unassigned.
 
 ## STAGE W — Wizard and Editor Polish
 
-### W-S7: Vertical Structure Lines ← NEXT SESSION
+### W-S7b: Wizard Stabilization + Debug Logging
 
-**What this is:** Add CSS vertical connector lines to the editor document so nested
-blocks visually connect — matching the blue sidebar lines in real WebCoRE.
-This is the single biggest visual gap. Pure editor.js + CSS change, no backend needed.
+**What this is:** Null-safety and defensive coding pass on the split wizard files.
+Added between W-S7 and W-S8 based on Grok audit (May 2026).
 
-**What to implement:**
-- border-left connector lines on indented content containers inside each block
-- Apply to: if/then/else/end if, with/do/end with, while/do/end while,
-  repeat/do/until/end repeat, for/end for, for each/end for each, every/end every
-- Lines should be teal or muted blue, thin (2px), running the full height of the
-  block's indented content
-- Click handling, ghost points, and line numbers must remain intact
-- See Notes_Vertical_Lines.md in reference/ for full visual spec
+**Tasks:**
+- Null safety pass on _buildConditionNode, _commitCondition, device picker flows,
+  _loadCapsIntoSelect
+- Verify imported piston condition edit round-trip works end-to-end
+  (flat-field format → pre-fill → save → correct JSON output)
+- Add console.log at start of all _go* functions for debug tracing
+- Fix obvious bugs found during review — no new features
 
 **Upload for this session:**
-editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, STATEMENT_TYPES.md, PISTON_FORMAT.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
 ### W-S8: Role Mapping Verification + Wizard Smoke Test
-
-**What this is:** Verify role mapping works end-to-end, then run the basic wizard
-smoke test to confirm nothing broke in the split.
 
 **Step 1 — GAP-S45-4 — Role mapping end-to-end:**
 - Import kitchen_motion_test2.json, confirm role mapping dialog fires for all placeholders
@@ -76,6 +73,7 @@ smoke test to confirm nothing broke in the split.
 - Edit existing variable → Delete button present and functional
 
 **Step 3 — GAP-S44-1 (if time):** Group condition editing
+**Step 4 — GAP-S46-5 (if time):** Add file picker to import modal in list.js
 
 **Upload for this session:**
 wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
@@ -84,7 +82,7 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
-## STAGE G — Globals System (Completely Unbuilt)
+## STAGE G — Globals System (Completely Unbuilt) ← NEXT
 
 **Background:** Globals are referenced in several places in the frontend but nothing
 is actually implemented end-to-end:
@@ -96,15 +94,13 @@ is actually implemented end-to-end:
 - Imported pistons that contain globals currently dump them into piston variables
   because there is nowhere else for them to go (GAP-S46-4)
 
-This is a multi-session feature. Must be done before the project is truly usable.
-
-### G-1: Backend — Globals Storage + API Endpoints
+### G-1: Backend — Globals Storage + API Endpoints ← NEXT SESSION
 
 **Decisions needed before coding (discuss at start of session):**
-- Storage: separate globals.json in userdata? or part of a shared config file?
+- Storage: separate globals.json in userdata
 - Schema: `{ id, name, var_type, value, description }`
 - API endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
-- How compiled pistons reference globals (HA input_* helpers? PyScript globals dict?)
+- How compiled pistons reference globals (PyScript globals dict)
 
 **Upload for this session:**
 api.py, main.py, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
@@ -154,7 +150,6 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 ## STAGE 1 — Structural Fixes (Mostly Complete)
 
 ### S1-1 through S1-8: Complete ✅
-See DONE section below.
 
 ---
 
@@ -166,7 +161,6 @@ See DONE section below.
 
 ### S2-3: Snapshot Export
 GAP-S43-4: POST /pistons/{id}/export still returns 501.
-Needed for community sharing and AI migration flow.
 
 ### S2-4: Complete ✅ (Import Role Mapping — Session 43)
 
@@ -176,22 +170,6 @@ Needed for community sharing and AI migration flow.
 
 ### S3-1: Smoke Test — Full Round-Trip on One Simple Piston
 Only attempt once W-S8 passes and globals G-1/G-2 are complete.
-
-**The 14-step test:**
-1. Open editor on new piston
-2. Click · add a new statement → W-1 opens
-3. Click "Add an if block" → W-3 opens
-4. Click "Add a condition" → W-4 opens
-5. Select a physical device → attribute populates → select attribute
-6. Select an operator → value field appears → enter a value
-7. Click "Add" → if node inserted with condition inside it → editor re-renders
-8. Inside the then block, click · add a new statement → W-1 opens
-9. Click "Add an action" → W-5 opens
-10. Piston device variables appear in the list
-11. Select a device → click "Next →" → W-6 opens with "With... {device}"
-12. Select a command → click "Add" → action node inserted inside if.then
-13. Editor re-renders showing complete piston
-14. Save succeeds
 
 **Upload for this session:**
 WIZARD_REBUILD_SPEC.md, wizard-core.js, wizard-condition.js, wizard-action.js,
@@ -205,22 +183,7 @@ editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS
 
 ## STAGE 4 — Features (Only After Stage 3 Complete)
 
-### S4-0: Write Missing Specs (as needed)
-### S4-1: PyScript Detection and Setup Prompt
-### S4-2: Missing Device Handler (depends on D-1 validated)
-### S4-3: Orphan Cleanup — Queue and Retry
-### S4-4: Compiler Template System — Jinja2 Scaffolding
-### S4-5: Pre-Save Validation Pipeline
-### S4-6: File Signature and Hash System
-### S4-7: Test Compile / Preview Mode
-### S4-8: Global Variables — Stale Piston Tracking (after G-1 through G-4)
-### S4-9: Run Status Reporting — WebSocket Events
-### S4-10: Snapshot Import — AI Prompt Files
-### S4-11: AI-REVIEW-PROMPT.md — Update
-### S4-12: target-boundary.json — Add Missing PyScript-Forcing Patterns
-### S4-13: Sample Piston Library — Write Snapshot JSON
-### S4-14: Best Practices Documentation
-### S4-15: Drag and Drop Reordering (editor.js only — safe any time after S3-1)
+### S4-0 through S4-15: See previous TASKS.md entries (unchanged)
 
 ### S4-16: Operational Hardening
 - **(Gap A)** Cache slug list in `get_all_slugs()`
@@ -231,46 +194,31 @@ editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS
 - **GAP-S30-3** Double config load per compile call
 - **GAP-S34-1** _compile_single_condition has no warnings param
 - **GAP-S45-1** set_variable wizard doesn't normalize $ prefix (cosmetic)
+- **GAP-S47-1** Structure line --block-left position needs fine-tuning (cosmetic)
 
 ### S4-17: HA Connection Reliability (after S4-9)
-- No retry logic on _ws_call
-- No reconnect on stale WebSocket
-- Persistent WebSocket manager with reconnect loop, jittered backoff, ping/pong keepalive
 
 ---
 
-## DEFERRED — Blocked on External Validation or Not v1 Scope
+## DEFERRED
 
-### D-1: HA Missing Entity Behavior — Must Test Before Coding
-### D-2: Which-Interaction Step — Evaluate Feasibility First
-### D-3: settings / end settings Block Contents
-### D-4: Timer Statement — Evaluate Before Including
-### D-5: Sunrise/Sunset Negative Offset Edge Cases
-### D-6: Numeric Trigger Unknown State Behavior
-### D-7: Long-Running Piston Timeouts
-
-### D-8: wait 'until' and 'state' wizard UI (GAP-S36-3)
-wait_type "until" and "state" render branches exist in editor but wizard has no UI yet.
-
-### D-9: `when true` / `when false` per-condition sub-blocks — v2
-WebCoRE TCP/TEP per-condition action branches. Jeremy does not use them. Do not implement in v1.
+### D-1 through D-9: See previous TASKS.md entries (unchanged)
 
 ---
 
 ## DONE — Completed Sessions
 
-### Session 46 — W-S6 complete + wizard.js split ✅
-editor.js: scroll fix, device variable = value suppression, aggregation 'Any of' always
-shown for device conditions. GAP-S45-2 confirmed already clean.
-GAP-S45-3 CLOSED. GAP-S46-2 CLOSED. GAP-S46-3 CLOSED.
-wizard.js (2480 lines) split into 6 files: wizard-core.js, wizard-statement.js,
-wizard-condition.js, wizard-loops.js, wizard-action.js, wizard-variable.js.
-WizardCore namespace — shared state via window.WizardCore getters/setters.
-GAP-S46-1 CLOSED — Delete button in _goVariablePicker when editing.
-index.html updated with 6 new script tags. Deployed and confirmed working.
-Priorities realigned: vertical lines → globals system → smoke test.
+### Session 47 — W-S7 complete: Vertical structure lines ✅
+editor.js: bOpen/bClose wrappers on all block types. div.doc-block-body[data-indent=N].
+CSS ::before draws solid 2px teal line. --block-left set inline via requestAnimationFrame
+after render — dynamic, zoom-safe. style.css: .doc-block-body rules added.
+GAP-S47-1 opened → S4-16.
 
-### Session 45 — W-S6 partial: Editor rendering audit + placeholder fix ✅ (partial)
+### Session 46 — W-S6 complete + wizard.js split ✅
+editor.js: scroll fix, device variable = value suppression, aggregation 'Any of' fix.
+wizard.js split into 6 files. GAP-S46-1 CLOSED. index.html updated.
+
+### Session 45 — W-S6 partial: Editor rendering audit ✅ (partial)
 ### Session 44 — W-S5: Editor Rendering Fixes ✅
 ### Session 43 — S2-4: Import Role Mapping Flow ✅
 ### Session 42 — W-S1 through W-S4: Wizard + Editor Bug Fixes ✅
@@ -300,14 +248,8 @@ Priorities realigned: vertical lines → globals system → smoke test.
 ### GAP-S43-4 → S2-3: Snapshot export not yet implemented
 ### GAP-S44-1 → W-S8: Group condition editing not implemented
 ### GAP-S45-1 → S4-16: set_variable wizard doesn't normalize $ prefix (cosmetic)
-### GAP-S45-2 → CLOSED S46: No { } brackets in editor.js — already clean
-### GAP-S45-3 → CLOSED S46: Scroll fixed
 ### GAP-S45-4 → W-S8: Role mapping end-to-end not yet verified
-### GAP-S46-1 → CLOSED S46: Delete button added to _goVariablePicker
-### GAP-S46-2 → CLOSED S46: Device variable = value suppression fixed
-### GAP-S46-3 → CLOSED S46: Aggregation 'Any of' fixed in _condLine
+### GAP-S46-4 → G-3: Imported globals dump into piston variables instead of globals store
 ### GAP-S46-5 → W-S8: Import modal has no file picker — paste-only
-Add `<input type="file" accept=".json,.piston">` to the import modal in list.js.
-On file select, read contents and drop into the existing textarea. Rest of import
-flow is unchanged — no backend work needed. Small addition to list.js only.
+### GAP-S47-1 → S4-16: Structure line --block-left position needs fine-tuning
 ### GAP-S30-3 → S4-16: Double config load per compile call

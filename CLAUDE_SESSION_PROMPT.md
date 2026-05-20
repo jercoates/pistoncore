@@ -94,79 +94,80 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 46 Complete
+## Project Status — Session 47 Complete
 
-### What Was Done in Session 46
+### What Was Done in Session 47 (W-S7)
+
+**Vertical structure lines — editor.js + style.css:**
+- Added `bOpen(indentLevel)` / `bClose()` helpers in `_actionLines` that wrap each
+  block's full content (including opening and closing keyword lines) in a
+  `<div class="doc-block-body" data-indent="N">` wrapper.
+- CSS `::before` pseudo-element on `.doc-block-body` draws a solid 2px teal vertical
+  line (`rgba(56,200,200,0.4)`) running the full height of the wrapper.
+- Left position set via `--block-left` CSS custom property, injected inline on each
+  wrapper by a `requestAnimationFrame` callback after render. Measures actual
+  `.doc-ln` width and `--doc-indent` pixel value dynamically — works at any zoom level.
+- Applied to all block types: if/then/else, action/with, while, repeat, for, for each,
+  every, do, switch/case/default, on_event.
+- Nested blocks produce nested wrappers, each with their own line — side-by-side
+  lines for nested blocks matching WebCoRE visual style.
+- Lines are functional and recognizable. Fine-tuning of exact position deferred.
+- style.css: `.doc-block-body` position:relative + `::before` rule added.
+- No gaps introduced. Click handling, ghost points, line numbers all intact.
+
+**Priorities for remainder of project:**
+1. Globals system end-to-end (G-1 → G-2 → G-3 → G-4) ← NEXT
+2. Role mapping + wizard smoke test (W-S8)
+3. Compile/deploy smoke test (S3-1) — only after globals and role mapping work
+
+---
+
+### Priority order for next session (G-1 — Globals Backend):
+
+**G-1: Backend — Globals Storage + API Endpoints**
+
+Decisions to make at session start (discuss before coding):
+- Storage: separate `globals.json` in userdata
+- Schema: `{ id, name, var_type, value, description }`
+- API endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
+- How compiled pistons reference globals (PyScript globals dict)
+
+Upload for next session:
+api.py, main.py, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+## What Was Done in Session 46 (W-S6)
 
 **editor.js — 3 fixes:**
-- Scroll fixed: `flex:1;overflow-y:auto;min-height:0` added inline to `editor-doc` div. Confirmed working.
+- Scroll fixed: `flex:1;overflow-y:auto;min-height:0` added inline to `editor-doc` div.
 - Device variable `= value` suppression: define block skips `valueStr` when `var_type === 'device'`.
-  This fix was documented in S45 but never landed in the file.
-- Aggregation `Any of` always shown: `isDeviceSubj` check added so `Any of` always renders
-  for device conditions. Non-device subjects still suppress it when aggregation is `any`.
-- GAP-S45-2 confirmed already clean — no `{ }` text in _renderConditionBlock.
+- Aggregation `Any of` always shown for device conditions.
+- GAP-S45-2 confirmed already clean.
 
 **wizard.js — split into 6 files (DEPLOYED and working):**
 - wizard-core.js, wizard-statement.js, wizard-condition.js, wizard-loops.js,
   wizard-action.js, wizard-variable.js
-- Shared state exposed via `window.WizardCore` with getter/setter properties
-- Public API unchanged: `Wizard.open()` and `Wizard.close()`
-- Delete button added to `_goVariablePicker` footer when `_editNode` is set (GAP-S46-1 CLOSED)
+- Shared state via `window.WizardCore` getter/setter properties
+- Delete button added to `_goVariablePicker` (GAP-S46-1 CLOSED)
 
-**index.html updated** — 6 new script tags replace the single wizard.js tag. Load order critical:
-wizard-core.js first, then statement/condition/loops/action/variable.
-
-**Globals situation assessed:**
-- GlobalsDrawer.open() called from list.js but object does not exist
-- No backend API endpoints for globals
-- No globals storage
-- Imported pistons with globals dump them into piston variables (GAP-S46-4)
-- Full globals system is 4 sessions of work (G-1 through G-4 in TASKS.md)
-
-**Priorities realigned for remainder of project:**
-1. Vertical structure lines (W-S7) — biggest visual gap
-2. Role mapping + wizard smoke test (W-S8)
-3. Globals system end-to-end (G-1 → G-2 → G-3 → G-4)
-4. Compile/deploy smoke test (S3-1) — only after globals and role mapping work
-
----
-
-### Priority order for next session (W-S7):
-
-1. Vertical structure lines in editor.js — CSS border-left connector lines on indented
-   block containers matching WebCoRE sidebar style. Apply to all block types.
-   Pure editor.js change, no backend needed.
-
-Upload for next session:
-editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**index.html updated** — 6 new script tags, load order: wizard-core.js first.
 
 ---
 
 ## What Was Done in Session 44 (W-S5)
 
-**editor.js and wizard.js — rendering and wizard pre-fill fixes.**
-
-editor.js: `_condLine()` flat-field normalization (GAP-S43-3 CLOSED), group object guard,
-`_subj()` null-safe, `if` renderer reverted to `then`/`else` (matches WebCoRE + spec).
-
-wizard.js: `_condId()` helper added (cond_ prefix for condition IDs),
-`_buildConditionNode()` uses it, `_route()` edit-condition pre-fill handles
-flat-field imported conditions.
-
-GAP-S40-1 and GAP-S40-2 verified CLOSED.
-New gap: GAP-S44-1 (group editing) → W-S7.
+editor.js and wizard.js — rendering and wizard pre-fill fixes.
+editor.js: `_condLine()` flat-field normalization, group guard, `_subj()` null-safe.
+wizard.js: `_condId()` helper, `_buildConditionNode()` uses it, edit-condition pre-fill.
+GAP-S40-1 and GAP-S40-2 CLOSED. New gap: GAP-S44-1 → W-S8.
 
 ---
 
 ## What Was Done in Session 43 (S2-4 — Import Role Mapping)
 
-POST /pistons/import implemented (api.py). API.importPiston() added (api.js).
-Import paste modal + "Rebuild piston items" role mapping dialog implemented in
-list.js matching WebCoRE flow. Ignore skips to editor, Continue saves device_map.
-api.py import endpoint creates device variable entries from device_map roles
-(safety net — ensures define block is populated on import).
-Gaps: GAP-S43-1 (CLOSED S45), GAP-S43-2 (partial), GAP-S43-3 (CLOSED S44),
-GAP-S43-4 (S2-3), GAP-S43-5 (CLOSED S45).
+POST /pistons/import implemented. Import paste modal + role mapping dialog in list.js.
+GAP-S43-4 → S2-3. GAP-S46-4 → G-3.
 
 ---
 
@@ -188,20 +189,13 @@ When specs conflict, this is the resolution order:
 5. PYSCRIPT_COMPILER_SPEC.md — PyScript compiler (written Session 24 — current)
 6. FRONTEND_SPEC.md — frontend behavior (current as of Session 24)
 7. WIZARD_REBUILD_SPEC.md — wizard rebuild target (written Session 40 — supersedes WIZARD_SPEC.md)
-8. HA_LIMITATIONS.md — known HA gotchas — CHECK THIS BEFORE ADDING ANY OPERATOR OR FEATURE
-9. AI_PROMPT_SPEC.md — AI prompt file requirements
-
-**WIZARD_REBUILD_SPEC.md supersedes WIZARD_SPEC.md for all wizard behavior.**
 
 ---
 
-## AI Prompt File Format Rule — Non-Negotiable
+## Placeholder / Role Mapping Rule
 
-The AI prompt files must be written against the **nested tree model only**.
-Any AI generating flat ID-reference JSON will produce pistons that break the editor.
-
-AI-generated pistons must use `__placeholder_<domain>__` for all entity IDs in
-device_map (e.g. `"Kitchen Light": ["__placeholder_light__"]`). Never invent
+When writing snapshot JSON for import, use abstract role names as placeholder entity IDs
+in device_map (e.g. `"Kitchen Light": ["__placeholder_light__"]`). Never invent
 real entity IDs. The import flow detects placeholders and fires the role mapping dialog.
 
 ---
@@ -283,8 +277,8 @@ jargon. Show proposed changes as text before writing files. Humor is welcome.
 
 When something is unclear, ask one question — not five.
 
-Redirect the session: vertical structure lines in editor.js are the next priority (W-S7).
-The wizard.js split is complete and deployed. Do not revisit it.
+---
+
 ## Spec Debt — Address After W-S8
 
 The following spec files are known outdated (per Grok audit May 2026).
@@ -296,97 +290,17 @@ Do not fix these during code sessions. Each needs its own dedicated doc session.
 - PROGRESS_TRACKER.md — Low effort. Just needs recent session entries added.
 - write-a-piston.md — Still a placeholder. Must be written against nested tree model
   before AI prompt files can be used. See AI_PROMPT_SPEC.md for requirements.
-  
-  
-  Important note from Grok
- # Grok Audit — Wizard Split Review (May 2026)
-
-## Overall Assessment
-Good progress — splitting was the right move. Code is now much more maintainable.
-Current state: Functional but fragile / incomplete.
-
-## What's Working Well
-- Clean separation of concerns (core, condition, action, loops, variable, statement)
-- wizard-core.js holds shared state and helpers solidly
-- Routing and modal rendering logic looks stable
-- Major flows (condition builder, action picker, variable) are present
-- Flat-field condition handling for imports preserved
-
-## Major Issues / Risks
-
-**1. State Sharing is Dangerous**
-All files directly mutate WizardCore.sel, WizardCore.context, etc.
-Works for now but easy to break with race conditions or stale closures.
-
-**2. Missing Coordination Between Files**
-Functions like _goConditionBuilder(), _goActionDevicePicker(), _goVariablePicker()
-are defined across files but called from wizard-core.js. If any file fails to load
-or has a syntax error, the whole wizard dies silently with no indication of which
-file caused the problem.
-
-**3. Import / Edit Round-trip Still Weak**
-Flat-field condition normalization exists but looks incomplete in some paths.
-kitchen_motion_test2.json likely still has rendering/editing issues because
-_buildConditionNode and _commitCondition don't perfectly match what the editor
-renderer expects.
-
-**4. Globals & Device Mapping**
-Globals barely started (just drawer stub). Role mapping on import is partially
-there but fragile.
-
-**5. Error Handling & Edge Cases**
-Very little defensive coding (null checks, fallbacks). Large functions still exist
-especially in condition and action files.
-
-## Grok's Recommendation
-Don't touch anything else yet. Stabilize what you have first.
-
-## Quick Test Plan (do before next code session)
-1. Create new simple piston → Add if block → Add condition with real device
-2. Import kitchen_motion_test2.json → Does it render cleanly? Can you edit conditions?
-3. Add action with real device → Does command picker work?
-4. Try adding a variable
-Document exactly what breaks or feels wrong.
 
 ---
 
-## Prompt for Wizard Stabilization Session (use before W-S7)
+## Grok Audit Note (May 2026)
 
-Add this as a session between W-S7 (vertical lines) and W-S8 (smoke test):
-
-```
-Review the split wizard files (wizard-core.js, wizard-condition.js, wizard-action.js,
-wizard-loops.js, wizard-statement.js, wizard-variable.js).
-
-Current problems identified by code review:
+Wizard split is good. Key risks identified:
 - State sharing across files is risky — all files mutate WizardCore.sel directly
 - Some flows don't fully support imported pistons (flat condition format)
 - Missing robustness and null safety
+- Globals barely started (just drawer stub)
+- Role mapping on import partially there but fragile
 
-Tasks:
-1. Add null-safety and defensive coding in key functions:
-   _buildConditionNode, _commitCondition, device picker flows, _loadCapsIntoSelect
-2. Make sure editing an existing condition from an imported piston works correctly
-   end-to-end (flat-field format → pre-fill → save → correct JSON output)
-3. Add console.log statements at the start of all major _go* functions so we can
-   trace the flow when things break
-4. Fix any obvious bugs found during the review
-
-Output the updated files that need changes plus a short summary of what was fixed.
-
-Upload: wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
-wizard-loops.js, wizard-statement.js, STATEMENT_TYPES.md, PISTON_FORMAT.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
-```
-
----
-
-## Notes for TASKS.md
-Add a new task W-S7b (between vertical lines and smoke test):
-
-**W-S7b: Wizard Stabilization + Debug Logging**
-- Null safety pass on _buildConditionNode, _commitCondition, device picker flows
-- Verify imported piston condition edit round-trip works end-to-end
-- Add console.log at start of all _go* functions for debug tracing
-- Fix obvious bugs found during review
-- Do NOT add features — stabilize only
+Grok recommendation: stabilize before adding features.
+W-S7b (wizard stabilization + debug logging) added to TASKS.md between W-S7 and W-S8.

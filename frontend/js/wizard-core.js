@@ -536,9 +536,25 @@ const Wizard = (() => {
         return;
       }
 
-      // Repeat, do, on_event, break — no config
+      // Repeat, do, on_event, break — no configurable fields, show simple edit screen with delete
       if (t === 'repeat' || t === 'do' || t === 'on_event' || t === 'break') {
-        close();
+        const labels = { repeat:'Repeat Loop', do:'Do Block', on_event:'On Event', break:'Break' };
+        const descs  = {
+          repeat: 'A REPEAT loop executes its statements until a condition is met.',
+          do:     'A DO block groups several statements into a single block.',
+          on_event: 'An ON EVENT block executes its statements only when certain events happen.',
+          break:  'A BREAK interrupts the innermost switch, for, each, while, or repeat loop.',
+        };
+        _render(`Edit: ${labels[t] || t}`,
+          `<div class="wiz-desc">${descs[t] || ''}</div>
+           <div class="wiz-desc" style="margin-top:10px;color:var(--text-muted)">This statement has no configurable settings. Use Delete to remove it.</div>`,
+          `<button class="btn btn-ghost btn-sm" id="wiz-simple-cancel">Cancel</button>
+           <div class="wiz-footer-right">
+             <button class="btn btn-danger btn-sm" id="wiz-simple-delete">Delete</button>
+           </div>`
+        );
+        document.getElementById('wiz-simple-cancel')?.addEventListener('click', close);
+        document.getElementById('wiz-simple-delete')?.addEventListener('click', _deleteEditNode);
         return;
       }
     }

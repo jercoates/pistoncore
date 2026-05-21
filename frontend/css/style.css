@@ -1740,6 +1740,17 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   line-height: 1.5;
 }
 
+.wiz-block-warning {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(229, 192, 123, 0.1);
+  border: 1px solid rgba(229, 192, 123, 0.4);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #e5c07b;
+  line-height: 1.5;
+}
+
 /* Row labels */
 .wiz-row-label {
   font-size: 12px;

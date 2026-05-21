@@ -63,13 +63,25 @@ function _handleStatementType(type) {
 
   } else if (type === 'do_block') {
     const node = { type:'do', id:_newId(), async:false, statements:[], description:null, disabled:false };
-    close();
-    Editor.insertStatement(ctx, node, meta);
+    _goBlockConfirm({
+      title:   'Add a do block',
+      desc:    'A DO block groups several statements into a single block. Add statements inside it after inserting.',
+      warning: null,
+      btnLabel:'Add a statement',
+      node, ctx, meta,
+      branch:  'statements',
+    });
 
   } else if (type === 'on_event') {
     const node = { type:'on_event', id:_newId(), async:false, conditions:[], condition_operator:'and', statements:[], description:null, disabled:false };
-    close();
-    Editor.insertStatement(ctx, node, meta);
+    _goBlockConfirm({
+      title:   'Add an on event block',
+      desc:    'An ON EVENT block executes its statements only when certain events happen.',
+      warning: null,
+      btnLabel:'Add a statement',
+      node, ctx, meta,
+      branch:  'statements',
+    });
 
   } else if (type === 'for_loop') {
     WizardCore.sel = { for_start:1, for_end:10, for_step:1, for_counter:'' };
@@ -81,13 +93,25 @@ function _handleStatementType(type) {
 
   } else if (type === 'while_loop') {
     const node = { type:'while', id:_newId(), async:false, conditions:[], condition_operator:'and', statements:[], description:null, disabled:false };
-    close();
-    Editor.insertStatement(ctx, node, meta);
+    _goBlockConfirm({
+      title:   'Add a while loop',
+      desc:    'A WHILE loop executes its statements while a condition is true.',
+      warning: 'Make sure to add an until condition to this loop — without one it will run forever.',
+      btnLabel:'Add a statement',
+      node, ctx, meta,
+      branch:  'statements',
+    });
 
   } else if (type === 'repeat_loop') {
     const node = { type:'repeat', id:_newId(), async:false, statements:[], until_conditions:[], condition_operator:'and', description:null, disabled:false };
-    close();
-    Editor.insertStatement(ctx, node, meta);
+    _goBlockConfirm({
+      title:   'Add a repeat loop',
+      desc:    'A REPEAT loop executes its statements, then checks a condition and repeats if that condition is true.',
+      warning: 'Make sure to add an until condition to this loop — without one it will run forever.',
+      btnLabel:'Add a statement',
+      node, ctx, meta,
+      branch:  'statements',
+    });
 
   } else if (type === 'break') {
     const node = { type:'break', id:_newId(), description:null, disabled:false };
@@ -98,4 +122,39 @@ function _handleStatementType(type) {
     WizardCore.sel = {};
     _goExitPicker();
   }
+}
+
+// ── Block confirm screen ──────────────────────────────────────────────────────
+// Shared by do_block, on_event, while_loop, repeat_loop.
+// Shows description + optional warning, then inserts the node and reopens the
+// wizard scoped to the block's statement list so the user can add immediately.
+
+function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch }) {
+  const { _esc, _render, _pushStep } = WizardCore;
+  WizardCore.step = 'block_confirm';
+  _pushStep(() => _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch }));
+
+  const warningHtml = warning
+    ? `<div class="wiz-block-warning">⚠ ${_esc(warning)}</div>`
+    : '';
+
+  _render(title,
+    `<div class="wiz-desc">${_esc(desc)}</div>
+     ${warningHtml}`,
+    `<button class="btn btn-ghost btn-sm" id="wiz-bc-back">← Back</button>
+     <div class="wiz-footer-right">
+       <button class="btn btn-primary btn-sm" id="wiz-bc-add">${_esc(btnLabel)}</button>
+     </div>`
+  );
+
+  document.getElementById('wiz-bc-back')?.addEventListener('click', _goStatementTypePicker);
+  document.getElementById('wiz-bc-add')?.addEventListener('click', () => {
+    // Insert the block node into the piston
+    Editor.insertStatement(ctx, node, meta);
+    // Reopen the wizard scoped to inside this block
+    WizardCore.close();
+    setTimeout(() => {
+      Wizard.open('statement', null, { 'block-id': node.id, 'branch': branch });
+    }, 50);
+  });
 }

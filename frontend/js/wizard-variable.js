@@ -3,6 +3,10 @@
 // Depends on: wizard-core.js (WizardCore must be loaded first)
 //
 // GAP-S46-1: Delete button added here. Wire to _deleteEditNode when _editNode is set.
+// G-2b: Device initial value stores array of entity_id strings.
+//       WizardCore.sel.initial_device_ids (array) replaces initial_device_id / initial_device_label.
+//       _goVarInitDevicePicker: checkboxes, SelectAll/DeselectAll, Confirm button.
+//       Three-section list: physical devices, local device variables, global device variables.
 
 function _goVariablePicker() {
   const { _esc, _render, _pushStep, _deleteEditNode, close, _newId } = WizardCore;
@@ -59,6 +63,7 @@ function _goVariablePicker() {
   document.getElementById('wiz-vinit-type')?.addEventListener('change', e => {
     WizardCore.sel.initial_value_type = e.target.value;
     WizardCore.sel.initial_value = '';
+    WizardCore.sel.initial_device_ids = [];
     WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
     WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
     const sub = document.getElementById('wiz-vinit-sub');
@@ -85,7 +90,10 @@ function _goVariablePicker() {
     if (ivType === 'nothing') {
       initial_value = undefined;
     } else if (ivType === 'device') {
-      initial_value = WizardCore.sel.initial_device_label || WizardCore.sel.initial_device_id || '';
+      // Store as array of entity_id strings — matches globals.js device value schema
+      initial_value = Array.isArray(WizardCore.sel.initial_device_ids)
+        ? WizardCore.sel.initial_device_ids
+        : [];
     } else if (ivType === 'variable') {
       initial_value = WizardCore.sel.initial_variable || '';
     } else {
@@ -116,10 +124,13 @@ function _varInitSubHtml(type) {
   const _sel = WizardCore.sel;
   if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
   if (type === 'device') {
-    return `<button class="wiz-device-pick-btn ${_sel.initial_device_id?'has-value':''}" id="wiz-vinit-devbtn">
-      ${_sel.initial_device_id
-        ? `<span class="wiz-device-tag">device</span> ${_esc(_sel.initial_device_label||_sel.initial_device_id)}`
-        : 'Select device...'}
+    const ids = Array.isArray(_sel.initial_device_ids) ? _sel.initial_device_ids : [];
+    const label = ids.length
+      ? `${ids.length} device${ids.length !== 1 ? 's' : ''} selected`
+      : 'Select devices...';
+    const hasVal = ids.length > 0;
+    return `<button class="wiz-device-pick-btn ${hasVal ? 'has-value' : ''}" id="wiz-vinit-devbtn">
+      ${hasVal ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : label}
     </button>`;
   }
   if (type === 'variable') {
@@ -136,6 +147,9 @@ function _varInitSubHtml(type) {
 function _wireVarInitSub(type) {
   if (type === 'device') {
     document.getElementById('wiz-vinit-devbtn')?.addEventListener('click', () => {
+      // Snapshot current field values before navigating away
+      WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
+      WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
       _goVarInitDevicePicker();
     });
   }
@@ -146,79 +160,222 @@ function _wireVarInitSub(type) {
   }
 }
 
+// ── Device multi-select picker ───────────────────────────────────────────────
+// Three sections: physical devices, local device variables, global device variables.
+// Checkboxes + SelectAll/DeselectAll (physical devices only) + search + Confirm button.
+// WizardCore.sel.initial_device_ids holds the committed array of entity_id strings.
+// WizardCore.deviceData and WizardCore.globalsData are cached after first fetch.
+
 function _goVarInitDevicePicker() {
-  const { _esc, _render, _pushStep, _filterDevices, DEMO_DEVICES } = WizardCore;
+  const { _esc, _render, _pushStep, _filterDevices } = WizardCore;
   WizardCore.step = 'varinit_dev';
   _pushStep(_goVarInitDevicePicker);
 
-  const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-    .filter(v => v.var_type === 'device');
+  // Working copy of selection — committed only when user hits Confirm
+  const committed = Array.isArray(WizardCore.sel.initial_device_ids)
+    ? WizardCore.sel.initial_device_ids
+    : [];
+  const selected = new Set(committed);
 
-  _render('Select a device',
-    `<div class="wiz-search-row" style="margin:8px 0 4px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:var(--bg-raised)">
-       <input type="text" id="wiz-varinit-search" placeholder="Search devices..." autocomplete="off" style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
+  _render('Select devices',
+    `<div class="wiz-varinit-dev-panel">
+       <input type="text" id="wiz-varinit-search" class="wiz-varinit-dev-filter"
+         placeholder="Search devices..." autocomplete="off" />
+       <div class="wiz-varinit-sel-actions">
+         <button class="btn-ghost wiz-varinit-sel-all" id="wiz-varinit-sel-all">Select All</button>
+         <button class="btn-ghost wiz-varinit-sel-none" id="wiz-varinit-sel-none">Deselect All</button>
+       </div>
+       <div class="wiz-device-list" id="wiz-varinit-devlist"></div>
      </div>
-     <div class="wiz-device-list" id="wiz-varinit-devlist" style="max-height:320px;overflow-y:auto"></div>`,
-    `<button class="btn btn-ghost btn-sm" id="wiz-varinit-back">← Back</button>`
+     <div class="wiz-varinit-summary" id="wiz-varinit-summary">${_devSummaryText(selected)}</div>`,
+    `<button class="btn btn-ghost btn-sm" id="wiz-varinit-back">← Back</button>
+     <div class="wiz-footer-right">
+       <button class="btn btn-primary btn-sm" id="wiz-varinit-confirm">Confirm</button>
+     </div>`
   );
 
-  document.getElementById('wiz-varinit-back')?.addEventListener('click', () => {
-    WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
-    WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
+  // Confirm — commit selection and return to variable picker
+  document.getElementById('wiz-varinit-confirm')?.addEventListener('click', () => {
+    WizardCore.sel.initial_device_ids = Array.from(selected);
+    WizardCore.sel.initial_value_type = 'device';
     _goVariablePicker();
   });
 
-  const render = (q) => {
-    const el = document.getElementById('wiz-varinit-devlist');
-    if (!el) return;
-    const lq = (q||'').toLowerCase();
-    const physical = _filterDevices(WizardCore.deviceData).filter(d =>
-      !lq || d.friendly_name.toLowerCase().includes(lq) || d.entity_id.toLowerCase().includes(lq)
-    );
-    const _sel = WizardCore.sel;
-    let html = '';
-    if (pistonDevVars.length) {
-      html += `<div class="wiz-device-group-header">Piston variables</div>`;
-      html += pistonDevVars.filter(v => !lq || v.name.toLowerCase().includes(lq)).map(v =>
-        `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===v.name?'selected':''}"
-          data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
-          <span class="wiz-dev-prefix">device</span>
-          <span class="wiz-dev-label">${_esc(v.name)}</span>
-        </div>`
-      ).join('');
-    }
-    if (physical.length) {
-      html += `<div class="wiz-device-group-header">Physical devices</div>`;
-      html += physical.slice(0, 150).map(d =>
-        `<div class="wiz-device-row wiz-varinit-row ${_sel.initial_device_id===d.entity_id?'selected':''}"
-          data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
-          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-          <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(d.entity_id)}</span>
-        </div>`
-      ).join('');
-    }
-    el.innerHTML = html || `<div class="wiz-empty">No devices found.</div>`;
-    el.querySelectorAll('.wiz-varinit-row').forEach(row => {
-      row.addEventListener('click', () => {
-        WizardCore.sel.initial_device_id    = row.dataset.id;
-        WizardCore.sel.initial_device_label = row.dataset.label;
-        WizardCore.sel.initial_value_type   = 'device';
-        WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
-        WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
-        _goVariablePicker();
-      });
-    });
-  };
+  // Back — discard changes
+  document.getElementById('wiz-varinit-back')?.addEventListener('click', () => {
+    _goVariablePicker();
+  });
 
-  if (!WizardCore.deviceData) {
-    API.getDevices().then(data => { WizardCore.deviceData = data; render(''); }).catch(() => render(''));
-  } else {
-    render('');
-  }
+  // SelectAll / DeselectAll — physical devices only (not variables/globals)
+  document.getElementById('wiz-varinit-sel-all')?.addEventListener('click', () => {
+    const q = document.getElementById('wiz-varinit-search')?.value || '';
+    _physicalDevices(q).forEach(d => selected.add(d.entity_id));
+    _renderRows(selected, q);
+    _updateSummary(selected);
+  });
 
+  document.getElementById('wiz-varinit-sel-none')?.addEventListener('click', () => {
+    const q = document.getElementById('wiz-varinit-search')?.value || '';
+    _physicalDevices(q).forEach(d => selected.delete(d.entity_id));
+    _renderRows(selected, q);
+    _updateSummary(selected);
+  });
+
+  // Search
   let ft = null;
   document.getElementById('wiz-varinit-search')?.addEventListener('input', e => {
     clearTimeout(ft);
-    ft = setTimeout(() => render(e.target.value.trim()), 150);
+    ft = setTimeout(() => _renderRows(selected, e.target.value.trim()), 150);
   });
+
+  // Load data then render — both devices and globals may need fetching
+  _ensureData().then(() => _renderRows(selected, ''));
+
+  // ── Helpers scoped to this picker ─────────────────────────
+
+  function _physicalDevices(query) {
+    const lq = (query || '').toLowerCase();
+    const all = _filterDevices ? _filterDevices(WizardCore.deviceData) : (WizardCore.deviceData || []);
+    if (!lq) return all;
+    return all.filter(d =>
+      (d.friendly_name || '').toLowerCase().includes(lq) ||
+      (d.entity_id     || '').toLowerCase().includes(lq)
+    );
+  }
+
+  function _localDeviceVars(query) {
+    const lq = (query || '').toLowerCase();
+    const all = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
+      .filter(v => v.var_type === 'device');
+    if (!lq) return all;
+    return all.filter(v => v.name.toLowerCase().includes(lq));
+  }
+
+  function _globalDeviceVars(query) {
+    const lq = (query || '').toLowerCase();
+    const globals = WizardCore.globalsData || [];
+    const all = globals.filter(g => g.var_type === 'device');
+    if (!lq) return all;
+    return all.filter(g =>
+      (g.name || '').toLowerCase().includes(lq) ||
+      (`@${g.name}` || '').toLowerCase().includes(lq)
+    );
+  }
+
+  function _renderRows(selected, query) {
+    const list = document.getElementById('wiz-varinit-devlist');
+    if (!list) return;
+
+    const physical = _physicalDevices(query);
+    const locals   = _localDeviceVars(query);
+    const globals  = _globalDeviceVars(query);
+
+    if (!physical.length && !locals.length && !globals.length) {
+      list.innerHTML = `<div class="wiz-empty">No devices found.</div>`;
+      return;
+    }
+
+    let html = '';
+
+    if (physical.length) {
+      html += `<div class="wiz-device-group-header">Physical devices</div>`;
+      html += physical.slice(0, 150).map(d => {
+        const eid    = _esc(d.entity_id);
+        const label  = _esc(d.friendly_name || d.entity_id);
+        const checked = selected.has(d.entity_id) ? 'checked' : '';
+        const selCls  = selected.has(d.entity_id) ? 'selected' : '';
+        return `
+          <label class="wiz-varinit-dev-row ${selCls}" data-id="${eid}">
+            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${eid}" ${checked} />
+            <span class="wiz-dev-label">${label}</span>
+            <span class="wiz-dev-entity-id">${eid}</span>
+          </label>`;
+      }).join('');
+    }
+
+    if (locals.length) {
+      html += `<div class="wiz-device-group-header">Local variables</div>`;
+      html += locals.map(v => {
+        const vid    = _esc(v.name);
+        const checked = selected.has(v.name) ? 'checked' : '';
+        const selCls  = selected.has(v.name) ? 'selected' : '';
+        return `
+          <label class="wiz-varinit-dev-row ${selCls}" data-id="${vid}">
+            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${vid}" ${checked} />
+            <span class="wiz-device-tag">device</span>
+            <span class="wiz-dev-label">${vid}</span>
+          </label>`;
+      }).join('');
+    }
+
+    if (globals.length) {
+      html += `<div class="wiz-device-group-header">Global variables</div>`;
+      html += globals.map(g => {
+        const gid    = _esc(`@${g.name}`);
+        const checked = selected.has(`@${g.name}`) ? 'checked' : '';
+        const selCls  = selected.has(`@${g.name}`) ? 'selected' : '';
+        return `
+          <label class="wiz-varinit-dev-row ${selCls}" data-id="${gid}">
+            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${gid}" ${checked} />
+            <span class="wiz-device-tag">device</span>
+            <span class="wiz-dev-label">${gid}</span>
+          </label>`;
+      }).join('');
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.wiz-varinit-dev-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.id;
+        if (cb.checked) {
+          selected.add(id);
+          cb.closest('.wiz-varinit-dev-row')?.classList.add('selected');
+        } else {
+          selected.delete(id);
+          cb.closest('.wiz-varinit-dev-row')?.classList.remove('selected');
+        }
+        _updateSummary(selected);
+      });
+    });
+  }
+
+  function _updateSummary(selected) {
+    const el = document.getElementById('wiz-varinit-summary');
+    if (el) el.innerHTML = _devSummaryText(selected);
+  }
+
+  async function _ensureData() {
+    const list = document.getElementById('wiz-varinit-devlist');
+    if (list) list.innerHTML = `<div class="wiz-empty">Loading...</div>`;
+
+    const fetches = [];
+
+    if (!WizardCore.deviceData) {
+      fetches.push(
+        API.getDevices()
+          .then(data => { WizardCore.deviceData = data; })
+          .catch(() => { WizardCore.deviceData = []; })
+      );
+    }
+
+    if (!WizardCore.globalsData) {
+      fetches.push(
+        API.getGlobals()
+          .then(result => {
+            // Backend returns dict keyed by id — same as GlobalsDrawer
+            WizardCore.globalsData = Object.values(result || {});
+          })
+          .catch(() => { WizardCore.globalsData = []; })
+      );
+    }
+
+    if (fetches.length) await Promise.all(fetches);
+  }
+}
+
+function _devSummaryText(selected) {
+  const n = selected.size;
+  if (n === 0) return '<span class="wiz-initval-placeholder">No devices selected</span>';
+  return `<span class="wiz-device-tag">device</span> ${n} device${n !== 1 ? 's' : ''} selected`;
 }

@@ -2117,13 +2117,15 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   box-sizing: border-box;
 }
 .wiz-varinit-dev-row:last-child { border-bottom: none; }
-.wiz-varinit-dev-row:hover { background: var(--bg-hover); }
-.wiz-varinit-dev-row.selected { background: var(--bg-selected); }
+.wiz-varinit-dev-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.wiz-varinit-dev-row.selected { background: var(--bg-selected); color: var(--text-primary); }
 
-.wiz-varinit-dev-cb {
+.wiz-dev-check {
   flex-shrink: 0;
-  accent-color: var(--teal);
-  cursor: pointer;
+  width: 16px;
+  text-align: right;
+  color: var(--teal);
+  font-size: 13px;
 }
 
 .wiz-varinit-summary {
@@ -2347,3 +2349,59 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   width: 100%;
   box-sizing: border-box;
 }
+
+/* ════════════════════════════════════════════════════════
+   GLOBALS DRAWER — List, Form, Device Picker
+   ════════════════════════════════════════════════════════ */
+
+.globals-row { display: flex; flex-direction: column; gap: 2px; padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
+.globals-row:last-child { border-bottom: none; }
+.globals-row-main { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.globals-row-name { font-family: var(--font-code); font-size: 13px; color: var(--teal); font-weight: 600; flex-shrink: 0; }
+.globals-row-type { font-size: 11px; color: var(--text-muted); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+.globals-row-desc { font-size: 11px; color: var(--text-muted); padding-left: 2px; }
+.globals-row-actions { margin-left: auto; display: flex; gap: var(--space-1); flex-shrink: 0; }
+.globals-row-edit, .globals-row-delete { background: transparent; border: none; color: var(--text-muted); font-size: 14px; padding: 2px 5px; cursor: pointer; border-radius: 3px; }
+.globals-row-edit:hover { color: var(--text-primary); background: var(--bg-hover); }
+.globals-row-delete:hover { color: #e06c75; background: var(--bg-hover); }
+.globals-value { font-family: var(--font-code); font-size: 12px; color: var(--text-secondary); }
+.globals-value-entity { font-size: 12px; color: var(--teal-dim); }
+.globals-value-none { font-size: 11px; color: var(--text-disabled); font-style: italic; }
+.globals-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: var(--space-6) var(--space-4); line-height: 1.6; }
+.globals-error { color: #e06c75; font-size: 13px; padding: var(--space-4); text-align: center; }
+.globals-add-bar { padding: var(--space-4) 0 var(--space-2); display: flex; justify-content: flex-end; }
+.globals-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.globals-form-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-1); }
+.globals-form-row { display: flex; flex-direction: column; gap: var(--space-1); }
+.globals-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.globals-name-wrap { display: flex; align-items: center; gap: 4px; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 var(--space-2); }
+.globals-name-wrap:focus-within { border-color: var(--border-focus); }
+.globals-at { color: var(--teal); font-family: var(--font-code); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.globals-input { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); font-size: 13px; padding: 5px var(--space-2); width: 100%; box-sizing: border-box; }
+.globals-name-wrap .globals-input { background: transparent; border: none; padding: 5px 2px; }
+.globals-input:focus { outline: none; border-color: var(--border-focus); }
+.globals-name-wrap .globals-input:focus { outline: none; }
+.globals-select { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); font-size: 13px; padding: 5px var(--space-2); width: 100%; }
+.globals-select:focus { outline: none; border-color: var(--border-focus); }
+.globals-optional { color: var(--text-disabled); font-size: 10px; text-transform: none; letter-spacing: 0; }
+.globals-form-error { font-size: 12px; color: #e06c75; padding: var(--space-1) 0; }
+.globals-form-actions { display: flex; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-2); }
+.globals-loading-inline { font-size: 12px; color: var(--text-muted); padding: var(--space-3) 0; text-align: center; }
+
+/* Globals device picker — WebCoRE row-click-toggles-checkmark */
+.gf-device-picker { display: flex; flex-direction: column; gap: var(--space-2); }
+.gf-device-summary { font-size: 12px; padding: 2px 0; }
+.gf-device-panel { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-raised); overflow: hidden; }
+.gf-device-filter { border: none; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text-primary); font-size: 12px; padding: 5px var(--space-2); outline: none; width: 100%; box-sizing: border-box; }
+.gf-device-filter:focus { border-color: var(--border-focus); }
+.gf-device-sel-actions { display: flex; gap: var(--space-2); padding: 3px var(--space-2); border-bottom: 1px solid var(--border-subtle); }
+.gf-sel-all, .gf-sel-none { font-size: 11px; color: var(--teal-dim); background: transparent; border: none; cursor: pointer; padding: 1px 0; }
+.gf-sel-all:hover, .gf-sel-none:hover { color: var(--teal); }
+.gf-device-list { max-height: 220px; overflow-y: auto; }
+.gf-device-row { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); cursor: pointer; font-size: 12px; color: var(--text-secondary); user-select: none; }
+.gf-device-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.gf-device-row.selected { background: var(--bg-selected); color: var(--text-primary); }
+.gf-device-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-device-id { font-size: 10px; color: var(--text-muted); flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.gf-device-check { flex-shrink: 0; width: 16px; text-align: right; color: var(--teal); font-size: 13px; }
+.gf-device-empty { font-size: 12px; color: var(--text-muted); padding: var(--space-3) var(--space-2); text-align: center; }

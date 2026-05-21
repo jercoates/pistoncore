@@ -294,60 +294,56 @@ function _goVarInitDevicePicker() {
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0, 150).map(d => {
-        const eid    = _esc(d.entity_id);
-        const label  = _esc(d.friendly_name || d.entity_id);
-        const checked = selected.has(d.entity_id) ? 'checked' : '';
-        const selCls  = selected.has(d.entity_id) ? 'selected' : '';
-        return `
-          <label class="wiz-varinit-dev-row ${selCls}" data-id="${eid}">
-            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${eid}" ${checked} />
-            <span class="wiz-dev-label">${label}</span>
-            <span class="wiz-dev-entity-id">${eid}</span>
-          </label>`;
+        const eid   = _esc(d.entity_id);
+        const label = _esc(d.friendly_name || d.entity_id);
+        const sel   = selected.has(d.entity_id);
+        return `<div class="wiz-varinit-dev-row ${sel ? 'selected' : ''}" data-id="${eid}">
+          <span class="wiz-dev-label">${label}</span>
+          <span class="wiz-dev-entity-id">${eid}</span>
+          <span class="wiz-dev-check">${sel ? '✓' : ''}</span>
+        </div>`;
       }).join('');
     }
 
     if (locals.length) {
       html += `<div class="wiz-device-group-header">Local variables</div>`;
       html += locals.map(v => {
-        const vid    = _esc(v.name);
-        const checked = selected.has(v.name) ? 'checked' : '';
-        const selCls  = selected.has(v.name) ? 'selected' : '';
-        return `
-          <label class="wiz-varinit-dev-row ${selCls}" data-id="${vid}">
-            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${vid}" ${checked} />
-            <span class="wiz-device-tag">device</span>
-            <span class="wiz-dev-label">${vid}</span>
-          </label>`;
+        const vid = _esc(v.name);
+        const sel = selected.has(v.name);
+        return `<div class="wiz-varinit-dev-row ${sel ? 'selected' : ''}" data-id="${vid}">
+          <span class="wiz-device-tag">device</span>
+          <span class="wiz-dev-label">${vid}</span>
+          <span class="wiz-dev-check">${sel ? '✓' : ''}</span>
+        </div>`;
       }).join('');
     }
 
     if (globals.length) {
       html += `<div class="wiz-device-group-header">Global variables</div>`;
       html += globals.map(g => {
-        const gid    = _esc(`@${g.name}`);
-        const checked = selected.has(`@${g.name}`) ? 'checked' : '';
-        const selCls  = selected.has(`@${g.name}`) ? 'selected' : '';
-        return `
-          <label class="wiz-varinit-dev-row ${selCls}" data-id="${gid}">
-            <input type="checkbox" class="wiz-varinit-dev-cb" data-id="${gid}" ${checked} />
-            <span class="wiz-device-tag">device</span>
-            <span class="wiz-dev-label">${gid}</span>
-          </label>`;
+        const gid = _esc(`@${g.name}`);
+        const sel = selected.has(`@${g.name}`);
+        return `<div class="wiz-varinit-dev-row ${sel ? 'selected' : ''}" data-id="${gid}">
+          <span class="wiz-device-tag">device</span>
+          <span class="wiz-dev-label">${gid}</span>
+          <span class="wiz-dev-check">${sel ? '✓' : ''}</span>
+        </div>`;
       }).join('');
     }
 
     list.innerHTML = html;
 
-    list.querySelectorAll('.wiz-varinit-dev-cb').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const id = cb.dataset.id;
-        if (cb.checked) {
-          selected.add(id);
-          cb.closest('.wiz-varinit-dev-row')?.classList.add('selected');
-        } else {
+    list.querySelectorAll('.wiz-varinit-dev-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.id;
+        if (selected.has(id)) {
           selected.delete(id);
-          cb.closest('.wiz-varinit-dev-row')?.classList.remove('selected');
+          row.classList.remove('selected');
+          row.querySelector('.wiz-dev-check').textContent = '';
+        } else {
+          selected.add(id);
+          row.classList.add('selected');
+          row.querySelector('.wiz-dev-check').textContent = '✓';
         }
         _updateSummary(selected);
       });

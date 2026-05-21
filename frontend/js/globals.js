@@ -15,6 +15,7 @@ const GlobalsDrawer = (() => {
   let _devices = [];
   let _devicesLoaded = false;
   let _editingId = null; // null = adding new, string = editing existing
+  let _selectedDevices = new Set(); // tracks current device picker selection
 
   // ── DOM refs ─────────────────────────────────────────────
   const drawer = () => document.getElementById('globals-drawer');
@@ -228,15 +229,15 @@ const GlobalsDrawer = (() => {
   // value is stored as an array of entity_id strings.
 
   function _renderDevicePicker(container, currentValue) {
-    // Normalise current selection to a Set of entity IDs
-    let selected;
+    // Normalise current selection into the module-level _selectedDevices Set
     if (Array.isArray(currentValue)) {
-      selected = new Set(currentValue);
+      _selectedDevices = new Set(currentValue);
     } else if (currentValue && typeof currentValue === 'string') {
-      selected = new Set([currentValue]);
+      _selectedDevices = new Set([currentValue]);
     } else {
-      selected = new Set();
+      _selectedDevices = new Set();
     }
+    const selected = _selectedDevices;
 
     container.innerHTML = `
       <div class="gf-device-picker" id="gf-device-picker">
@@ -313,28 +314,27 @@ const GlobalsDrawer = (() => {
     }
 
     list.innerHTML = matches.slice(0, 300).map(d => {
-      const checked = selected.has(d.entity_id) ? 'checked' : '';
-      const eid = _esc(d.entity_id);
+      const eid   = _esc(d.entity_id);
       const label = _esc(d.friendly_name || d.entity_id);
-      return `
-        <label class="gf-device-row ${selected.has(d.entity_id) ? 'selected' : ''}"
-               data-id="${eid}">
-          <input type="checkbox" class="gf-device-cb" data-id="${eid}" ${checked} />
-          <span class="gf-device-name">${label}</span>
-          <span class="gf-device-id">${eid}</span>
-        </label>
-      `;
+      const sel   = selected.has(d.entity_id);
+      return `<div class="gf-device-row ${sel ? 'selected' : ''}" data-id="${eid}">
+        <span class="gf-device-name">${label}</span>
+        <span class="gf-device-id">${eid}</span>
+        <span class="gf-device-check">${sel ? '✓' : ''}</span>
+      </div>`;
     }).join('');
 
-    list.querySelectorAll('.gf-device-cb').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const id = cb.dataset.id;
-        if (cb.checked) {
-          selected.add(id);
-          cb.closest('.gf-device-row')?.classList.add('selected');
-        } else {
+    list.querySelectorAll('.gf-device-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.id;
+        if (selected.has(id)) {
           selected.delete(id);
-          cb.closest('.gf-device-row')?.classList.remove('selected');
+          row.classList.remove('selected');
+          row.querySelector('.gf-device-check').textContent = '';
+        } else {
+          selected.add(id);
+          row.classList.add('selected');
+          row.querySelector('.gf-device-check').textContent = '✓';
         }
         _updateSummary(selected);
       });
@@ -352,10 +352,9 @@ const GlobalsDrawer = (() => {
     if (el) el.innerHTML = _deviceSummaryText(selected);
   }
 
-  // Read selected device entity IDs out of the picker
+  // Read selected device entity IDs — collected from clicked rows stored in _selectedDevices
   function _readDeviceSelection() {
-    const checkboxes = document.querySelectorAll('#gf-device-list .gf-device-cb:checked');
-    return Array.from(checkboxes).map(cb => cb.dataset.id);
+    return Array.from(_selectedDevices);
   }
 
   async function _prefetchDevices() {

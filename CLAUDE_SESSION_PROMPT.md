@@ -48,10 +48,6 @@ Once a decision is made and documented in a spec, do not revisit or argue agains
 
 **Exception: if a prior decision breaks the end result the project exists to deliver.**
 
-The nested tree migration in Session 35 is the model for this exception — the flat
-model was a documented decision that turned out to break the non-negotiable requirement
-above. The decision was correctly reversed.
-
 ---
 
 # File Editing Rule — Non-Negotiable
@@ -94,93 +90,104 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 48 Complete
+## Project Status — Session 49 Complete
 
-### What Was Done in Session 48 (G-1)
+### What Was Done in Session 49 (G-2)
+
+**GlobalsDrawer frontend — globals.js (new), api.js, api.py, storage.py, index.html:**
+
+- `globals.js`: GlobalsDrawer object with open()/close(). Fetches GET /globals on open.
+  List view shows all globals: name, type, value summary, description, edit/delete buttons.
+  Add/Edit form: type selector, @ name field, type-appropriate value input, description.
+  Device type uses full multi-select picker: searchable list, checkboxes per device,
+  SelectAll/DeselectAll buttons. Stores array of entity_id strings.
+  Wires both #btn-globals (global header) and drawer close button.
+  Closes on outside click.
+
+- `api.js`: createGlobal fixed — was `{ display_name, type }`, now `{ name, var_type, value, description }`.
+  updateGlobal(id, fields) added — calls PUT /globals/{id}.
+
+- `api.py`: device global value defaults to `[]` not `""` on create.
+  Docstrings updated: value is `str | list[str]` for device type.
+
+- `storage.py`: load_globals() docstring updated — value: `str | list[str]`.
+
+- `index.html`: globals.js script tag added after api.js.
+
+**Gaps opened:**
+- GAP-G2-1 → G-2b: globals drawer has no CSS rules — will look unstyled
+- GAP-G2-2 → G-2b: wizard-variable.js device picker is single-select only
+
+---
+
+### Priority order for next session (G-2b — CSS + Variable Device Multi-Select):
+
+**G-2b is two fixes in one session — both are blockers:**
+
+**Part 1 — GAP-G2-1: CSS for GlobalsDrawer**
+Add all CSS rules for globals drawer classes to style.css. Full class list in TASKS.md.
+Match the existing PistonCore dark theme — teal accents, var(--bg-raised), var(--border-subtle).
+
+**Part 2 — GAP-G2-2: wizard-variable.js device picker is single-select**
+`_goVarInitDevicePicker` currently picks one device and immediately closes on click.
+Device variables in the piston define block must support multiple devices, same as globals.
+
+Fix required:
+- Replace single-click-to-select with multi-select: checkboxes, SelectAll/DeselectAll,
+  searchable list, confirm button.
+- `initial_value` for device type stores a list of entity_id strings, not a single string.
+- `initial_device_id` / `initial_device_label` on WizardCore.sel replaced by
+  `initial_device_ids` (array).
+- `_varInitSubHtml` for type 'device' shows count of selected devices.
+- `save()` in _goVariablePicker writes `initial_value` as the array.
+- Read globals.js before writing — the multi-select pattern is already implemented
+  there and must be matched exactly.
+
+Upload for next session:
+style.css, globals.js, wizard-variable.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+## What Was Done in Session 48 (G-1)
 
 **Globals backend — api.py + storage.py:**
 
 Schema locked: `{ id, name, var_type, value, description }`
 - `var_type` values: `text | number | boolean | datetime | device`
-- Device globals: `value` holds the entity_id string, baked in at compile time as
-  literal entity IDs — no runtime lookup. Compiler expands them directly into trigger
-  decorators and service calls. Piston flagged stale when device global changes.
-- Non-device globals: backed by HA input_* helpers with prefix `pistoncore_global_`
-  at deploy time. Compiled pistons read/write via state.get() and service calls.
+- Device globals: `value` holds list of entity_id strings, baked in at compile time.
+- Non-device globals: backed by HA input_* helpers with prefix `pistoncore_global_`.
 
 **api.py changes:**
 - `POST /globals` schema fixed: was `{ display_name, type }`, now `{ name, var_type, value, description }`
-- `PUT /globals/{id}` added — partial update (missing fields preserved), marks
-  pistons stale if var_type or value changed
-- Endpoint summary comment updated
+- `PUT /globals/{id}` added — partial update, marks pistons stale if var_type or value changed
 
 **storage.py changes:**
 - `load_globals()` docstring updated to reflect correct schema
-
-No new gaps opened.
-
----
-
-### Priority order for next session (G-2 — GlobalsDrawer Frontend):
-
-**G-2: Frontend — GlobalsDrawer Implementation**
-
-- `GlobalsDrawer` object with open()/close() — already called from list.js
-- Drawer shows list of all globals: name, type, current value
-- Add / Edit / Delete actions matching wizard variable UI style
-- Fetches from GET /globals on open, saves via POST/PUT/DELETE
-- New file: `frontend/js/globals.js` — add to index.html load order after api.js
-
-Upload for next session:
-list.js, api.js, index.html, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
 ## What Was Done in Session 47 (W-S7)
 
-**Vertical structure lines — editor.js + style.css:**
-- Added `bOpen(indentLevel)` / `bClose()` helpers in `_actionLines` that wrap each
-  block's full content (including opening and closing keyword lines) in a
-  `<div class="doc-block-body" data-indent="N">` wrapper.
-- CSS `::before` pseudo-element on `.doc-block-body` draws a solid 2px teal vertical
-  line (`rgba(56,200,200,0.4)`) running the full height of the wrapper.
-- Left position set via `--block-left` CSS custom property, injected inline on each
-  wrapper by a `requestAnimationFrame` callback after render. Measures actual
-  `.doc-ln` width and `--doc-indent` pixel value dynamically — works at any zoom level.
-- Applied to all block types: if/then/else, action/with, while, repeat, for, for each,
-  every, do, switch/case/default, on_event.
-- Nested blocks produce nested wrappers, each with their own line — side-by-side
-  lines for nested blocks matching WebCoRE visual style.
-- Lines are functional and recognizable. Fine-tuning of exact position deferred.
-- style.css: `.doc-block-body` position:relative + `::before` rule added.
-- No gaps introduced. Click handling, ghost points, line numbers all intact.
+Vertical structure lines — editor.js + style.css.
+bOpen/bClose wrappers, div.doc-block-body[data-indent=N], CSS ::before teal line.
+--block-left set via requestAnimationFrame after render. All block types covered.
+GAP-S47-1 opened → S4-16.
 
 ---
 
 ## What Was Done in Session 46 (W-S6)
 
-**editor.js — 3 fixes:**
-- Scroll fixed: `flex:1;overflow-y:auto;min-height:0` added inline to `editor-doc` div.
-- Device variable `= value` suppression: define block skips `valueStr` when `var_type === 'device'`.
-- Aggregation `Any of` always shown for device conditions.
-- GAP-S45-2 confirmed already clean.
-
-**wizard.js — split into 6 files (DEPLOYED and working):**
-- wizard-core.js, wizard-statement.js, wizard-condition.js, wizard-loops.js,
-  wizard-action.js, wizard-variable.js
-- Shared state via `window.WizardCore` getter/setter properties
-- Delete button added to `_goVariablePicker` (GAP-S46-1 CLOSED)
-
-**index.html updated** — 6 new script tags, load order: wizard-core.js first.
+editor.js: scroll fix, device variable = value suppression, aggregation 'Any of' fix.
+wizard.js split into 6 files: wizard-core.js, wizard-statement.js, wizard-condition.js,
+wizard-loops.js, wizard-action.js, wizard-variable.js.
+GAP-S46-1 CLOSED. index.html updated.
 
 ---
 
 ## What Was Done in Session 44 (W-S5)
 
 editor.js and wizard.js — rendering and wizard pre-fill fixes.
-editor.js: `_condLine()` flat-field normalization, group guard, `_subj()` null-safe.
-wizard.js: `_condId()` helper, `_buildConditionNode()` uses it, edit-condition pre-fill.
-GAP-S40-1 and GAP-S40-2 CLOSED. New gap: GAP-S44-1 → W-S8.
+GAP-S40-1 and GAP-S40-2 CLOSED. GAP-S44-1 → W-S8.
 
 ---
 
@@ -199,17 +206,17 @@ No ID references between statements anywhere.
 
 ---
 
-## Globals System — Locked Decisions (Sessions 48)
+## Globals System — Locked Decisions (Sessions 48-49)
 
 **Schema:** `{ id, name, var_type, value, description }`
 **var_type options:** `text | number | boolean | datetime | device`
 **Storage:** separate `globals.json` in `/pistoncore-userdata/`
-**Device globals:** baked in at compile time as literal entity IDs. No runtime lookup.
-  Compiler expands into trigger decorators and service calls directly.
-  Pistons flagged stale when device global's value (entity_id) changes.
+**Device globals:** value is a LIST of entity_id strings — one global can group many
+  devices (e.g. @Smoke_Detectors = 6 devices). Baked in at compile time as literal
+  entity IDs. Compiler expands the list into trigger decorators and service calls.
+  Pistons flagged stale when device global's value changes.
 **Non-device globals:** backed by HA input_* helpers, prefix `pistoncore_global_`.
   Read via `state.get("input_text.pistoncore_global_name")`.
-  Written via `input_text.set_value(entity_id=..., value=...)` etc.
 **`@variable` syntax** — how globals are referenced in piston display text and
   in the wizard. Editor already renders this. Wizard wiring comes in G-4.
 
@@ -247,8 +254,6 @@ real entity IDs. The import flow detects placeholders and fires the role mapping
 **If it is not explicitly deferred to v2 or v3 in the specs, it is v1.**
 
 **`when true` / `when false` per-condition sub-blocks** — Deferred to v2.
-These are per-condition action branches (TCP/TEP) visible in WebCoRE. Jeremy does
-not use them. They add significant complexity. Do not implement in v1.
 
 ---
 

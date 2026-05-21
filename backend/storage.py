@@ -103,7 +103,16 @@ def load_globals() -> dict:
     """
     Load the globals store from disk.
     Returns {} if the file doesn't exist yet.
-    Format: { "global_id": { "id": str, "name": str, "var_type": str, "value": str, "description": str } }
+    Format: {
+      "global_id": {
+        "id":          str,
+        "name":        str,
+        "var_type":    str,   # "text" | "number" | "boolean" | "datetime" | "device"
+        "value":       str | list[str],  # list of entity_id strings for device type,
+                                         # plain string for all other types
+        "description": str
+      }
+    }
     """
     if not GLOBALS_FILE.exists():
         return {}

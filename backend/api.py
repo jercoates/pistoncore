@@ -541,9 +541,11 @@ def list_globals():
 def create_global(body: dict = Body(...)):
     """
     Create a global variable.
-    Body: { "name": str, "var_type": "text"|"number"|"boolean"|"datetime"|"device", "value": str, "description": str }
-    var_type "device": value holds the entity_id string. Baked in at compile time.
-    var_type text/number/boolean/datetime: backed by HA input_* helpers at deploy time.
+    Body: { "name": str, "var_type": "text"|"number"|"boolean"|"datetime"|"device", "value": str|list[str], "description": str }
+    var_type "device": value is a list of entity_id strings. Baked in at compile time
+      as a group — the compiler expands the list into trigger decorators and service calls.
+    var_type text/number/boolean/datetime: value is a plain string. Backed by HA
+      input_* helpers at deploy time.
     """
     globals_store = storage.load_globals()
     global_id = str(uuid.uuid4()).replace("-", "")[:8]
@@ -551,7 +553,7 @@ def create_global(body: dict = Body(...)):
         "id":          global_id,
         "name":        body.get("name", "new_global"),
         "var_type":    body.get("var_type", "text"),
-        "value":       body.get("value", ""),
+        "value":       body.get("value", "" if body.get("var_type") != "device" else []),
         "description": body.get("description", ""),
     }
     storage.save_globals(globals_store)
@@ -562,8 +564,9 @@ def create_global(body: dict = Body(...)):
 def update_global(global_id: str, body: dict = Body(...)):
     """
     Update an existing global variable.
-    Body: { "name": str, "var_type": str, "value": str, "description": str }
+    Body: { "name": str, "var_type": str, "value": str|list[str], "description": str }
     Only the fields present in the body are updated — missing fields are preserved.
+    For device type: value must be a list of entity_id strings.
     Pistons referencing this global are marked stale if var_type or value changed.
     """
     globals_store = storage.load_globals()

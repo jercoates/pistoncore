@@ -112,10 +112,23 @@ const API = {
     return _fetch('/globals');
   },
 
-  async createGlobal(displayName, type) {
+  async createGlobal(fields) {
+    // fields: { name, var_type, value, description }
+    // For device type: value is an array of entity ID strings.
+    // For all other types: value is a plain string.
     return _fetch('/globals', {
       method: 'POST',
-      body: JSON.stringify({ display_name: displayName, type }),
+      body: JSON.stringify(fields),
+    });
+  },
+
+  async updateGlobal(id, fields) {
+    // PUT /globals/{id} — partial update, missing fields are preserved by backend.
+    // fields: { name, var_type, value, description }
+    // For device type: value is an array of entity ID strings.
+    return _fetch(`/globals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(fields),
     });
   },
 

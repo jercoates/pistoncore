@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 48 complete — G-1 globals backend done
+**Last Updated:** Session 49 complete — G-2 globals frontend done, GAP-G2-2 added → G-2b
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -13,14 +13,15 @@ wizard writes JSON → backend saves it → compiler reads it → frontend rende
 
 The wizard split is done and deployed. Editor scroll is fixed. Vertical structure lines
 are in. The remaining blockers before a meaningful smoke test are: globals system
-(G-1 done, G-2/G-3/G-4 still needed) and role mapping verification.
+(G-1 done, G-2 done, G-2b CSS + device multi-select fix needed, G-3/G-4 still needed)
+and role mapping verification.
 
 ---
 
 ## How to Use This File
 
 - **STAGE W** — Wizard and editor polish. Active work zone.
-- **STAGE G** — Globals system. G-1 complete. G-2 is next.
+- **STAGE G** — Globals system. G-1 and G-2 complete. G-2b is next.
 - **STAGE 1** — Structural fixes. Mostly complete.
 - **STAGE 2** — Connect the seams. Deferred until after smoke test passes.
 - **STAGE 3** — Round-trip verified. Work can now split into focused modules.
@@ -41,16 +42,14 @@ future session before the session closes. Never leave a gap unassigned.
 
 ## STAGE W — Wizard and Editor Polish
 
-### W-S7b: Wizard Stabilization + Debug Logging
+### W-S7b: Wizard Stabilization + Debug Logging (deferred — G-2b takes priority)
 
 **What this is:** Null-safety and defensive coding pass on the split wizard files.
-Added between W-S7 and W-S8 based on Grok audit (May 2026).
 
 **Tasks:**
 - Null safety pass on _buildConditionNode, _commitCondition, device picker flows,
   _loadCapsIntoSelect
 - Verify imported piston condition edit round-trip works end-to-end
-  (flat-field format → pre-fill → save → correct JSON output)
 - Add console.log at start of all _go* functions for debug tracing
 - Fix obvious bugs found during review — no new features
 
@@ -63,15 +62,8 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### W-S8: Role Mapping Verification + Wizard Smoke Test
 
-**Step 1 — GAP-S45-4 — Role mapping end-to-end:**
-- Import kitchen_motion_test2.json, confirm role mapping dialog fires for all placeholders
-- Map roles to real HA entities, save, verify piston renders correctly
-
-**Step 2 — Basic wizard smoke test:**
-- New piston → add if block → add condition → add action (all must work)
-- Edit existing condition (pre-fill must work)
-- Edit existing variable → Delete button present and functional
-
+**Step 1 — GAP-S45-4 — Role mapping end-to-end**
+**Step 2 — Basic wizard smoke test**
 **Step 3 — GAP-S44-1 (if time):** Group condition editing
 **Step 4 — GAP-S46-5 (if time):** Add file picker to import modal in list.js
 
@@ -86,36 +78,59 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### G-1: Backend — Globals Storage + API Endpoints ✅ (Session 48)
 
-Schema locked: `{ id, name, var_type, value, description }`
-var_type values: `text | number | boolean | datetime | device`
-Device globals: value holds entity_id string, baked in at compile time.
-Non-device globals: backed by HA input_* helpers at deploy time.
-Endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
-PUT marks pistons stale when var_type or value changes.
-No new gaps.
+---
+
+### G-2: Frontend — GlobalsDrawer Implementation ✅ (Session 49)
+
+globals.js created. api.js fixed. api.py + storage.py updated.
+index.html updated. Multi-select device picker built.
+GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
 
 ---
 
-### G-2: Frontend — GlobalsDrawer Implementation ← NEXT SESSION
+### G-2b: CSS + Device Multi-Select Fix ← NEXT SESSION
 
-**What to build:**
-- `GlobalsDrawer` object with open()/close() — already called from list.js
-- Drawer shows list of all globals: name, type, current value
-- Add / Edit / Delete actions matching wizard variable UI style
-- Fetches from GET /globals on open, saves via POST/PUT/DELETE
-- New file: `frontend/js/globals.js` — add to index.html load order after api.js
+**Two things in one session — both are blockers:**
+
+**Part 1 — GAP-G2-1: CSS for GlobalsDrawer**
+Add all CSS rules for globals drawer classes to style.css:
+- `.globals-row`, `.globals-row-main`, `.globals-row-name`, `.globals-row-type`
+- `.globals-row-desc`, `.globals-row-actions`, `.globals-row-edit`, `.globals-row-delete`
+- `.globals-value`, `.globals-value-entity`, `.globals-value-none`
+- `.globals-empty`, `.globals-error`, `.globals-add-bar`
+- `.globals-form`, `.globals-form-title`, `.globals-form-row`, `.globals-label`
+- `.globals-name-wrap`, `.globals-at`, `.globals-input`, `.globals-select`
+- `.globals-optional`, `.globals-form-error`, `.globals-form-actions`
+- `.globals-loading-inline`
+- `.gf-device-picker`, `.gf-device-summary`, `.gf-device-panel`
+- `.gf-device-filter`, `.gf-device-sel-actions`, `.gf-sel-all`, `.gf-sel-none`
+- `.gf-device-list`, `.gf-device-row`, `.gf-device-row.selected`
+- `.gf-device-cb`, `.gf-device-name`, `.gf-device-id`, `.gf-device-empty`
+
+**Part 2 — GAP-G2-2: wizard-variable.js device picker is single-select only**
+`_goVarInitDevicePicker` currently picks one device and immediately closes.
+Device variables in the define block must support multiple devices — same as globals.
+
+Fix:
+- Replace single-click-to-select in `_goVarInitDevicePicker` with the same
+  multi-select pattern used in globals.js: checkboxes, SelectAll/DeselectAll,
+  searchable list, confirm button to commit selection.
+- `initial_value` for device type must store a list of entity IDs, not a single string.
+- `initial_device_id` and `initial_device_label` on WizardCore.sel replaced by
+  `initial_device_ids` (array of entity_id strings).
+- `_varInitSubHtml` for type 'device' must show count of selected devices,
+  not a single device label.
+- `save()` in _goVariablePicker must write `initial_value` as the array.
+
+Read globals.js before writing wizard-variable.js — the multi-select pattern
+is already implemented there and must be matched exactly.
 
 **Upload for this session:**
-list.js, api.js, index.html, CLAUDE_SESSION_PROMPT.md, TASKS.md
+style.css, globals.js, wizard-variable.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
 ### G-3: Import — Globals Land in the Right Place (GAP-S46-4)
-
-**What to fix:**
-- api.py import endpoint: detect variables with scope:'global' or is_global:true in
-  imported JSON and POST them to globals storage instead of adding to piston define block
-- Import role mapping dialog should not show globals as device roles
 
 **Upload for this session:**
 api.py, list.js, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
@@ -123,12 +138,6 @@ api.py, list.js, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 ---
 
 ### G-4: Editor + Wizard — Wire Globals Throughout
-
-**What to wire:**
-- Editor _val() and _subj() already render @variable — verify with real globals data
-- Wizard condition builder: add global variables to subject type picker
-- Wizard set_variable: scope selector routes to globals API on save
-- Wizard action device picker: device-type globals appear in device lists
 
 **Upload for this session:**
 wizard-core.js, wizard-condition.js, wizard-action.js, editor.js,
@@ -145,34 +154,21 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 ## STAGE 2 — Connect the Seams (Deferred until smoke test passes)
 
 ### S2-2: api.py + error_logger.py Gaps
-- GAP-S38-1: /api/logs route missing from api.py
-- GAP-S39-1: ha_client import pattern wrong in api.py and compiler.py
-
-### S2-3: Snapshot Export
-GAP-S43-4: POST /pistons/{id}/export still returns 501.
-
-### S2-4: Complete ✅ (Import Role Mapping — Session 43)
+### S2-3: Snapshot Export (GAP-S43-4)
+### S2-4: Complete ✅
 
 ---
 
 ## STAGE 3 — Round-Trip Verification
 
 ### S3-1: Smoke Test — Full Round-Trip on One Simple Piston
-Only attempt once W-S8 passes and globals G-1/G-2 are complete.
-
-**Upload for this session:**
-WIZARD_REBUILD_SPEC.md, wizard-core.js, wizard-condition.js, wizard-action.js,
-editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+Only attempt once W-S8 passes and globals G-1/G-2/G-2b are complete.
 
 ### S3-2: Deferred Validation Testing (After S3-1 Passes)
-- GAP-S33-2 — condition_and/or template indentation
-- D-1, D-5, D-6, D-7 — HA behavior edge cases
 
 ---
 
 ## STAGE 4 — Features (Only After Stage 3 Complete)
-
-### S4-0 through S4-15: See previous TASKS.md entries (unchanged)
 
 ### S4-16: Operational Hardening
 - **(Gap A)** Cache slug list in `get_all_slugs()`
@@ -197,22 +193,18 @@ editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS
 
 ## DONE — Completed Sessions
 
+### Session 49 — G-2 complete: GlobalsDrawer frontend ✅
+globals.js: GlobalsDrawer with open/close, list render, add/edit/delete form,
+multi-select device picker (checkboxes, SelectAll/DeselectAll, searchable).
+api.js: createGlobal fixed to { name, var_type, value, description }; updateGlobal added.
+api.py: device value documented as list[str], default [] for device type on create.
+storage.py: load_globals() docstring updated — value: str | list[str].
+index.html: globals.js script tag added after api.js.
+GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
+
 ### Session 48 — G-1 complete: Globals backend ✅
-api.py: POST /globals schema fixed to { id, name, var_type, value, description }.
-PUT /globals/{id} added — partial update, marks pistons stale on var_type/value change.
-Endpoint summary comment updated. storage.py: load_globals() docstring updated.
-No new gaps.
-
 ### Session 47 — W-S7 complete: Vertical structure lines ✅
-editor.js: bOpen/bClose wrappers on all block types. div.doc-block-body[data-indent=N].
-CSS ::before draws solid 2px teal line. --block-left set inline via requestAnimationFrame
-after render — dynamic, zoom-safe. style.css: .doc-block-body rules added.
-GAP-S47-1 opened → S4-16.
-
 ### Session 46 — W-S6 complete + wizard.js split ✅
-editor.js: scroll fix, device variable = value suppression, aggregation 'Any of' fix.
-wizard.js split into 6 files. GAP-S46-1 CLOSED. index.html updated.
-
 ### Session 45 — W-S6 partial: Editor rendering audit ✅ (partial)
 ### Session 44 — W-S5: Editor Rendering Fixes ✅
 ### Session 43 — S2-4: Import Role Mapping Flow ✅
@@ -223,18 +215,14 @@ wizard.js split into 6 files. GAP-S46-1 CLOSED. index.html updated.
 ### Session 37 — S-NESTED Session C: wizard.js audit + field name fixes ✅
 ### Session 36 — S-NESTED Session B: editor.js Nested Tree Migration ✅
 ### Session 35 — S-NESTED Session A: Nested Tree Spec + compiler.py ✅
-### Session 34 — S1-7 Session 3: else_ifs + time condition + PyScript spec ✅
-### Session 33 — S1-8: Template Compliance + S1-7 Session 2 Bug Fixes ✅
-### Session 32 — S1-6: Fat Compiler Context Assembly ✅
-### Session 31 — S1-5: HA Direct Write ✅
-### Session 30 — S1-4: main.py / api.py Backend Cleanup ✅
-### Session 29 — S1-3: Backend Audit ✅
-### Sessions 1-28 — See DESIGN.md Section 33 (Development Log) ✅
+### Sessions 1-34 — See DESIGN.md Section 33 (Development Log) ✅
 
 ---
 
 ## Open Gaps — All Assigned
 
+### GAP-G2-1 → G-2b: globals drawer has no CSS rules — will look unstyled
+### GAP-G2-2 → G-2b: wizard-variable.js device picker is single-select only; initial_value must store list
 ### GAP-S28-4 → S3-1: 6 test pistons in tests/pistons/ not yet created
 ### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
 ### GAP-S34-1 → S4-16: _compile_single_condition has no warnings param

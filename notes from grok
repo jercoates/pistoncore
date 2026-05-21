@@ -211,3 +211,70 @@ Debugging Tips (Noob-Friendly):
 Open browser DevTools (F12) → Console tab — lots of useful logs already.
 Add temporary console.log("=== SAVING DEVICE MAP ===", deviceMap) right before API.savePiston().
 Use the demo devices heavily while fixing — they reduce HA flakiness.
+
+Got it — wizard/editor priority is the right move. You need reliable piston creation before meaningful compile/deploy testing. Splitting into multiple files was a smart architectural choice (much easier to manage than one giant file), and you're progressing well.
+I reviewed the current wizard setup (wizard-core.js, wizard-action.js, wizard-condition.js, wizard-statement.js, plus supporting api.js). Here's a focused audit of potential problems, bugs, and risks in this multi-file setup.
+1. Architecture & Shared State (Biggest Risk Area)
+How it works: All files share state via variables declared in wizard-core.js (e.g., _context, _editNode, _sel, _stepStack, WizardCore.deviceData). Other files access them directly in the global scope.
+Potential Problems:
+
+Race conditions / initialization order: The HTML must load the scripts in exact order (wizard-core.js first). If any file loads out of order or a network hiccup occurs, things break silently.
+No encapsulation: Everything is global. Easy to accidentally overwrite _sel or _stepStack from one file.
+State not reset cleanly: When reopening the wizard for editing vs. new statements, _sel = {} is done in some places but not consistently everywhere. Leftover data from previous wizard sessions can pollute new ones.
+
+Recommendation: In wizard-core.js, add a WizardCore.resetState() function and call it at the start of Wizard.open().
+2. Device Handling (Multi vs Single — Your Recent Discovery)
+This is still one of the shakiest areas:
+
+Action device picker (wizard-action.js): Supports multi-select for physical devices (good!). But virtual devices (__location__ etc.) force single-select and immediately advance.
+Condition device picker: Appears more limited (single-device focused in many paths).
+Aggregation ("Any of", "All of", "None of") only shows in conditions when devices are selected — good idea, but needs testing with 2+ devices.
+Round-trip risk: When saving to piston JSON, does device_map correctly store arrays for multi-device roles?
+
+Quick Test: Add an action with 2+ lights → save → reopen the piston → check if both devices are still attached to the role.
+3. Specific File Issues
+wizard-core.js
+
+Strong foundation (good constants, demo devices, domain caps).
+_getCapsForDomain handles arrays (nice).
+Long file — consider breaking out constants or helpers if it grows more.
+Demo devices fallback is excellent for development.
+
+wizard-action.js
+
+Multi-select logic looks mostly solid.
+Virtual devices clear all other selections (intentional and good).
+_actDevSelectAll works but includes virtual/demo rows — might confuse users.
+Search debounce is good.
+
+wizard-condition.js
+
+Quite complex (subject types, time/date, aggregation, interaction).
+Device picker panel toggles but doesn't always refresh cleanly.
+Many _refreshConditionRows() calls — ensure this function exists and is robust.
+Time/date inputs are basic HTML — functional but could use better UX later.
+
+wizard-statement.js
+
+Clean entry point.
+Block confirm screens (do/on_event/while/repeat) look solid and user-friendly.
+
+4. Backend ↔ Frontend Connection Issues
+
+api.js is clean and well-structured.
+Error handling is decent (custom APIError).
+Device calls (getDevices(), capabilities) are cached in wizard-core — good, but stale cache after HA changes is possible.
+No obvious retry logic on network blips (common during dev).
+
+5. General Risks in Multi-File Setup
+
+Event listener leaks: Many addEventListener calls without cleanup on wizard close/back. Can cause duplicate handlers or memory bloat if you open/close wizard many times in one session.
+DOM assumptions: Heavy reliance on specific element IDs. If two wizard steps have overlapping IDs, chaos ensues.
+Editor integration: Calls like Editor.insertStatement(), Editor.getPistonVariables() — if these aren't always available or throw, wizard crashes.
+Back button / step stack: _stepStack and _pushStep pattern is good, but deep nesting or editing existing nodes can break the history.
+
+Immediate Action Items (High Value / Low Effort)
+
+Add defensive resets — At top of Wizard.open(): clear _sel, _stepStack, etc.
+Event cleanup — On Wizard.close(), remove listeners or use a global event delegator.
+Console logging — Temporarily add console.log('Wizard step:', WizardCore.step, 'sel:', WizardCore.sel) in key _go* functions.

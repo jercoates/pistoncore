@@ -16,6 +16,20 @@ function _goVariablePicker() {
   const _editNode = WizardCore.editNode;
   const initType = _sel.initial_value_type || 'nothing';
 
+  // Normalize device selection — old format may have stored a single string
+  // in initial_value instead of an array in initial_device_ids.
+  if (initType === 'device' && !Array.isArray(_sel.initial_device_ids)) {
+    if (Array.isArray(_sel.initial_value)) {
+      _sel.initial_device_ids = _sel.initial_value;
+    } else if (_sel.initial_value && typeof _sel.initial_value === 'string') {
+      _sel.initial_device_ids = [_sel.initial_value];
+    } else if (_sel.initial_device_id) {
+      _sel.initial_device_ids = [_sel.initial_device_id];
+    } else {
+      _sel.initial_device_ids = [];
+    }
+  }
+
   const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
   const ADV_TYPES   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
 

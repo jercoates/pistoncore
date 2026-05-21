@@ -464,8 +464,9 @@ const GlobalsDrawer = (() => {
     // Close button inside the drawer
     document.getElementById('globals-drawer-close')?.addEventListener('click', close);
 
-    // Click outside the drawer closes it
-    document.addEventListener('click', (e) => {
+    // Mousedown outside the drawer closes it (mousedown fires before click,
+    // avoiding race with the open() call on the Globals button)
+    document.addEventListener('mousedown', (e) => {
       const el = drawer();
       if (!el || !el.classList.contains('open')) return;
       if (el.contains(e.target)) return;

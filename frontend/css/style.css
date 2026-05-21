@@ -2059,7 +2059,79 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   text-transform: lowercase;
   flex-shrink: 0;
 }
-.wiz-dev-label { flex: 1; color: var(--text-primary); }
+.wiz-dev-label { flex: 1; color: var(--text-primary); font-size: 13px; }
+.wiz-dev-entity-id {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+/* Variable wizard device multi-select picker */
+.wiz-varinit-dev-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.wiz-varinit-dev-filter {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 5px var(--space-2);
+}
+.wiz-varinit-dev-filter:focus { outline: none; border-color: var(--border-focus); }
+
+.wiz-varinit-sel-actions {
+  display: flex;
+  gap: var(--space-3);
+  padding: 2px 0;
+}
+.wiz-varinit-sel-all,
+.wiz-varinit-sel-none {
+  font-size: 11px;
+  color: var(--teal-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 0;
+}
+.wiz-varinit-sel-all:hover,
+.wiz-varinit-sel-none:hover { color: var(--teal); }
+
+.wiz-varinit-dev-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle);
+  width: 100%;
+  box-sizing: border-box;
+}
+.wiz-varinit-dev-row:last-child { border-bottom: none; }
+.wiz-varinit-dev-row:hover { background: var(--bg-hover); }
+.wiz-varinit-dev-row.selected { background: var(--bg-selected); }
+
+.wiz-varinit-dev-cb {
+  flex-shrink: 0;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+.wiz-varinit-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  min-height: 20px;
+}
 
 .wiz-selected-bar {
   background: var(--teal);

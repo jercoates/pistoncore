@@ -126,8 +126,8 @@ function _handleStatementType(type) {
 
 // ── Block confirm screen ──────────────────────────────────────────────────────
 // Shared by do_block, on_event, while_loop, repeat_loop.
-// Shows description + optional warning, then inserts the node and reopens the
-// wizard scoped to the block's statement list so the user can add immediately.
+// Shows description + optional warning, then inserts the node and transitions
+// the wizard directly into the new block's statement list — no close/reopen.
 
 function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch }) {
   const { _esc, _render, _pushStep } = WizardCore;
@@ -151,10 +151,12 @@ function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, bran
   document.getElementById('wiz-bc-add')?.addEventListener('click', () => {
     // Insert the block node into the piston
     Editor.insertStatement(ctx, node, meta);
-    // Reopen the wizard scoped to inside this block
-    WizardCore.close();
-    setTimeout(() => {
-      Wizard.open('statement', null, { 'block-id': node.id, 'branch': branch });
-    }, 50);
+    // Scope the wizard into the new block without closing — no flicker, no dump-out
+    WizardCore.context   = 'statement';
+    WizardCore.extra     = { 'block-id': node.id, 'branch': branch };
+    WizardCore.editNode  = null;
+    WizardCore.sel       = {};
+    WizardCore.stepStack = [];
+    _goStatementTypePicker();
   });
 }

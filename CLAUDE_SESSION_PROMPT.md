@@ -90,7 +90,34 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 50 Complete
+## Project Status — Session 51 Complete
+
+### What Was Done in Session 51 (Bug fixes)
+
+**Multiple wizard and CSS fixes:**
+
+- `app.js`: Removed duplicate GlobalsDrawer stub (was declared in both app.js and globals.js — crashed on load).
+- `globals.js`: Fixed drawer closing immediately on open — changed outside-click from `click` to `mousedown`. Device picker changed from checkbox inputs to WebCoRE row-click-toggles-checkmark pattern. `_selectedDevices` module-level Set added; `_readDeviceSelection` reads from Set.
+- `wizard-variable.js`: Device picker changed to WebCoRE row-click-toggles-checkmark pattern. Three-section list: physical devices, local variables, global variables.
+- `style.css`: Full globals drawer CSS added (was missing entirely from deployed file). `wiz-stmt-cards` added as grid alias for `wiz-card-grid` (statement card grid was rendering as vertical list). `wiz-varinit-dev-row` checkbox rules replaced with `wiz-dev-check` checkmark rules. `wiz-block-warning` added (amber warning box).
+- `wizard-core.js`: repeat/do/on_event/break edit was calling `close()` immediately — replaced with simple edit screen showing description and Delete button.
+- `wizard-statement.js`: do_block, on_event, while_loop, repeat_loop now show a confirm screen with description, warning (while/repeat), and "Add a statement" button that inserts the block and reopens the wizard scoped inside it.
+
+**Gap opened:**
+- GAP-S51-1 → W-S7b: `_goBlockConfirm` uses close()+setTimeout+Wizard.open() causing visible dump-out when entering block. Fix: set WizardCore.context/extra and call `_goStatementTypePicker()` directly.
+
+---
+
+### Priority for next session (GAP-S51-1):
+
+Fix `_goBlockConfirm` in `wizard-statement.js` — no close/reopen cycle.
+Set `WizardCore.context` and `WizardCore.extra` to point inside the new block,
+then call `_goStatementTypePicker()` directly without closing.
+
+Upload for next session:
+wizard-statement.js, wizard-core.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
 
 ### What Was Done in Session 50 (G-2b)
 
@@ -351,3 +378,9 @@ Wizard split is good. Key risks identified:
 
 Grok recommendation: stabilize before adding features.
 W-S7b (wizard stabilization + debug logging) added to TASKS.md between W-S7 and W-S8.
+add a new bug you are wrong.  it needs the corner hook on the if and end to create the space
+
+10:01 PM
+You're right — WebCoRE uses corner hooks, not a straight line. The line turns at the opening keyword and hooks again at the closing keyword, creating a visual bracket that groups the block. That's actually useful, not just decoration.
+
+Log it for next session — CSS and possibly minor editor.js changes to add the hook elements at open/close points.

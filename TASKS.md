@@ -213,5 +213,6 @@ GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
 ### GAP-S46-4 → G-3: Imported globals dump into piston variables instead of globals store
 ### GAP-S46-5 → W-S8: Import modal has no file picker — paste-only
 ### GAP-S47-1 → S4-16: Structure line --block-left position needs fine-tuning
+### GAP-S51-1 → W-S7b: _goBlockConfirm uses close()+setTimeout+Wizard.open() to reopen wizard inside new block — causes visible dump-out. Fix: set WizardCore.context and WizardCore.extra to point inside the new block, then call _goStatementTypePicker() directly without closing.
 ### GAP-S50-1 → S3-1: compiler does not handle device initial_value entries that are @global_name vs local_var_name vs domain.entity — needs disambiguation pass
 ### GAP-S30-3 → S4-16: Double config load per compile call

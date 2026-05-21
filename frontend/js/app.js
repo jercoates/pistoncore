@@ -348,41 +348,6 @@ const NewPistonModal = (() => {
   return { open, close };
 })();
 
-// ── Globals Drawer ───────────────────────────────────────
-const GlobalsDrawer = (() => {
-  const drawer = document.getElementById('globals-drawer');
-
-  async function open() {
-    drawer?.classList.add('open');
-    const body = document.getElementById('globals-drawer-body');
-    if (!body) return;
-    body.innerHTML = '<div class="wizard-loading"><div class="spinner"></div> Loading...</div>';
-    try {
-      const globals = await API.getGlobals();
-      const entries = Object.values(globals);
-      if (!entries.length) {
-        body.innerHTML = '<p class="text-muted" style="font-size:12px">No global variables defined.</p>';
-        return;
-      }
-      body.innerHTML = entries.map(g => `
-        <div class="global-row">
-          <div class="global-name">@${g.display_name}</div>
-          <div class="global-value">${g.current_value ?? '—'}</div>
-          <div class="global-type">${g.type}</div>
-        </div>
-      `).join('');
-    } catch (e) {
-      body.innerHTML = `<div class="wizard-error">${e.message}</div>`;
-    }
-  }
-
-  function close() { drawer?.classList.remove('open'); }
-
-  document.getElementById('globals-drawer-close')?.addEventListener('click', close);
-
-  return { open, close };
-})();
-
 // ── Dialog ───────────────────────────────────────────────
 const Dialog = (() => {
   const backdrop = document.getElementById('dialog-backdrop');

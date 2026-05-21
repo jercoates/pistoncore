@@ -1971,7 +1971,8 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
   border-top: 1px solid var(--border-subtle);
   margin-top: 8px;
 }
-.wiz-card-grid {
+.wiz-card-grid,
+.wiz-stmt-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;

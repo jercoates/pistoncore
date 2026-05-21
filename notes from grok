@@ -84,3 +84,130 @@ Limitations (e.g., current action support).
 
 
 Overall: The foundation is strong and the vision is clear. No glaring show-stoppers in the architecture. Most "bugs" are expected for an in-development project. Focus on completing the compiler/action system and rigorous testing against real HA instances will get it to a usable alpha quickly.
+
+Got it — editor-first priority makes perfect sense. Security can wait until the core experience is solid (especially for your personal HA instance). Docker hardening is a nice-to-have for broader sharing.
+Current State (as of today, May 21 2026)
+You're in a strong position:
+
+Editor rendering + structure lines + block confirm screens are landing fast.
+Globals system (backend + drawer + multi-select device picker) just shipped in the last 1–2 sessions.
+Wizards are split and being stabilized.
+The big goal right now is clean round-trip on a simple piston (wizard → JSON → save → compile → render back correctly).
+
+High-Impact Guidance for Next Sessions
+1. Immediate Priority: Finish the Round-Trip (S3-1)
+This is the highest-leverage thing you can do. Once a simple piston (trigger + condition + action) survives full round-trip, confidence skyrockets and you can iterate much faster.
+Recommended next steps (in rough order):
+
+G-3: Import — make sure globals from imported pistons land in the global store instead of local variables.
+W-S8: Role mapping verification + basic wizard smoke test. This will expose most remaining wizard/editor disconnects.
+Then jump straight into S3-1 smoke test with 2–3 minimal pistons (e.g. motion light, door notification, time-based scene).
+
+2. Frontend Stability & Debugging Tips
+Since you're using pure vanilla JS:
+
+Add more defensive null checks in wizard _go* and _commit* functions (you already planned this in W-S7b).
+Consider a lightweight debug overlay or expanded console logging during this phase (e.g. log every wizard state change and JSON diff on save).
+Watch for:
+Race conditions on globals loading (cache in WizardCore.globalsData helps, but confirm timing on first load).
+Device/role mapping round-tripping correctly (especially initial_device_ids array).
+Structure line positioning after deep nesting or block inserts.
+
+
+3. Compiler Side (Once Editor is Stable)
+
+Focus first on simple pistons only — get YAML output rock-solid before worrying about PyScript paths.
+Pay special attention to:
+Device initial_value disambiguation (@global vs local var vs entity) — noted as GAP-S50-1.
+Globals scanning (still somewhat fragile regex).
+Proper handling of nested then/else/statements.
+
+
+4. Testing Workflow Suggestions
+
+Keep a small set of "golden" sample pistons in the repo and re-test them after every major editor or compiler change.
+Use the demo devices heavily while polishing the wizard — reduces HA flakiness during dev.
+After each session, run the visual test checklist in PROGRESS_TRACKER.md.
+
+5. Quick Wins / Polish That Help You Daily
+
+Import file picker (GAP-S46-5) — even a simple <input type="file"> helps a lot.
+Better error surfacing in the editor (red highlights on invalid blocks?).
+Keyboard shortcuts for common actions (e.g. Ctrl+S for save, Esc to cancel wizard).
+
+Great progress — you're doing really well for someone without a formal programming background. The fact that the hard UI block problems are mostly solved is huge. The "background problems" surfacing now is completely normal at this stage.
+Backend ↔ Frontend Connection Overview (Current State)
+Architecture (Clean & Solid)
+
+Frontend (pure vanilla JS) → never talks directly to HA.
+All communication goes through /frontend/js/api.js → FastAPI backend (backend/api.py).
+Backend handles:
+Storage (storage.py — JSON files on disk)
+HA communication (ha_client.py — WebSocket + caching)
+Compilation
+
+Data format: Piston JSON (with device_map, variables, nested statements, etc.)
+
+Key Data Flows
+
+Pistons (CRUD)
+GET /pistons → list
+GET /pistons/{id} → full JSON
+POST /pistons + PUT /pistons/{id} → create/update
+Backend does light validation (_validate_device_map) and adds timestamps/ID.
+
+Devices (Wizard + Globals)
+GET /devices → cached list from HA
+GET /device/{entity_id}/capabilities and /services
+This is likely where your "only takes 1 device" issue lives.
+
+Globals
+Separate store (globals.json)
+Device-type globals support multiple entities (array).
+
+Compile/Deploy
+POST /pistons/{id}/compile → returns YAML + errors/warnings
+Context builder + Jinja templates
+
+
+The Device Issue You Mentioned ("only take 1 device")
+This is a very common spot for disconnects right now. Here's what's happening in the code:
+Backend (api.py):
+Pythondef _validate_device_map(device_map: dict):
+    for role, value in device_map.items():
+        if isinstance(value, str):
+            cleaned[role] = [value]   # Coerces single string → list
+        elif isinstance(value, list):
+            cleaned[role] = value
+Globals Drawer (globals.js):
+
+Properly uses multi-select (_selectedDevices Set → array on save).
+Device globals do support multiple entities.
+
+Likely places where it's limited to 1 device:
+
+In wizard device/role pickers (especially in wizard-action.js, wizard-condition.js, or wizard-core.js _getCapsForDomain / selection handlers).
+When building/saving the device_map in the piston JSON (some paths might be overwriting instead of appending).
+Round-tripping on load (editor or wizard not handling array vs string correctly).
+
+Quick Diagnostic Steps for You:
+
+Create a piston and add two devices to the same role (e.g., in an action or condition).
+Save it.
+Check browser console + open the piston JSON (via DevTools or backend file) — look at device_map.
+Does it show an array with 2 items, or only 1?
+
+Would you like me to review the specific wizard file where you're adding devices right now?
+General Recommendations for Background Problems
+High-Impact Areas to Stabilize Next:
+
+Device/role mapping round-trip — this is currently the #1 source of "it works in wizard but breaks later" bugs.
+Globals integration in wizard (especially device globals).
+Save → Reload → Re-render consistency (editor + wizard).
+Error handling / user feedback when HA is disconnected or cache is stale.
+
+Debugging Tips (Noob-Friendly):
+
+Open browser DevTools (F12) → Console tab — lots of useful logs already.
+Add temporary console.log("=== SAVING DEVICE MAP ===", deviceMap) right before API.savePiston().
+Use the demo devices heavily while fixing — they reduce HA flakiness.

@@ -90,9 +90,49 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 49 Complete
+## Project Status — Session 50 Complete
 
-### What Was Done in Session 49 (G-2)
+### What Was Done in Session 50 (G-2b)
+
+**Globals drawer CSS + wizard-variable.js device multi-select fix:**
+
+- `style.css`: Full CSS block added for all globals drawer classes — list rows,
+  form fields, name-wrap with @ prefix, device picker panel, checkboxes,
+  SelectAll/DeselectAll buttons, summary text, loading/error/empty states.
+  All using dark theme vars — teal accents, var(--bg-raised), var(--border-subtle).
+  GAP-G2-1 closed.
+
+- `wizard-variable.js`: `_goVarInitDevicePicker` rebuilt as a proper multi-select
+  with three sections: Physical devices / Local variables / Global variables.
+  Checkboxes throughout. SelectAll/DeselectAll operate on physical devices only.
+  Confirm button commits selection. Back button discards.
+  `WizardCore.sel.initial_device_ids` (array) replaces `initial_device_id` /
+  `initial_device_label` everywhere in the file.
+  `_varInitSubHtml` for device type shows count ("3 devices selected").
+  `save()` writes `initial_value` as the array.
+  Globals fetched via `API.getGlobals()` and cached on `WizardCore.globalsData`.
+  Both devices and globals fetched in parallel via `Promise.all` if not cached.
+  GAP-G2-2 closed.
+
+**Gaps opened:**
+- GAP-S50-1 → S3-1: compiler does not handle device initial_value entries that
+  are `@global_name` vs `local_var_name` vs `domain.entity` — needs disambiguation
+
+---
+
+### Priority order for next session (G-3 — Import globals):
+
+**GAP-S46-4: Imported globals dump into piston variables instead of globals store**
+
+When a piston snapshot is imported, any globals referenced in it need to land in
+the globals store (`globals.json`), not in the piston's own variable define block.
+
+Upload for next session:
+api.py, list.js, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+## What Was Done in Session 49 (G-2)
 
 **GlobalsDrawer frontend — globals.js (new), api.js, api.py, storage.py, index.html:**
 
@@ -114,38 +154,6 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 - `index.html`: globals.js script tag added after api.js.
 
-**Gaps opened:**
-- GAP-G2-1 → G-2b: globals drawer has no CSS rules — will look unstyled
-- GAP-G2-2 → G-2b: wizard-variable.js device picker is single-select only
-
----
-
-### Priority order for next session (G-2b — CSS + Variable Device Multi-Select):
-
-**G-2b is two fixes in one session — both are blockers:**
-
-**Part 1 — GAP-G2-1: CSS for GlobalsDrawer**
-Add all CSS rules for globals drawer classes to style.css. Full class list in TASKS.md.
-Match the existing PistonCore dark theme — teal accents, var(--bg-raised), var(--border-subtle).
-
-**Part 2 — GAP-G2-2: wizard-variable.js device picker is single-select**
-`_goVarInitDevicePicker` currently picks one device and immediately closes on click.
-Device variables in the piston define block must support multiple devices, same as globals.
-
-Fix required:
-- Replace single-click-to-select with multi-select: checkboxes, SelectAll/DeselectAll,
-  searchable list, confirm button.
-- `initial_value` for device type stores a list of entity_id strings, not a single string.
-- `initial_device_id` / `initial_device_label` on WizardCore.sel replaced by
-  `initial_device_ids` (array).
-- `_varInitSubHtml` for type 'device' shows count of selected devices.
-- `save()` in _goVariablePicker writes `initial_value` as the array.
-- Read globals.js before writing — the multi-select pattern is already implemented
-  there and must be matched exactly.
-
-Upload for next session:
-style.css, globals.js, wizard-variable.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
 ---
 
 ## What Was Done in Session 48 (G-1)
@@ -156,13 +164,6 @@ Schema locked: `{ id, name, var_type, value, description }`
 - `var_type` values: `text | number | boolean | datetime | device`
 - Device globals: `value` holds list of entity_id strings, baked in at compile time.
 - Non-device globals: backed by HA input_* helpers with prefix `pistoncore_global_`.
-
-**api.py changes:**
-- `POST /globals` schema fixed: was `{ display_name, type }`, now `{ name, var_type, value, description }`
-- `PUT /globals/{id}` added — partial update, marks pistons stale if var_type or value changed
-
-**storage.py changes:**
-- `load_globals()` docstring updated to reflect correct schema
 
 ---
 
@@ -206,7 +207,7 @@ No ID references between statements anywhere.
 
 ---
 
-## Globals System — Locked Decisions (Sessions 48-49)
+## Globals System — Locked Decisions (Sessions 48-50)
 
 **Schema:** `{ id, name, var_type, value, description }`
 **var_type options:** `text | number | boolean | datetime | device`
@@ -219,6 +220,11 @@ No ID references between statements anywhere.
   Read via `state.get("input_text.pistoncore_global_name")`.
 **`@variable` syntax** — how globals are referenced in piston display text and
   in the wizard. Editor already renders this. Wizard wiring comes in G-4.
+**Device initial_value in piston variables:** stored as array of strings.
+  Entries prefixed with `@` are global device vars. Plain names are local device vars.
+  `domain.entity` format are physical entity IDs. Compiler disambiguation → GAP-S50-1.
+**WizardCore.globalsData** — globals cached here after first fetch in device picker.
+  Same pattern as WizardCore.deviceData.
 
 ---
 

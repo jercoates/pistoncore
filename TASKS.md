@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 49 complete — G-2 globals frontend done, GAP-G2-2 added → G-2b
+**Last Updated:** Session 50 complete — G-2b globals CSS + device multi-select done, both gaps closed
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -13,7 +13,7 @@ wizard writes JSON → backend saves it → compiler reads it → frontend rende
 
 The wizard split is done and deployed. Editor scroll is fixed. Vertical structure lines
 are in. The remaining blockers before a meaningful smoke test are: globals system
-(G-1 done, G-2 done, G-2b CSS + device multi-select fix needed, G-3/G-4 still needed)
+(G-1 done, G-2 done, G-2b done, G-3/G-4 still needed)
 and role mapping verification.
 
 ---
@@ -21,7 +21,7 @@ and role mapping verification.
 ## How to Use This File
 
 - **STAGE W** — Wizard and editor polish. Active work zone.
-- **STAGE G** — Globals system. G-1 and G-2 complete. G-2b is next.
+- **STAGE G** — Globals system. G-1, G-2, G-2b complete. G-3 is next.
 - **STAGE 1** — Structural fixes. Mostly complete.
 - **STAGE 2** — Connect the seams. Deferred until after smoke test passes.
 - **STAGE 3** — Round-trip verified. Work can now split into focused modules.
@@ -88,49 +88,20 @@ GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
 
 ---
 
-### G-2b: CSS + Device Multi-Select Fix ← NEXT SESSION
+### G-2b: CSS + Device Multi-Select Fix ✅ (Session 50)
 
-**Two things in one session — both are blockers:**
-
-**Part 1 — GAP-G2-1: CSS for GlobalsDrawer**
-Add all CSS rules for globals drawer classes to style.css:
-- `.globals-row`, `.globals-row-main`, `.globals-row-name`, `.globals-row-type`
-- `.globals-row-desc`, `.globals-row-actions`, `.globals-row-edit`, `.globals-row-delete`
-- `.globals-value`, `.globals-value-entity`, `.globals-value-none`
-- `.globals-empty`, `.globals-error`, `.globals-add-bar`
-- `.globals-form`, `.globals-form-title`, `.globals-form-row`, `.globals-label`
-- `.globals-name-wrap`, `.globals-at`, `.globals-input`, `.globals-select`
-- `.globals-optional`, `.globals-form-error`, `.globals-form-actions`
-- `.globals-loading-inline`
-- `.gf-device-picker`, `.gf-device-summary`, `.gf-device-panel`
-- `.gf-device-filter`, `.gf-device-sel-actions`, `.gf-sel-all`, `.gf-sel-none`
-- `.gf-device-list`, `.gf-device-row`, `.gf-device-row.selected`
-- `.gf-device-cb`, `.gf-device-name`, `.gf-device-id`, `.gf-device-empty`
-
-**Part 2 — GAP-G2-2: wizard-variable.js device picker is single-select only**
-`_goVarInitDevicePicker` currently picks one device and immediately closes.
-Device variables in the define block must support multiple devices — same as globals.
-
-Fix:
-- Replace single-click-to-select in `_goVarInitDevicePicker` with the same
-  multi-select pattern used in globals.js: checkboxes, SelectAll/DeselectAll,
-  searchable list, confirm button to commit selection.
-- `initial_value` for device type must store a list of entity IDs, not a single string.
-- `initial_device_id` and `initial_device_label` on WizardCore.sel replaced by
-  `initial_device_ids` (array of entity_id strings).
-- `_varInitSubHtml` for type 'device' must show count of selected devices,
-  not a single device label.
-- `save()` in _goVariablePicker must write `initial_value` as the array.
-
-Read globals.js before writing wizard-variable.js — the multi-select pattern
-is already implemented there and must be matched exactly.
-
-**Upload for this session:**
-style.css, globals.js, wizard-variable.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+style.css: Full globals drawer CSS added — list rows, form, name-wrap, device picker,
+checkboxes, SelectAll/DeselectAll, summary, loading/error/empty states.
+wizard-variable.js: Device picker rebuilt as multi-select with three sections:
+physical devices, local device variables, global device variables.
+initial_device_ids (array) replaces initial_device_id/initial_device_label.
+Globals fetched and cached on WizardCore.globalsData via API.getGlobals().
+SelectAll/DeselectAll operate on physical devices only.
+GAP-G2-1 closed. GAP-G2-2 closed.
 
 ---
 
-### G-3: Import — Globals Land in the Right Place (GAP-S46-4)
+### G-3: Import — Globals Land in the Right Place (GAP-S46-4) ← NEXT SESSION
 
 **Upload for this session:**
 api.py, list.js, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
@@ -193,6 +164,13 @@ Only attempt once W-S8 passes and globals G-1/G-2/G-2b are complete.
 
 ## DONE — Completed Sessions
 
+### Session 50 — G-2b complete: Globals CSS + device multi-select ✅
+style.css: All globals drawer CSS classes added (GAP-G2-1 closed).
+wizard-variable.js: _goVarInitDevicePicker rebuilt — three-section multi-select
+(physical devices, local vars, global vars), checkboxes, SelectAll/DeselectAll,
+Confirm button, initial_device_ids array, WizardCore.globalsData cache (GAP-G2-2 closed).
+GAP-S50-1 opened → S3-1: compiler needs device initial_value disambiguation.
+
 ### Session 49 — G-2 complete: GlobalsDrawer frontend ✅
 globals.js: GlobalsDrawer with open/close, list render, add/edit/delete form,
 multi-select device picker (checkboxes, SelectAll/DeselectAll, searchable).
@@ -221,8 +199,8 @@ GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
 
 ## Open Gaps — All Assigned
 
-### GAP-G2-1 → G-2b: globals drawer has no CSS rules — will look unstyled
-### GAP-G2-2 → G-2b: wizard-variable.js device picker is single-select only; initial_value must store list
+### GAP-G2-1 → G-2b: CLOSED (Session 50)
+### GAP-G2-2 → G-2b: CLOSED (Session 50)
 ### GAP-S28-4 → S3-1: 6 test pistons in tests/pistons/ not yet created
 ### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
 ### GAP-S34-1 → S4-16: _compile_single_condition has no warnings param
@@ -235,4 +213,5 @@ GAP-G2-1 opened → G-2b. GAP-G2-2 opened → G-2b.
 ### GAP-S46-4 → G-3: Imported globals dump into piston variables instead of globals store
 ### GAP-S46-5 → W-S8: Import modal has no file picker — paste-only
 ### GAP-S47-1 → S4-16: Structure line --block-left position needs fine-tuning
+### GAP-S50-1 → S3-1: compiler does not handle device initial_value entries that are @global_name vs local_var_name vs domain.entity — needs disambiguation pass
 ### GAP-S30-3 → S4-16: Double config load per compile call

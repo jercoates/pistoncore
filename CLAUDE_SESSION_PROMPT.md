@@ -94,9 +94,49 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 
 ---
 
-## Project Status — Session 47 Complete
+## Project Status — Session 48 Complete
 
-### What Was Done in Session 47 (W-S7)
+### What Was Done in Session 48 (G-1)
+
+**Globals backend — api.py + storage.py:**
+
+Schema locked: `{ id, name, var_type, value, description }`
+- `var_type` values: `text | number | boolean | datetime | device`
+- Device globals: `value` holds the entity_id string, baked in at compile time as
+  literal entity IDs — no runtime lookup. Compiler expands them directly into trigger
+  decorators and service calls. Piston flagged stale when device global changes.
+- Non-device globals: backed by HA input_* helpers with prefix `pistoncore_global_`
+  at deploy time. Compiled pistons read/write via state.get() and service calls.
+
+**api.py changes:**
+- `POST /globals` schema fixed: was `{ display_name, type }`, now `{ name, var_type, value, description }`
+- `PUT /globals/{id}` added — partial update (missing fields preserved), marks
+  pistons stale if var_type or value changed
+- Endpoint summary comment updated
+
+**storage.py changes:**
+- `load_globals()` docstring updated to reflect correct schema
+
+No new gaps opened.
+
+---
+
+### Priority order for next session (G-2 — GlobalsDrawer Frontend):
+
+**G-2: Frontend — GlobalsDrawer Implementation**
+
+- `GlobalsDrawer` object with open()/close() — already called from list.js
+- Drawer shows list of all globals: name, type, current value
+- Add / Edit / Delete actions matching wizard variable UI style
+- Fetches from GET /globals on open, saves via POST/PUT/DELETE
+- New file: `frontend/js/globals.js` — add to index.html load order after api.js
+
+Upload for next session:
+list.js, api.js, index.html, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+## What Was Done in Session 47 (W-S7)
 
 **Vertical structure lines — editor.js + style.css:**
 - Added `bOpen(indentLevel)` / `bClose()` helpers in `_actionLines` that wrap each
@@ -114,26 +154,6 @@ native HA. Do not add them to the UI. AND and OR only for group operators.
 - Lines are functional and recognizable. Fine-tuning of exact position deferred.
 - style.css: `.doc-block-body` position:relative + `::before` rule added.
 - No gaps introduced. Click handling, ghost points, line numbers all intact.
-
-**Priorities for remainder of project:**
-1. Globals system end-to-end (G-1 → G-2 → G-3 → G-4) ← NEXT
-2. Role mapping + wizard smoke test (W-S8)
-3. Compile/deploy smoke test (S3-1) — only after globals and role mapping work
-
----
-
-### Priority order for next session (G-1 — Globals Backend):
-
-**G-1: Backend — Globals Storage + API Endpoints**
-
-Decisions to make at session start (discuss before coding):
-- Storage: separate `globals.json` in userdata
-- Schema: `{ id, name, var_type, value, description }`
-- API endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
-- How compiled pistons reference globals (PyScript globals dict)
-
-Upload for next session:
-api.py, main.py, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -176,6 +196,22 @@ GAP-S43-4 → S2-3. GAP-S46-4 → G-3.
 The statements array is a nested tree. Control flow nodes own their children directly.
 `then`, `else`, `statements`, `else_ifs`, and `cases` contain child statement objects.
 No ID references between statements anywhere.
+
+---
+
+## Globals System — Locked Decisions (Sessions 48)
+
+**Schema:** `{ id, name, var_type, value, description }`
+**var_type options:** `text | number | boolean | datetime | device`
+**Storage:** separate `globals.json` in `/pistoncore-userdata/`
+**Device globals:** baked in at compile time as literal entity IDs. No runtime lookup.
+  Compiler expands into trigger decorators and service calls directly.
+  Pistons flagged stale when device global's value (entity_id) changes.
+**Non-device globals:** backed by HA input_* helpers, prefix `pistoncore_global_`.
+  Read via `state.get("input_text.pistoncore_global_name")`.
+  Written via `input_text.set_value(entity_id=..., value=...)` etc.
+**`@variable` syntax** — how globals are referenced in piston display text and
+  in the wizard. Editor already renders this. Wizard wiring comes in G-4.
 
 ---
 

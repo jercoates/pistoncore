@@ -13,6 +13,7 @@
 #   POST   /pistons/{id}/deploy            — compile + send to companion for HA write
 #   GET    /globals                        — list global variables
 #   POST   /globals                        — create global variable
+#   PUT    /globals/{id}                   — update global variable
 #   DELETE /globals/{id}                   — delete global variable
 #   GET    /config                         — get runtime config
 #   PUT    /config                         — update runtime config (clears HA cache)
@@ -540,17 +541,54 @@ def list_globals():
 def create_global(body: dict = Body(...)):
     """
     Create a global variable.
-    Body: { "display_name": str, "type": "Text"|"Number"|"Yes/No"|"Date/Time" }
-    The companion creates the corresponding HA helper on deploy.
+    Body: { "name": str, "var_type": "text"|"number"|"boolean"|"datetime"|"device", "value": str, "description": str }
+    var_type "device": value holds the entity_id string. Baked in at compile time.
+    var_type text/number/boolean/datetime: backed by HA input_* helpers at deploy time.
     """
     globals_store = storage.load_globals()
     global_id = str(uuid.uuid4()).replace("-", "")[:8]
     globals_store[global_id] = {
-        "id": global_id,
-        "display_name": body.get("display_name", "New Variable"),
-        "type": body.get("type", "Text"),
+        "id":          global_id,
+        "name":        body.get("name", "new_global"),
+        "var_type":    body.get("var_type", "text"),
+        "value":       body.get("value", ""),
+        "description": body.get("description", ""),
     }
     storage.save_globals(globals_store)
+    return globals_store[global_id]
+
+
+@router.put("/globals/{global_id}")
+def update_global(global_id: str, body: dict = Body(...)):
+    """
+    Update an existing global variable.
+    Body: { "name": str, "var_type": str, "value": str, "description": str }
+    Only the fields present in the body are updated — missing fields are preserved.
+    Pistons referencing this global are marked stale if var_type or value changed.
+    """
+    globals_store = storage.load_globals()
+    if global_id not in globals_store:
+        raise HTTPException(status_code=404, detail=f"Global '{global_id}' not found.")
+
+    existing = globals_store[global_id]
+    value_changed = (
+        body.get("var_type", existing["var_type"]) != existing["var_type"]
+        or body.get("value", existing["value"]) != existing["value"]
+    )
+
+    existing["name"]        = body.get("name",        existing["name"])
+    existing["var_type"]    = body.get("var_type",    existing["var_type"])
+    existing["value"]       = body.get("value",       existing["value"])
+    existing["description"] = body.get("description", existing["description"])
+
+    globals_store[global_id] = existing
+    storage.save_globals(globals_store)
+
+    # If the value or type changed, any piston using this global may produce
+    # different compiled output — mark stale so the user knows to redeploy.
+    if value_changed:
+        _mark_pistons_stale_for_global(global_id)
+
     return globals_store[global_id]
 
 

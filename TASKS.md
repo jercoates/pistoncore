@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 47 complete — vertical structure lines deployed
+**Last Updated:** Session 48 complete — G-1 globals backend done
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -13,14 +13,14 @@ wizard writes JSON → backend saves it → compiler reads it → frontend rende
 
 The wizard split is done and deployed. Editor scroll is fixed. Vertical structure lines
 are in. The remaining blockers before a meaningful smoke test are: globals system
-(completely unbuilt end-to-end) and role mapping verification.
+(G-1 done, G-2/G-3/G-4 still needed) and role mapping verification.
 
 ---
 
 ## How to Use This File
 
 - **STAGE W** — Wizard and editor polish. Active work zone.
-- **STAGE G** — Globals system. Completely unbuilt. Must be done before smoke test means anything.
+- **STAGE G** — Globals system. G-1 complete. G-2 is next.
 - **STAGE 1** — Structural fixes. Mostly complete.
 - **STAGE 2** — Connect the seams. Deferred until after smoke test passes.
 - **STAGE 3** — Round-trip verified. Work can now split into focused modules.
@@ -82,32 +82,21 @@ CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
-## STAGE G — Globals System (Completely Unbuilt) ← NEXT
+## STAGE G — Globals System
 
-**Background:** Globals are referenced in several places in the frontend but nothing
-is actually implemented end-to-end:
-- list.js calls `GlobalsDrawer.open()` — that object does not exist
-- editor.js can render `@variable` syntax — but there is no data source for it
-- wizard.js has a local/global scope selector in set_variable — not wired to anything
-- No backend API endpoints for globals exist
-- No globals storage exists
-- Imported pistons that contain globals currently dump them into piston variables
-  because there is nowhere else for them to go (GAP-S46-4)
+### G-1: Backend — Globals Storage + API Endpoints ✅ (Session 48)
 
-### G-1: Backend — Globals Storage + API Endpoints ← NEXT SESSION
-
-**Decisions needed before coding (discuss at start of session):**
-- Storage: separate globals.json in userdata
-- Schema: `{ id, name, var_type, value, description }`
-- API endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
-- How compiled pistons reference globals (PyScript globals dict)
-
-**Upload for this session:**
-api.py, main.py, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+Schema locked: `{ id, name, var_type, value, description }`
+var_type values: `text | number | boolean | datetime | device`
+Device globals: value holds entity_id string, baked in at compile time.
+Non-device globals: backed by HA input_* helpers at deploy time.
+Endpoints: GET /globals, POST /globals, PUT /globals/{id}, DELETE /globals/{id}
+PUT marks pistons stale when var_type or value changes.
+No new gaps.
 
 ---
 
-### G-2: Frontend — GlobalsDrawer Implementation
+### G-2: Frontend — GlobalsDrawer Implementation ← NEXT SESSION
 
 **What to build:**
 - `GlobalsDrawer` object with open()/close() — already called from list.js
@@ -117,7 +106,7 @@ api.py, main.py, DESIGN.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 - New file: `frontend/js/globals.js` — add to index.html load order after api.js
 
 **Upload for this session:**
-list.js, api.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
+list.js, api.js, index.html, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -207,6 +196,12 @@ editor.js, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS
 ---
 
 ## DONE — Completed Sessions
+
+### Session 48 — G-1 complete: Globals backend ✅
+api.py: POST /globals schema fixed to { id, name, var_type, value, description }.
+PUT /globals/{id} added — partial update, marks pistons stale on var_type/value change.
+Endpoint summary comment updated. storage.py: load_globals() docstring updated.
+No new gaps.
 
 ### Session 47 — W-S7 complete: Vertical structure lines ✅
 editor.js: bOpen/bClose wrappers on all block types. div.doc-block-body[data-indent=N].

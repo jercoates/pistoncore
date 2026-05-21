@@ -1,0 +1,86 @@
+PistonCore is a well-structured, thoughtfully designed project aiming to bring a WebCoRE-like visual editor to Home Assistant. It compiles structured piston JSON to native HA YAML (or PyScript for complex cases). The architecture (vanilla frontend + FastAPI backend + Jinja templates + clear separation of concerns) is solid for its goals.
+The repo is actively in development (no releases yet, many "coming soon" items, compiler/features still being wired up). Here's a review of potential problems, bugs, risks, and improvement opportunities based on the visible code (as of my last check).
+1. Critical / High-Priority Issues
+Security & Auth
+
+API key protection (X-API-Key header in api.py) is optional (skipped if PISTONCORE_API_KEY env var unset). Fine for localhost/Docker dev, but dangerous if the container is exposed publicly (port 7777). Document this clearly and consider defaulting to a generated key on first run.
+Frontend serves static files and the backend has no CORS / rate limiting visible in snippets. If exposed, add proper middleware.
+HA token handling: Stored in plaintext config.json. Acceptable for local use but note it in docs.
+
+Deployment & HA Integration
+
+Direct writes to ha_config_path (automations/scripts subdirs) + configuration.yaml modification on first run. This is powerful but risky:
+File permission issues (especially Samba mounts, Docker volumes).
+Hash-mismatch protection (_check_hash_mismatch) is good but relies on a fragile header parse.
+One-time HA restart required for scripts after configuration.yaml edit — handled but UX could be improved (clear banner/instructions).
+
+Reload calls (automation.reload, script.reload) can fail silently in some places.
+
+Compiler
+
+PyScript target is stubbed (PYSCRIPT_NOT_IMPLEMENTED error). Complex pistons won't deploy yet.
+_scan_globals uses a regex + string walk — works but can have false positives (commented in code as FRAGILE). Better to walk the structured tree properly.
+Slug collision handling is present but could produce long/ugly slugs.
+
+2. Potential Bugs / Edge Cases
+
+Versioning & Migration: _migrate_piston is a no-op. Future schema changes need careful handling (logic_version vs ui_version is a good split).
+Context Building: context_builder.build_compiler_context can raise ContextBuildError (handled gracefully in _compile). Ensure HA WebSocket failures degrade well (demo mode fallback is mentioned in README).
+Device Map Validation: Coerces strings to lists — good, but ensure frontend always sends consistent data.
+Nested Statements: Compiler recurses into then/else/statements/else_ifs — looks solid, but test deeply nested if/else/loop structures thoroughly (WebCoRE had complex nesting).
+Globals: String-scan heuristic for stale marking (false positives possible). Update globals can mark pistons stale.
+Frontend: Vanilla JS (many small .js files). Risk of global scope pollution / race conditions on load order. BASE_URL invariant mentioned in docs — verify it's respected everywhere. Caching in ha_client.py: In-memory only (lost on restart). TTLs are reasonable. WebSocket reconnect logic exists but needs testing under flaky networks.
+
+File / Storage
+
+storage.py uses simple JSON files per piston — simple and good for sharing, but no locking / concurrency protection if multiple instances run (unlikely).
+
+3. Code Quality & Maintainability (Mostly Positive)
+Strengths:
+
+Excellent documentation (DESIGN.md, COMPILER_SPEC.md, etc.) and AI-friendly prompts.
+Clear separation: storage, ha_client, compiler, api.
+Compiler uses Jinja templates in customizable dir — great for community tweaks without code changes.
+Error handling aims for structured CompilerResult with codes/messages.
+Invariants documented (UUIDs, no entity IDs in UI, etc.).
+
+Suggestions:
+
+Add more type hints / pydantic models (FastAPI already uses some).
+Unit tests for compiler (standalone compiler.py test mentioned — expand this).
+Logging: Some logger usage, but more structured logging + error reporting would help.
+Error messages are user-facing — keep refining them.
+
+4. Missing / Incomplete Areas (Per README)
+
+Action builder (device commands, waits, etc.) — "being built now."
+Full deploy/compilation pipeline.
+Addon packaging.
+Status/trace page.
+PyScript full support.
+Import/export UI flows.
+
+Recommendations
+
+Test Thoroughly:
+Round-trip: Build piston → compile → deploy → verify in HA traces.
+Edge cases: No triggers, deep nesting, globals, device_map with roles, slug collisions, manual YAML edits.
+HA disconnect/reconnect scenarios.
+
+Add:
+Comprehensive tests.
+Better error surfacing in UI.
+Backup of pistons (or Git integration?).
+Validation of piston JSON against schema on load/save.
+
+Security Hardening (before wider sharing):
+Require/ generate API key.
+Consider HTTPS / reverse proxy guidance.
+
+Docs:
+Clear "development status" banner.
+Detailed setup for Docker (volume mounts, permissions).
+Limitations (e.g., current action support).
+
+
+Overall: The foundation is strong and the vision is clear. No glaring show-stoppers in the architecture. Most "bugs" are expected for an in-development project. Focus on completing the compiler/action system and rigorous testing against real HA instances will get it to a usable alpha quickly.

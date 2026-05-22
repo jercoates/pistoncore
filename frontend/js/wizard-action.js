@@ -458,7 +458,13 @@ async function _goCommandPicker() {
     if (sel) {
       sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
         demo.services.map(s => `<option value="${_esc(s)}" ${_sel.command===s?'selected':''}>${_esc(s.replace(/_/g,' '))}</option>`).join('');
-      if (_sel.command) {
+      // Auto-select first option if no prior command — browser shows first item visually
+      // but .value stays '' until an option has selected attribute or is set programmatically
+      if (!_sel.command && demo.services.length) {
+        sel.value = demo.services[0];
+        WizardCore.sel.command = demo.services[0];
+      }
+      if (WizardCore.sel.command) {
         document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
         document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');
       }
@@ -484,8 +490,16 @@ async function _goCommandPicker() {
         sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
           ['turn_on','turn_off','toggle'].map(c=>`<option value="${_esc(c)}" ${_sel.command===c?'selected':''}>${c.replace(/_/g,' ')}</option>`).join('');
       }
-      if (_sel.command) {
-        _renderCmdParams(_sel.command, services);
+      // Auto-select first real option if no prior command
+      if (!WizardCore.sel.command) {
+        const firstOpt = sel.options[1]; // index 0 is the hidden disabled placeholder
+        if (firstOpt) {
+          sel.value = firstOpt.value;
+          WizardCore.sel.command = firstOpt.value;
+        }
+      }
+      if (WizardCore.sel.command) {
+        _renderCmdParams(WizardCore.sel.command, services);
         document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
         document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');
       }

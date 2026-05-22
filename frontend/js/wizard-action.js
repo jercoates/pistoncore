@@ -6,13 +6,16 @@ function _goActionDevicePicker() {
   const { _render, _pushStep, close } = WizardCore;
   WizardCore.step = 'act_dev';
   _pushStep(_goActionDevicePicker);
+  // Reset command/params when arriving at device picker — device may change
+  WizardCore.sel.command = '';
+  WizardCore.sel.parameters = {};
   _render(
     'Add a new action',
     `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The <em>Location</em> virtual device provides a way to execute some non-device-specific tasks, such as sending notifications, communicating with integrated apps, and more.</div>
      <div class="wiz-selected-bar" id="wiz-sel-bar" style="display:none"><span id="wiz-sel-label"></span></div>
      <div class="wiz-search-row" style="margin:8px 0 4px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:var(--bg-raised)">
-       <span style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Use the input box below to quickly search for devices</span>
-       <input type="text" id="wiz-act-search" placeholder="" autocomplete="off" style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
+       <span style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Search for devices</span>
+       <input type="text" id="wiz-act-search" placeholder="Type to filter..." autocomplete="off" style="width:100%;background:var(--bg-input,var(--bg-raised));border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-primary);font-size:13px;outline:none;padding:4px 6px;margin-top:2px;box-sizing:border-box" />
      </div>
      <div style="display:flex;gap:8px;margin:4px 0">
        <button class="btn btn-ghost btn-xs" id="wiz-sel-all">Select All</button>
@@ -37,18 +40,20 @@ function _goActionDevicePicker() {
   let _ft = null;
   document.getElementById('wiz-act-search')?.addEventListener('input', e => {
     clearTimeout(_ft);
+    // Only filter once deviceData has loaded — avoids "None match" during API call
+    if (!WizardCore.deviceData) return;
     _ft = setTimeout(() => _renderActDevList(e.target.value.trim()), 200);
   });
 
   _loadActDevices();
 }
-
 async function _loadActDevices() {
   _renderActDevList('');
   try {
     if (!WizardCore.deviceData) WizardCore.deviceData = await API.getDevices();
-    _renderActDevList(document.getElementById('wiz-act-search')?.value || '');
   } catch(e) {}
+  // Always re-render after load attempt — picks up any search text already typed
+  _renderActDevList(document.getElementById('wiz-act-search')?.value || '');
 }
 
 function _renderActDevList(query) {
@@ -142,8 +147,11 @@ function _renderActDevList(query) {
         if (row.classList.contains('selected')) newSel.add(id); else newSel.delete(id);
         WizardCore.sel.devices = [...newSel];
         WizardCore.sel.device_id = WizardCore.sel.devices[0] || '';
-        WizardCore.sel.device_label = WizardCore.sel.devices.length === 1 ? row.dataset.label : `${WizardCore.sel.devices.length} devices`;
-        _updateActSelBar(WizardCore.sel.devices.map(d => el.querySelector(`[data-id="${CSS.escape(d)}"]`)?.dataset.label || d));
+        // Build label array now while the DOM rows are present — store for use at save time
+        const allLabels = WizardCore.sel.devices.map(d => el.querySelector(`[data-id="${CSS.escape(d)}"]`)?.dataset.label || d);
+        WizardCore.sel.device_labels = allLabels;
+        WizardCore.sel.device_label = allLabels.length === 1 ? allLabels[0] : `${allLabels.length} devices`;
+        _updateActSelBar(allLabels);
         document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !WizardCore.sel.devices.length);
       }
     });
@@ -530,11 +538,8 @@ function _saveDeviceCmd(addMore) {
   if ((_sel.devices || []).length <= 1) {
     deviceLabels = [_sel.device_label || _sel.device_id || ''];
   } else {
-    const labelMap = {};
-    document.querySelectorAll('#wiz-act-devlist .wiz-device-row').forEach(row => {
-      if (row.dataset.id && row.dataset.label) labelMap[row.dataset.id] = row.dataset.label;
-    });
-    deviceLabels = (_sel.devices || []).map(id => labelMap[id] || id);
+    // Use labels stored at selection time — DOM rows are gone on command picker screen
+    deviceLabels = _sel.device_labels || (_sel.devices || []).map(id => id);
   }
 
   const newTask = {

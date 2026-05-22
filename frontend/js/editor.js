@@ -357,7 +357,7 @@ const Editor = (() => {
           ln(`<span class="kw">for each</span> (${dvSpan} <span class="kw">in</span> ${lv})`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end for each;</span>`, pad);
         bClose();
 
@@ -367,7 +367,7 @@ const Editor = (() => {
           _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end while;</span>`, pad);
         bClose();
 
@@ -376,7 +376,7 @@ const Editor = (() => {
           ln(`<span class="kw">repeat</span>`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">until</span>`, pad);
           _renderConditionBlock(node.until_conditions, node.condition_operator, id, pad, ln, gh, '· add a new condition');
           ln(`<span class="kw">end repeat;</span>`, pad);
@@ -393,7 +393,7 @@ const Editor = (() => {
           ln(`<span class="kw">for</span> (${varPart} = ${fromPart} <span class="kw">to</span> ${toPart}${stepPart})`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end for;</span>`, pad);
         bClose();
 
@@ -401,7 +401,7 @@ const Editor = (() => {
         bOpen(pad);
           ln(`<span class="kw">do</span>`, pad, { id, type: t });
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end do;</span>`, pad);
         bClose();
 
@@ -433,7 +433,7 @@ const Editor = (() => {
           ln(`<span class="kw">every</span> ${interval} ${unit}`, pad, { id, type: t });
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end every;</span>`, pad);
         bClose();
 
@@ -443,7 +443,7 @@ const Editor = (() => {
           _renderConditionBlock(node.conditions, node.condition_operator, id, pad, ln, gh, '· add a new event condition');
           ln(`<span class="kw">do</span>`, pad);
           _actionLines(node.statements || [], depth + 2, lines, num, gh);
-          gh('· add a new statement', 'action', pad + 2, { 'block-id': id });
+          gh('· add a new statement', 'action', pad + 2, { branch: 'statements', 'block-id': id });
           ln(`<span class="kw">end on;</span>`, pad);
         bClose();
 

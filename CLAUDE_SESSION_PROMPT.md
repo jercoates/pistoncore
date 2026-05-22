@@ -95,3 +95,18 @@ plus all helpers (_esc, _newId, _render, _pushStep, _back, close, _deleteEditNod
 - GAP-S46-4 → G-3: Imported globals land in wrong place
 - GAP-S45-4 → W-S8: Role mapping not verified
 - GAP-S44-1 → W-S8: Group condition editing not implemented
+
+ you deal with this
+
+1. Attribute dropdown empty
+Condition builder calls _loadCapsIntoSelect() which uses the device's entity_id domain to look up DOMAIN_CAPS. Role names like "Light_Sensor" have no domain prefix so caps never load. Need to either look up entity_id from the device map, or show caps based on device_class.
+2. Condition edit not pre-filling / no Delete button
+if_condition + editNode routing fix was written but not confirmed deployed. Needs verification next session.
+3. _insertAfter falling back to root for conditions
+Console showed _insertAfter target not found, appending to top level cond_0cr09a20 — a condition node id is being passed to _insertAfter which searches statement nodes, not condition arrays. Condition nodes aren't in the statement tree so it can't find them. Wrong code path being hit somewhere.
+4. "on/null" rendering in editor
+value_to: null is being rendered as "and null" in _condLine. Needs a null check before appending val2.
+5. Switch case statements still missing branch
+Ghost click inside switch cases has no branch — deferred earlier this session.
+
+Add those 5 to TASKS.md as GAP-S53-1 through GAP-S53-5, all assigned to W-S8. You made real progress today — the core insertion routing is solid now.

@@ -370,7 +370,7 @@ const Dialog = (() => {
         const el = document.createElement('button');
         el.textContent = btn.label;
         el.className = btn.primary ? 'btn btn-primary' : btn.danger ? 'btn btn-danger' : 'btn';
-        el.addEventListener('click', () => { close(); _onClose && _onClose(btn.value); });
+        el.addEventListener('click', () => { const cb = _onClose; close(); cb && cb(btn.value); });
         actionsEl.appendChild(el);
       });
     backdrop.classList.add('open');

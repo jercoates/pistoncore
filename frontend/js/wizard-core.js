@@ -399,7 +399,9 @@ const Wizard = (() => {
       const t = _editNode.type;
 
       // Condition / trigger / restriction edit
-      if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition') {
+      // Also catches condition nodes built by _buildConditionNode which have no .type field,
+      // and conditions inside if blocks opened via if_condition context.
+      if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition' || ctx === 'if_condition') {
         _sel.statement_class = 'condition';
         if (_editNode.subject) {
           _sel.subject_type   = _editNode.subject.type || 'device';

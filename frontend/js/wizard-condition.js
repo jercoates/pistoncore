@@ -203,11 +203,14 @@ function _goConditionBuilder() {
     </select>` : ''}
     `,
     `
-    <button class="btn btn-ghost btn-sm" id="wiz-back-btn">${backFn ? '← Back' : 'Cancel'}</button>
+    <div class="wiz-footer-left">
+      <button class="btn btn-ghost btn-sm" id="wiz-back-btn">${backFn ? '← Back' : 'Cancel'}</button>
+      ${WizardCore.editNode ? '<button class="btn btn-danger btn-sm" id="wiz-cond-del">Delete</button>' : ''}
+    </div>
     <div class="wiz-footer-right">
       <button class="btn btn-ghost btn-sm" id="wiz-cog">⚙</button>
-      <button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp?'':'disabled'}>Add more</button>
-      <button class="btn btn-primary btn-sm" id="wiz-add"      ${hasDevice&&hasOp?'':'disabled'}>${WizardCore.editNode ? 'Save' : 'Add'}</button>
+      ${!WizardCore.editNode ? `<button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp?'':'disabled'}>Add more</button>` : ''}
+      <button class="btn btn-primary btn-sm" id="wiz-add" ${hasDevice&&hasOp?'':'disabled'}>${WizardCore.editNode ? 'Save' : 'Add'}</button>
     </div>
     `
   );
@@ -216,6 +219,7 @@ function _goConditionBuilder() {
   if (hasDevice && subjType === 'device') _loadCapsIntoSelect();
 
   document.getElementById('wiz-back-btn')?.addEventListener('click', backFn || close);
+  document.getElementById('wiz-cond-del')?.addEventListener('click', WizardCore._deleteEditNode);
 
   document.getElementById('wiz-subj-type')?.addEventListener('change', e => {
     WizardCore.sel.subject_type = e.target.value;

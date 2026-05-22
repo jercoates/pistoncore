@@ -48,18 +48,13 @@ function _handleStatementType(type) {
       description:null, disabled:false,
     };
     Editor.insertStatement(ctx, node, meta);
-    if (blockId) {
-      // Already scoped inside a block — stay in the wizard after inserting.
-      // Scope into the new if block's then branch.
-      WizardCore.context   = 'statement';
-      WizardCore.extra     = { 'block-id': node.id, 'branch': 'then' };
-      WizardCore.editNode  = null;
-      WizardCore.sel       = {};
-      WizardCore.stepStack = [];
-      _goStatementTypePicker();
-    } else {
-      close();
-    }
+    // Stay in wizard — open condition picker scoped to the new if block
+    WizardCore.context   = 'trigger_or_condition';
+    WizardCore.extra     = { 'block-id': node.id };
+    WizardCore.editNode  = null;
+    WizardCore.sel       = { statement_class: 'condition' };
+    WizardCore.stepStack = [];
+    _goConditionOrGroup();
 
   } else if (type === 'action') {
     _goActionDevicePicker();
@@ -89,9 +84,10 @@ function _handleStatementType(type) {
       title:   'Add an on event block',
       desc:    'An ON EVENT block executes its statements only when certain events happen.',
       warning: null,
-      btnLabel:'Add a statement',
+      btnLabel:'Add a condition',
       node, ctx, meta,
-      branch:  'statements',
+      branch:  'conditions',
+      nextContext: 'trigger_or_condition',
     });
 
   } else if (type === 'for_loop') {
@@ -107,10 +103,11 @@ function _handleStatementType(type) {
     _goBlockConfirm({
       title:   'Add a while loop',
       desc:    'A WHILE loop executes its statements while a condition is true.',
-      warning: 'Make sure to add an until condition to this loop — without one it will run forever.',
-      btnLabel:'Add a statement',
+      warning: 'Make sure to add a condition to this loop — without one it will run forever.',
+      btnLabel:'Add a condition',
       node, ctx, meta,
-      branch:  'statements',
+      branch:  'conditions',
+      nextContext: 'trigger_or_condition',
     });
 
   } else if (type === 'repeat_loop') {
@@ -140,10 +137,10 @@ function _handleStatementType(type) {
 // Shows description + optional warning, then inserts the node and transitions
 // the wizard directly into the new block's statement list — no close/reopen.
 
-function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch }) {
+function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch, nextContext }) {
   const { _esc, _render, _pushStep } = WizardCore;
   WizardCore.step = 'block_confirm';
-  _pushStep(() => _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch }));
+  _pushStep(() => _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, branch, nextContext }));
 
   const warningHtml = warning
     ? `<div class="wiz-block-warning">⚠ ${_esc(warning)}</div>`
@@ -163,11 +160,15 @@ function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, bran
     // Insert the block node into the piston
     Editor.insertStatement(ctx, node, meta);
     // Scope the wizard into the new block without closing — no flicker, no dump-out
-    WizardCore.context   = 'statement';
+    WizardCore.context   = nextContext || 'statement';
     WizardCore.extra     = { 'block-id': node.id, 'branch': branch };
     WizardCore.editNode  = null;
-    WizardCore.sel       = {};
+    WizardCore.sel       = nextContext === 'trigger_or_condition' ? { statement_class: 'condition' } : {};
     WizardCore.stepStack = [];
-    _goStatementTypePicker();
+    if (nextContext === 'trigger_or_condition') {
+      _goConditionOrGroup();
+    } else {
+      _goStatementTypePicker();
+    }
   });
 }

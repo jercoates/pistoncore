@@ -396,7 +396,11 @@ function _saveLocationCmd(addMore) {
       description: null, disabled: false };
   }
 
-  Editor.insertStatement(WizardCore.context, node);
+  const ctx     = WizardCore.context;
+  const blockId = WizardCore.extra?.['block-id'];
+  const branch  = WizardCore.extra?.['branch'] || 'then';
+  const meta    = blockId ? { blockId, branch } : undefined;
+  Editor.insertStatement(ctx, node, meta);
 
   if (addMore) {
     WizardCore.sel.location_cmd = '';

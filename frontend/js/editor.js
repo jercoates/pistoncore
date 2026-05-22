@@ -993,13 +993,17 @@ const Editor = (() => {
   //   If statementData.id already exists anywhere in the nested tree → replace in-place.
   //   If not found → insert after _selectedId, or append to top level.
   //
-  // if_condition context: wizard passes blockId in meta. Editor finds the if block
-  // and upserts the condition into its conditions array.
+  // if_condition / trigger_or_condition context with blockId: wizard passes blockId in meta.
+  // Editor finds the block and upserts the condition into its conditions array.
+  // trigger_or_condition is used by the scoped flow after inserting if/while/on_event —
+  // the wizard sets context='trigger_or_condition' and extra['block-id'] to the new block's id,
+  // so insertStatement must treat it identically to if_condition when meta.blockId is present.
   //
   // branch context: wizard passes blockId + branch in meta when inserting a statement
   // into a specific branch of a control flow node (then/else/statements).
   function insertStatement(context, statementData, meta) {
-    if (context === 'if_condition') {
+    if (context === 'if_condition' ||
+        (context === 'trigger_or_condition' && meta && meta.blockId)) {
       const blockId = (meta && meta.blockId) || null;
       if (blockId) {
         const block = _findNode(blockId);

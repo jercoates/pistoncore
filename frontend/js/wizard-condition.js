@@ -570,20 +570,24 @@ function _commitCondition() {
   const node = _buildConditionNode();
   if (!node) return;
 
-  if (WizardCore.context === 'if_condition') {
-    const blockId = WizardCore.extra?.['block-id'] || null;
+  const ctx     = WizardCore.context;
+  const blockId = WizardCore.extra?.['block-id'] || null;
+
+  // if_condition context, OR trigger_or_condition with a blockId (scoped flow after
+  // inserting an if/while/on_event block) — push the condition into the existing block.
+  if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
     const meta = blockId ? { blockId } : {};
     close();
-    Editor.insertStatement(WizardCore.context, node, meta);
+    Editor.insertStatement(ctx, node, meta);
   } else {
-    const ifBlockId = WizardCore.extra?.['block-id'] || _newId();
+    // Bare trigger_or_condition (top-level "only when" section) — wrap in a new if node.
+    const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
       conditions: [node], condition_operator: 'and',
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
-    const ctx = WizardCore.context;
     close();
     Editor.insertStatement(ctx, ifNode);
   }
@@ -594,21 +598,26 @@ function _commitConditionAndMore() {
   const node = _buildConditionNode();
   if (!node) return;
 
-  if (WizardCore.context === 'if_condition') {
-    const blockId = WizardCore.extra?.['block-id'] || null;
+  const ctx     = WizardCore.context;
+  const blockId = WizardCore.extra?.['block-id'] || null;
+
+  // Scoped flow (if_condition, or trigger_or_condition with a target blockId):
+  // push condition into the existing block and stay in the condition builder.
+  if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
     const meta = blockId ? { blockId } : {};
-    Editor.insertStatement(WizardCore.context, node, meta);
-    WizardCore.sel = { statement_class:'condition', group_operator: 'and' };
+    Editor.insertStatement(ctx, node, meta);
+    WizardCore.sel = { statement_class: 'condition', group_operator: 'and' };
   } else {
-    const ifBlockId = WizardCore.extra?.['block-id'] || _newId();
+    // Bare trigger_or_condition — wrap in a new if node, then scope into it.
+    const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
       conditions: [node], condition_operator: 'and',
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
-    Editor.insertStatement(WizardCore.context, ifNode);
-    WizardCore.sel = { statement_class:'condition' };
+    Editor.insertStatement(ctx, ifNode);
+    WizardCore.sel = { statement_class: 'condition' };
     WizardCore.context = 'if_condition';
     WizardCore.extra = { 'block-id': ifBlockId };
   }

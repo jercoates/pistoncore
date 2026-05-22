@@ -47,8 +47,19 @@ function _handleStatementType(type) {
       then:[], else_ifs:[], else:[],
       description:null, disabled:false,
     };
-    close();
     Editor.insertStatement(ctx, node, meta);
+    if (blockId) {
+      // Already scoped inside a block — stay in the wizard after inserting.
+      // Scope into the new if block's then branch.
+      WizardCore.context   = 'statement';
+      WizardCore.extra     = { 'block-id': node.id, 'branch': 'then' };
+      WizardCore.editNode  = null;
+      WizardCore.sel       = {};
+      WizardCore.stepStack = [];
+      _goStatementTypePicker();
+    } else {
+      close();
+    }
 
   } else if (type === 'action') {
     _goActionDevicePicker();

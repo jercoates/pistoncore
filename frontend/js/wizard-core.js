@@ -595,11 +595,18 @@ const Wizard = (() => {
   }
 
   // ── DELETE ────────────────────────────────────────────────
+  // Close the wizard FIRST so the confirm dialog isn't behind the wizard backdrop.
+  // Capture the id before closing since close() clears _editNode.
   function _deleteEditNode() {
     if (!_editNode?.id) return;
-    App.confirm({ title:'Delete statement', message:'Delete this statement? This cannot be undone.',
-      confirmLabel:'Delete', danger:true,
-      onConfirm: () => { Editor.deleteStatement(_editNode.id); close(); }
+    const id = _editNode.id;
+    close();
+    App.confirm({
+      title: 'Delete statement',
+      message: 'Delete this statement? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: () => { Editor.deleteStatement(id); },
     });
   }
 

@@ -1,7 +1,10 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 53 complete — insertStatement condition fallthrough fixed, _replaceCondition + _removeConditionNode added, registerDeviceRole added to Editor API, GAP-S53-1 through GAP-S53-5 logged
+**Last Updated:** Session 55 complete — spec rewrite done: PISTON_FORMAT.md v2.1,
+COMPILER_SPEC.md v1.2, WIZARD_SPEC.md v2.0 (combined with WIZARD_REBUILD_SPEC),
+MISSING_SPECS.md items 17–20 added. device_map eliminated from all specs.
+entity_ids on condition and action nodes. MISSING_ENTITY compiler error defined.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -64,19 +67,53 @@ future session before the session closes. Never leave a gap unassigned.
 
 ### W-S8: Role Mapping Verification + Wizard Smoke Test
 
-**Step 1 — GAP-S45-4 — Role mapping end-to-end**
-**Step 2 — Basic wizard smoke test**
-**Step 3 — GAP-S44-1 (if time):** Group condition editing
-**Step 4 — GAP-S46-5 (if time):** Add file picker to import modal in list.js
+**Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
+Update `_saveDeviceCmd` to write the new action node format:
+- `role` = friendly label string
+- `entity_ids` = array of real HA entity IDs
+- Remove any call to `registerDeviceRole` (goes away with device_map)
+- `ha_service` = `domain + "." + command`
+See WIZARD_SPEC.md v2.0 Screen W-6 Action Node JSON output for exact schema.
+
+**Step 1 — Remove registerDeviceRole from editor.js**
+Once wizard-action.js is updated, `registerDeviceRole()` is dead code. Remove it.
+
+**Step 2 — Verify wizard-condition.js entity_ids output matches new spec**
+Confirm `_buildConditionNode` writes `role` + `entity_ids` (not just role name).
+Reference: WIZARD_SPEC.md v2.0 Screen W-4 Condition JSON output.
+
+**Step 3 — GAP-S45-4 — Role mapping end-to-end smoke test**
+Build one real piston with real HA devices. Verify entity_ids populated on all nodes.
+
+**Step 4 — GAP-S44-1 (if time):** Group condition editing
 
 **Upload for this session:**
 wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
 wizard-loops.js, wizard-statement.js, editor.js, list.js,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
-## STAGE G — Globals System
+### B-1: Backend — compiler.py Entity IDs Direct Read + MISSING_ENTITY Validation
+
+**This is a backend-only session. No frontend changes.**
+
+**What to implement:**
+1. Remove all `device_map` lookup from `compiler.py`
+2. Read `entity_ids` directly from condition nodes (everywhere `role` was used for lookup)
+3. Read `entity_ids` directly from action nodes (everywhere `devices[]` was used for lookup)
+4. Implement `resolve_entities()` per COMPILER_SPEC.md v1.2 Section 8
+5. Add `MISSING_ENTITY` compiler error per COMPILER_SPEC.md v1.2 Section 13
+6. Add entity validation as Stage 2 in pre-deploy pipeline per Section 15
+
+**Reference:** COMPILER_SPEC.md v1.2 Sections 8, 9.3, 10.2, 11, 13, 15
+PISTON_FORMAT.md v2.1 Condition Object Schema and Action Node Schema
+
+**Upload for this session:**
+compiler.py, context_builder.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
 
 ### G-1: Backend — Globals Storage + API Endpoints ✅ (Session 48)
 
@@ -153,7 +190,22 @@ Only attempt once W-S7b and W-S8 pass and globals G-1/G-2/G-2b are complete.
 
 ## DONE — Completed Sessions
 
-### Session 52 — Wizard flow fixes + delete fix ✅
+### Session 55 — Spec Rewrite: device_map eliminated, entity_ids on nodes ✅
+PISTON_FORMAT.md → v2.1: device_map removed, entity_ids + role fields added to
+  condition and action schemas. logic_version 2. Hand-written example updated.
+COMPILER_SPEC.md → v1.2: Section 8 resolve_entities() added, Section 9.3 trigger
+  compilation reads entity_ids directly, Section 10.2 action compilation reads entity_ids
+  directly, Section 11 condition compilation reads entity_ids directly, Section 13
+  MISSING_ENTITY error added, Section 15 entity validation added as Stage 2,
+  Section 18 hand-written example updated. All device_map[] references removed.
+WIZARD_SPEC.md → v2.0: Combined with WIZARD_REBUILD_SPEC.md (retired). Condition output
+  schema updated with entity_ids field. Action node output schema documented (was missing).
+  Wizard writes entity_ids at commit time. role is display label only. device_map eliminated.
+MISSING_SPECS.md: Items 17 (action output schema — resolved), 18 (entity validation —
+  resolved), 19 (fast pre-check — future), 20 (compiler registry — future) added.
+TASKS.md: W-S8 upload list updated. B-1 backend compiler session added.
+
+### Session 54 — wizard-condition.js, wizard-action.js, editor.js partial fixes ✅
 wizard-statement.js: _goBlockConfirm no longer close/reopens — stays in modal,
 scopes WizardCore.context/extra/stepStack directly (GAP-S51-1 closed).
 if_block: after insert opens condition picker scoped to new block instead of closing.

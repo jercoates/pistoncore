@@ -1,9 +1,9 @@
 # PistonCore Compiler Specification
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Authoritative — Primary reference for all compiler coding
-**Last Updated:** May 2026 (Session 35 — nested tree model)
-**Last Updated:** May 2026
+**Last Updated:** May 2026 (Session 55 — device_map eliminated, entity_ids read directly from nodes,
+  MISSING_ENTITY validation added)
 
 Read DESIGN.md v1.1 before this document.
 This document defines exactly how the compiler turns piston structured JSON into native HA files.
@@ -14,17 +14,22 @@ This document defines exactly how the compiler turns piston structured JSON into
 
 The compiler takes a piston's internal structured JSON and produces HA output files.
 
-**Input:** The piston's `statements` array (typed statement objects) plus `device_map` (role → entity ID list).
+**Input:** The piston's `statements` array (typed statement objects). Entity IDs are stored
+directly on condition and action nodes — there is no `device_map` wrapper.
 
 **Output:** One of the following depending on compile target:
 - **Native HA Script:** Two YAML files — an automation wrapper and a script body
 - **PyScript:** One Python file
 
-The compiler never reads display text. It never parses piston_text. It reads typed statement objects directly — the same model WebCoRE used internally. This is why the internal format uses structured JSON and not plain text.
+The compiler never reads display text. It never parses piston_text. It reads typed statement
+objects directly — the same model WebCoRE used internally. This is why the internal format
+uses structured JSON and not plain text.
 
-The piston JSON is always the source of truth. Compiled files are compiler-owned artifacts — they may be replaced wholesale on any recompile. Users must not hand-edit them.
+The piston JSON is always the source of truth. Compiled files are compiler-owned artifacts
+— they may be replaced wholesale on any recompile. Users must not hand-edit them.
 
-The compiler never touches any file it did not create. It never writes outside its designated directories.
+The compiler never touches any file it did not create. It never writes outside its
+designated directories.
 
 ---
 
@@ -197,7 +202,7 @@ HA calls of its own.
 
 ```python
 {
-    "piston":             { ... },   # Full piston JSON including statements and device_map
+    "piston":             { ... },   # Full piston JSON including statements
     "entity_states":      { ... },   # entity_id → current state/attributes from HA
     "services":           { ... },   # available services for referenced domains
     "ha_version":         "2025.6",  # detected HA version string
@@ -247,7 +252,7 @@ looks globals up by `name` after stripping the `@` prefix from a reference like 
 | `name` | string | Bare name without `@`. Lowercase, underscores only. This is the lookup key. |
 | `display_name` | string | Shown in the UI. Can contain spaces and capitals. |
 | `type` | string | `"Text"`, `"Number"`, `"Yes/No"`, `"Date/Time"`, `"Device"`, `"Devices"` |
-| `helper_entity_id` | string or null | Full HA entity ID of the backing input helper. Format: `input_{domain}.pistoncore_{id}`. `null` for Device/Devices globals — those are compile-time expansion only, no runtime helper. |
+| `helper_entity_id` | string or null | Full HA entity ID of the backing input helper. `null` for Device/Devices globals — those are compile-time expansion only, no runtime helper. |
 | `entity_ids` | array or null | Present only for `Device` and `Devices` types. List of HA entity IDs baked in at compile time. `null` for all other types. |
 
 **Type → HA input helper domain mapping:**
@@ -284,9 +289,13 @@ def compile_piston(context: dict) -> CompilerResult:
     """
     piston = context["piston"]
     statements = piston["statements"]
-    device_map = piston["device_map"]
 
-    # Determine compile target
+    # Step 1: Validate all entity_ids in condition and action nodes against live HA
+    entity_errors = resolve_entities(statements, context["entity_states"])
+    if entity_errors:
+        return CompilerResult(yaml=None, errors=entity_errors, warnings=[])
+
+    # Step 2: Determine compile target
     compile_target = detect_compile_target(statements, context)
 
     if compile_target == "native_script":
@@ -294,6 +303,59 @@ def compile_piston(context: dict) -> CompilerResult:
     else:
         return compile_pyscript(piston, context)
 ```
+
+### resolve_entities — Entity Validation Step
+
+`resolve_entities(statements, entity_states)` walks the entire statements array recursively
+and checks every `entity_ids` array on every condition and action node against the live HA
+entity states dict.
+
+```python
+def resolve_entities(statements: list, entity_states: dict) -> list[CompilerMessage]:
+    errors = []
+    _walk_for_entities(statements, entity_states, errors)
+    return errors
+
+def _walk_for_entities(nodes: list, entity_states: dict, errors: list):
+    for node in nodes:
+        # Check condition arrays
+        for cond_field in ("conditions", "until_conditions"):
+            for cond in node.get(cond_field, []):
+                for eid in cond.get("entity_ids", []):
+                    if eid and eid not in entity_states:
+                        errors.append(CompilerMessage(
+                            level="error",
+                            code="MISSING_ENTITY",
+                            message=f"Entity '{eid}' not found in Home Assistant. "
+                                    f"It may have been removed or renamed. "
+                                    f"Update this piston and recompile.",
+                            context=cond.get("id")
+                        ))
+        # Check action nodes
+        if node.get("type") == "action":
+            for eid in node.get("entity_ids", []):
+                if eid and eid not in entity_states:
+                    errors.append(CompilerMessage(
+                        level="error",
+                        code="MISSING_ENTITY",
+                        message=f"Entity '{eid}' not found in Home Assistant. "
+                                f"It may have been removed or renamed. "
+                                f"Update this piston and recompile.",
+                        context=node.get("id")
+                    ))
+        # Recurse into child arrays
+        for child_field in ("then", "else", "statements", "default"):
+            _walk_for_entities(node.get(child_field, []), entity_states, errors)
+        for elif_branch in node.get("else_ifs", []):
+            _walk_for_entities(elif_branch.get("statements", []), entity_states, errors)
+        for case in node.get("cases", []):
+            _walk_for_entities(case.get("statements", []), entity_states, errors)
+```
+
+**Key rule:** If any entity_id in any condition or action node is not found in HA's live
+entity states, compilation stops and returns MISSING_ENTITY errors. The user must fix the
+missing entity in the editor (pick a replacement device) and recompile. There are no
+silent failures.
 
 ### Globals Used Scan
 
@@ -353,6 +415,8 @@ objects marked as triggers — at any depth, in any if block anywhere in the pis
 Because children are embedded objects, the recursive walk requires no lookup map.
 
 Each trigger object contains all data needed for compilation — no text parsing required.
+**The compiler reads `entity_ids` directly from the condition node.** There is no
+role-name lookup in any map.
 
 **Every compiled trigger must include an `id:` field.** The `id` is used by `choose:`
 blocks to identify which trigger fired, and by HA's trace system for debugging.
@@ -371,34 +435,51 @@ Use the condition object's `id` field directly:
 {
   "id": "cond_001",
   "is_trigger": true,
+  "role": "Front Door",
+  "entity_ids": ["binary_sensor.front_door"],
   "aggregation": "any",
-  "role": "Doors",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
   "operator": "changes to",
-  "value": "open",
-  "for_seconds": null
+  "display_value": "Open",
+  "compiled_value": "on",
+  "duration": null
 }
 ```
 
-Compiles to (for each entity in device_map["Doors"]):
+Compiles to (one trigger per entity in entity_ids):
 ```yaml
 - trigger: state
+  id: cond_001
   entity_id: binary_sensor.front_door
   to: "on"
 ```
 
-Binary state values are translated from friendly display values to HA state strings
-using the device_class lookup table in WIZARD_SPEC.md. "Open" → "on" for door class.
+For multi-device (multiple entity_ids), emit one trigger block per entity_id:
+```yaml
+- trigger: state
+  id: cond_001
+  entity_id: binary_sensor.front_door
+  to: "on"
+- trigger: state
+  id: cond_001
+  entity_id: binary_sensor.back_door
+  to: "on"
+```
 
-With `for_seconds`: adds `for: { seconds: 30 }`.
+Binary state values are translated from `compiled_value` to HA state strings.
+The compiler always uses `compiled_value` — never `display_value`.
+
+With duration: adds `for: { seconds: 30 }`.
 
 #### Time trigger — happens daily at
 
 ```json
 {
   "is_trigger": true,
+  "role": "time",
+  "entity_ids": [],
   "subject": "time",
   "operator": "happens daily at",
   "value": "07:30:00"
@@ -415,6 +496,8 @@ With `for_seconds`: adds `for: { seconds: 30 }`.
 ```json
 {
   "is_trigger": true,
+  "role": "time",
+  "entity_ids": [],
   "subject": "time",
   "operator": "happens daily at",
   "value": { "preset": "sunset", "offset": 30, "offset_unit": "minutes", "offset_direction": "+" }
@@ -435,10 +518,11 @@ Offset format: `offset_minutes` → `HH:MM:SS` string.
 ```json
 {
   "is_trigger": true,
-  "role": "lumen_sensor",
+  "role": "Lumen Sensor",
+  "entity_ids": ["sensor.lumen_sensor"],
   "attribute": "illuminance",
   "operator": "drops below",
-  "value": 800
+  "compiled_value": "800"
 }
 ```
 
@@ -455,6 +539,8 @@ Offset format: `offset_minutes` → `HH:MM:SS` string.
 ```json
 {
   "is_trigger": true,
+  "role": "system",
+  "entity_ids": [],
   "subject": "system_start",
   "operator": "event occurs"
 }
@@ -499,13 +585,14 @@ children (`then`, `else`, `statements`, `else_ifs`, `cases`) are embedded statem
 objects — no ID resolution or lookup map required. The compiler calls the appropriate
 compile function for each statement type.
 
-#### action (with/do block)
+#### action
 
 ```json
 {
   "id": "stmt_001",
   "type": "action",
-  "devices": ["Lights"],
+  "role": "Lights",
+  "entity_ids": ["light.living_room"],
   "tasks": [
     {
       "id": "task_001",
@@ -518,12 +605,28 @@ compile function for each statement type.
 }
 ```
 
-Compiles to (for each entity in device_map["Lights"]):
+**The compiler reads `entity_ids` directly from the action node.** No role-name lookup.
+
+Compiles to (one service call per entity in entity_ids):
 ```yaml
 - alias: "stmt_001"
   action: light.turn_on
   target:
     entity_id: light.living_room
+  data:
+    brightness_pct: 75
+  continue_on_error: true
+```
+
+For multiple entity_ids, the compiler emits one action block per entity, or uses a
+target list when HA supports it for the domain:
+```yaml
+- alias: "stmt_001"
+  action: light.turn_on
+  target:
+    entity_id:
+      - light.living_room
+      - light.kitchen
   data:
     brightness_pct: 75
   continue_on_error: true
@@ -658,10 +761,15 @@ For full for-loop control, compile target must be PyScript.
 }
 ```
 
+The `list_role` field references a global Device/Devices variable. The compiler
+looks up the corresponding `entity_ids` from `context["global_variables"]`.
+
 ```yaml
 - alias: "stmt_006"
   repeat:
-    for_each: <entity list from device_map["SmokeDetectors"]>
+    for_each:
+      - media_player.kitchen_sonos
+      - media_player.living_room_sonos
     sequence:
       <compiled statements>
 ```
@@ -904,21 +1012,26 @@ This should not happen in normal flow — the wizard prevents it. Treat it as a 
 Conditions compile to HA template conditions. The compiler builds Jinja2 template
 expressions from the typed condition objects.
 
-Each condition object has all data needed — no text parsing:
+**The compiler reads `entity_ids` directly from the condition node.** There is no
+role-name lookup. All entity IDs have already been validated by `resolve_entities()`
+in Section 8 before compilation reaches this point.
 
 ```json
 {
   "id": "cond_001",
   "is_trigger": false,
-  "aggregation": "any",
   "role": "Doors",
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
+  "aggregation": "any",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
   "operator": "is",
-  "value": "open"
+  "compiled_value": "on"
 }
 ```
+
+The compiler uses `compiled_value` — never `display_value`.
 
 ### Operator → Template Mapping
 
@@ -938,13 +1051,18 @@ Each condition object has all data needed — no text parsing:
 
 ### Aggregation
 
+When `entity_ids` has more than one entry:
 - `any` → `any([ <template> for entity_id in [list] ])`
 - `all` → `all([ <template> for entity_id in [list] ])`
+- `none` → `not any([ <template> for entity_id in [list] ])`
+
+When `entity_ids` has exactly one entry: compile as a single template expression,
+no list comprehension needed.
 
 ### Binary Value Translation
 
-Binary display values → HA state strings using WIZARD_SPEC.md device_class table.
-Example: device_class=door, display value "Open" → HA state "on"
+The compiler always uses `compiled_value` from the condition node.
+`display_value` is for the editor only — never for the compiler.
 
 ### Multiple Conditions
 
@@ -1005,10 +1123,11 @@ Setting a global variable compiles to the appropriate input helper service call.
 
 ### Device Variables — Compile-Time Expansion
 
-Device and Devices variables are expanded at compile time. The compiler looks up the
-role name in `device_map` and bakes entity IDs directly into the compiled YAML.
+Device and Devices globals are expanded at compile time. The compiler looks up the
+global variable's `entity_ids` array from `context["global_variables"]` and bakes
+entity IDs directly into the compiled YAML.
 
-For a role "Doors" mapped to ["binary_sensor.front_door", "binary_sensor.back_door"]:
+For a Devices global "Doors" with entity_ids ["binary_sensor.front_door", "binary_sensor.back_door"]:
 ```yaml
 entity_id:
   - binary_sensor.front_door
@@ -1048,7 +1167,7 @@ class CompilerMessage:
     level: str                # "error" | "warning" | "info"
     code: str                 # SCREAMING_SNAKE_CASE error code
     message: str              # plain English, shown directly to user
-    context: str | None       # which statement caused this, optional
+    context: str | None       # which statement/condition caused this, optional
 ```
 
 ### CompilerError — Unrecoverable
@@ -1058,14 +1177,22 @@ Raised for problems that prevent valid output. Compilation stops. Examples:
 - `"Piston has no triggers defined. It will never run automatically."`
   code: `NO_TRIGGERS`
 
-- `"Statement stmt_009 references role 'smoke_detector' but no device is mapped to that role."`
-  code: `UNMAPPED_ROLE`
+- `"Entity 'binary_sensor.front_door' not found in Home Assistant. It may have been
+  removed or renamed. Update this piston and recompile."`
+  code: `MISSING_ENTITY`
+  context: `"cond_001"`
 
 - `"Statement type 'break' requires PyScript but this piston is set to native HA script."`
   code: `PYSCRIPT_REQUIRED`
 
 - `"Called piston 'b7e2a1f4' not found. It may have been deleted."`
   code: `CALLED_PISTON_NOT_FOUND`
+
+**MISSING_ENTITY detail:** The error message always includes the entity_id that was not
+found and the condition or statement id where it appeared. The user must open the editor,
+find the flagged condition or action, pick a replacement device, and recompile. There is
+no automatic fallback. No entity validation happens at runtime — this check runs only at
+compile time.
 
 ### CompilerWarning — Non-Fatal
 
@@ -1128,29 +1255,34 @@ page always show PistonCore's visual format, never raw YAML or Python.
 
 Runs against the structured JSON. Checks:
 - No triggers defined (warning, not error)
-- Required role referenced but not in device_map (error)
 - Global variable referenced but not in globals.json (error)
 - Call another piston + wait for completion + native script target (error)
 
 Results appear on the status page validation banner immediately after save.
 
-### Stage 2 — Compile (in memory, not written to disk)
+### Stage 2 — Entity Validation (requires HA connection)
+
+`resolve_entities()` checks every entity_id in every condition and action node against
+live HA entity states. If any entity_id is missing → MISSING_ENTITY error. Compilation
+stops here and does not proceed to Stage 3. The user must fix and recompile.
+
+### Stage 3 — Compile (in memory, not written to disk)
 
 Compiler runs. Errors and warnings collected.
 
-### Stage 3 — Syntax Check
+### Stage 4 — Syntax Check
 
 - Native HA Script: `yamllint` against compiled strings
 - PyScript: `py_compile` syntax check
 
-### Stage 4 — Deploy and Validate
+### Stage 5 — Deploy and Validate
 
 - Write compiled files to production directories
 - Call `automation.reload` and `script.reload`
 - If HA rejects on reload: catch error, return to PistonCore
 - Old deployed version remains active — HA does not swap in a broken file
 
-### Stage 5 — Decision
+### Stage 6 — Decision
 
 - Reload succeeded → hash written to header, user sees success
 - Reload failed → HA error shown in validation banner in plain English, old version still running
@@ -1216,20 +1348,18 @@ Document the minimum version in the README and check it on HA connect.
 ## 18. Hand-Written Verification Example
 
 The following is the hand-written target output for a simple driveway lights piston,
-verified against the compiler logic defined in this document.
+verified against the compiler logic defined in this document. Entity IDs are stored
+directly on nodes — no device_map.
 
-### Source Piston (internal structured JSON — nested tree model)
+### Source Piston (internal structured JSON — nested tree model, logic_version 2)
 
 ```json
 {
   "id": "a3f8c2d1",
   "name": "Driveway Lights at Sunset",
-  "logic_version": 1,
+  "logic_version": 2,
   "ui_version": 1,
   "compile_target": "native_script",
-  "device_map": {
-    "driveway_light": ["light.driveway_main"]
-  },
   "variables": [],
   "statements": [
     {
@@ -1239,9 +1369,12 @@ verified against the compiler logic defined in this document.
         {
           "id": "cond_001",
           "is_trigger": true,
+          "role": "time",
+          "entity_ids": [],
           "subject": "time",
           "operator": "happens daily at",
-          "value": { "preset": "sunset", "offset": 0 }
+          "value": { "preset": "sunset", "offset": 0 },
+          "group_operator": "and"
         }
       ],
       "condition_operator": "and",
@@ -1249,8 +1382,9 @@ verified against the compiler logic defined in this document.
         {
           "id": "stmt_002",
           "type": "action",
-          "devices": ["driveway_light"],
-          "tasks": [{ "id": "task_001", "command": "turn_on", "ha_service": "light.turn_on", "parameters": { "brightness_pct": 100 } }],
+          "role": "Driveway Light",
+          "entity_ids": ["light.driveway_main"],
+          "tasks": [{ "id": "task_001", "command": "turn_on", "domain": "light", "ha_service": "light.turn_on", "parameters": { "brightness_pct": 100 } }],
           "description": null, "disabled": false
         },
         {
@@ -1263,8 +1397,9 @@ verified against the compiler logic defined in this document.
         {
           "id": "stmt_004",
           "type": "action",
-          "devices": ["driveway_light"],
-          "tasks": [{ "id": "task_002", "command": "turn_off", "ha_service": "light.turn_off", "parameters": {} }],
+          "role": "Driveway Light",
+          "entity_ids": ["light.driveway_main"],
+          "tasks": [{ "id": "task_002", "command": "turn_off", "domain": "light", "ha_service": "light.turn_off", "parameters": {} }],
           "description": null, "disabled": false
         }
       ],
@@ -1309,7 +1444,7 @@ pistoncore_a3f8c2d1:
   mode: single
   sequence:
 
-    # stmt_002 — action: driveway_light → light.turn_on
+    # stmt_002 — action: Driveway Light → light.turn_on
     - alias: "stmt_002"
       action: light.turn_on
       target:
@@ -1323,8 +1458,10 @@ pistoncore_a3f8c2d1:
       wait_for_trigger:
         - trigger: time
           at: "23:00:00"
+      timeout: "01:00:00"
+      continue_on_timeout: true
 
-    # stmt_004 — action: driveway_light → light.turn_off
+    # stmt_004 — action: Driveway Light → light.turn_off
     - alias: "stmt_004"
       action: light.turn_off
       target:

@@ -1,8 +1,8 @@
 # PistonCore — Canonical Piston JSON Format
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** Authoritative — Single source of truth for piston data structure
-**Last Updated:** May 2026 (Session 35 — nested tree model)
+**Last Updated:** May 2026 (Session 55 — device_map eliminated, entity_ids on nodes)
 
 This document defines the canonical internal JSON format for a PistonCore piston.
 This is the format the wizard writes, the editor renders from, the backend stores,
@@ -22,10 +22,10 @@ For editor rendering from this format, see FRONTEND_SPEC.md.
 typed data object. This is the working format — the source of truth for everything
 PistonCore does with a piston.
 
-**Shared/export format (Snapshot JSON):** Structured JSON with empty `device_map`
-arrays and role name placeholders. Used for AI import, community sharing, and WebCoRE
-migration. See DESIGN.md Section 6.2. Never stored as the internal format — the
-snapshot is generated on export, not on save.
+**Shared/export format (Snapshot JSON):** Structured JSON with role name placeholders
+and no entity IDs. Used for AI import, community sharing, and WebCoRE migration.
+See DESIGN.md Section 6.2. Never stored as the internal format — the snapshot is
+generated on export, not on save.
 
 The compiler reads structured JSON only.
 The wizard writes structured JSON only.
@@ -43,14 +43,11 @@ The editor renders from structured JSON only.
   "folder": "Outdoor Lighting",
   "mode": "single",
   "enabled": true,
-  "logic_version": 1,
+  "logic_version": 2,
   "ui_version": 1,
   "compile_target": "native_script",
   "created_at": "2026-05-01T08:00:00Z",
   "modified_at": "2026-05-03T14:22:00Z",
-  "device_map": {
-    "driveway_light": ["light.driveway_main"]
-  },
   "variables": [],
   "statements": []
 }
@@ -66,14 +63,17 @@ The editor renders from structured JSON only.
 | `folder` | string | No | Folder name. `null` or `"Uncategorized"` if not assigned. |
 | `mode` | string | Yes | `"single"` / `"restart"` / `"queued"` / `"parallel"` |
 | `enabled` | boolean | Yes | Default `true`. |
-| `logic_version` | integer | Yes | Tracks statement schema version. Start at 1. |
+| `logic_version` | integer | Yes | Tracks statement schema version. Current version: 2. |
 | `ui_version` | integer | Yes | Tracks editor layout version. Start at 1. Changes independently of logic_version. |
 | `compile_target` | string | Yes | `"native_script"` or `"pyscript"`. Always set by compiler — never by user. |
 | `created_at` | string | Yes | ISO 8601 UTC timestamp. |
 | `modified_at` | string | Yes | ISO 8601 UTC timestamp. Updated on every save. |
-| `device_map` | object | Yes | Role → entity ID list mapping. See below. |
 | `variables` | array | Yes | Piston-local variable definitions. Empty array if none. |
 | `statements` | array | Yes | Top-level statement objects. Empty array if none. |
+
+**Note:** `device_map` is eliminated as of logic_version 2. Entity IDs are stored
+directly on condition and action nodes. See Condition Object Schema and Action Node
+Schema below.
 
 ### Mode Values
 
@@ -86,53 +86,12 @@ The editor renders from structured JSON only.
 
 ### Version Fields
 
-- `logic_version` — bump when the statement schema changes
+- `logic_version` — bump when the statement schema changes. **Version 2 = device_map
+  eliminated, entity_ids stored directly on condition and action nodes.**
 - `ui_version` — bump when editor rendering structure changes
 - These change independently — never collapse into one field
 - If either is missing on load, treat as v1
 - If either is from the future, warn and refuse to load — never silently corrupt
-
----
-
-## device_map
-
-Maps role names to lists of HA entity IDs. Role names are the strings used throughout
-the statements array to reference devices. Entity IDs are the actual HA entity IDs
-baked in at import time or when the user maps a device.
-
-```json
-"device_map": {
-  "driveway_light": ["light.driveway_main"],
-  "Doors": ["binary_sensor.front_door", "binary_sensor.back_door", "binary_sensor.side_door"],
-  "Announcement_Sonos": ["media_player.kitchen_sonos"]
-}
-```
-
-**Rules:**
-- Keys are role names exactly as they appear in statements (case-sensitive)
-- Values are always arrays — even for single-device roles
-- Empty array `[]` means the role exists but has no mapped devices (missing device state)
-- Entity IDs are always lowercase HA entity IDs — never friendly names
-- The user never sees entity IDs — the frontend always displays friendly names
-- Friendly names for display are fetched live from HA using entity_id as the key
-
-**Single vs multi-device roles:**
-The compiler and missing-device handler must distinguish these:
-- Single-device role: `device_map[role].length === 1` in original mapping
-- Multi-device role: `device_map[role].length > 1` in original mapping
-
-To distinguish intent from current state, the piston stores the original role cardinality:
-
-```json
-"device_map_meta": {
-  "driveway_light": { "cardinality": "single" },
-  "Doors": { "cardinality": "multi" },
-  "Announcement_Sonos": { "cardinality": "single" }
-}
-```
-
-This field allows the missing-device handler to correctly apply hard-flag vs degrade
-logic even when the current entity list has changed. See DESIGN.md Section 15.6.
 
 ---
 
@@ -214,7 +173,8 @@ without fail. This is the non-negotiable foundation of the project.
       {
         "id": "stmt_b7e2f941",
         "type": "action",
-        "devices": ["driveway_light"],
+        "role": "Driveway Light",
+        "entity_ids": ["light.driveway_main"],
         "tasks": [
           {
             "id": "task_c1d4e823",
@@ -236,55 +196,6 @@ without fail. This is the non-negotiable foundation of the project.
 ]
 ```
 
-### Statement Common Fields
-
-Every statement object has these fields regardless of type:
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `id` | string | Yes | — | Stable UUID. Never changes once assigned. Used by compiler for YAML alias and by editor for edit-in-place lookup. |
-| `type` | string | Yes | — | One of the types in STATEMENT_TYPES.md |
-| `async` | boolean | No | `false` | If true, statement executes asynchronously |
-| `description` | string | No | `null` | Optional user note. Renders as `/* comment */` in editor. |
-| `disabled` | boolean | No | `false` | If true, statement is greyed out and skipped by compiler. |
-
-### Statement ID Format
-
-```
-stmt_  + 8 character lowercase hex  →  stmt_a3f8c2d1
-cond_  + 8 character lowercase hex  →  cond_b7e2f941
-task_  + 8 character lowercase hex  →  task_c1d4e823
-case_  + 8 character lowercase hex  →  case_f2a1b903
-var_   + 8 character lowercase hex  →  var_d5e6f7a8
-```
-
-IDs are assigned by the wizard at creation time. They never change, even if the
-statement is moved, edited, nested, or the piston is renamed.
-
-### Nested Children
-
-Control flow statements (`if`, `while`, `repeat`, `for`, `for_each`, `do`, `switch`,
-`on_event`, `every`) contain child statements as embedded objects in their child arrays:
-
-```json
-{
-  "id": "stmt_003",
-  "type": "if",
-  "then": [
-    { "id": "stmt_004", "type": "action", ... },
-    { "id": "stmt_005", "type": "set_variable", ... }
-  ],
-  "else": [
-    { "id": "stmt_006", "type": "action", ... }
-  ],
-  "else_ifs": [],
-  "conditions": [ ... ],
-  "condition_operator": "and",
-  "description": null,
-  "disabled": false
-}
-```
-
 There are no ID references between statements. A node's children live inside it.
 Rendering, compilation, insert, and remove all operate on the tree directly —
 no lookup map is required or permitted.
@@ -294,23 +205,6 @@ no lookup map is required or permitted.
 `tasks` inside `action` nodes are embedded objects, not child statements. This is
 consistent with the nested tree model — everything is embedded. Tasks have their
 own `task_` prefixed IDs and are never referenced from outside their parent action node.
-
-```json
-{
-  "id": "stmt_001",
-  "type": "action",
-  "devices": ["role_name"],
-  "tasks": [
-    {
-      "id": "task_001",
-      "command": "turn_on",
-      "domain": "light",
-      "ha_service": "light.turn_on",
-      "parameters": { "brightness_pct": 75 }
-    }
-  ]
-}
-```
 
 ---
 
@@ -324,18 +218,20 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
 {
   "id": "cond_a3f8c2d1",
   "is_trigger": true,
+  "role": "Front Door",
+  "entity_ids": ["binary_sensor.front_door"],
   "aggregation": "any",
-  "role": "Doors",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
   "operator": "changes to",
   "display_value": "Open",
   "compiled_value": "on",
+  "value_to": null,
   "duration": null,
   "duration_unit": null,
   "group_operator": "and",
-  "subscription_method": "auto"
+  "interaction": "any"
 }
 ```
 
@@ -345,26 +241,54 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
 |---|---|---|---|
 | `id` | string | Yes | Stable ID. Format: `cond_` + 8 hex chars. |
 | `is_trigger` | boolean | Yes | `true` = trigger, `false` = condition. Set by wizard based on which section was clicked. |
-| `aggregation` | string | Yes | `"any"` / `"all"` / `"none"`. Applies to multi-device roles. |
-| `role` | string | Yes | Role name from device_map. For time conditions, use `"time"`. |
+| `role` | string | Yes | Human-readable label shown in the editor (e.g. `"Front Door"`, `"Doors"`). For time conditions, use `"time"`. |
+| `entity_ids` | array | Yes | Array of real HA entity IDs. Always an array — even for single-device conditions. Compiler reads this directly. For time conditions, omit or use `[]`. |
+| `aggregation` | string | Yes | `"any"` / `"all"` / `"none"`. Applies to multi-device conditions (entity_ids.length > 1). Use `"any"` for single-device. |
 | `attribute` | string | Yes | Device attribute name (e.g. `"contact"`, `"illuminance"`). For time conditions, omit. |
 | `attribute_type` | string | Yes | `"binary"` / `"numeric"` / `"string"` / `"enum"`. |
 | `device_class` | string | No | HA device class (e.g. `"door"`, `"motion"`). Used for display value lookup. |
 | `operator` | string | Yes | Operator string (e.g. `"changes to"`, `"is less than"`). Full list in WIZARD_SPEC.md. |
 | `display_value` | string | Yes | Friendly value shown in editor (e.g. `"Open"`). Never `"on"` or `"off"` for binary sensors. |
 | `compiled_value` | string | Yes | HA state string used by compiler (e.g. `"on"`). |
-| `value_to` | string | No | Second value for `"is between"` / `"is not between"` operators. |
+| `value_to` | string | No | Second value for `"is between"` / `"is not between"` operators. Null if not used. |
 | `duration` | number | No | For `"stays for"` operators. Duration value. |
 | `duration_unit` | string | No | `"seconds"` / `"minutes"` / `"hours"`. |
 | `group_operator` | string | Yes | `"and"` / `"or"`. Operator connecting this condition to the next. |
-| `subscription_method` | string | No | `"auto"` (default). Reserved for future use. |
+| `interaction` | string | No | `"any"` / `"physical"` / `"programmatic"`. Defaults to `"any"`. |
+
+**The compiler reads `entity_ids` directly. It does not look up a role name in any map.**
+`role` is a display label only — it is shown in the editor but never used for compilation.
+
+**Multi-device example:**
+```json
+{
+  "id": "cond_b7e2f941",
+  "is_trigger": true,
+  "role": "Doors",
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door", "binary_sensor.side_door"],
+  "aggregation": "any",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
+  "operator": "changes to",
+  "display_value": "Open",
+  "compiled_value": "on",
+  "value_to": null,
+  "duration": null,
+  "duration_unit": null,
+  "group_operator": "and",
+  "interaction": "any"
+}
+```
 
 ### Time Condition
 
 ```json
 {
-  "id": "cond_b7e2f941",
+  "id": "cond_c1d4e823",
   "is_trigger": false,
+  "role": "time",
+  "entity_ids": [],
   "subject": "time",
   "operator": "is between",
   "value_from": "08:00:00",
@@ -383,7 +307,7 @@ The renderer and compiler detect which by checking for `"type": "group"`.
 
 ```json
 {
-  "id": "cond_c1d4e823",
+  "id": "cond_d2e5f894",
   "type": "group",
   "operator": "and",
   "negated": false,
@@ -397,6 +321,61 @@ The renderer and compiler detect which by checking for `"type": "group"`.
 
 Groups can contain other groups — nesting is unlimited in the data model.
 The compiler and editor must handle arbitrary nesting recursively.
+
+---
+
+## Action Node Schema
+
+Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements` arrays.
+
+```json
+{
+  "id": "stmt_001",
+  "type": "action",
+  "async": false,
+  "role": "Driveway Light",
+  "entity_ids": ["light.driveway_main", "light.garage"],
+  "tasks": [
+    {
+      "id": "task_001",
+      "command": "turn_on",
+      "domain": "light",
+      "ha_service": "light.turn_on",
+      "parameters": { "brightness_pct": 75 },
+      "description": null
+    }
+  ],
+  "description": null,
+  "disabled": false
+}
+```
+
+### Action Node Field Reference
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Yes | Stable ID. Format: `stmt_` + 8 hex chars. |
+| `type` | string | Yes | Always `"action"`. |
+| `async` | boolean | No | Default `false`. Reserved — not compiled yet. |
+| `role` | string | Yes | Human-readable label shown in the editor (e.g. `"Driveway Light"`). Display only — never used for compilation. |
+| `entity_ids` | array | Yes | Array of real HA entity IDs. Always an array. Compiler reads this directly to determine what to control. |
+| `tasks` | array | Yes | One or more task objects. See Task Field Reference below. |
+| `description` | string | No | Optional note shown in editor. Null if not set. |
+| `disabled` | boolean | Yes | Default `false`. If `true`, compiler skips this statement. |
+
+**The compiler reads `entity_ids` directly. It does not look up a role name in any map.**
+`role` is a display label only.
+
+### Task Field Reference
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Yes | Stable ID. Format: `task_` + 8 hex chars. |
+| `command` | string | Yes | Service name without domain (e.g. `"turn_on"`). |
+| `domain` | string | Yes | HA domain (e.g. `"light"`, `"switch"`). |
+| `ha_service` | string | Yes | Full service call: `domain + "." + command`. Must always be set explicitly. |
+| `parameters` | object | No | Service call data fields. Empty object `{}` if none. |
+| `description` | string | No | Null if not set. |
 
 ---
 
@@ -435,17 +414,11 @@ A simple single-trigger piston with one action:
   "folder": "Outdoor Lighting",
   "mode": "single",
   "enabled": true,
-  "logic_version": 1,
+  "logic_version": 2,
   "ui_version": 1,
   "compile_target": "native_script",
   "created_at": "2026-05-01T08:00:00Z",
   "modified_at": "2026-05-03T14:22:00Z",
-  "device_map": {
-    "driveway_light": ["light.driveway_main"]
-  },
-  "device_map_meta": {
-    "driveway_light": { "cardinality": "single" }
-  },
   "variables": [],
   "statements": [
     {
@@ -456,6 +429,8 @@ A simple single-trigger piston with one action:
         {
           "id": "cond_001",
           "is_trigger": true,
+          "role": "time",
+          "entity_ids": [],
           "subject": "time",
           "operator": "happens daily at",
           "value": { "preset": "sunset", "offset": 0, "offset_unit": "minutes", "offset_direction": "+" },
@@ -468,7 +443,8 @@ A simple single-trigger piston with one action:
           "id": "stmt_002",
           "type": "action",
           "async": false,
-          "devices": ["driveway_light"],
+          "role": "Driveway Light",
+          "entity_ids": ["light.driveway_main"],
           "tasks": [
             {
               "id": "task_001",
@@ -496,7 +472,7 @@ A simple single-trigger piston with one action:
 
 ## What This Format Is Not
 
-- **Not Snapshot JSON** — Snapshot JSON is the export/share format: structured JSON with empty `device_map` arrays and role name placeholders. Snapshot is generated on export, not stored internally.
+- **Not Snapshot JSON** — Snapshot JSON is the export/share format: structured JSON with role name placeholders and no entity IDs. Snapshot is generated on export, not stored internally.
 - **Not compiled YAML** — that is produced by the compiler from this format. Never stored here.
 - **Not a UI state object** — wizard context, selected statement, scroll position etc. are transient UI state, not part of the piston format.
 

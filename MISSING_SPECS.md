@@ -1,7 +1,7 @@
 # PistonCore — Missing Specs Tracker
 
 **Status:** Living document — add to this when a gap is found, remove when the spec is written
-**Last Updated:** Session 28
+**Last Updated:** Session 55 — Items 17–20 added
 **Purpose:** Track spec gaps that will block coding when we reach those features.
            Every item here must be resolved before its dependent task is started.
 
@@ -439,6 +439,88 @@ that change with PyScript API versions (`pyscript_state_trigger.j2`,
 `pyscript_completion_event.j2`). Pure Python string generation for all body logic
 because Python indentation is load-bearing and templates cannot know nesting depth.
 Templates stored in `compiler-templates/pyscript/snippets/` in the customize volume.
+
+---
+
+## 17. Action Node Output Schema — MISSING
+
+**Blocks:** wizard-action.js _saveDeviceCmd coding (Session 56), compiler.py action compilation
+**Needs to be written before:** wizard-action.js _saveDeviceCmd is rewritten to the new model
+**Status:** RESOLVED IN WIZARD_SPEC.md v2.0 (Session 55)
+
+The action node output schema is now fully defined in WIZARD_SPEC.md v2.0 Screen W-6
+(Action Node JSON output section). Fields: `id`, `type`, `async`, `role`, `entity_ids`,
+`tasks` (with `id`, `command`, `domain`, `ha_service`, `parameters`, `description`),
+`description`, `disabled`.
+
+Key rule: `entity_ids` is always an array of real HA entity IDs. `role` is a display label only.
+`ha_service` = `domain + "." + command` always. Written at wizard commit time.
+
+**Remaining work:** wizard-action.js `_saveDeviceCmd` must be updated to write the new schema.
+See CLAUDE_SESSION_PROMPT.md open gaps. WIZARD_SPEC.md is the reference.
+
+---
+
+## 18. Device Change Detection / Compile-Time Entity Validation — MISSING
+
+**Blocks:** compiler.py entity validation (backend session)
+**Needs to be written before:** compiler.py entity_ids validation is coded
+**Status:** RESOLVED IN COMPILER_SPEC.md v1.2 (Session 55)
+
+The compile-time validation behavior is now fully defined in COMPILER_SPEC.md v1.2:
+
+- Section 8: `resolve_entities()` function — walks all condition and action nodes,
+  checks every entity_id against `context["entity_states"]`
+- Section 13: `MISSING_ENTITY` compiler error — code, message format, context field
+- Section 15: Stage 2 in the pre-deploy validation pipeline
+
+Key rules: validation runs before compile. If any entity_id is missing from HA, compilation
+stops and returns MISSING_ENTITY errors. User fixes in editor and recompiles. No silent failures.
+No automatic fallback. The `context_builder.py` entity_states dict is already available.
+
+**Remaining work:** compiler.py must implement `resolve_entities()`. This is a backend session task.
+See TASKS.md for the gap assignment.
+
+---
+
+## 19. Fast Pre-Check Validation (Wizard-Step Feedback) — MISSING
+
+**Blocks:** Better wizard UX — not blocking v1
+**Needs to be written before:** Fast pre-check is implemented
+**What it must cover:**
+- What is validated on each wizard step (immediate feedback while building)?
+  - Current: validation only on save/deploy (deep compile check)
+  - Needed: lightweight check on each wizard step — does the selected entity still exist?
+    Is the selected capability valid for this device?
+- What UI feedback is shown when a fast pre-check fails?
+  - Warning inline in the wizard? Block Next button? Toast notification?
+- Does a fast pre-check failure block the user from proceeding or just warn?
+- How does fast pre-check differ from the full compile-time MISSING_ENTITY check?
+
+**Reference:** SESSION_54_FINDINGS.md (Grok Review — Split validation into two passes).
+COMPILER_SPEC.md v1.2 Section 8 (deep compile check). WIZARD_SPEC.md v2.0 (wizard step flow).
+
+**Note:** Grok confirmed this is a good UX improvement but not blocking for v1.
+Log as future improvement. Do not implement until after the deep compile check is working.
+
+---
+
+## 20. Statement Compiler Registry Pattern — FUTURE ARCHITECTURAL SPEC
+
+**Blocks:** Nothing currently — future maintainability improvement
+**Needs to be written before:** compiler.py grows beyond ~10 statement types
+**What it must cover:**
+- Registry of statement handler functions (one per statement type)
+- How new statement types are registered without editing core compile logic
+- How the registry is tested (one test per handler)
+- Whether the registry is data-driven (JSON/config) or code-driven (dict of functions)
+- How PyScript handlers differ from native script handlers in the registry
+
+**Reference:** SESSION_54_FINDINGS.md (Grok Review — Statement compiler registry pattern).
+COMPILER_SPEC.md v1.2 Section 10.2 (current elif-chain approach).
+
+**Note:** Current elif-chain approach is fine for v1. This becomes painful as statement
+types grow beyond 15-20. Implement after v1 smoke test passes and compiler is stable.
 
 ---
 

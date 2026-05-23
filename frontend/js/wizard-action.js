@@ -9,6 +9,14 @@ function _goActionDevicePicker() {
   // Reset command/params when arriving at device picker — device may change
   WizardCore.sel.command = '';
   WizardCore.sel.parameters = {};
+  // Reset device selection state only when starting a fresh action (not editing).
+  // On edit, _route() pre-populates devices/device_id/device_label before opening.
+  if (!WizardCore.editNode) {
+    WizardCore.sel.devices       = [];
+    WizardCore.sel.device_id     = '';
+    WizardCore.sel.device_label  = '';
+    WizardCore.sel.device_labels = [];
+  }
   _render(
     'Add a new action',
     `<div class="wiz-desc">Actions represent a collection of tasks a device or group of devices have to perform. The <em>Location</em> virtual device provides a way to execute some non-device-specific tasks, such as sending notifications, communicating with integrated apps, and more.</div>
@@ -465,11 +473,16 @@ async function _goCommandPicker() {
         WizardCore.sel.command = demo.services[0];
       }
       if (WizardCore.sel.command) {
+        // Build minimal services array so _renderCmdParams has something to look up
+        const demoServices = demo.services.map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+        _renderCmdParams(WizardCore.sel.command, demoServices);
         document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
         document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');
       }
       sel.addEventListener('change', e => {
         WizardCore.sel.command = e.target.value;
+        const demoServices = demo.services.map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+        _renderCmdParams(e.target.value, demoServices);
         const ok = !!e.target.value;
         document.getElementById('wiz-cmd-save')?.toggleAttribute('disabled', !ok);
         document.getElementById('wiz-cmd-addmore')?.toggleAttribute('disabled', !ok);
@@ -545,23 +558,33 @@ function _saveDeviceCmd(addMore) {
   const params = {};
   document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
-  const firstDeviceId = (_sel.devices || [])[0] || _sel.device_id || '';
-  const domain = firstDeviceId.includes('.') ? firstDeviceId.split('.')[0] : (firstDeviceId || 'homeassistant');
+  // entity_ids: the real HA entity IDs for this action (e.g. ["light.driveway_main"])
+  // These are stored in _sel.devices, set by _renderActDevList row click handler.
+  const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
+  const firstId   = entityIds[0] || _sel.device_id || '';
+  const domain    = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
 
-  let deviceLabels;
-  if ((_sel.devices || []).length <= 1) {
-    deviceLabels = [_sel.device_label || _sel.device_id || ''];
+  // role: human label used as the key in device_map and rendered in the editor.
+  // For a single device use the friendly name. For multiple, use a generated role name.
+  // Stored in device_map so the compiler can resolve entity IDs at compile time.
+  const labels = _sel.device_labels || [];
+  let role;
+  if (entityIds.length === 1) {
+    role = labels[0] || _sel.device_label || firstId;
+  } else if (entityIds.length > 1) {
+    // Multi-device role: join friendly names, truncated for readability
+    role = labels.length ? labels.join(' + ') : entityIds.join(' + ');
   } else {
-    // Use labels stored at selection time — DOM rows are gone on command picker screen
-    deviceLabels = _sel.device_labels || (_sel.devices || []).map(id => id);
+    // Virtual/system device — use the label directly, no entity_ids to register
+    role = _sel.device_label || _sel.device_id || '';
   }
 
   const newTask = {
-    id: _taskId(),
-    command: command,
-    domain: domain,
-    ha_service: domain + '.' + command,
-    parameters: params,
+    id:          _taskId(),
+    command:     command,
+    domain:      domain,
+    ha_service:  domain + '.' + command,
+    parameters:  params,
     description: null,
   };
 
@@ -570,16 +593,26 @@ function _saveDeviceCmd(addMore) {
   const branch  = WizardCore.extra?.['branch'] || 'then';
   const meta    = blockId ? { blockId, branch } : undefined;
 
+  // Store entity IDs in devices array (not labels) — compiler resolves via device_map.
+  // For virtual/system devices that have no entity IDs, store the label as before.
+  const devicesField = entityIds.length ? entityIds : [role];
+
   if (WizardCore.editNode && WizardCore.editNode.type === 'action') {
-    const updatedNode = { ...WizardCore.editNode, tasks: [newTask] };
+    const updatedNode = { ...WizardCore.editNode, devices: devicesField, tasks: [newTask] };
     Editor.insertStatement(ctx, updatedNode, meta);
   } else {
     Editor.insertStatement(ctx, {
       type: 'action', id: WizardCore.editNode?.id || _newId(), async: false,
-      devices: deviceLabels,
+      devices: devicesField,
+      role,
       tasks: [newTask],
       description: null, disabled: false,
     }, meta);
+  }
+
+  // Register all selected entity IDs under this role in device_map
+  if (entityIds.length && Editor.registerDeviceRole) {
+    Editor.registerDeviceRole(role, entityIds);
   }
 
   if (addMore) {

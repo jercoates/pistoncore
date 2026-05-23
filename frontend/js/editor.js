@@ -335,7 +335,14 @@ const Editor = (() => {
       } else if (t === 'action') {
         bOpen(pad);
           ln(`<span class="kw">with</span>`, pad, { id, type: t });
-          (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
+          // node.role is the human label (e.g. "Driveway Light").
+          // node.devices contains entity IDs since Session 54 — don't display raw IDs.
+          // Fall back to displaying devices array if role is absent (legacy nodes).
+          if (node.role) {
+            ln(`    ${_dr(node.role)}`, pad + 1);
+          } else {
+            (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
+          }
           ln(`<span class="kw">do</span>`, pad);
           (node.tasks || []).forEach(task => {
             const cmdLabel = _friendlyCmd(task.service || task.command || 'call service');
@@ -512,56 +519,66 @@ const Editor = (() => {
     if (!c) return '<span class="doc-ph">[condition]</span>';
 
     // Group object — render as group summary, not a condition line
-    if (c.type === 'group') {
-      const op = c.operator || 'and';
+    if (c.type === 'group' || c.is_group) {
+      const op = c.group_operator || c.operator || 'and';
       const neg = c.negated ? '<span class="kw">not</span> ' : '';
       const count = (c.conditions || []).length;
-      const gop = c.group_operator ? ` <span class="kw doc-gop">${_esc(c.group_operator)}</span>` : '';
-      return `${neg}<span class="kw">group</span> (${_esc(op)}, ${count} condition${count !== 1 ? 's' : ''})${gop}`;
+      return `${neg}<span class="kw">group</span> (${_esc(op)}, ${count} condition${count !== 1 ? 's' : ''})`;
     }
 
-    // Flat-field normalization — imported pistons store role/attribute directly on the
-    // condition object instead of inside a subject sub-object. Build a synthetic subject
-    // so the rest of this function works identically for both formats.
-    let subject = c.subject;
-    if (!subject) {
-      if (c.role === 'time' || c.subject_type === 'time') {
-        subject = { type: 'time' };
-      } else if (c.role === 'date' || c.subject_type === 'date') {
-        subject = { type: 'date' };
-      } else if (c.role === 'mode' || c.subject_type === 'mode') {
-        subject = { type: 'mode' };
-      } else if (c.role) {
-        subject = {
-          type: 'device',
-          role: c.role,
-          entity_id: c.entity_id || c.role,
-          capability: c.attribute || c.capability || '',
-          attribute_type: c.attribute_type || '',
-          device_class: c.device_class || null,
-        };
-      } else {
-        // No subject info at all — render placeholder
-        subject = null;
-      }
+    // Canonical format (wizard-built): flat fields — role, attribute, attribute_type,
+    // device_class, entity_ids at top level. No subject object.
+    // Legacy/imported format: subject sub-object. Support both.
+    let role, attrName, subjType;
+
+    if (c.subject) {
+      // Legacy nested format — imported pistons
+      const s = c.subject;
+      subjType = s.type || 'device';
+      role     = s.role || s.entity_id || '';
+      attrName = s.capability || s.attribute || '';
+    } else {
+      // Flat format — wizard-built (canonical per PISTON_FORMAT.md)
+      role     = c.role || '';
+      attrName = c.attribute || c.capability || '';
+      if (role === 'time' || c.subject_type === 'time')        subjType = 'time';
+      else if (role === 'date' || c.subject_type === 'date')   subjType = 'date';
+      else if (role === 'mode' || c.subject_type === 'mode')   subjType = 'mode';
+      else if (c.subject_type === 'variable')                  subjType = 'variable';
+      else                                                     subjType = role ? 'device' : null;
     }
 
-    // aggregation is always shown for device conditions — device count is unknowable at render time
+    if (!subjType) return '<span class="doc-ph">[condition]</span>';
+
+    // Aggregation label (device conditions only)
     const AGG_LABELS = { any: 'Any of', all: 'All of', none: 'None of' };
-    const isDeviceSubj = subject?.type === 'device';
-    const agg = c.aggregation && c.aggregation !== 'null' && (isDeviceSubj || c.aggregation !== 'any')
+    const isDevice = subjType === 'device';
+    const agg = isDevice && c.aggregation && c.aggregation !== 'any'
       ? `<span class="kw">${_esc(AGG_LABELS[c.aggregation] || c.aggregation)}</span> `
       : '';
-    const subj = _subj(subject);
-    const attr = subject?.capability ? ` <span class="doc-attr">${_esc(subject.capability)}</span>` : '';
+
+    // Subject rendering
+    let subj;
+    if (subjType === 'device')   subj = _dr(role || 'device');
+    else if (subjType === 'variable') subj = _dv('$', role || '');
+    else                         subj = `<span class="kw">${_esc(subjType)}</span>`;
+
+    const attr = attrName ? ` <span class="doc-attr">${_esc(attrName)}</span>` : '';
     const op   = c.operator ? ` <span class="kw">${_esc(c.operator)}</span>` : '';
-    // display_value is the wizard-written friendly value; fall back to value/value_from
-    const rawVal = c.display_value !== undefined && c.display_value !== ''
+
+    // display_value is the wizard-written friendly label; fall back to value/value_from
+    const rawVal = c.display_value !== undefined && c.display_value !== null && c.display_value !== ''
       ? String(c.display_value)
-      : (c.value !== undefined ? String(c.value) : (c.value_from !== undefined ? String(c.value_from) : ''));
-    const val  = rawVal ? ` ${_esc(rawVal)}` : '';
-    const val2 = c.value_to !== undefined && c.value_to !== '' ? ` <span class="kw">and</span> ${_esc(String(c.value_to))}` : '';
-    const dur  = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))} ${_esc(c.duration_unit||'')}` : '';
+      : (c.value !== undefined && c.value !== null ? String(c.value)
+        : (c.value_from !== undefined && c.value_from !== null ? String(c.value_from) : ''));
+    const val = rawVal ? ` ${_esc(rawVal)}` : '';
+
+    // value_to: only render if non-null and non-empty (GAP-S53-4 fix)
+    const val2 = c.value_to !== undefined && c.value_to !== null && c.value_to !== ''
+      ? ` <span class="kw">and</span> ${_esc(String(c.value_to))}`
+      : '';
+
+    const dur = c.duration ? ` <span class="kw">for</span> ${_esc(String(c.duration))} ${_esc(c.duration_unit||'')}` : '';
     return `${agg}${subj}${attr}${op}${val}${val2}${dur}`;
   }
 
@@ -846,6 +863,31 @@ const Editor = (() => {
     return false;
   }
 
+  // Finds a condition with statementData.id anywhere in conditions/until_conditions
+  // arrays in the nested tree and replaces it in-place. Returns true if replaced.
+  // Used by insertStatement when the target block is not found (edit case).
+  function _replaceCondition(statementData, nodes) {
+    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
+    for (const node of nodes) {
+      if (!node) continue;
+      for (const arr of [node.conditions || [], node.until_conditions || []]) {
+        const i = arr.findIndex(c => c && c.id === statementData.id);
+        if (i !== -1) { arr[i] = statementData; return true; }
+      }
+      for (const eib of (node.else_ifs || [])) {
+        const arr = eib.conditions || [];
+        const i = arr.findIndex(c => c && c.id === statementData.id);
+        if (i !== -1) { arr[i] = statementData; return true; }
+        if (_replaceCondition(statementData, eib.statements || [])) return true;
+      }
+      if (_replaceCondition(statementData, node.then       || [])) return true;
+      if (_replaceCondition(statementData, node.else       || [])) return true;
+      if (_replaceCondition(statementData, node.statements || [])) return true;
+      if (_replaceCondition(statementData, node.default    || [])) return true;
+    }
+    return false;
+  }
+
   // ── Context menu ─────────────────────────────────────────
   function _handleContextMenu(e) {
     const stmt = e.target.closest('.doc-stmt');
@@ -1001,6 +1043,11 @@ const Editor = (() => {
   //
   // branch context: wizard passes blockId + branch in meta when inserting a statement
   // into a specific branch of a control flow node (then/else/statements).
+  //
+  // IMPORTANT: condition nodes must NEVER fall through to the statement insertion path.
+  // If the target block is not found, try _replaceCondition (edit case). If still not
+  // found, bail with a warning. A condition node inserted as a statement is unrenderable
+  // and corrupts the piston tree.
   function insertStatement(context, statementData, meta) {
     if (context === 'if_condition' ||
         (context === 'trigger_or_condition' && meta && meta.blockId)) {
@@ -1016,8 +1063,20 @@ const Editor = (() => {
           render();
           return;
         }
+        // Block not found by id — may be an edit of an existing condition.
+        // Try to replace it wherever it lives in the conditions arrays.
+        if (_replaceCondition(statementData)) {
+          _markUnsaved(true);
+          render();
+          return;
+        }
+        // Still not found — bail. Never insert a condition node as a statement.
+        console.warn('PistonCore: insertStatement — target block not found for blockId:', blockId, '— condition not inserted.');
+        _showNotice('Could not find the target block. Condition was not inserted.', 'warn');
+        return;
       }
-      // No blockId or block not found — fall through to statement insert
+      // No blockId — restriction or top-level condition. Fall through to the
+      // trigger/condition/restriction section below (not to statement insert).
     }
 
     // Branch insertion: meta.blockId + meta.branch — insert into a specific child array
@@ -1166,12 +1225,39 @@ const Editor = (() => {
     };
     if (!tryRemoveFromArr(_piston.triggers, id) &&
         !tryRemoveFromArr(_piston.conditions, id) &&
-        !tryRemoveFromArr(_piston.variables, id)) {
+        !tryRemoveFromArr(_piston.restrictions, id) &&
+        !tryRemoveFromArr(_piston.variables, id) &&
+        !_removeConditionNode(id)) {
       _removeNode(id);
     }
     if (_selectedId === id) _selectedId = null;
     _markUnsaved(true);
     render();
+  }
+
+  // Removes a condition node by id from conditions/until_conditions arrays anywhere
+  // in the nested statement tree. Returns true if found and removed.
+  // Called by deleteStatement — _removeNode only searches statement arrays, not condition arrays.
+  function _removeConditionNode(id, nodes) {
+    nodes = nodes !== undefined ? nodes : ((_piston && _piston.statements) || []);
+    for (const node of nodes) {
+      if (!node) continue;
+      for (const arr of [node.conditions || [], node.until_conditions || []]) {
+        const i = arr.findIndex(c => c && c.id === id);
+        if (i !== -1) { arr.splice(i, 1); return true; }
+      }
+      for (const eib of (node.else_ifs || [])) {
+        const arr = eib.conditions || [];
+        const i = arr.findIndex(c => c && c.id === id);
+        if (i !== -1) { arr.splice(i, 1); return true; }
+        if (_removeConditionNode(id, eib.statements || [])) return true;
+      }
+      if (_removeConditionNode(id, node.then       || [])) return true;
+      if (_removeConditionNode(id, node.else       || [])) return true;
+      if (_removeConditionNode(id, node.statements || [])) return true;
+      if (_removeConditionNode(id, node.default    || [])) return true;
+    }
+    return false;
   }
 
 
@@ -1182,6 +1268,16 @@ const Editor = (() => {
     deleteStatement,
     getPistonVariables: () => (_piston?.variables || []),
     getDeviceMap: () => (_piston?.device_map || {}),
+    // Called by wizard on every action/condition commit to keep device_map in sync.
+    // roleName: the friendly label the user assigned (e.g. "Driveway Light")
+    // entityIds: array of HA entity IDs (e.g. ["light.driveway_main"])
+    registerDeviceRole(roleName, entityIds) {
+      if (!roleName || !entityIds || !entityIds.length) return;
+      if (!_piston) return;
+      _piston.device_map = _piston.device_map || {};
+      _piston.device_map[roleName] = entityIds;
+      _markUnsaved(true);
+    },
     updateConditionOperator(blockId, operator) {
       // Find the block (if, while, repeat, on_event, else_if) and update its condition_operator
       const block = _findNode(blockId) || _findElseIf(blockId);

@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 52 complete — wizard flow fixes, delete fixed, major insertStatement scoping bug found
+**Last Updated:** Session 53 complete — insertStatement condition fallthrough fixed, _replaceCondition + _removeConditionNode added, registerDeviceRole added to Editor API, GAP-S53-1 through GAP-S53-5 logged
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -43,23 +43,22 @@ future session before the session closes. Never leave a gap unassigned.
 
 ## STAGE W — Wizard and Editor Polish
 
-### W-S7b: Wizard Stabilization — insertStatement Scoping Fix ← NEXT SESSION
+### W-S7b: Wizard Stabilization — insertStatement Scoping Fix ✅ (Session 53)
 
-**What this is:** GAP-S52-1 — CRITICAL. Editor.insertStatement with meta.blockId
-is not finding the correct target block and falls back to root level insertion.
-Conditions/statements added via the scoped wizard flow (after inserting if/while/on_event)
-land in the wrong place (e.g. "only when" section instead of inside the target block).
-This must be fixed before any meaningful smoke test.
+**GAP-S52-1 FIXED in editor.js:**
+- insertStatement condition path no longer falls through to statement insertion
+- When target block not found by _findNode, now tries _replaceCondition (edit case)
+- If still not found, bails with console.warn + user notice — never inserts condition as statement
+- _replaceCondition() added: replaces condition by id in any conditions/until_conditions array in tree
+- _removeConditionNode() added to deleteStatement: deletes conditions inside blocks (GAP-S53-1 fix)
+- registerDeviceRole(roleName, entityIds) added to Editor public API (device_map population)
 
-**Also investigate this session:**
-- GAP-S52-2: Action wizard device search missing / stale state after scoped flow
-- GAP-S52-3: Add task button not working in some flows (may be pre-existing)
-- GAP-S52-4: open() shallow copy breaks edit flows for conditions/actions/blocks
-- Null safety pass on _buildConditionNode, _commitCondition if time permits
-
-**Upload for this session:**
-editor.js, wizard-action.js, wizard-core.js, wizard-statement.js,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Still open from W-S7b — moved to W-S8:**
+- GAP-S52-2: Action wizard stale sel state
+- GAP-S52-3: Add task button wrong behavior
+- GAP-S52-4: Shallow copy on open() for complex edit nodes
+- Wire registerDeviceRole calls in wizard-condition.js and wizard-action.js
+- GAP-S53-1 through GAP-S53-5 (see below)
 
 ---
 
@@ -206,15 +205,35 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
 ### GAP-S50-1 → S3-1: compiler does not handle device initial_value disambiguation
 ### GAP-S30-3 → S4-16: Double config load per compile call
 ### GAP-S51-1 → CLOSED (Session 52): _goBlockConfirm scopes wizard without close/reopen
-### GAP-S52-1 → W-S7b: CRITICAL — Editor.insertStatement with meta.blockId falls back
-  to root level insertion instead of finding target block. Conditions/statements added
-  via scoped wizard flow land in wrong location (e.g. "only when" instead of inside if block).
-  Fix in editor.js insertStatement — blockId lookup must walk the full nested tree.
+### GAP-S52-1 → CLOSED (Session 53): insertStatement condition fallthrough fixed.
+  _replaceCondition() and _removeConditionNode() added. registerDeviceRole() added to Editor API.
 ### GAP-S52-2 → W-S7b: Action wizard device search missing / stale sel state after
   scoped wizard flow. May be pre-existing or caused by sel reset in scoped context.
   Investigate with fresh piston before assuming regression.
 ### GAP-S52-3 → W-S7b: Add task button not working in some action wizard flows.
   May be pre-existing from wizard split. Needs editor.js + wizard-action.js review.
+### GAP-S53-1 → W-S8: Deleting a condition inside a block fails silently
+  FIXED in Session 53 — _removeConditionNode() added to deleteStatement path.
+  Conditions inside if/while/repeat/on_event blocks can now be deleted.
+
+### GAP-S53-2 → W-S8: Attribute dropdown empty for real devices
+  wizard-condition.js _loadCapsIntoSelect calls API.getDeviceCapabilities — method
+  does not exist in api.js (correct name: getCapabilities or getDevices).
+  Falls back to DOMAIN_CAPS static map via domain prefix. Attribute dropdown
+  only works for devices whose entity_id domain is in DOMAIN_CAPS.
+  Fix: rename API call in _loadCapsIntoSelect, or add alias in api.js.
+
+### GAP-S53-3 → W-S8: Condition edit not pre-filling / no Delete button
+  if_condition + editNode routing may not be deploying pre-fill correctly.
+  Needs verification with a real edit flow after S53 deploy.
+
+### GAP-S53-4 → W-S8: "on/null" rendering in editor
+  _condLine: value_to: null rendered as "and null". Need null check before
+  appending val2. Fix in editor.js _condLine line ~563.
+
+### GAP-S53-5 → W-S8: Switch case statements missing branch
+  Ghost click inside switch cases passes no branch — deferred from S52.
+
 ### GAP-S52-4 → W-S7b: open() shallow copies editNode into _sel — complex nodes
   (conditions, actions, blocks with nested arrays) don't populate correctly for editing.
   _sel.devices, _sel.subject, _sel.tasks etc. often missing or wrong shape.

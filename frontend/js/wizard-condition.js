@@ -277,6 +277,7 @@ function _goConditionBuilder() {
     const opt = e.target.selectedOptions[0];
     WizardCore.sel.attribute      = e.target.value;
     WizardCore.sel.attribute_type = opt?.dataset.type || '';
+    WizardCore.sel.device_class   = opt?.dataset.class || null;
     _renderValueWidget();
   });
 
@@ -467,36 +468,76 @@ async function _loadCapsIntoSelect() {
   const sel = document.getElementById('wiz-attr-select');
   if (!sel) return;
 
+  // Show loading state while fetching
+  sel.innerHTML = '<option value="">loading...</option>';
+  sel.disabled = true;
+
   let caps = [];
+
+  // 1. Demo device — use hardcoded capabilities
   const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
   if (demo) {
     caps = demo.capabilities;
+
   } else {
+    // 2. Collect the real entity IDs we need capabilities for.
+    //    _sel.devices is the authoritative list (may be multiple entity IDs).
+    //    Fall back to _sel.device_id if devices array is absent or empty.
+    const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
+    const idsToFetch = entityIds.length ? entityIds : (
+      _sel.device_id && !_sel.device_id.startsWith('__') ? [_sel.device_id] : []
+    );
+
+    // 3. Piston variable (device type) — resolve entity IDs from initial_value
     const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const localVar = allLocals.find(v => v.var_type === 'device' && v.name === _sel.device_id);
+    const localVar = idsToFetch.length === 1
+      ? allLocals.find(v => v.var_type === 'device' && v.name === idsToFetch[0])
+      : null;
     if (localVar) {
       const rawVal = String(localVar.initial_value || '');
-      const entityIds = rawVal.split(',').map(s => s.trim()).filter(Boolean);
-      const hasEntityIds = entityIds.some(id => id.includes('.'));
-      if (hasEntityIds) {
-        caps = _getCapsForDomain(entityIds);
-      } else {
-        caps = _getCapsForDomain(_sel.device_id);
-      }
-    } else {
-      try {
-        const data = await API.getDeviceCapabilities(_sel.device_id);
-        caps = data.capabilities || _getCapsForDomain(_sel.device_id);
-      } catch(e) {
-        caps = _getCapsForDomain(_sel.device_id);
+      const resolvedIds = rawVal.split(',').map(s => s.trim()).filter(Boolean);
+      const hasEntityIds = resolvedIds.some(id => id.includes('.'));
+      caps = hasEntityIds ? _getCapsForDomain(resolvedIds) : _getCapsForDomain(idsToFetch[0]);
+
+    } else if (idsToFetch.length) {
+      // 4. Real HA devices — call API.getCapabilities for each and merge.
+      //    Use a seen map keyed by capability name so we get the union of all
+      //    attributes across every selected device (common pattern for multi-device conditions).
+      const seen = new Map();
+      await Promise.all(idsToFetch.map(async id => {
+        try {
+          const data = await API.getCapabilities(id);
+          const caps = data.capabilities || [];
+          for (const cap of caps) {
+            if (!seen.has(cap.name)) seen.set(cap.name, cap);
+          }
+        } catch(e) {
+          // HA unreachable or entity has no capabilities endpoint —
+          // fall back to domain-based static map for this id
+          const fallback = _getCapsForDomain(id);
+          for (const cap of fallback) {
+            if (!seen.has(cap.name)) seen.set(cap.name, cap);
+          }
+        }
+      }));
+      caps = [...seen.values()];
+
+      // If we got nothing from HA (e.g. no capabilities registered), fall back to domain map
+      if (!caps.length) {
+        caps = _getCapsForDomain(idsToFetch);
       }
     }
   }
+
   WizardCore.sel._caps = caps;
-  if (sel) {
-    sel.innerHTML = `<option value="">attribute...</option>` +
-      caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
-    sel.disabled = false;
+  sel.innerHTML = '<option value="">attribute...</option>' +
+    caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" data-class="${_esc(c.device_class||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
+  sel.disabled = false;
+
+  // If a prior attribute selection is still valid, restore device_class from it
+  if (_sel.attribute) {
+    const opt = sel.querySelector(`option[value="${CSS.escape(_sel.attribute)}"]`);
+    if (opt) WizardCore.sel.device_class = opt.dataset.class || null;
   }
 }
 
@@ -636,52 +677,72 @@ function _buildConditionNode() {
   const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
   const subjType = _sel.subject_type || 'device';
 
+  // ── Build role and entity_ids list ───────────────────────
+  // role: the human label used throughout the piston (e.g. "Driveway Light")
+  // entity_ids: the real HA entity IDs (e.g. ["light.driveway_main"])
+  // For time/date/mode/variable these are symbolic, not real HA IDs.
   let role = '';
-  let entity_id = '';
+  let entity_ids = [];
 
   if (subjType === 'device') {
     role = _sel.device_label || _sel.device_id || '';
-    entity_id = _sel.device_id || '';
+    // _sel.devices is the authoritative list of selected entity IDs
+    entity_ids = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
+    if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
+      entity_ids = [_sel.device_id];
+    }
   } else if (subjType === 'variable') {
     role = document.getElementById('wiz-subj-var')?.value || _sel.device_id || '';
-    entity_id = role;
+    entity_ids = [];
   } else if (subjType === 'time') {
     role = 'time';
-    entity_id = document.getElementById('wiz-subj-time')?.value || _sel.time_value || '';
+    entity_ids = [];
   } else if (subjType === 'date') {
     role = 'date';
-    entity_id = document.getElementById('wiz-subj-date')?.value || _sel.date_value || '';
+    entity_ids = [];
   } else if (subjType === 'mode') {
     role = 'mode';
-    entity_id = document.getElementById('wiz-subj-mode')?.value || _sel.mode_value || '';
+    entity_ids = [];
   }
 
   if (!role || !op) return null;
 
+  // ── Attribute / capability ────────────────────────────────
   const attrSel  = document.getElementById('wiz-attr-select');
   const attrVal  = attrSel ? attrSel.value : (_sel.attribute || '');
-  const attrType = attrSel ? (attrSel.selectedOptions[0]?.dataset.type || '') : (_sel.attribute_type || '');
+  const attrType = attrSel
+    ? (attrSel.selectedOptions[0]?.dataset.type || '')
+    : (_sel.attribute_type || '');
+  const deviceClass = attrSel
+    ? (attrSel.selectedOptions[0]?.dataset.class || _sel.device_class || null)
+    : (_sel.device_class || null);
 
+  // ── Values ────────────────────────────────────────────────
   const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
   const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
   const isBinary = attrType === 'binary';
+  // Binary value translation: map display label → HA state string.
+  // HA uses 'on'/'off' for most binary sensors regardless of device_class display label.
   const BINARY_COMPILED = {
     open:'on', closed:'off', detected:'on', clear:'off',
     active:'on', inactive:'off', wet:'on', dry:'off',
     home:'on', away:'off', locked:'off', unlocked:'on',
-    on:'on', off:'off',
+    on:'on', off:'off', true:'on', false:'off',
   };
   const compiledVal1 = isBinary
     ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
     : rawVal1;
 
+  // ── Duration ──────────────────────────────────────────────
   const needsDur  = _needsDuration(op);
   const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
   const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
 
+  // ── Group operator ────────────────────────────────────────
   const groupOpEl = document.getElementById('wiz-group-op-selector');
   const groupOp   = groupOpEl ? groupOpEl.value : 'and';
 
+  // ── Time-only day/month filters ───────────────────────────
   const odw = subjType === 'time'
     ? [...document.querySelectorAll('.wiz-dow-cb:checked')].map(cb => parseInt(cb.value))
     : (_sel.time_only_on_days || []);
@@ -689,33 +750,39 @@ function _buildConditionNode() {
     ? [...document.querySelectorAll('.wiz-moy-cb:checked')].map(cb => parseInt(cb.value))
     : (_sel.time_only_on_months || []);
 
-  const subject = {
-    type: subjType,
-    role: role,
-    entity_id: entity_id,
-    capability: attrVal,
-    attribute_type: attrType,
-    device_class: _sel.device_class || null,
-  };
-
+  // ── Build flat condition node per PISTON_FORMAT.md ────────
+  // Spec says: role, attribute, attribute_type, device_class at top level.
+  // No nested subject object. The editor renderer normalizes both formats,
+  // but the compiler reads only the flat format. Always write flat.
   const node = {
-    id: WizardCore.editNode?.id || _condId(),
-    is_trigger: isTrigger(op),
-    subject,
-    aggregation: document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
-    operator: op,
-    display_value: rawVal1,
+    id:             WizardCore.editNode?.id || _condId(),
+    is_trigger:     isTrigger(op),
+    role,
+    entity_ids,                        // list of HA entity IDs for this role
+    attribute:      attrVal,           // was: subject.capability — now flat per spec
+    attribute_type: attrType,
+    device_class:   deviceClass,
+    aggregation:    document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
+    operator:       op,
+    display_value:  rawVal1,
     compiled_value: compiledVal1,
-    value_to: rawVal2 || null,
-    duration: durAmount,
-    duration_unit: durUnit,
-    interaction: document.getElementById('wiz-interaction')?.value || 'any',
+    value_to:       rawVal2 || null,
+    duration:       durAmount,
+    duration_unit:  durUnit,
+    interaction:    document.getElementById('wiz-interaction')?.value || 'any',
     group_operator: groupOp,
   };
 
   if (subjType === 'time') {
     node.only_on_days   = odw;
     node.only_on_months = omy;
+  }
+
+  // ── Register device role in piston device_map ─────────────
+  // This is the only place we know both the role name and the entity IDs together.
+  // Call every time a condition is committed — idempotent, safe to call repeatedly.
+  if (subjType === 'device' && role && entity_ids.length && Editor.registerDeviceRole) {
+    Editor.registerDeviceRole(role, entity_ids);
   }
 
   return node;

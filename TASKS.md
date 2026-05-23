@@ -65,7 +65,49 @@ future session before the session closes. Never leave a gap unassigned.
 
 ---
 
-### W-S8: Role Mapping Verification + Wizard Smoke Test
+### D-S1: DESIGN.md — Architecture Pivot Update (SPEC SESSION — NO CODE)
+
+**Do this before W-S8 and B-1. Required if anyone else reads this codebase.**
+
+DESIGN.md is 1695 lines and was last updated before Session 55. It now contradicts
+the three working spec files on the device model. Any helper, contributor, or future
+Claude session reading DESIGN.md will get wrong information.
+
+**What to fix — in priority order:**
+
+**(1) Add Architecture Pivot section at the very top (after the header)**
+A short summary of the Session 55 decision:
+- device_map eliminated as of logic_version 2
+- entity_ids stored directly on condition and action nodes
+- role is display label only — never used for compilation
+- MISSING_ENTITY compiler error replaces missing-device handler at compile time
+- Sections X, Y, Z in this document are superseded — see spec files for truth
+
+**(2) Fat compiler context object — remove device_map field**
+Find the section showing the compiler context dict and remove `"device_map": { ... }`.
+COMPILER_SPEC.md v1.2 Section 7 is the correct version.
+
+**(3) Mark superseded sections clearly**
+Sections covering device_map architecture, device_map_meta, cardinality,
+missing device handler (hard-flag vs degrade), role→entity lookup — add a note
+at the top of each: `> ⚠ SUPERSEDED — See PISTON_FORMAT.md v2.1 and COMPILER_SPEC.md v1.2`
+
+**(4) Snapshot import flow note**
+Add a note that Snapshot import flow needs redesigning under the new model.
+Roles are now extracted from `role` fields on individual nodes during import,
+not from a central device_map. Full spec is pending (MISSING_SPECS.md — add item 21).
+
+**What NOT to rewrite:**
+Everything unrelated to device_map — architecture decisions, output targets,
+compile pipeline, globals system, file structure, WebSocket, settings, etc.
+Leave those sections untouched. This is a targeted surgical update, not a rewrite.
+
+**Upload for this session:**
+DESIGN.md, PISTON_FORMAT.md, COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+---
+
+
 
 **Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
 Update `_saveDeviceCmd` to write the new action node format:
@@ -242,7 +284,33 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
 
 ## Open Gaps — All Assigned
 
-### GAP-S28-4 → S3-1: 6 test pistons in tests/pistons/ not yet created
+### GAP-S55-1 → D-S1: DESIGN.md stale — contradicts entity_ids model
+  Sections covering device_map, device_map_meta, cardinality, missing device handler,
+  fat compiler context (includes device_map field), import flow all reference old model.
+  Fix: Architecture Pivot section at top + surgical markups. See D-S1 above.
+
+### GAP-S55-2 → D-S1: Fat compiler context object in DESIGN.md still shows device_map field
+  COMPILER_SPEC.md v1.2 Section 7 is correct (no device_map). DESIGN.md section is wrong.
+  Fix in D-S1 session alongside other DESIGN.md updates.
+
+### GAP-S55-3 → MISSING_SPECS.md Item 21: Snapshot import flow undefined under new model
+  Old model: import populated device_map from role placeholders.
+  New model: roles are on individual nodes — import flow needs redesign.
+  What happens when a Snapshot is imported and entity_ids need to be mapped?
+  Add to MISSING_SPECS.md as Item 21 and spec before S2-3 (Snapshot Export) is built.
+
+### GAP-S55-4 → D-S1: has_missing_devices flag — status unclear
+  Referenced in old DESIGN.md missing device handler. With MISSING_ENTITY compile error
+  replacing silent missing-device behavior, this flag may be obsolete.
+  Clarify in D-S1: either remove it or redefine what it means under the new model.
+
+### GAP-S55-5 → COMPILER_SPEC.md: for_each list_role resolution needs clarification
+  COMPILER_SPEC.md Section 10.2 for_each example uses "list_role" but the explanation
+  of how compiler resolves it from global_variables is buried. Add a clear note
+  immediately after the for_each example explaining the lookup path.
+  Fix in B-1 session when compiler.py is being updated — minor clarification only.
+
+
 ### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
 ### GAP-S34-1 → S4-16: _compile_single_condition has no warnings param
 ### GAP-S38-1 → S2-2: /api/logs route missing from api.py

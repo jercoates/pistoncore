@@ -199,3 +199,74 @@ After spec rewrite, update it to store entity_ids in entity_ids[] and role in ro
 
 4. SMOKE TEST: Build one real piston with real Hubitat devices in HA.
    Trigger → condition → action. Save → compile → check output.
+
+---
+
+## Grok Review Notes — Post Session 54
+
+These came in after the session. Incorporate into spec rewrite and TASKS.md.
+
+### Architecture — Confirmed Good
+- Nested tree model is correct long-term choice
+- Separation of concerns is clean
+- Globals system solid (Device/Devices compile-time expansion)
+- Fat context object for compiler (no HA calls from compiler itself) — correct
+- Auto target selection via target-boundary.json — keep it
+
+### Grok Recommendations to Act On
+
+**1. Entity Resolution Layer in backend (before compile)**
+Add a resolve_entities() step early in compile_piston() that:
+- Confirms all entity_ids in condition and action nodes exist in HA
+- Warns on unavailable/removed entities
+- Validates entity is in the right domain for the operation
+This is what SESSION_54_FINDINGS.md already called MISSING_ENTITY validation.
+Grok confirms the approach. Add to backend session task.
+
+**2. Split validation into two passes**
+- Fast Pre-Check: on every wizard step (immediate feedback while building)
+- Deep Compile Check: on save/deploy (full validation)
+Currently only doing deep check. Fast pre-check is a future improvement.
+Log as a gap — not blocking v1 but good for UX.
+
+**3. Statement compiler — plugin/registry pattern**
+Right now compiler is one big function with many elif branches.
+As statement types grow this becomes painful.
+Recommendation: registry of statement handlers.
+Not blocking now — log as S4-16 or later architectural improvement.
+
+**4. Error context in nested blocks**
+When compile fails in a deeply nested block, error should include
+the full statement path: if_001 → else_if_002 → action_003.
+Currently errors may only report the leaf statement id.
+Log as a compiler improvement gap.
+
+**5. Two-layer template approach**
+Instead of pure Jinja2 string templates:
+- Low-level statement compilers output clean Python dicts
+- Final YAML serializer converts dicts to YAML
+Produces cleaner output, easier to maintain.
+This is an architectural improvement — not blocking v1.
+Log as future compiler refactor.
+
+**6. Expand unit tests against golden sample pistons**
+SAMPLE_PISTONS.md already lists 4 candidate pistons.
+All 4 together exercise every compiler pattern.
+If all 4 compile and deploy correctly → compiler is solid for v1.
+This is already planned in MISSING_SPECS.md Item 11.
+
+### What Grok Confirmed Is Already Correct
+- Direct entity_ids on nodes (what we decided this session) ✓
+- Fat context object ✓
+- Jinja2 templates for output targets ✓
+- Auto compile target selection ✓
+
+### Gaps to Add to MISSING_SPECS.md
+- Item 19: Fast Pre-Check validation (wizard-step feedback) — MISSING
+- Item 20: Statement compiler registry pattern — future architectural spec
+
+### Gaps to Add to TASKS.md
+- Backend: resolve_entities() step in compile_piston() — same session as
+  entity_ids direct read (already planned in backend session)
+- S4-16: Statement compiler registry refactor — after v1
+- S4-16: Full statement path in compiler error messages — after v1

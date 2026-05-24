@@ -5,7 +5,7 @@
 **Last Updated:** May 2026 (Session 57 — multi-entity trigger/action use arrays not expansion;
   for_each reads entity_ids directly from node; list_role retired)
 
-Read DESIGN.md v1.1 before this document.
+Read DESIGN.md v1.3 before this document.
 This document defines exactly how the compiler turns piston structured JSON into native HA files.
 
 ---

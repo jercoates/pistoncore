@@ -1,209 +1,527 @@
-# PistonCore — Sample Piston Library
+# PistonCore — Sample Pistons
 
-**Status:** Planning — Snapshot JSON not yet written
-**Last Updated:** Session 23
-**Purpose:** Document the planned preloaded piston library. These pistons ship
-with PistonCore or are available from the GitHub repo as ready-to-import
-Snapshot JSON files. Users import, map devices, deploy.
+**Version:** 1.0
+**Status:** Authoritative — Required reference for AI prompt work and compiler smoke testing
+**Last Updated:** May 2026 (Session 59 / D-S4 — initial creation)
 
----
+All pistons in this file are valid against PISTON_FORMAT.md v2.1 and STATEMENT_TYPES.md v2.1.
+All pistons use `logic_version: 2`. No `device_map`. Entity IDs stored directly on nodes.
 
-## The Onboarding Story
-
-Sample pistons use role names like `{Battery_Devices}` that map at import
-time through the standard role mapping flow — same as any Snapshot import.
-Users map their own devices to each role. No forced naming convention.
-
-If a user already has a global variable that matches a role name, the import
-dialog can offer to use it automatically — but never forces it.
-
-A companion best practices guide (see MISSING_SPECS.md item 12) explains
-why creating globals for shared devices saves time across multiple pistons,
-and why using the define block for single-piston device references keeps
-logic clean. This is a guide, not a requirement.
+These three examples cover the patterns most likely to surface compiler bugs:
+- **Simple** — single trigger, single action, native HA script target
+- **Multi-device** — multi-entity trigger with aggregation, multi-entity action
+- **Global variable** — Devices global, for_each loop, PyScript target
 
 ---
 
-## Standard Role Names Used in Sample Pistons
+## 1. Simple — Door Opens, Light Turns On
 
-Sample pistons use these role names consistently so the import dialog asks
-sensible questions. Users map whatever devices they have to each role.
+**Compile target:** `native_script`
+**Globals needed:** None
+**Roles:** "Front Door" (binary_sensor, contact), "Entryway Light" (light)
+**Patterns:** single trigger, single action, time condition gate
 
-| Role Name | Purpose |
-|---|---|
-| `{Battery_Devices}` | All battery-powered devices to monitor |
-| `{Smoke_Detectors}` | All smoke/CO detector devices |
-| `{Water_Sensors_All}` | All water leak sensors |
-| `{Water_Sensors_Away}` | Water sensors that trigger shutoff only when away |
-| `{Water_Sensors_Always}` | Water sensors that always trigger shutoff |
-| `{Presence_Sensors}` | Presence/occupancy sensors |
-| `{Doors}` | All door contact sensors |
-| `{Windows}` | All window contact sensors |
-| `{Speakers_All}` | All speakers for emergency announcements |
-| `{Announcement_Sonos}` | Primary announcement speaker |
-| `{Alert_Lights}` | Lights used for visual alerts |
-| `{Notifications_Push}` | Push notification device/service |
-| `{Notification_Text}` | Text/SMS notification device/service |
-| `{Shut_off_Valve}` | Main water shutoff valve |
+```json
+{
+  "id": "aa000001",
+  "name": "Front Door Light On Open",
+  "description": "Turn on entryway light when front door opens, between sunset and midnight.",
+  "folder": null,
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "compile_target": "native_script",
+  "created_at": "2026-05-01T00:00:00Z",
+  "modified_at": "2026-05-01T00:00:00Z",
+  "variables": [],
+  "statements": [
+    {
+      "id": "stmt_aa000001",
+      "type": "if",
+      "async": false,
+      "conditions": [
+        {
+          "id": "cond_aa000001",
+          "is_trigger": true,
+          "role": "Front Door",
+          "entity_ids": ["binary_sensor.front_door"],
+          "aggregation": "any",
+          "attribute": "contact",
+          "attribute_type": "binary",
+          "device_class": "door",
+          "operator": "changes to",
+          "display_value": "Open",
+          "compiled_value": "on",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        },
+        {
+          "id": "cond_aa000002",
+          "is_trigger": false,
+          "subject": "time",
+          "operator": "is between",
+          "value_from": { "preset": "sunset", "offset": 0, "offset_unit": "minutes", "offset_direction": "+" },
+          "value_to": "00:00:00",
+          "only_on_days": null,
+          "group_operator": "and"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_aa000002",
+          "type": "action",
+          "async": false,
+          "role": "Entryway Light",
+          "entity_ids": ["light.entryway"],
+          "tasks": [
+            {
+              "id": "task_aa000001",
+              "command": "turn_on",
+              "domain": "light",
+              "ha_service": "light.turn_on",
+              "parameters": { "brightness_pct": 100 },
+              "description": null
+            }
+          ],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
+    }
+  ]
+}
+```
 
-Users who have already set up globals with matching names get them
-offered automatically at import. Users who haven't get the standard
-device picker — same experience, no penalty either way.
+### Expected Automation Output
 
----
+```yaml
+# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
+# pc_piston_id: aa000001 | pc_version: 1.0 | pc_hash: [computed on deploy]
 
-## Planned Sample Pistons
+- id: pistoncore_aa000001
+  alias: "Front Door Light On Open"
+  description: "Turn on entryway light when front door opens, between sunset and midnight."
+  mode: single
+  triggers:
+    - trigger: state
+      id: cond_aa000001
+      entity_id: binary_sensor.front_door
+      to: "on"
+  conditions:
+    - condition: sun
+      after: sunset
+    - condition: time
+      before: "00:00:00"
+  actions:
+    - action: script.pistoncore_aa000001
+```
 
-### 1. Low Battery Check
-**File:** `sample_low_battery_check.piston`
-**Compile target:** PyScript
-**Globals required:** `@Battery_Devices`, `@Notifications_Push`
-**What it does:**
-Runs daily at a configurable time. Checks battery level on every device
-in `@Battery_Devices`. Builds a status report listing every device below
-the threshold with current battery percentage and last reported time.
-Sends the report as a push notification. Separate check for smoke/CO
-detectors with a different threshold (80% vs 20%).
+### Expected Script Output
 
-**Patterns used:**
-- `for_each` with dynamic attribute access (`{$device:battery}`)
-- String accumulation across loop iterations
-- Global device group as loop target
-- formatDateTime for timestamps
-- Configurable threshold as piston variable
+```yaml
+# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
+# pc_piston_id: aa000001 | pc_version: 1.0 | pc_hash: [computed on deploy]
+# pc_globals_used: (none)
 
-**Known limitations:**
-- Requires PyScript (dynamic attribute access in loop)
-- Battery attribute must be named `battery` in HA — some integrations use
-  different attribute names. May need customization for non-standard devices.
+pistoncore_aa000001:
+  alias: "Front Door Light On Open (PistonCore)"
+  description: ""
+  mode: single
+  sequence:
+    - alias: "stmt_aa000002"
+      action: light.turn_on
+      target:
+        entity_id: light.entryway
+      data:
+        brightness_pct: 100
+      continue_on_error: true
 
----
-
-### 2. Door / Window Chime
-**File:** `sample_door_window_chime.piston`
-**Compile target:** PyScript
-**Globals required:** `@Doors`, `@Windows`, `@Announcement_Sonos`
-**What it does:**
-Announces when any door or window opens. Message includes the device name
-and "Opened" in a slow speech rate for clarity. Volume is higher during
-sleeping hours (8PM–8AM) than during the day. Day-of-week aware — different
-quiet hours on weekends vs weekdays.
-
-**Patterns used:**
-- `$currentEventDevice` — which specific door/window triggered
-- Multi-role OR trigger — {Doors} or {Windows}
-- Day-of-week time conditions
-- SSML speech markup (`<prosody rate='slow'>`)
-- Global device for announcement speaker
-
-**Known limitations:**
-- Requires PyScript (due to `$currentEventDevice`)
-- SSML requires a TTS service that supports Speech Synthesis Markup Language
-- Volume levels and quiet hours are piston variables — adjust before deploying
-
----
-
-### 3. Carbon Monoxide / Smoke Alert
-**File:** `sample_co_smoke_alert.piston`
-**Compile target:** PyScript
-**Globals required:** `@Smoke_Detectors`, `@Speakers_All`, `@Notifications_Push`,
-`@Alert_Lights`, `@Notification_Text`
-**What it does:**
-Triggers when any smoke/CO detector detects CO. Immediately sends push
-notification and email with which detectors are triggered. Enters a
-persistent alert loop: flashes alert lights, speaks alarm message on all
-speakers, sends push notification, waits 30 seconds, repeats. Loop continues
-until ALL detectors are clear. Sends all-clear notification when resolved.
-
-**Patterns used:**
-- `repeat/until` with live multi-device state condition
-- `for_each` with dynamic attribute access
-- Nested loop inside repeat
-- String accumulation across iterations
-- Multiple `with/do` blocks in sequence (lights + speakers + push)
-- All-clear second trigger
-
-**Known limitations:**
-- Requires PyScript (repeat/until live state, dynamic attribute access)
-- Flash pattern requires HA light with flash support
-- Speaker volume set to 90% — adjust before deploying in bedrooms
-- Email notification requires a notify service configured in HA
-
-**⚠ Safety note:** Test this piston thoroughly before relying on it.
-Use the Test Compile button to verify output. Do a Live Fire test with
-a non-safety device first. This piston controls real safety equipment.
-
----
-
-### 4. Water Leak Detection and Shutoff
-**File:** `sample_water_leak_shutoff.piston`
-**Compile target:** PyScript
-**Globals required:** `@Water_Sensors_All`, `@Water_Sensors_Away`,
-`@Water_Sensors_Always`, `@Presence_Sensors`, `@Shut_off_Valve`,
-`@Speakers_All`, `@Notifications_Push`, `@Notification_Text`
-**What it does:**
-Four coordinated triggers in one piston:
-1. Away sensors detect leak AND nobody home → shut off valve immediately
-2. Any sensor detects leak → enter alert loop (speak + push every 60 seconds
-   until all sensors dry)
-3. Always-on sensors detect leak → shut off valve regardless of presence
-4. Valve state changes → notify (both open and closed)
-
-**Patterns used:**
-- Multiple triggers in one piston (four separate if blocks)
-- `repeat/until` with live multi-device state condition
-- Presence condition using global (`@Presence_Sensors`)
-- `for_each` with dynamic attribute access
-- Valve control (open/close switch)
-- String accumulation across iterations
-
-**Known limitations:**
-- Requires PyScript (repeat/until, dynamic attribute access, multiple trigger patterns)
-- Valve must be a switch entity in HA (turn_off = close)
-- Presence detection accuracy depends on your presence sensors — test before relying on it
-- `@Water_Sensors_Away` and `@Water_Sensors_Always` can overlap — devices in Always
-  will shut off regardless of presence even if also in Away
-
-**⚠ Safety note:** Test valve control carefully before deploying.
-A false positive shutoff cuts water to the entire home. Verify your
-presence detection is reliable before enabling the away-triggered shutoff.
+    - event: PISTONCORE_RUN_COMPLETE
+      event_data:
+        piston_id: "aa000001"
+        piston_name: "Front Door Light On Open"
+        status: "success"
+```
 
 ---
 
-## Where Sample Pistons Live
+## 2. Multi-Device — Any Door Opens, All Downstairs Lights On
 
-**Shipped with PistonCore** (in container, served by backend):
-- Available from the Import dialog under a "Sample Pistons" tab
-- `GET /api/samples` returns list of available samples
-- `GET /api/samples/{name}` returns the Snapshot JSON
+**Compile target:** `native_script`
+**Globals needed:** None
+**Roles:** "Exterior Doors" (binary_sensor, contact, multi-device), "Downstairs Lights" (light, multi-device)
+**Patterns:** multi-entity trigger (any), multi-entity action, aggregation
 
-**Also available on GitHub:**
-- `pistoncore/samples/` folder in the repo
-- Raw JSON files importable via URL in the Import dialog
+```json
+{
+  "id": "bb000001",
+  "name": "Any Door Opens — Downstairs Lights On",
+  "description": "When any exterior door opens after sunset, turn on all downstairs lights.",
+  "folder": null,
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "compile_target": "native_script",
+  "created_at": "2026-05-01T00:00:00Z",
+  "modified_at": "2026-05-01T00:00:00Z",
+  "variables": [],
+  "statements": [
+    {
+      "id": "stmt_bb000001",
+      "type": "if",
+      "async": false,
+      "conditions": [
+        {
+          "id": "cond_bb000001",
+          "is_trigger": true,
+          "role": "Exterior Doors",
+          "entity_ids": [
+            "binary_sensor.front_door",
+            "binary_sensor.back_door",
+            "binary_sensor.garage_door"
+          ],
+          "aggregation": "any",
+          "attribute": "contact",
+          "attribute_type": "binary",
+          "device_class": "door",
+          "operator": "changes to",
+          "display_value": "Open",
+          "compiled_value": "on",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        },
+        {
+          "id": "cond_bb000002",
+          "is_trigger": false,
+          "subject": "sun",
+          "operator": "is below horizon",
+          "group_operator": "and"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_bb000002",
+          "type": "action",
+          "async": false,
+          "role": "Downstairs Lights",
+          "entity_ids": [
+            "light.living_room",
+            "light.kitchen",
+            "light.hallway",
+            "light.dining_room"
+          ],
+          "tasks": [
+            {
+              "id": "task_bb000001",
+              "command": "turn_on",
+              "domain": "light",
+              "ha_service": "light.turn_on",
+              "parameters": { "brightness_pct": 80 },
+              "description": null
+            }
+          ],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
+    }
+  ]
+}
+```
+
+### Expected Automation Output
+
+```yaml
+# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
+# pc_piston_id: bb000001 | pc_version: 1.0 | pc_hash: [computed on deploy]
+
+- id: pistoncore_bb000001
+  alias: "Any Door Opens — Downstairs Lights On"
+  description: "When any exterior door opens after sunset, turn on all downstairs lights."
+  mode: single
+  triggers:
+    - trigger: state
+      id: cond_bb000001
+      entity_id:
+        - binary_sensor.front_door
+        - binary_sensor.back_door
+        - binary_sensor.garage_door
+      to: "on"
+  conditions:
+    - condition: sun
+      after: sunset
+  actions:
+    - action: script.pistoncore_bb000001
+```
+
+### Expected Script Output
+
+```yaml
+# !!! DO NOT EDIT MANUALLY - MANAGED BY PISTONCORE !!!
+# pc_piston_id: bb000001 | pc_version: 1.0 | pc_hash: [computed on deploy]
+# pc_globals_used: (none)
+
+pistoncore_bb000001:
+  alias: "Any Door Opens — Downstairs Lights On (PistonCore)"
+  description: ""
+  mode: single
+  sequence:
+    - alias: "stmt_bb000002"
+      action: light.turn_on
+      target:
+        entity_id:
+          - light.living_room
+          - light.kitchen
+          - light.hallway
+          - light.dining_room
+      data:
+        brightness_pct: 80
+      continue_on_error: true
+
+    - event: PISTONCORE_RUN_COMPLETE
+      event_data:
+        piston_id: "bb000001"
+        piston_name: "Any Door Opens — Downstairs Lights On"
+        status: "success"
+```
+
+**Compiler note:** Multi-entity trigger uses `entity_id` list — HA fires when any entity
+in the list changes to "on". Multi-entity action uses `entity_id` list — HA applies the
+service to all entities simultaneously. Neither is expanded into multiple blocks.
 
 ---
 
-## Writing the Snapshot JSON
+## 3. Global Variable + for_each — Announce Battery Low
 
-Each sample piston Snapshot JSON must be written after:
-1. The Snapshot format is finalized (done — PISTON_FORMAT.md)
-2. The import role mapping flow works (S2-4)
-3. The round-trip smoke test passes (S3-1)
-4. The standard global names above are confirmed
+**Compile target:** `pyscript` (for_each with dynamic attribute access forces PyScript)
+**Globals needed:** `@Battery_Devices` (type: Devices), `@Announcement_Speaker` (type: Device)
+**Roles:** Uses global variables — no local device roles
+**Patterns:** daily time trigger, for_each over a Devices global, attribute read,
+             conditional action, log statement
 
-Do not write the Snapshot JSON before the import flow is tested —
-the format needs to be validated by actually importing a test piston first.
+```json
+{
+  "id": "cc000001",
+  "name": "Daily Battery Check",
+  "description": "Each morning, check all battery devices. Announce any below 20%.",
+  "folder": null,
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "compile_target": "pyscript",
+  "created_at": "2026-05-01T00:00:00Z",
+  "modified_at": "2026-05-01T00:00:00Z",
+  "variables": [
+    {
+      "id": "var_cc000001",
+      "name": "low_battery_found",
+      "display_name": "Low Battery Found",
+      "type": "boolean",
+      "default_value": false
+    }
+  ],
+  "statements": [
+    {
+      "id": "stmt_cc000001",
+      "type": "if",
+      "async": false,
+      "conditions": [
+        {
+          "id": "cond_cc000001",
+          "is_trigger": true,
+          "role": "time",
+          "entity_ids": [],
+          "subject": "time",
+          "operator": "happens daily at",
+          "value": "08:00:00",
+          "group_operator": "and"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_cc000002",
+          "type": "for_each",
+          "async": false,
+          "role": "@Battery_Devices",
+          "entity_ids": [],
+          "global_source": "Battery_Devices",
+          "loop_variable": "$device",
+          "statements": [
+            {
+              "id": "stmt_cc000003",
+              "type": "if",
+              "async": false,
+              "conditions": [
+                {
+                  "id": "cond_cc000002",
+                  "is_trigger": false,
+                  "role": "@Battery_Devices",
+                  "entity_ids": [],
+                  "global_source": "Battery_Devices",
+                  "attribute": "battery",
+                  "attribute_type": "numeric",
+                  "operator": "is less than",
+                  "display_value": "20",
+                  "compiled_value": "20",
+                  "value_to": null,
+                  "duration": null,
+                  "duration_unit": null,
+                  "group_operator": "and",
+                  "interaction": "any"
+                }
+              ],
+              "condition_operator": "and",
+              "then": [
+                {
+                  "id": "stmt_cc000004",
+                  "type": "action",
+                  "async": false,
+                  "role": "@Announcement_Speaker",
+                  "entity_ids": [],
+                  "global_source": "Announcement_Speaker",
+                  "tasks": [
+                    {
+                      "id": "task_cc000001",
+                      "command": "play_media",
+                      "domain": "media_player",
+                      "ha_service": "media_player.play_media",
+                      "parameters": {
+                        "media_content_type": "music",
+                        "media_content_id": "Battery low on {{ $device }}"
+                      },
+                      "description": null
+                    }
+                  ],
+                  "description": null,
+                  "disabled": false
+                },
+                {
+                  "id": "stmt_cc000005",
+                  "type": "set_variable",
+                  "async": false,
+                  "variable": "$low_battery_found",
+                  "value": { "type": "literal", "data": true },
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "else_ifs": [],
+              "else": [],
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "description": null,
+          "disabled": false
+        },
+        {
+          "id": "stmt_cc000006",
+          "type": "if",
+          "async": false,
+          "conditions": [
+            {
+              "id": "cond_cc000003",
+              "is_trigger": false,
+              "subject": "variable",
+              "variable": "$low_battery_found",
+              "operator": "is false",
+              "group_operator": "and"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_cc000007",
+              "type": "log_message",
+              "async": false,
+              "message": { "type": "literal", "data": "Battery check complete — all devices OK." },
+              "level": "info",
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "description": null,
+      "disabled": false
+    }
+  ]
+}
+```
+
+### Notes for Compiler
+
+- `for_each` node uses `global_source: "Battery_Devices"` — compiler looks up `@Battery_Devices`
+  in `global_variables` array, reads `entity_ids`, iterates over them.
+- Action node inside the loop uses `global_source: "Announcement_Speaker"` — entity_ids
+  resolved from the global at compile time.
+- `entity_ids: []` on global-sourced nodes is correct — they are never populated in the
+  stored format. The compiler resolves them from the global at compile time.
+- This piston forces PyScript because `for_each` with dynamic attribute access
+  (`battery` level varies per device) requires runtime evaluation.
+- `pc_globals_used` header line will list: `Battery_Devices, Announcement_Speaker`
+
+### Snapshot Format
+
+When exported as a Snapshot, this piston is identical to the stored format — global-sourced
+nodes already have `entity_ids: []`, so no stripping is needed. Role labels preserve the
+`@` prefix to signal global source to the import dialog.
 
 ---
 
-## Future Sample Pistons (Not v1)
+## Global Name Reference for These Pistons
 
-- Presence notification (home/away/arrived/left)
-- Morning briefing (weather, calendar, reminders)
-- Goodnight routine (locks, lights, thermostat)
-- Motion-activated lighting with timeout
-- Thermostat schedule manager
+| Global Name | Type | Used By |
+|---|---|---|
+| `@Battery_Devices` | Devices | Piston 3 (Daily Battery Check) |
+| `@Announcement_Speaker` | Device | Piston 3 (Daily Battery Check) |
+
+Piston 1 and Piston 2 use no globals — all entity_ids are stored directly on nodes.
 
 ---
 
-*Sample pistons are MIT licensed, same as PistonCore. Contributions welcome.*
+## Using These Pistons for Compiler Testing
+
+**Smoke test order:**
+1. Piston 1 — verify native_script output for single trigger + time condition gate
+2. Piston 2 — verify multi-entity trigger list and multi-entity action target list
+3. Piston 3 — verify PyScript target detection, global variable expansion, for_each loop
+
+If Pistons 1 and 2 compile and deploy correctly, the native_script compiler is solid
+for the most common patterns. Piston 3 tests the PyScript path and global resolution.
+
+**What to check in each compiled output:**
+- File signature header present and correctly formatted
+- Trigger `entity_id` is a list (not scalar) when multiple entities present
+- Action `target.entity_id` is a list (not scalar) when multiple entities present
+- No `device_map` references anywhere in output
+- `pc_globals_used` header correct for PyScript files
+- `PISTONCORE_RUN_COMPLETE` event always last in sequence
+
+*PistonCore is an independent open-source project. Not affiliated with Home Assistant, Nabu Casa, the original WebCoRE project, SmartThings, or Hubitat.*

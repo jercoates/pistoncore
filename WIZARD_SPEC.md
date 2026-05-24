@@ -10,7 +10,7 @@
 This is the single wizard spec. All wizard coding must reference this document.
 
 **Source:** WebCoRE piston.module.html, app.js, wizard-*.js files, PISTON_FORMAT.md v2.1,
-STATEMENT_TYPES.md v2.0, SESSION_54_FINDINGS.md.
+STATEMENT_TYPES.md v2.1, SESSION_54_FINDINGS.md.
 
 Read DESIGN.md and PISTON_FORMAT.md v2.1 before this document.
 

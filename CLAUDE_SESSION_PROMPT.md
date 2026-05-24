@@ -213,20 +213,20 @@ files clean. Confirmed across all 8 spec files.
 External review confirmed these are missing from current specs. W-S8 wizard coding
 will hit every one of these immediately. D-S3 must resolve them all first.
 
-### GAP-S57-10 → D-S3: Role label generation for multi-device nodes unspecced
+### GAP-S57-10 → CLOSED (Session 58 / D-S3): Role label generation
 When a user picks 3 devices in the wizard, what string goes in `role`?
 Options: join friendly names ("Front Door, Back Door, Garage Door"), use a generic
 label ("Multiple Doors"), or use the first device name + count ("Front Door +2").
 This affects editor rendering, snapshot export, and import dialog display.
 Must be decided and written into WIZARD_SPEC.md and STATEMENT_TYPES.md.
 
-### GAP-S57-11 → D-S3: Wizard commit logic for mixed selections unspecced
+### GAP-S57-11 → CLOSED (Session 58 / D-S3): Mixed selection commit logic
 When a user mixes physical devices AND Device/Devices globals in one node,
 how is the final entity_ids array built? Are the global's entity_ids resolved
 and merged inline with the physical device entity_ids? What order? What happens
 to the role label when the source is mixed? Not specced anywhere.
 
-### GAP-S57-12 → D-S3: Aggregation choice not tied to JSON output or compiler behavior
+### GAP-S57-12 → CLOSED (Session 58 / D-S3): Aggregation commit
 The aggregation bar (any/all/none) is described in the wizard picker but the
 connection between what the user picks and what gets written to the condition node
 and how the compiler uses it is not explicitly specced end-to-end.
@@ -234,7 +234,7 @@ Must be a clear table: aggregation value → JSON field → compiler output → 
 D-S3 must add aggregation table to WIZARD_SPEC.md and COMPILER_SPEC.md:
 any→entity_id array (HA native), all→nested AND templates, none→NOT wrapper.
 
-### GAP-S57-13 → D-S3: Edit pre-fill for multi-device nodes unspecced
+### GAP-S57-13 → CLOSED (Session 58 / D-S3): Edit pre-fill hydration
 When a user clicks an existing multi-device condition or action to edit it,
 how does the wizard populate? The entity_ids array must be matched back to
 device picker selections. How are the devices re-displayed? How are globals
@@ -243,7 +243,7 @@ Not specced in WIZARD_SPEC.md.
 Hydration rule: read entity_ids array → load into WizardCore.sel.selected_entity_ids
 Set → use Set to flag checked state during list render phase.
 
-### GAP-S57-14 → D-S3: Zero devices selected — wizard behavior unspecced
+### GAP-S57-14 → CLOSED (Session 58 / D-S3): Zero devices validation
 What happens if the user clicks Done/Add with no devices selected?
 Block the button? Show inline error? Not specced. Must be defined.
 UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit

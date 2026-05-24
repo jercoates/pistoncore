@@ -1,9 +1,10 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.1
+**Version:** 2.2
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 57 — for_each uses role+entity_ids, globals picker
-  specced and no longer deferred, multi-select behavior updated)
+**Last Updated:** May 2026 (Session 58 / D-S3 — multi-device spec complete: role label
+  generation, mixed selection commit logic, edit pre-fill hydration, aggregation commit,
+  zero devices validation. GAP-S57-10 through S57-14 resolved.)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
@@ -190,6 +191,114 @@ Demo devices shown when no HA connection or as fallback.
 - System variables: single-select
 
 **The aggregation bar** appears whenever more than one entity_id will be written to the node — whether from multiple physical devices, multiple globals, or a mix. The user picks any/all/none before committing.
+
+### Zero Devices Selected — GAP-S57-14
+
+If the user clicks Next or Done with zero devices selected:
+- **Next button is disabled** while `WizardCore.sel.selected_entity_ids.size === 0`
+- Show inline error below the device list: *"You must select at least one device or variable to continue."*
+- Error appears only after the user has interacted with the picker (not on first open)
+- Error clears as soon as any device is selected
+
+This applies to: W-5 (action device picker), W-4 (condition device picker), W-2-foreach (for_each list picker), W-7 (variable devices type picker).
+
+### Role Label Generation — GAP-S57-10
+
+When the user commits a device selection, the `role` string is generated at commit time from the selections. Rules in priority order:
+
+**Single physical device selected:**
+Use the device's friendly name exactly.
+`role: "Front Door"`
+
+**Two physical devices selected:**
+Join with " and ".
+`role: "Front Door and Back Door"`
+
+**Three physical devices selected:**
+Join first two with ", " and last with " and ".
+`role: "Front Door, Back Door and Garage Door"`
+
+**Four or more physical devices selected:**
+First friendly name + count of remaining.
+`role: "Front Door +3"`
+
+**Single global variable selected (no physical devices):**
+Use the global's display name with @ prefix.
+`role: "@Door_Contacts_Exterior"`
+
+**Multiple globals selected (no physical devices):**
+First global name with @ prefix + count of remaining.
+`role: "@Door_Contacts_Exterior +1"`
+
+**Mixed selection (physical devices AND globals):**
+Resolve all entity_ids from globals at commit time, merge flat with physical device entity_ids. Role label uses first physical device name + total count of remaining entities across all sources.
+`role: "Front Door +4"`
+
+**Important:** The role label is generated once at commit time and stored. It is never regenerated from entity_ids at render time. The role is a display convenience — the entity_ids array is the source of truth.
+
+### Mixed Physical + Global Commit Logic — GAP-S57-11
+
+When the user selects a mix of physical devices and global Device/Devices variables:
+
+1. For each selected physical device: add its `entity_id` to `selected_entity_ids` Set
+2. For each selected global: fetch the global's current `entity_ids` from `globals.json` at commit time, add each to `selected_entity_ids` Set
+3. Deduplicate — if a physical device and a global both contain the same entity_id, it appears only once
+4. The final `entity_ids` array written to the node is `[...selected_entity_ids]` — order: physical devices first, then global-resolved entities
+5. Role label generated from the merged selection per rules above
+
+**This is a compile-time bake.** If the global's device list changes later, the node still has the entity_ids that were selected at commit time. The user must reopen the wizard and recommit to pick up changes. This is intentional and documented in DESIGN.md Section 7.1.
+
+### Edit Pre-fill for Multi-Device Nodes — GAP-S57-13
+
+When the user opens an existing condition, action, or for_each node for editing, the wizard must re-populate the device picker with the node's current selections.
+
+**Hydration rule:**
+
+```javascript
+// On wizard open for edit:
+// 1. Read entity_ids from the node being edited
+const existingIds = editNode.entity_ids || [];
+
+// 2. Load into WizardCore selection state as a Set
+WizardCore.sel.selected_entity_ids = new Set(existingIds);
+
+// 3. During device list render, flag each row's checked state:
+rowElement.querySelector('input[type=checkbox]').checked =
+    WizardCore.sel.selected_entity_ids.has(device.entity_id);
+```
+
+**Identifying globals vs physical devices in an existing entity_ids list:**
+
+When pre-filling, PistonCore cannot always tell which entity_ids came from a global and which were individually picked — all entity_ids look the same in the stored JSON. The hydration rule is:
+
+- Check each entity_id against the Global Variables section of the picker
+- If a global's full `entity_ids` array is a subset of the node's `entity_ids`, pre-check that global row
+- Otherwise, check the individual physical device rows for each entity_id
+- Any entity_id not found in the current HA device list: show as `⚠ [entity_id] — not found` in the picker, pre-checked but visually flagged
+
+The role label shown in the wizard sentence builder on open is read from `editNode.role` — not regenerated.
+
+### Aggregation Commit — GAP-S57-12
+
+The aggregation bar (Any / All / None) is always shown when `selected_entity_ids.size > 1`. The value defaults to `"any"`.
+
+On commit, the selected aggregation value is written to the node:
+
+```json
+{ "aggregation": "any" }   // or "all" or "none"
+```
+
+**Single-device nodes always get `"any"`** regardless of what the aggregation bar shows. The aggregation bar is hidden for single-entity selections. If somehow a single-entity node is committed with a non-"any" aggregation, normalize to `"any"` at commit time.
+
+**Aggregation → compiler behavior:**
+
+| aggregation | Native HA trigger | Native HA condition | PyScript trigger |
+|---|---|---|---|
+| `"any"` | `entity_id: [list]` — fires on any | Jinja2 `any()` | One string per entity, OR'd |
+| `"all"` | Template trigger | Jinja2 `all()` | All strings must match |
+| `"none"` | Template trigger | Jinja2 `none()` | None of strings match |
+
+This table is the authoritative mapping. The compiler reads `aggregation` from the node and uses this table. See COMPILER_SPEC.md v1.3 and FRONTEND_SPEC.md Aggregation Display Rules for the full spec.
 
 ### Search
 
@@ -713,19 +822,31 @@ Multi-device example:
 
 ### Layout — Single screen
 - Type selector (~25%) + Name input (~75%) on same row
-- Initial value section below (hidden for list types)
+- Initial value section below — widget adapts based on var_type (see below)
 
 ### Type options
 
 **Basic:** Dynamic, String (text), Boolean (true/false), Number (integer),
 Number (decimal), Large number (long), Date and Time, Date (date only),
-Time (time only), Device
+Time (time only), Device, Devices
 
 **Advanced lists:** Dynamic list, String list, Boolean list, Number list (integer),
 Number list (decimal), Large number list (long), Date and Time list, Date list, Time list
 
-### Initial value
-Operand widget: Nothing selected | Physical device(s) | Value | Variable | Expression | Argument
+### Initial value — Widget by Type
+
+| var_type | Initial value widget |
+|---|---|
+| `string`, `text` | Text input |
+| `boolean` | True/False select |
+| `integer`, `decimal`, `long` | Number input |
+| `datetime`, `date`, `time` | Date/time picker |
+| `device` | Single-select device picker (same picker sections as W-5, single-select only) |
+| `devices` | **Multi-select device picker** (same picker as W-5/W-4, multi-select, no aggregation bar needed) |
+| `dynamic` | Operand widget: Value \| Variable \| Expression \| Argument |
+| list types | Hidden — lists have no initial value in v1 |
+
+**`devices` type initial value:** When the user selects devices, entity_ids are resolved from live HA at commit time and written directly to `default_value`. Same rule as everywhere else — entity_ids captured at wizard commit, never at runtime.
 
 Note: "By assigning an initial value, you instruct the piston to initialize
 the variable on every run. If storing data between runs, leave as Nothing Selected."
@@ -736,17 +857,52 @@ the variable on every run. If storing data between runs, leave as Nothing Select
 ### Footer (edit)
 `Cancel` | `Delete` | ⚙ | `Save`
 
-### JSON output
+### JSON output — scalar types (string, number, boolean, datetime, device)
 ```json
 {
-  "type": "variable",
-  "id": "stmt_xxxxxxxx",
-  "name": "myLight",
-  "var_type": "device",
-  "initial_value_type": "device",
-  "initial_value": "Living Room Light"
+  "id": "var_xxxxxxxx",
+  "name": "my_light",
+  "display_name": "My Light",
+  "type": "device",
+  "default_value": {
+    "role": "Living Room Light",
+    "entity_ids": ["light.living_room"]
+  }
 }
 ```
+
+### JSON output — devices type (multi-select)
+```json
+{
+  "id": "var_xxxxxxxx",
+  "name": "my_lights",
+  "display_name": "My Lights",
+  "type": "devices",
+  "default_value": {
+    "role": "My Lights",
+    "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"]
+  }
+}
+```
+
+For `device` and `devices` types, `default_value` is always an object with `role`
+(display label) and `entity_ids` (resolved array of real HA entity IDs). For all
+other types, `default_value` is a scalar value matching the type.
+
+If the user selects "Nothing selected" for initial value, `default_value` is `null`.
+
+### for_each and piston variables — V1 Rule
+
+**for_each always requires inline entity_ids on the for_each node itself.**
+A piston `devices` variable cannot be used as the list source for for_each in v1.
+Reason: HA native script `repeat: for_each:` requires a static list in the YAML —
+there is no way to reference a runtime variable there. The list must be known at
+compile time.
+
+If a user wants to iterate over the same devices they stored in a variable, they
+should pick those devices directly in the for_each wizard. The entity_ids are the
+same — they just live on the for_each node instead of the variable node.
+PyScript for_each with dynamic lists is a v2 feature.
 
 ### var_type mapping
 ```
@@ -760,6 +916,7 @@ Date and Time → datetime
 Date (date only) → date
 Time (time only) → time
 Device → device
+Devices → devices
 [list types append _list]
 ```
 

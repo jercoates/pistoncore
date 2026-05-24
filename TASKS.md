@@ -434,26 +434,15 @@ W-S8 will immediately hit GAP-S57-6 through GAP-S57-14.
   STATEMENT_TYPES.md, WIZARD_SPEC.md, COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md,
   HA_LIMITATIONS.md, DESIGN.md, FRONTEND_SPEC.md, MISSING_SPECS.md.
 
-**GAP-S57-10 → D-S3:** Role label generation for multi-device nodes
-  What string goes in `role` when user picks 3 devices? Affects editor,
-  snapshot, import. Decide and write into WIZARD_SPEC.md + STATEMENT_TYPES.md.
+**GAP-S57-10 → CLOSED (Session 58 / D-S3):** Role label generation — 6 cases specced in WIZARD_SPEC.md v2.2
 
-**GAP-S57-11 → D-S3:** Wizard commit logic for mixed physical + global selections
-  How is entity_ids built when mixing physical devices and Device globals?
-  What is the role label? Not specced.
+**GAP-S57-11 → CLOSED (Session 58 / D-S3):** Mixed selection commit — dedup, merge, bake in WIZARD_SPEC.md v2.2
 
-**GAP-S57-12 → D-S3:** Aggregation not tied end-to-end to JSON + compiler output
-  Need explicit table: aggregation value → JSON → compiler → HA YAML.
-  any→entity_id array (HA native), all→nested AND templates, none→NOT wrapper.
+**GAP-S57-12 → CLOSED (Session 58 / D-S3):** Aggregation commit table and normalization in WIZARD_SPEC.md v2.2
 
-**GAP-S57-13 → D-S3:** Edit pre-fill for multi-device nodes
-  How does wizard re-populate from existing entity_ids on edit?
-  Hydration rule: read entity_ids array → load into WizardCore.sel.selected_entity_ids
-  Set → use Set to flag checked state during list render phase.
+**GAP-S57-13 → CLOSED (Session 58 / D-S3):** Edit pre-fill hydration rule in WIZARD_SPEC.md v2.2
 
-**GAP-S57-14 → D-S3:** Zero devices selected — wizard behavior
-  UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit
-  button and show wiz-error-banner: "You must select at least one device or variable."
+**GAP-S57-14 → CLOSED (Session 58 / D-S3):** Zero devices — Next disabled, inline error in WIZARD_SPEC.md v2.2
 
 **GAP-S57-15 → D-S3:** Editor inline validation feedback unspecced
   Editor has no pre-compile warnings for missing entity_ids, empty nodes, or invalid

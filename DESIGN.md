@@ -1813,6 +1813,8 @@ Full export including entity mappings. Labeled clearly: *"For your own restore o
   config.json                 PistonCore settings (ha_url, ha_token, deployment_type,
                               entity_check_interval_minutes)
   pending_cleanup.json        queued orphan cleanup operations
+  clipboard.json              persistent statement clipboard — one slot, survives
+                              browser sessions and restarts (see MISSING_SPECS.md Item 26)
   logs/
     pistoncore.log
 

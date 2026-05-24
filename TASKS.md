@@ -345,6 +345,18 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   Item 8 references device_map_meta cardinality. Both need updating before
   storage/missing-device handler is coded in B-1.
 
+### GAP-S58-1 → MISSING_SPECS Item 25: HA entity state subscription vs polling unspecced
+  Does PistonCore subscribe to HA state_changed events or poll only?
+  Spec before ha_client.py event subscription work.
+
+### GAP-S58-2 → MISSING_SPECS Item 26 + frontend session: Copy/paste spec
+  V1 scope. Clipboard persists server-side in clipboard.json.
+  Full spec in MISSING_SPECS.md Item 26. Must be coded before W-S8 closes.
+
+### GAP-S58-3 → MISSING_SPECS Item 27 + S2-3: Piston backup trigger/download/restore
+  Two export types (Snapshot + Backup), bulk backup, restore UI, file naming.
+  Spec in MISSING_SPECS.md Item 27. Code in S2-3 extended session.
+
 ### GAP-S57-15 → D-S3: Editor inline validation feedback unspecced
   Editor has no pre-compile warnings for missing entity_ids or empty nodes.
   Must be written into FRONTEND_SPEC.md.

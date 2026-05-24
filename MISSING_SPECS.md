@@ -1,7 +1,7 @@
 # PistonCore — Missing Specs Tracker
 
 **Status:** Living document — add to this when a gap is found, remove when the spec is written
-**Last Updated:** Session 57 — Item 21 resolved (DESIGN.md Sections 6.10/6.11), Items 22–23 added
+**Last Updated:** Session 58 / D-S3 — Items 22/23 resolved (Session 57), Item 24 added (Session 57), Items 25/26/27 added (Session 58 — HA state subscription, copy/paste v1 scope, piston backup)
 **Purpose:** Track spec gaps that will block coding when we reach those features.
            Every item here must be resolved before its dependent task is started.
 
@@ -524,83 +524,124 @@ types grow beyond 15-20. Implement after v1 smoke test passes and compiler is st
 
 ---
 
-## 21. Snapshot Import Flow — Logic Version 2 — RESOLVED (Session 57)
+## 25. HA Entity State Subscription vs Polling — MISSING
 
-**Resolved in DESIGN.md v1.3 Sections 6.10 and 6.11.**
+**Blocks:** S4-17 (HA Connection Reliability), startup sequence implementation
+**Needs to be written before:** ha_client.py event subscription work begins
+**What it must cover:**
+- Does PistonCore subscribe to HA `state_changed` events via WebSocket for entities
+  referenced in deployed pistons, or does it rely solely on the scheduled 30-minute
+  poll defined in DESIGN.md Section 9.2?
+- If subscribing: how does PistonCore maintain the subscription list? When a piston
+  is deployed or deleted, how does the subscription list update?
+- If polling only: is 30 minutes acceptable for detecting renamed/deleted entities?
+- For globals: when a Device/Devices global's entity_ids change, does PistonCore
+  need to subscribe to those entity state changes to know when to prompt for redeploy?
+- What happens when HA WebSocket reconnects — does the subscription list need to
+  be re-established?
 
-Snapshot format under logic_version 2: condition and action nodes have `entity_ids: []`
-with `role` label preserved. Import flow: collect unique roles from tree → mapping dialog
-(one role at a time, multi-select picker) → populate entity_ids on all matching nodes.
-Role name uniqueness rule: same role name = same entity selection applied to all nodes.
-Backup import: entity_ids already populated, skip role mapping dialog entirely.
-
----
-
-## 22. Piston Variable `devices` Type — Wizard W-7 Multi-Select — RESOLVED (Session 57)
-
-**Resolved in WIZARD_SPEC.md v2.1 and PISTON_FORMAT.md v2.2.**
-
-W-7 uses full multi-select device picker when var_type is `devices`. `default_value`
-is `{ "role": "display label", "entity_ids": ["entity.id", ...] }` — same pattern as
-action and condition nodes. Entity_ids captured from live HA at commit time.
+**Reference:** DESIGN.md Sections 9.1, 9.2, 7.1
 
 ---
 
-## 23. for_each Piston Variable `devices` as List Source — RESOLVED (Session 57)
+## 26. Copy/Paste/Duplicate Statements — V1 SCOPE — MISSING
 
-**Decision: NOT supported in v1. Inline entity_ids only.**
+**This is v1 scope. Not deferred. WebCoRE had this and users depend on it.**
+Clipboard persists across pistons and browser sessions — not in-memory JS state.
 
-HA native script `repeat: for_each:` requires a static list in the YAML. A runtime
-variable reference is impossible. Documented in WIZARD_SPEC.md v2.1 W-7 and
-PISTON_FORMAT.md v2.2. V2 feature if needed.
-
----
-
-## 24. Global Device Edit — Redeploy Prompt and Progress Flow — MISSING
-
-**Blocks:** G-4 (globals editor wiring), any globals UI edit implementation
-**Needs to be written before:** G-4 is coded
+**Blocks:** W-S8 or dedicated frontend session
+**Needs to be written before:** clipboard feature is coded
 **What it must cover:**
 
-### Permission Prompt
-- Exact layout of the prompt shown when a Device/Devices global is saved and
-  dependent pistons exist
-- "Show me which pistons" expansion — what does the piston list look like inside
-  the prompt? Name, folder, last deployed time?
-- What if a piston in the list has never been deployed? (No compiled file exists —
-  nothing to go stale. Still show it in the list? Still prompt?)
-- What if a piston in the list is currently disabled? (Still flag stale? Still
-  offer to redeploy?)
-- What if a piston references the global but has already been flagged for a
-  different stale reason? (Merge stale flags — don't overwrite)
+### Storage
+- Clipboard stored server-side in `/pistoncore-userdata/clipboard.json`
+- One clipboard slot — one statement subtree at a time (matches WebCoRE behavior)
+- Persists until user explicitly clears it or replaces it with a new copy
+- Survives browser refresh, piston navigation, container restart
 
-### Redeploy All Progress Modal
-- Exact layout — piston names, progress indicators (pending/running/success/failed)
-- What if the user closes the modal mid-redeploy? Does it continue in the background
-  or stop?
-- What if HA is disconnected when redeploy starts? Block and show error, or queue?
-- Order of redeploy — alphabetical? By folder? User-reorderable?
+### Right-Click Context Menu (on selected statement)
+Per WebCoRE screenshot — right-click on a selected statement shows:
+- Copy selected statement
+- Duplicate selected statement
+- Cut selected statement
+- Delete selected statement
+- Clear clipboard (shown when clipboard has content)
 
-### Piston List Banner
-- Exact banner text for single global vs multiple globals changed
-- Banner dismissible? Or only clears when all affected pistons are redeployed?
-- "Review" button — opens a filtered piston list view? Or a modal?
-- Where does the banner appear relative to other banners (HA disconnected, etc.)?
-  Priority order between banners must be defined.
+### Copy Behavior
+- Copy: write the selected statement's full JSON subtree to `clipboard.json`
+- Cut: same as Copy, then delete the statement from the current piston
+- Duplicate: copy + immediately paste as next sibling (no clipboard write)
 
-### Stale Flag Lifecycle
-- When is `stale_globals` set on a piston? (When global saved with changes)
-- When is it cleared? (Only on successful redeploy of that piston)
-- If a piston is deleted while stale, does the stale flag matter? (No — clean up index entry)
-- If the global itself is deleted after flagging pistons stale, what happens?
-  (Clear stale_globals for that global ID — the reference is gone, no redeploy needed)
-- If the user reverts the global change (puts the same entities back), should stale
-  pistons be un-flagged? (Probably yes — compare entity_ids before and after save)
+### Paste Behavior
+- Paste button shown on statement picker or as clipboard preview panel
+  (see WebCoRE Image 1 — "From clipboard" section with preview and "Paste this statement" button)
+- Before pasting: show a read-only preview of the clipboard statement
+- On paste: deep-copy the clipboard JSON, generate new UUIDs for every node
+  in the subtree (statement IDs, condition IDs, task IDs — all regenerated)
+- Paste inserts as a sibling after the currently selected statement, or at
+  the end of the current block if nothing is selected
+- Clipboard content remains after paste — can paste same statement multiple times
 
-**Reference:** DESIGN.md Section 7.1 (stale piston tracking), Section 26 (piston_index.json
-stale_globals field). globals_index.json (which pistons reference which global).
+### UUID Regeneration Rule
+Every `id` field in the pasted subtree must be regenerated. The same UUID must
+never appear twice in the same piston. Helper function: `deepCopyWithNewIds(node)`
+walks the tree recursively and replaces every `id` field with a fresh UUID.
+
+### Cross-Piston Use
+The primary use case is copying a useful statement from one piston and pasting
+it into a new or different piston. The clipboard persists specifically to support
+this workflow. No special handling needed — clipboard.json is piston-agnostic.
+
+### API Endpoints Needed
+- `GET /api/clipboard` — returns current clipboard content (null if empty)
+- `POST /api/clipboard` — saves statement subtree to clipboard
+- `DELETE /api/clipboard` — clears clipboard
+
+**Reference:** FRONTEND_SPEC.md (right-click menu, paste preview), DESIGN.md Section 26 (volume structure — add clipboard.json)
 
 ---
+
+## 27. Piston Backup — Trigger, Download, Naming, Restore — MISSING
+
+**Blocks:** S2-3 extended (Snapshot export + Backup export), piston list UI work
+**Needs to be written before:** export/backup feature is coded
+**What it must cover:**
+
+### Two Export Types
+DESIGN.md Section 6 distinguishes Snapshot from Backup. Both need UI:
+
+**Snapshot export** (sharing format — entity_ids stripped, role placeholders preserved):
+- Triggered from: piston Options menu → "Share / Export Snapshot"
+- Downloads as: `{piston-name}-snapshot.json`
+- Use case: community sharing, AI migration, WebCoRE import
+
+**Backup export** (full format — entity_ids preserved, everything intact):
+- Triggered from: piston Options menu → "Backup"
+- Downloads as: `{piston-name}-backup-{date}.json`
+- Use case: personal restore, moving between PistonCore instances
+
+### Bulk Backup
+- Settings page → "Backup All Pistons"
+- Downloads as: `pistoncore-backup-{date}.zip` containing all piston JSON files
+- No role stripping — full format for every piston
+
+### Restore / Import
+- Same import dialog handles both Snapshot and Backup (format detected automatically
+  per FRONTEND_SPEC.md Import Dialog section)
+- Backup restore: preserves original piston ID (for restore scenario) or assigns
+  new ID (for duplicate/migrate scenario) — user chooses
+- Snapshot import: always assigns new ID
+
+### File Naming Convention
+- Piston name slugified: spaces → hyphens, lowercase, special chars removed
+- Date format: YYYY-MM-DD
+- Examples: `kitchen-motion-backup-2026-05-24.json`, `door-chime-snapshot.json`
+
+**Reference:** DESIGN.md Section 6 (Snapshot vs Backup format), FRONTEND_SPEC.md (Import Dialog)
+
+---
+
+## DONE
 
 ### Item 1 — PyScript Compiler Spec (Session 24)
 PYSCRIPT_COMPILER_SPEC.md written. All 6 gaps resolved. Status: READY TO CODE.
@@ -614,18 +655,6 @@ context_builder.py created. build_compiler_context(piston) implemented.
 ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
 get_ha_version() added. api.py _compile() stub replaced with real context.
 _get_app_version() removed (dead code after _compile() rewrite).
-
-### Item 22 — Piston Variable `devices` Type W-7 Multi-Select (Session 57)
-Resolved in WIZARD_SPEC.md v2.1 and PISTON_FORMAT.md v2.2. Multi-select picker,
-default_value as role+entity_ids object.
-
-### Item 23 — for_each Piston Variable List Source (Session 57)
-Decision: not supported in v1. Inline entity_ids only. Documented in WIZARD_SPEC.md
-v2.1 and PISTON_FORMAT.md v2.2.
-
-### Item 21 — Snapshot Import Flow Logic Version 2 (Session 57)
-Resolved in DESIGN.md v1.3 Sections 6.10 and 6.11. Role-based mapping dialog, entity_ids
-population on all matching nodes, backup import bypass, role uniqueness rule all specced.
 
 ---
 

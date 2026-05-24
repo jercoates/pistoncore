@@ -208,7 +208,17 @@ early examples may still mix old/new patterns. Run the grep and fix any remainin
 devices array references in action/condition context
 device_labels
 device_id as a state key
-device_map in any active (non-historical) spec text
+Grep targets (exact): device_map (active spec text), devices (as node attribute),
+device_id, device_labels, [role] fallback pattern, _resolve_role_entities,
+initial_device_id singular, device_label singular. Fix all hits before W-S8.
+
+device_map — active spec text only, not historical sections
+devices — as a node data attribute (not the devices type keyword)
+device_id / device_labels — transient state keys
+[role] fallback pattern
+_resolve_role_entities — old compiler helper, should be gone
+initial_device_id singular — replace with initial_device_ids array
+device_label singular — replace with role
 
 ## Multi-Device Spec Gaps — Must Fix in D-S3 Before W-S8 Coding
 
@@ -233,6 +243,8 @@ The aggregation bar (any/all/none) is described in the wizard picker but the
 connection between what the user picks and what gets written to the condition node
 and how the compiler uses it is not explicitly specced end-to-end.
 Must be a clear table: aggregation value → JSON field → compiler output → HA YAML.
+D-S3 must add aggregation table to WIZARD_SPEC.md and COMPILER_SPEC.md:
+any→entity_id array (HA native), all→nested AND templates, none→NOT wrapper.
 
 ### GAP-S57-13 → D-S3: Edit pre-fill for multi-device nodes unspecced
 When a user clicks an existing multi-device condition or action to edit it,
@@ -240,10 +252,14 @@ how does the wizard populate? The entity_ids array must be matched back to
 device picker selections. How are the devices re-displayed? How are globals
 identified vs physical devices in an existing entity_ids list?
 Not specced in WIZARD_SPEC.md.
+Hydration rule: read entity_ids array → load into WizardCore.sel.selected_entity_ids
+Set → use Set to flag checked state during list render phase.
 
 ### GAP-S57-14 → D-S3: Zero devices selected — wizard behavior unspecced
 What happens if the user clicks Done/Add with no devices selected?
 Block the button? Show inline error? Not specced. Must be defined.
+UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit
+button and show wiz-error-banner: "You must select at least one device or variable."
 
 ### D-S3 Now Blocks W-S8
 D-S3 must happen BEFORE W-S8. The wizard coding session will immediately hit

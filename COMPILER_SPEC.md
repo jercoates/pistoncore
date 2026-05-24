@@ -1,9 +1,8 @@
 # PistonCore Compiler Specification
 
-**Version:** 1.3
+**Version:** 1.5
 **Status:** Authoritative — Primary reference for all compiler coding
-**Last Updated:** May 2026 (Session 57 — multi-entity trigger/action use arrays not expansion;
-  for_each reads entity_ids directly from node; list_role retired)
+**Last Updated:** May 2026 (Session 61 — Section 20 rewritten: compiler registry pattern spec added as future architecture; stale open items removed; moved from MISSING_SPECS Item 20)
 
 Read DESIGN.md v1.3 before this document.
 This document defines exactly how the compiler turns piston structured JSON into native HA files.
@@ -1115,9 +1114,132 @@ comparison. The compiler must always quote these values when emitting YAML.
 This is one of the most common sources of silent automation failures in HA. The compiler
 handles it — the user never needs to think about it.
 
----
+### Time Condition Compiler Path
 
-## 12. Variable Compilation
+Time conditions have `"subject": "time"` and no `entity_ids`. They compile to HA's
+native `time` condition type (not a template). All time values must be in `HH:MM:SS`
+format in the compiled output.
+
+**Operator: "is between"**
+
+```json
+{
+  "id": "cond_002",
+  "is_trigger": false,
+  "subject": "time",
+  "operator": "is between",
+  "value_from": "08:00:00",
+  "value_to": "23:00:00",
+  "only_on_days": [1, 2, 3, 4, 5],
+  "group_operator": "and"
+}
+```
+
+Compiles to:
+```yaml
+- condition: time
+  after: "08:00:00"
+  before: "23:00:00"
+  weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+```
+
+`only_on_days` maps weekday integers to HA weekday strings: `1=mon, 2=tue, 3=wed, 4=thu, 5=fri, 6=sat, 7=sun`.
+If `only_on_days` is null or empty: omit the `weekday:` key entirely.
+
+**"Is between" crossing midnight:**
+If `value_from` > `value_to` (e.g., `"20:00:00"` to `"06:00:00"`), this is a
+midnight-crossing range. HA's native time condition does not support crossing midnight
+in a single condition block. The compiler must split it into two conditions combined
+with OR:
+
+```yaml
+- condition: or
+  conditions:
+    - condition: time
+      after: "20:00:00"
+    - condition: time
+      before: "06:00:00"
+```
+
+The weekday filter (if any) applies to the outer OR block, not each inner condition.
+Actually, HA does not allow `weekday` on the outer `or` block. For midnight-crossing
+ranges with a weekday filter, the compiler must duplicate the weekday on both inner
+conditions:
+
+```yaml
+- condition: or
+  conditions:
+    - condition: time
+      after: "20:00:00"
+      weekday: [mon, tue, wed]
+    - condition: time
+      before: "06:00:00"
+      weekday: [mon, tue, wed]
+```
+
+This is a known verbosity tradeoff — the user sees a single clean condition, the compiler
+handles the expansion.
+
+**Operator: "is" (exact time)**
+
+Exact-time conditions compile to a template condition using `now()`:
+```yaml
+- condition: template
+  value_template: >
+    {{ now().strftime('%H:%M:%S') == '08:00:00' }}
+```
+
+**System Variables in Time Conditions**
+
+`$sunrise` and `$sunset` in time conditions compile to template conditions using
+`state_attr('sun.sun', ...)`:
+
+```yaml
+# "Time is between 6:00 AM and $sunrise + 30 minutes"
+- condition: template
+  value_template: >
+    {{ now() >= today_at('06:00:00')
+       and now() <= as_datetime(state_attr('sun.sun', 'next_rising'))
+                   + timedelta(minutes=30) }}
+```
+
+When either bound involves a system variable, the entire condition compiles to a
+template condition. The compiler cannot mix native `time` condition with template
+expressions.
+
+`$now` in a time condition is equivalent to the current time — it compiles as
+`now()` in the template.
+
+**Day-of-Week Conditions (standalone, not combined with time range)**
+
+A condition with `subject: "time"`, `operator: "is"`, and an `only_on_days` list
+but no time values compiles to a pure weekday condition:
+
+```yaml
+- condition: time
+  weekday:
+    - mon
+    - tue
+    - wed
+```
+
+**Weekday integer → HA string mapping:**
+```
+1 → mon
+2 → tue
+3 → wed
+4 → thu
+5 → fri
+6 → sat
+7 → sun
+```
+
+---
 
 ### Piston Variables ($ prefix)
 
@@ -1515,18 +1637,65 @@ directly into the sequence.
 
 ---
 
-## 20. Open Items
+## 20. Future Architecture — Statement Compiler Registry Pattern
 
-1. **PyScript compiler** — separate spec needed. Not started. Required for break,
-   cancel_pending_tasks, on_event.
-2. **settings block contents** — undefined. Do not implement until defined.
-3. **Which-interaction step** — physical vs programmatic context filtering.
-   Feasibility not confirmed. Not compiled until validated.
-4. **every statement advanced scheduling** — day/month filters not yet compiled.
-5. **Statement type reference document (STATEMENT_TYPES.md)** — must be created before
-   compiler coding begins. Defines full structured JSON schema for every statement type,
-   the render function output, and the HA YAML emitted. WebCoRE source in Session 14
-   chat is the reference.
+**Status:** Post-v1 refactor. The current elif-chain in compiler.py is acceptable
+for v1 (fewer than 20 statement types). This section documents the target architecture
+for when the registry is implemented after the smoke test passes.
+
+**Do not implement until after S3-2 passes.**
+
+### Design
+
+The registry is a Python dict mapping statement type strings to handler functions:
+
+```python
+NATIVE_REGISTRY: dict[str, Callable] = {
+    "action": compile_action,
+    "if": compile_if,
+    "repeat": compile_repeat,
+    # ...
+}
+
+PYSCRIPT_REGISTRY: dict[str, Callable] = {
+    "action": compile_action_pyscript,
+    "on_event": compile_on_event_pyscript,
+    # ...
+}
+```
+
+Each handler has a consistent signature:
+
+```python
+def compile_<type>(stmt: dict, context: dict, indent: int) -> list[str]:
+    ...
+```
+
+The main compile loop dispatches to the registry instead of a chain of `elif` blocks:
+
+```python
+registry = PYSCRIPT_REGISTRY if is_pyscript else NATIVE_REGISTRY
+handler = registry.get(stmt["type"])
+if handler is None:
+    raise CompilerError(f"Unknown statement type: {stmt['type']}")
+lines.extend(handler(stmt, context, indent))
+```
+
+### Registration Rules
+
+- Every statement type must appear in at least one registry.
+- Statement types that work in both targets have handlers in both registries.
+- PyScript-only types (`on_event`, `break`, `cancel_pending_tasks`) appear in
+  `PYSCRIPT_REGISTRY` only.
+- Adding a new statement type: add handler function, register in both registries if
+  applicable, add to `target-boundary.json` if PyScript-only.
+
+### Testing
+
+One unit test per handler, following the pattern in Section 18:
+- Input: the statement JSON
+- Expected output: the compiled YAML or Python lines as a list of strings
+- Run against a known-good context dict (can be a minimal stub)
 
 ---
 

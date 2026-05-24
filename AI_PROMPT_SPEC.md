@@ -1,250 +1,245 @@
-# PistonCore — AI Prompt Specification
+# PistonCore AI Prompt Specification
 
-**Version:** 1.0
-**Status:** Draft — Defines requirements before prompts are written
-**Last Updated:** May 2026
+**Version:** 2.0
+**Status:** Authoritative — Rewritten for logic_version 2
+**Last Updated:** May 2026 (Session 60 / D-S4 Step 9 — complete rewrite; device_map model
+  eliminated; entity_ids on nodes; Snapshot format v2 per DESIGN.md Sections 6.10/6.11;
+  role label placeholder model)
 
-This document specifies what the AI prompt files must accomplish and contain.
-The actual prompts are not written until the Snapshot JSON import flow is
-tested end-to-end. Write the prompts against this spec, not against
-assumptions about what works.
+This document defines requirements for the AI prompt files that help users generate PistonCore
+pistons using external AI assistants (ChatGPT, Claude, Gemini, etc.).
 
-Read DESIGN.md Section 6 and PISTON_FORMAT.md before this document.
-
----
-
-## Why Prompts, Not a Parser
-
-PistonCore v1 does not parse text input from AI. Instead, AI assistants
-are given a prompt that teaches them to generate Snapshot JSON directly.
-The user pastes that JSON into the standard import dialog. Role mapping
-happens through the existing device picker — no special parser needed.
-
-This approach:
-- Works with any large LLM (ChatGPT, Grok, Claude, Gemini, etc.)
-- Produces reliable structured output — LLMs generate JSON accurately
-  when given a clear schema
-- Requires zero parser code in PistonCore
-- Uses the same import path for AI-generated, community-shared, and
-  WebCoRE-migrated pistons
+The prompts are served from `pistoncore/prompts/` in the backend and displayed to users
+via the AI Help modal on the piston list page.
 
 ---
 
-## Two Prompt Files
+## Background
 
-### 1. write-a-piston.md
+PistonCore pistons are stored as structured JSON (logic_version 2). The Snapshot format
+is the share/import format — it has empty `entity_ids` arrays and uses `role` as a
+human-readable placeholder. AI assistants generate Snapshot JSON that users import via
+the Import dialog, which walks them through device mapping.
 
-**Purpose:** User pastes this into any AI, describes what they want,
-gets a Snapshot JSON back, imports it into PistonCore.
-
-**Entry point in UI:** AI Help button → Write a Piston option →
-read-only prompt text → Copy to Clipboard button.
-
-### 2. migrate-from-webcore.md
-
-**Purpose:** User pastes this into any AI that supports image input
-(ChatGPT, Grok, Gemini), attaches a WebCoRE screenshot, gets a
-Snapshot JSON back, imports it into PistonCore.
-
-**Entry point in UI:** AI Help button → Migrate from WebCoRE option →
-read-only prompt text → Copy to Clipboard button.
-(UI entry point is v1 — second tab in AI Help modal, see FRONTEND_SPEC.md)
+**The AI never knows the user's actual entity IDs.** The role name is the placeholder.
+The user provides their entity mapping at import time.
 
 ---
 
-## Output Format — Both Prompts
+## What the Old Model Was (DO NOT USE)
 
-Both prompts must instruct the AI to produce Snapshot JSON format.
-See DESIGN.md Section 6.2 and PISTON_FORMAT.md for the full schema.
+The old model (pre-Session 55) used `device_map` at the piston wrapper level:
+```json
+{
+  "device_map": {
+    "Front Door": ["binary_sensor.front_door"]
+  }
+}
+```
 
-**Key rules the AI must follow:**
-- `device_map` keys are role names, values are always empty arrays `[]`
-- `device_map_meta` includes cardinality for each role
-- `statements` array uses the typed statement schemas from STATEMENT_TYPES.md
-- `id` is an 8-character hex string — AI generates a random one
-- `logic_version` and `ui_version` are both `1`
-- `compile_target` is `"native_script"` unless the piston uses PyScript-only
-  statement types (`on_event`, `break`, `cancel_pending_tasks`)
-- Entity IDs never appear anywhere in the output
-- HA YAML syntax never appears anywhere in the output
-- `compiled_value` for binary sensors is always `"on"` or `"off"` —
-  never the friendly label
-- `display_value` for binary sensors is the friendly label (Open, Closed,
-  Detected, Clear, etc.) — never `"on"` or `"off"`
+This model is **eliminated**. Do not reference it anywhere.
 
 ---
 
-## write-a-piston.md — Required Content
+## Logic Version 2 Snapshot Format
 
-### Section 1 — What you are doing
-Brief plain English explanation: generating a Snapshot JSON piston for
-PistonCore. Tell the AI it will receive a description and must output JSON.
+The AI must generate Snapshot JSON per DESIGN.md Sections 6.10 and 6.11.
 
-### Section 2 — Output format
-The complete Snapshot JSON wrapper with all fields. Show a minimal skeleton
-with annotations. Reference PISTON_FORMAT.md field definitions.
+**Wrapper:**
+```json
+{
+  "name": "piston name",
+  "description": "optional",
+  "logic_version": 2,
+  "ui_version": 1,
+  "mode": "single",
+  "enabled": true,
+  "folder": null,
+  "created_at": "2026-01-01T00:00:00Z",
+  "modified_at": "2026-01-01T00:00:00Z",
+  "variables": [],
+  "statements": [ ... ]
+}
+```
 
-### Section 3 — Statement types
-The complete statement type list from STATEMENT_TYPES.md. For each type,
-include:
-- The `type` field value
-- The required fields
-- A short JSON example
-Priority order: `if`, `action`, `set_variable`, `wait`, `log_message`,
-`call_piston`, `exit` — these cover 95% of pistons. Include the rest
-(`for`, `for_each`, `while`, `repeat`, `do`, `switch`, `every`) but
-mark them as less common.
+**Condition nodes in Snapshot:** `entity_ids` is always `[]`. `role` is always a
+human-readable placeholder (e.g., `"Front Door"`, `"Motion Sensors"`). All other
+fields are set as they would be in a real piston.
 
-### Section 4 — Condition object schema
-The complete condition object from PISTON_FORMAT.md including:
-- All fields with types
-- The `is_trigger: true` vs `is_trigger: false` distinction
-- The `display_value` / `compiled_value` split for binary sensors
-- The device_class → friendly label table (Open/Closed, Detected/Clear etc.)
-- The aggregation field (any/all/none)
+```json
+{
+  "id": "cond_a3f8c2d1",
+  "is_trigger": true,
+  "role": "Front Door",
+  "entity_ids": [],
+  "aggregation": "any",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
+  "operator": "changes to",
+  "display_value": "Open",
+  "compiled_value": "on",
+  "group_operator": "and"
+}
+```
 
-### Section 5 — Operator reference
-The complete operator list from WIZARD_SPEC.md, divided into:
-- Trigger operators (is_trigger: true)
-- Condition operators (is_trigger: false)
+**Action nodes in Snapshot:** `entity_ids` is always `[]`. `role` is always a placeholder.
 
-### Section 6 — Role rules
-- Role names are strings used as device_map keys
-- Role names appear in `devices` arrays and `role` fields in conditions
-- Every role referenced in statements must have an entry in device_map
-- device_map values are always `[]` in Snapshot format
-- device_map_meta.cardinality is `"single"` or `"multi"`
-
-### Section 7 — compile_target rules
-- Use `"native_script"` for most pistons
-- Use `"pyscript"` if the piston contains: `on_event`, `break`,
-  `cancel_pending_tasks`, or system variables like `$currentEventDevice`
-
-### Section 8 — System variables
-The system variables table from WIZARD_SPEC.md. Note which are
-PyScript-only.
-
-### Section 9 — Complete example
-A full working Snapshot JSON example. Must be non-trivial — at least
-one trigger condition, one if block with then/else, one action block.
-The chicken lights or door chime example from DESIGN.md works well.
-
-### Section 10 — User instructions
-After generating the JSON:
-1. Copy the JSON
-2. In PistonCore, click Import on the main menu
-3. Paste the JSON
-4. PistonCore will walk you through mapping each device role to a real
-   device from your Home Assistant
-5. Save and deploy
-
-State any assumptions made so the user knows what to verify.
-
----
-
-## migrate-from-webcore.md — Required Content
-
-### Section 1 — What you are doing
-You are given a WebCoRE piston screenshot. Convert it to PistonCore
-Snapshot JSON format. The output format is the same as write-a-piston.md.
-
-### Section 2 — Output format
-Reference write-a-piston.md output format (or include inline if the
-prompts are used independently).
-
-### Section 3 — WebCoRE → PistonCore statement type mapping
-
-| WebCoRE | PistonCore type | Notes |
-|---|---|---|
-| `if / then / else if / else / end if` | `if` | Direct equivalent |
-| `with {device} do ... end with` | `action` | Direct equivalent |
-| `do Set variable` | `set_variable` | Direct equivalent |
-| `do Wait X minutes` | `wait` (duration) | Direct equivalent |
-| `do Wait until HH:MM` | `wait` (until) | Direct equivalent |
-| `do Log message` | `log_message` | Direct equivalent |
-| `do Execute piston` | `call_piston` | Direct equivalent |
-| `for each ... in ... do` | `for_each` | Direct equivalent |
-| `while ... do` | `while` | Direct equivalent |
-| `repeat ... until` | `repeat` | Direct equivalent |
-| `for (X to Y) do` | `for` | Direct equivalent |
-| `switch` | `switch` | Direct equivalent |
-| `do` (grouping) | `do` | Direct equivalent |
-| `every X minutes` | `every` | Direct equivalent |
-| `break` | `break` | PyScript only |
-| `exit` | `exit` | Direct equivalent |
-| `stop` | `exit` | WebCoRE name — map to exit |
-| `on events from` | `on_event` | PyScript only |
-| TCP/TEP settings | — | Not in PistonCore v1 — omit silently |
-| `$hub` variables | — | No equivalent — omit, add comment |
-| `httpGet` / `httpPost` | — | Not in v1 — add comment |
-| File read/write | — | Not in PistonCore — omit, add comment |
-
-### Section 4 — Role extraction rules
-- Every `{Device Name}` in curly braces in the WebCoRE screenshot becomes
-  a role name in PistonCore
-- Strip curly braces, preserve the name as-is for the role key
-- Add the role to device_map with empty array `[]`
-- Set cardinality to `"single"` unless the role appears with "Any of" or
-  "All of" aggregation — then `"multi"`
-- `@GlobalVariable` devices become global variable references — add `@`
-  prefix to the role name, set cardinality based on usage
-
-### Section 5 — Condition extraction rules
-- Trigger conditions (⚡ lightning bolt in WebCoRE) → `is_trigger: true`
-- Regular conditions → `is_trigger: false`
-- Extract operator from WebCoRE display text and map to WIZARD_SPEC.md operator
-- Binary sensor values: map WebCoRE friendly labels to display_value/compiled_value
-  pairs per the device_class table in WIZARD_SPEC.md
-
-### Section 6 — Unsupported features
-If the WebCoRE piston uses features with no PistonCore equivalent, add a
-`log_message` statement at the top of the piston with a note explaining
-what was omitted. Never silently drop logic.
-
-### Section 7 — User instructions
-Same as write-a-piston.md Section 10.
+```json
+{
+  "id": "stmt_b7e2f941",
+  "type": "action",
+  "role": "Announcement Speaker",
+  "entity_ids": [],
+  "tasks": [
+    {
+      "id": "task_c8d3e052",
+      "command": "play_media",
+      "domain": "media_player",
+      "ha_service": "media_player.play_media",
+      "parameters": {
+        "media_content_id": "Welcome home!",
+        "media_content_type": "music"
+      },
+      "description": null
+    }
+  ],
+  "description": null,
+  "disabled": false
+}
+```
 
 ---
 
-## Test Criteria — Before Prompts Are Finalized
+## v1 Prompts — Two Files
 
-Before write-a-piston.md is considered complete, test with at least
-three AI models (ChatGPT, Grok, one other):
+### Prompt 1: write-a-piston.md
 
-1. Simple piston: single trigger, single action → imports cleanly
-2. Multi-condition piston: AND/OR conditions, else branch → imports cleanly
-3. Variable piston: set_variable, wait, log → imports cleanly
-4. Binary sensor piston: door contact trigger → display_value/compiled_value
-   correct, role mapping step appears correctly
-5. Edge case: PyScript-required piston → compile_target set correctly
+**Purpose:** User copies this prompt into any AI assistant, describes what they want
+their piston to do, and the AI generates a logic_version 2 Snapshot JSON.
 
-Before migrate-from-webcore.md is considered complete, test with the
-WebCoRE bathroom light screenshot (the one shown in the design discussions)
-and at least one other screenshot.
+**Endpoint:** `GET /api/prompts/write-a-piston`
 
-Import is considered successful when:
-- JSON validates without errors
-- Role mapping step appears with correct role names
-- After mapping, piston renders correctly in the editor
-- No statement types are missing or unknown
+**File location:** `pistoncore/prompts/write-a-piston.md`
+
+#### Requirements for write-a-piston.md
+
+The prompt must:
+
+1. **Explain what a piston is** briefly. The AI needs context. 2-3 sentences max.
+
+2. **Define the Snapshot format** — the exact wrapper structure and all field names.
+
+3. **Define condition node structure** with all required fields:
+   - `id`, `is_trigger`, `role`, `entity_ids: []`, `aggregation`, `attribute`, `attribute_type`, `device_class`, `operator`, `display_value`, `compiled_value`, `group_operator`
+   - Rules: `entity_ids` is always `[]` in a Snapshot; `role` is the placeholder name; `compiled_value` is what the compiler uses (not `display_value`)
+
+4. **Define action node structure** with all required fields:
+   - `id`, `type: "action"`, `role`, `entity_ids: []`, `tasks[]` (each with `id`, `command`, `domain`, `ha_service`, `parameters`, `description`), `description`, `disabled`
+   - Rules: `ha_service` = `domain + "." + command`; `entity_ids` is always `[]` in a Snapshot
+
+5. **Define all other statement types** the AI might generate. At minimum:
+   - `if` block: `type: "if"`, `conditions: []`, `then: []`, `else_if: []`, `else: []`
+   - `repeat` loop: `type: "repeat"`, `until_conditions: []`, `statements: []`
+   - `for_each` loop: `type: "for_each"`, `role`, `entity_ids: []`, `variable`, `statements: []`
+   - `set_variable`: `type: "set_variable"`, `variable`, `value` (operand object)
+   - `log_message`: `type: "log_message"`, `message` (operand object)
+   - Reference STATEMENT_TYPES.md for the full list of types and their schemas
+
+6. **Define operand/value types:**
+   - `{ "type": "literal", "data": "value" }`
+   - `{ "type": "variable", "name": "$var_name" }`
+   - `{ "type": "system_variable", "name": "$sunrise", "offset": 30, "offset_unit": "minutes", "offset_direction": "+" }`
+   - `{ "type": "expression", "expression": "$count + 1" }`
+
+7. **Define role naming rules:**
+   - Role names must be unique within the piston if they refer to different physical device groups
+   - Role names that match are treated as the same device group at import time
+   - Role names should be human-readable: `"Front Door"`, `"Motion Sensors"`, `"Bedroom Lights"`
+   - If referencing a PistonCore global: use the global name with `@` prefix as the role: `"@Smoke_Detectors"`
+
+8. **State the output rule clearly:** Generate only valid JSON. No prose before or after the JSON block. No explanations inside the JSON. No comments.
+
+9. **Give examples** — at minimum one simple trigger-and-action piston, one piston with a condition. Full valid JSON.
+
+10. **State what entity_ids must be:** Always `[]` (empty array). Never fill in real entity IDs. The user will map them on import.
+
+#### What the Prompt Must NOT Include
+
+- Any reference to `device_map`
+- Any reference to `piston_text`
+- Any reference to logic_version 1
+- Any instructions to fill in real entity IDs
+- Any suggestion to use `has_missing_devices`
 
 ---
 
-## Open Items
+### Prompt 2: migrate-from-webcore.md (Future — Not v1)
 
-1. AI Help modal UI — second tab for WebCoRE migration needs to be
-   added to FRONTEND_SPEC.md when the modal is built
-2. Image input requirement — migrate-from-webcore.md requires an AI
-   with vision capability. The UI should note this (ChatGPT, Grok, Gemini)
-3. Prompt versioning — prompts are served from the container and updated
-   when the format changes. Version number or format version should be
-   included in the prompt so outdated cached copies are detectable
-4. Rate of change — once the Snapshot JSON format stabilizes (logic_version
-   stops changing), the prompts become stable. Early v1 may need prompt
-   updates with each format change.
+**Purpose:** User uploads a WebCoRE piston screenshot or piston JSON export and asks
+an AI assistant to convert it to a PistonCore Snapshot.
+
+**Status:** Deferred to v2. Migration requires a dedicated prompt with WebCoRE schema
+documentation. Will be written after write-a-piston.md is proven.
+
+**When this is written, it must:**
+- Define the WebCoRE piston format the AI is converting FROM
+- Define the PistonCore Snapshot format the AI is converting TO
+- Map WebCoRE statement types to PistonCore statement types
+- Handle WebCoRE device type/capability model to PistonCore role + entity_ids model
+- Handle WebCoRE `$currentEventDevice` to PistonCore `$currentEventDevice` (same name, same compiler handling)
 
 ---
 
-*This spec is the authority for prompt content. Do not write the actual
-prompt files until the import flow is tested. Do not update this spec
-without updating the corresponding sections in DESIGN.md Section 6.*
+## ID Generation Rules
+
+All `id` fields must be unique strings. The AI should generate random-looking hex strings:
+- Statement IDs: `stmt_` + 8 hex chars (e.g., `stmt_a3f8c2d1`)
+- Condition IDs: `cond_` + 8 hex chars (e.g., `cond_b7e2f941`)
+- Task IDs: `task_` + 8 hex chars (e.g., `task_c8d3e052`)
+
+The exact values do not matter — they just need to be unique within the piston. PistonCore
+regenerates all IDs on import anyway.
+
+---
+
+## Serving the Prompt
+
+The backend serves prompt files from `pistoncore/prompts/` via:
+```
+GET /api/prompts/{prompt_name}
+```
+
+Returns the raw Markdown content of the prompt file. The frontend displays it in the
+AI Help modal (read-only, scrollable text area with a Copy button).
+
+If the prompt file is not found: return 404. The frontend shows:
+*"Prompt unavailable — check your connection and try again."*
+
+Prompt files are bundled with PistonCore (not in the customize volume). They cannot be
+user-edited. If the user wants a custom prompt, they copy the content from the modal and
+modify it themselves before pasting into the AI assistant.
+
+---
+
+## What Changed from the Old Spec
+
+The old AI_PROMPT_SPEC.md (pre-Session 55) defined output format around `device_map`:
+
+```json
+{
+  "device_map": {
+    "Front Door": ["binary_sensor.front_door"]
+  },
+  "statements": [ ... ]
+}
+```
+
+This is completely eliminated. The new model:
+- No `device_map` anywhere
+- `entity_ids: []` on every condition and action node in a Snapshot
+- `role` on every node is the human-readable placeholder
+- Import dialog walks the user through mapping roles to real devices (DESIGN.md Section 6.11)
+
+The import flow for logic_version 2 Snapshots (DESIGN.md Section 6.11) handles all the
+role-to-entity mapping. The AI never needs to know the user's entity IDs.

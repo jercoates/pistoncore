@@ -1,8 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 59 / D-S4 — SAMPLE_PISTONS.md created. TASKS_HISTORY.md
-created (completed sessions archived). Housekeeping gaps closed. D-S4 in progress.
+**Last Updated:** Session 61 — MISSING_SPECS Items 6/10/12/19/20 body content moved to correct target documents (TEST_STRATEGY.md, DESIGN.md v1.5, BEST_PRACTICES.md, FRONTEND_SPEC.md v1.3, COMPILER_SPEC.md v1.5). HA_LIMITATIONS.md updated against HA 2026.4. Next: W-S8.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions:** See TASKS_HISTORY.md
 
@@ -46,66 +45,57 @@ See TASKS_HISTORY.md.
 
 ---
 
-### D-S4: Remaining Spec Completion (Session 59 — IN PROGRESS)
+### D-S4: Remaining Spec Completion ✅ (Sessions 59–60)
 
-**This is a spec-only session. No code.**
+**All 9 steps complete.**
 
-**Step 1 — Housekeeping ✅ (this session)**
-- GAP-S57-7: DESIGN.md Section 6.11 duplicate role name note — already present in
-  uploaded DESIGN.md v1.3 (Section 6.10 Role Name Uniqueness Rule). CLOSED.
-- GAP-S57-6/15/16/17: Already closed in FRONTEND_SPEC.md v1.1 (Session 58). CLOSED.
-- PISTON_FORMAT.md version: uploaded file is v2.1. Session prompt incorrectly said v2.2.
-  Corrected in session prompt.
-- COMPILER_SPEC.md line 8: stale "Read DESIGN.md v1.1" reference — fix to v1.3.
-- MISSING_SPECS.md Items 7/8: body still written as MISSING — move to DONE section.
-- TASKS_HISTORY.md: created this session (completed sessions archived from TASKS.md).
+**Step 1 — Housekeeping ✅ (Session 59)**
+**Step 2 — SAMPLE_PISTONS.md ✅ (Session 59)**
+**Step 3 — Global device edit redeploy prompt UX ✅ (Session 60)**
+DESIGN.md Section 7.1 expanded with: full permission prompt layout, progress modal
+layout, edge cases (never-deployed, disabled, merged stale flags, HA disconnected
+mid-redeploy, revert detection, running piston handling). MISSING_SPECS Item 24 resolved.
+DESIGN.md → v1.4.
 
-**Step 2 — GAP-S57-8: SAMPLE_PISTONS.md ✅ (this session)**
-Created with 3 logic_version 2 examples: simple (native_script), multi-device
-(native_script, multi-entity trigger + action), global variable + for_each (pyscript).
-All valid against PISTON_FORMAT.md v2.1 and STATEMENT_TYPES.md v2.1.
+**Step 4 — Error states inventory ✅ (Session 60)**
+Full error states written into FRONTEND_SPEC.md v1.2 — "Error States Inventory" section.
+Covers all connection, save/deploy, piston list, import, and global redeploy errors.
+MISSING_SPECS Item 5 resolved.
 
-**Step 3 — MISSING_SPECS Item 24: Global device edit redeploy prompt UX**
-Full UX spec for the permission prompt, progress modal, banner, and stale flag
-lifecycle. Edge cases: never-deployed pistons, disabled pistons, merged stale flags,
-HA disconnected during redeploy, revert detection.
-Write into DESIGN.md Section 7.1 (expand the existing summary) or a new subsection.
-**Blocks G-4.**
+**Step 5 — Piston list UI row states ✅ (Session 60)**
+Full row state table written into FRONTEND_SPEC.md v1.2 — "Piston List — Row States" section.
+All 8 states defined with icon/color/text/tooltip. Multi-state priority order locked.
+MISSING_SPECS Items 3/4/5 resolved.
 
-**Step 4 — Error states inventory**
-Every error the backend can return and how the frontend displays it.
-Covers: compile errors, deploy errors, HA connection errors, missing entity,
-YAML validation failure, file permission errors, piston not found, etc.
-Write into FRONTEND_SPEC.md as a new section.
+**Step 6 — Status page full layout ✅ (Session 60)**
+Full status page spec written into FRONTEND_SPEC.md v1.2 — "Status Page — Full Layout" section.
+Covers: header, banners, all button states + deploy button state table, Test Compile panel,
+Test Live Fire flow, Piston Script panel, Log panel, Variables panel, Quick Facts panel.
+FRONTEND_SPEC.md → v1.2.
 
-**Step 5 — Piston list UI states**
-Every combination of piston row state:
-deployed+healthy, deployed+entity_missing, deployed+manually_edited,
-deployed+stale_globals, orphaned, never deployed, disabled, currently running.
-What icon/color/text shows for each. Write into FRONTEND_SPEC.md.
+**Step 7 — MISSING_SPECS Items 2-6, 10-12, 14, 19, 20 ✅ (Session 60)**
+- Item 2 (WebSocket protocol): written into FRONTEND_SPEC.md v1.2
+- Item 3 (Settings page): written into FRONTEND_SPEC.md v1.2
+- Item 4 (Folder management): written into FRONTEND_SPEC.md v1.2
+- Item 6 (Test strategy): written into MISSING_SPECS Item 6 body
+- Item 10 (Global variables maintenance strategy): written into MISSING_SPECS Item 10 body
+- Item 11 (Sample piston library): partially resolved; production pistons deferred post-S3-2
+- Item 12 (Best practices documentation): patterns defined; BEST_PRACTICES.md deferred post-S3-1
+- Item 14 (Time condition compiler path): written into COMPILER_SPEC.md v1.4 Section 11
+- Item 19 (Fast pre-check validation): decision — deferred post-v1; spec written in body
+- Item 20 (Statement compiler registry): decision — post-S3-2 refactor; spec written in body
+COMPILER_SPEC.md → v1.4.
 
-**Step 6 — Status page full layout**
-Complete spec for the piston status page: layout, sections, run log display,
-compile preview panel, test button flow, deploy button states.
-Write into FRONTEND_SPEC.md.
+**Step 8 — HA_LIMITATIONS.md Section 3 ✅ (Session 60)**
+Rewritten as standalone output file (HA_LIMITATIONS_SECTION3.md — splice into repo).
+device_map and has_missing_devices references removed. Entity validation model from
+DESIGN.md Section 9.2 and COMPILER_SPEC.md v1.4 used throughout.
 
-**Step 7 — MISSING_SPECS Items 2-6, 10-12, 14, 19, 20**
-Work through each remaining open item and write the spec directly into the
-appropriate document. Do not leave items as "MISSING" — write the actual spec.
-
-**Step 8 — HA_LIMITATIONS.md Section 3**
-Rewrite Section 3 to remove device_map and has_missing_devices references.
-Use the entity validation model from DESIGN.md Section 9.2.
-
-**Step 9 — AI_PROMPT_SPEC.md (GAP-S57-3)**
-Rewrite entirely for logic_version 2. Remove all device_map/device_map_meta
-references. New model: entity_ids on nodes, role labels as placeholders,
-Snapshot format per DESIGN.md Sections 6.10/6.11.
-
-**Upload for D-S4 continuation:**
-DESIGN.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, COMPILER_SPEC.md,
-PISTON_FORMAT.md, STATEMENT_TYPES.md, MISSING_SPECS.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Step 9 — AI_PROMPT_SPEC.md ✅ (Session 60)**
+Complete rewrite → v2.0. All device_map references eliminated. New model: entity_ids on
+nodes, role as placeholder, Snapshot format per DESIGN.md Sections 6.10/6.11.
+Prompt 1 (write-a-piston.md) requirements fully defined. Prompt 2 (migrate-from-webcore.md)
+deferred to v2.
 
 ---
 
@@ -224,8 +214,7 @@ Only attempt once W-S8, B-1, and G-1/G-2/G-2b/G-3 are complete.
 
 ### Coding gaps — after D-S4
 
-- **GAP-S57-5 → G-4:** Global device edit redeploy prompt (blocked on MISSING_SPECS Item 24 spec)
-- **GAP-S57-3 → D-S4 Step 9:** AI_PROMPT_SPEC.md stale (entire output format section is device_map model)
+- **GAP-S57-5 → G-4:** Global device edit redeploy prompt (spec complete — DESIGN.md v1.4 Section 7.1)
 - **GAP-S52-2 → W-S8:** Action wizard stale sel state
 - **GAP-S52-3 → W-S8:** Add task button not working in some flows
 - **GAP-S52-4 → W-S8:** open() shallow copy for complex edit nodes
@@ -248,20 +237,11 @@ Only attempt once W-S8, B-1, and G-1/G-2/G-2b/G-3 are complete.
 - **GAP-S47-1 → S4-16:** Structure line position needs fine-tuning (cosmetic)
 - **GAP-S45-1 → S4-16:** set_variable wizard doesn't normalize $ prefix (cosmetic)
 
-### Spec gaps still open (D-S4 Steps 3–9)
+### Spec gaps still open (all D-S4 steps complete)
 
-- **MISSING_SPECS Item 2** → D-S4 Step 7: WebSocket message protocol
-- **MISSING_SPECS Item 3** → D-S4 Step 7: Settings page frontend spec
-- **MISSING_SPECS Item 4** → D-S4 Step 7: Folder management flow
-- **MISSING_SPECS Item 5** → D-S4 Step 4: Error states inventory
-- **MISSING_SPECS Item 6** → D-S4 Step 7: Test strategy
-- **MISSING_SPECS Item 10** → D-S4 Step 7: Global variables maintenance strategy
-- **MISSING_SPECS Item 11** → D-S4 Step 7: Sample piston library (PARTIALLY DONE — SAMPLE_PISTONS.md created; library spec still needed)
-- **MISSING_SPECS Item 12** → D-S4 Step 7: Best practices documentation
-- **MISSING_SPECS Item 14** → D-S4 Step 7: Time condition compiler path
-- **MISSING_SPECS Item 19** → D-S4 Step 7: Fast pre-check validation (wizard-step feedback)
-- **MISSING_SPECS Item 20** → D-S4 Step 7: Statement compiler registry pattern
-- **MISSING_SPECS Item 24** → D-S4 Step 3: Global device edit redeploy prompt UX (blocks G-4)
+- **MISSING_SPECS Item 11 (partial)** → post-S3-2: Production sample pistons (Low Battery, Door Chime, CO Alert, Water Leak) — blocked on compiler being solid
+- **MISSING_SPECS Item 12** → post-S3-1: Write BEST_PRACTICES.md
+- **MISSING_SPECS Item 15** → D-S4 Step 9 prerequisite done — AI_PROMPT_SPEC.md v2.0 complete; write-a-piston.md prompt content still needed (actual prompt file, not the spec for it)
 - **MISSING_SPECS Item 25** → S4-17: HA entity state subscription vs polling
 - **MISSING_SPECS Item 26** → W-S8 or dedicated session: Copy/paste/duplicate statements
 - **MISSING_SPECS Item 27** → S2-3: Piston backup trigger/download/restore

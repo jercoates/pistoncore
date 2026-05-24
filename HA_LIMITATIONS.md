@@ -1,7 +1,7 @@
 # PistonCore — HA Limitations & Gotchas Reference
 
 **Status:** Living document — add to this whenever a new HA limitation is discovered.
-**Last Updated:** May 2026
+**Last Updated:** May 2026 (Session 60 — variable scoping fixed in HA 2025.3; continue_on_error in UI as of HA 2026.3; break/on_event/cancel_pending_tasks still PyScript-only; current stable is 2026.4)
 
 This document captures Home Assistant limitations that affect PistonCore design and
 implementation. It exists because the gap between Hubitat/WebCoRE and HA is significant
@@ -10,6 +10,14 @@ and keeps being rediscovered from different angles.
 For decisions already made in response to these limitations, see DESIGN.md.
 For compiler-specific handling, see COMPILER_SPEC.md.
 For wizard-specific handling, see WIZARD_SPEC.md.
+
+---
+
+## Version Review Log
+
+| Reviewed against | Date | Findings |
+|---|---|---|
+| HA 2026.4 (current stable) | May 2026 | Variable scoping fixed in 2025.3. `continue_on_error` added to UI editor in 2026.3. `break`/`on_event`/`cancel_pending_tasks` still PyScript-only. No other limitations resolved. |
 
 ---
 
@@ -25,12 +33,11 @@ with significant restrictions:
 | break out of loop | Yes | No | PyScript only — target-boundary.json |
 | on_event inside running script | Yes | No | PyScript only — target-boundary.json |
 | cancel async tasks | Yes | No | PyScript only — target-boundary.json |
-| Variable scoping across loops | Clean | Unreliable | Compiler warning emitted |
+| Variable scoping across loops | Clean | Fixed (HA 2025.3+) | Was unreliable; now correct — see note below |
 | Context tracking ($currentEventDevice) | Yes | No | PyScript only |
 | Physical vs programmatic interaction | Yes | PyScript only | Wizard prompts conversion |
 
-**Impact:** Many pistons that were "simple" on Hubitat will force PyScript on HA.
-The target-boundary.json must be rock solid and the conversion prompts must be clear.
+**Variable scoping fix (HA 2025.3):** The long-standing bug where variables set inside a loop or parallel sequence body didn't update the outer scope was fixed in HA 2025.3 (PR #138883). The `wait` and `response_variable` scoping bugs were also fixed. General variable mutation across nested sequence blocks now works correctly. The `repeat` variable (available inside loop body as `repeat.index`, `repeat.first`, `repeat.last`) is still intentionally local to the loop — that hasn't changed. If PistonCore targets HA 2025.3+ (which it does — minimum is 2023.1), the old compiler warning about variable scoping can be downgraded or removed for most patterns. **Exception:** string accumulation across loop iterations using `variables:` still has subtle scope behavior that should be tested — the PyScript fallback for `loop_string_accumulation` remains correct.
 
 ### Long-Running Pistons
 
@@ -125,6 +132,16 @@ After `automation.reload` / `script.reload`:
 Old version stays active. UX must clearly communicate when old version is still
 running. Test failure scenarios explicitly.
 
+### continue_on_error — Now Available in the UI Editor (HA 2026.3)
+
+`continue_on_error` on script actions was YAML-only until HA 2026.3, which added it
+to the visual automation editor. This has no impact on PistonCore's YAML output —
+PistonCore has always emitted it via the compiler. The change simply means users
+who hand-edit their compiled files now have UI support for this field.
+
+The compiler-level gap (Section 9 — `continue_on_error` not emitted at the parallel
+sequence level) is separate and remains outstanding.
+
 ### File Permissions in Addon
 
 Writing to `/config/automations/pistoncore/` and `/config/pyscript/pistoncore/`
@@ -200,10 +217,10 @@ not re-litigated:
 - **Binary sensors always report on/off** → Friendly label system in wizard,
   compiled_value always "on"/"off" ✅
 - **Entity IDs are compile-time** → entity_ids baked at wizard commit time, static in JSON ✅
-- **Loop variable scoping** → Compiler warning emitted ✅
+- **Loop variable scoping** — Fixed natively in HA 2025.3 (PR #138883). Variables updated inside loop/parallel bodies now correctly propagate to outer scope. The `repeat` loop variable (`repeat.index` etc.) is still intentionally local. Compiler warning for general variable scoping can be removed; the `loop_string_accumulation` PyScript fallback remains correct. ✅ (native fix)
 - **Entity IDs never shown to user** → Device picker + role label abstraction ✅
 - **HA churn on YAML syntax** → Versioned Jinja2 template system ✅
-- **Minimum HA version** → 2023.1 floor documented and checked on connect ✅
+- **Minimum HA version** → 2023.1 floor documented and checked on connect ✅. Note: variable scoping fix requires HA 2025.3+. PistonCore should consider raising the minimum to 2025.3 before v1 release to avoid the scoping bug for users on older installs.
 - **`trigger:` vs `platform:` inside wait_for_trigger** → Compiler always uses
   `trigger:` key inside `wait_for_trigger` blocks. `platform:` is legacy syntax that
   causes silent reload errors in modern HA. ✅

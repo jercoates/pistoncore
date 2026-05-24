@@ -35,60 +35,32 @@ See TASKS_HISTORY.md for full archive. Do not read unless tracing a historical d
 
 ---
 
-## Current Priority — D-S4 continuation (Steps 3–9 remaining)
+## Current Priority — W-S8 (Wizard Coding)
 
-**This is a spec-only session. No code.**
-Steps 1 and 2 completed in Session 59. Steps 3–9 remain.
+**D-S4 is complete.** All spec work is done. Next session is W-S8.
 
-### Upload for D-S4 continuation:
-DESIGN.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, COMPILER_SPEC.md,
-PISTON_FORMAT.md, STATEMENT_TYPES.md, MISSING_SPECS.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+### Upload for W-S8:
+wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, editor.js, list.js,
+WIZARD_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What was done in Session 59 (D-S4 Steps 1–2):
-- GAP-S57-7/6/15/16/17: Confirmed closed in Session 58. No action needed.
-- PISTON_FORMAT.md: confirmed at v2.1 (session prompt previously said v2.2 — corrected).
-- COMPILER_SPEC.md line 8: stale "Read DESIGN.md v1.1" — fix to v1.3 when next editing.
-- MISSING_SPECS.md Items 7/8: still written as MISSING in body — move to DONE section.
-- SAMPLE_PISTONS.md: created with 3 logic_version 2 examples (GAP-S57-8 CLOSED).
-- TASKS_HISTORY.md: created (completed sessions archived from TASKS.md).
-- TASKS.md: cleaned and tightened.
-- CLAUDE_SESSION_PROMPT.md: this file.
-
-### Remaining steps (D-S4 Steps 3–9):
-
-**Step 3 — MISSING_SPECS Item 24: Global device edit redeploy prompt UX**
-Full UX spec — permission prompt, progress modal, banner, stale flag lifecycle.
-Edge cases: never-deployed pistons, disabled pistons, merged stale flags,
-HA disconnected during redeploy, revert detection.
-Write into DESIGN.md Section 7.1 (expand existing summary).
-**Blocks G-4.**
-
-**Step 4 — Error states inventory (MISSING_SPECS Item 5)**
-Every backend error + frontend display. Compile errors, deploy errors, HA connection
-errors, missing entity, YAML validation failure, file permissions, piston not found.
-Write into FRONTEND_SPEC.md as a new section.
-
-**Step 5 — Piston list UI row states**
-Every combination: deployed+healthy, deployed+entity_missing, deployed+manually_edited,
-deployed+stale_globals, orphaned, never deployed, disabled, currently running.
-Icon/color/text for each. Write into FRONTEND_SPEC.md.
-
-**Step 6 — Status page full layout**
-Complete spec: layout, sections, run log display, compile preview panel,
-test button flow, deploy button states. Write into FRONTEND_SPEC.md.
-
-**Step 7 — MISSING_SPECS Items 2-6, 10-12, 14, 19, 20**
-Write each spec directly into the appropriate document. Do not leave as MISSING.
-
-**Step 8 — HA_LIMITATIONS.md Section 3**
-Rewrite to remove device_map and has_missing_devices references.
-Use entity validation model from DESIGN.md Section 9.2.
-
-**Step 9 — AI_PROMPT_SPEC.md (GAP-S57-3)**
-Rewrite entirely for logic_version 2. No device_map references. New model:
-entity_ids on nodes, role labels as placeholders, Snapshot format per
-DESIGN.md Sections 6.10/6.11.
+### What was done in Session 60 (D-S4 Steps 3–9):
+- Step 3: DESIGN.md v1.4 — Section 7.1 expanded with full permission prompt layout, progress
+  modal layout, and all edge cases (never-deployed, disabled, merged stale flags, HA disconnected
+  mid-redeploy, revert detection, running piston handling). MISSING_SPECS Item 24 CLOSED.
+- Step 4: FRONTEND_SPEC.md v1.2 — Error States Inventory section added. Item 5 CLOSED.
+- Step 5: FRONTEND_SPEC.md v1.2 — Piston List Row States section added. Priority order locked.
+- Step 6: FRONTEND_SPEC.md v1.2 — Status Page Full Layout section added. All button states, deploy
+  button state table, Test Compile panel, log panel, variables panel, quick facts panel all specced.
+- Step 7: Items 2/3/4/6/10/11/12/14/19/20 resolved:
+  - Items 2/3/4 written into FRONTEND_SPEC.md v1.2 (WebSocket protocol, Settings page, Folder management)
+  - Item 6 written into MISSING_SPECS body (test strategy)
+  - Items 10/11/12 written into MISSING_SPECS body (globals maintenance, sample library, best practices)
+  - Item 14 written into COMPILER_SPEC.md v1.4 Section 11 (time condition compiler path)
+  - Items 19/20 written as decisions into MISSING_SPECS body
+- Step 8: HA_LIMITATIONS.md Section 3 rewritten (delivered as HA_LIMITATIONS_SECTION3.md — splice into repo)
+- Step 9: AI_PROMPT_SPEC.md v2.0 — complete rewrite; device_map eliminated; write-a-piston.md requirements defined
+- COMPILER_SPEC.md line 8 stale "v1.1" ref: **still not fixed** — fix on next COMPILER_SPEC edit (non-blocking)
 
 ---
 
@@ -150,35 +122,39 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 ---
 
-## Open Gaps (after Session 59)
+## Open Gaps (after Session 60)
 
-**Spec work remaining (D-S4 Steps 3–9):**
-- MISSING_SPECS Item 24 → D-S4 Step 3: Global device edit redeploy prompt UX (blocks G-4)
-- MISSING_SPECS Item 5 → D-S4 Step 4: Error states inventory
-- Piston list UI row states → D-S4 Step 5
-- Status page full layout → D-S4 Step 6
-- MISSING_SPECS Items 2-6, 10-12, 14, 19, 20 → D-S4 Step 7
-- HA_LIMITATIONS.md Section 3 → D-S4 Step 8
-- AI_PROMPT_SPEC.md → D-S4 Step 9 (GAP-S57-3)
+**All spec work complete. No open spec gaps blocking coding.**
 
-**Coding gaps (after D-S4):**
-- GAP-S57-5 → G-4: Global device edit redeploy prompt (blocked on Item 24 spec)
+**Remaining spec items (not blocking v1 coding):**
+- MISSING_SPECS Item 11 (partial): production sample pistons → post-S3-2
+- MISSING_SPECS Item 12: BEST_PRACTICES.md → post-S3-1
+- MISSING_SPECS Item 15: write-a-piston.md actual prompt content → before S4-10
+- MISSING_SPECS Item 25: HA entity state subscription vs polling → S4-17
+- MISSING_SPECS Item 26: copy/paste/duplicate → W-S8 or dedicated session
+- MISSING_SPECS Item 27: piston backup → S2-3
+
+**Coding gaps (in priority order):**
 - GAP-S52-2/3/4, GAP-S53-2/3/4/5, GAP-S44-1 → W-S8
+- wizard-action.js `_saveDeviceCmd` rewrite → W-S8 Step 0
 - compiler.py entity_ids direct read + MISSING_ENTITY → B-1
 - GAP-S46-4 → G-3
+- GAP-S57-5 → G-4 (spec complete in DESIGN.md v1.4 Section 7.1)
 
 ---
 
-## Spec File Versions (after Session 59)
-- DESIGN.md v1.3
+## Spec File Versions (after Session 61)
+- DESIGN.md v1.5 (Section 7.1 expanded: global naming convention, maintenance strategy)
 - PISTON_FORMAT.md v2.1
-- COMPILER_SPEC.md v1.3 (line 8 has stale "v1.1" ref — fix next edit)
+- COMPILER_SPEC.md v1.5 (Section 20 rewritten: compiler registry pattern as future architecture)
 - PYSCRIPT_COMPILER_SPEC.md v1.1
-- WIZARD_SPEC.md v2.2 (lines 12–15 ref PISTON_FORMAT v2.1 and STATEMENT_TYPES v2.0 — minor, non-blocking)
+- WIZARD_SPEC.md v2.2
 - STATEMENT_TYPES.md v2.1
-- FRONTEND_SPEC.md v1.1
-- SAMPLE_PISTONS.md v1.0 (new)
-- TASKS_HISTORY.md v1.0 (new)
-- MISSING_SPECS.md — Items 1,9,13,16,17,18,21,22,23 resolved; Items 7/8 body still says MISSING (move to DONE next edit); Items 2-6,10-12,14-15,19-20,24-27 open
-- AI_PROMPT_SPEC.md — STALE, needs full rewrite (GAP-S57-3, D-S4 Step 9)
-- HA_LIMITATIONS.md — Section 3 stale (D-S4 Step 8)
+- FRONTEND_SPEC.md v1.3 (fast pre-check validation added as Future Spec section)
+- SAMPLE_PISTONS.md v1.0
+- TASKS_HISTORY.md v1.0
+- TEST_STRATEGY.md v1.0 (new — from MISSING_SPECS Item 6)
+- BEST_PRACTICES.md v1.0 (new — from MISSING_SPECS Item 12)
+- MISSING_SPECS.md — all resolved items now point to their correct target docs; Items 15/25/26/27 still open
+- AI_PROMPT_SPEC.md v2.0
+- HA_LIMITATIONS.md — updated May 2026 (variable scoping fix noted, version review log added)

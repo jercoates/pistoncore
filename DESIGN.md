@@ -1,8 +1,8 @@
 # PistonCore Design Document
 
-**Version:** 1.3
+**Version:** 1.5
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 57 — startup sequence, multi-entity compilation, Snapshot format v2, import flow redesigned, open items updated)
+**Last Updated:** May 2026 (Session 61 — Section 7.1 expanded: global naming convention, maintenance strategy, sample piston global reference rules, name validation rules all moved from MISSING_SPECS Item 10)
 
 ---
 
@@ -556,6 +556,63 @@ PistonCore tracks which pistons reference each Device or Devices global via
 `/pistoncore-userdata/globals_index.json` — a map of global variable ID to the list
 of piston IDs that reference it. Updated on every successful compile.
 
+### Global Variables — Maintenance Strategy
+
+Global variables are primarily a **maintenance strategy**, not just a convenience feature.
+When a device is added to a group, updating one global updates every piston that references
+it on next redeploy. This is how installations with many pistons stay manageable.
+
+**Global management UI is a core workflow — not a power-user feature.** It must be fast
+and accessible, not buried in advanced settings.
+
+### Standard Global Naming Convention
+
+Sample pistons and community-shared pistons use these standard global names so that setting
+up globals once covers all related pistons. Users who create globals with these exact names
+can import any sample piston without remapping.
+
+| Global Name | Type | Used By |
+|---|---|---|
+| `@Battery_Devices` | Devices | Low Battery Check |
+| `@Smoke_Detectors` | Devices | CO/Smoke Alert |
+| `@Water_Sensors_All` | Devices | Water Leak Shutoff |
+| `@Water_Sensors_Away` | Devices | Water Leak Shutoff |
+| `@Water_Sensors_Always` | Devices | Water Leak Shutoff |
+| `@Presence_Sensors` | Devices | Water Leak, Presence pistons |
+| `@Speakers_All` | Devices | CO Alert, Chime |
+| `@Announcement_Sonos` | Device | Door Chime |
+| `@Notifications_Push` | Device | All alert pistons |
+| `@Notification_Text` | Device | All alert pistons |
+| `@Alert_Lights` | Devices | CO Alert |
+| `@Shut_off_Valve` | Device | Water Leak Shutoff |
+
+### Sample Piston Global Reference Rules
+
+Sample piston Snapshot JSON uses the global name as the role name (e.g., `"role": "@Smoke_Detectors"`).
+At import time, when the user reaches the role mapping step for a role that matches an existing
+global name, PistonCore pre-fills the device picker with that global's entity_ids. The user
+can accept or override.
+
+When a referenced global doesn't exist at import time, show an inline prompt in the role
+mapping dialog: *"'@Smoke_Detectors' is referenced as a global in this piston, but no global
+with that name exists yet. Create it now?"* `[Create Global]` `[Map manually]`. If Create:
+opens the global creation flow inline. After creation, the device picker is pre-filled from
+the new global.
+
+### Global Name Validation Rules
+
+Enforced in the UI at creation time — not a soft warning:
+- Must start with `@` (always prepended — user types only the name portion)
+- After the `@`: lowercase letters, numbers, underscores only. No spaces, no uppercase.
+- No duplicate names (case-insensitive)
+- Maximum 50 characters (including the `@`)
+
+### Where the Maintenance Story Is Communicated
+
+- Tooltip on the Global Variables section header in Settings: *"Globals let you update a device list once and redeploy all pistons that use it — no hunting through individual pistons."*
+- Ghost text in the define block: *"Tip: use global variables for devices that appear in multiple pistons."*
+- BEST_PRACTICES.md in the repo
+
 ### Global Device Edit — Save Flow
 
 When the user saves changes to a Device or Devices global (adds, removes, or replaces
@@ -627,10 +684,119 @@ If multiple globals were changed and each affects different pistons, group by gl
 *"2 globals were updated — [N] pistons total need redeployment."*
 `[Redeploy All]` `[Review]`
 
-### Full Spec
+### Permission Prompt — Full Layout
 
-Full UX flow, progress modal layout, and error handling are in MISSING_SPECS.md Item 24.
-That item must be resolved before the globals edit UI (G-4) is built.
+The permission prompt is a centered modal (not a toast, not a banner). It blocks until
+the user acts. It appears immediately after the global save completes.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  "Exterior Doors" was updated                       │
+├─────────────────────────────────────────────────────┤
+│  3 piston(s) bake this device list at deploy time   │
+│  and are now running with the old list.             │
+│  Redeploy them now to pick up the change?           │
+│                                                     │
+│  [Show me which pistons ▾]                          │
+│                                                     │
+│  [Redeploy All Now]           [I'll Do It Later]    │
+└─────────────────────────────────────────────────────┘
+```
+
+**[Show me which pistons ▾]** expands inline — does not navigate away:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  "Exterior Doors" was updated                       │
+├─────────────────────────────────────────────────────┤
+│  3 piston(s) bake this device list at deploy time   │
+│  and are now running with the old list.             │
+│  Redeploy them now to pick up the change?           │
+│                                                     │
+│  [Hide ▴]                                           │
+│  • Driveway Lights at Sunset (deployed)             │
+│  • Side Gate Motion Light (deployed)                │
+│  • Holiday Lights (disabled — will redeploy on      │
+│    next enable)                                     │
+│                                                     │
+│  [Redeploy All Now]           [I'll Do It Later]    │
+└─────────────────────────────────────────────────────┘
+```
+
+### Progress Modal — Full Layout
+
+When **[Redeploy All Now]** is chosen, the permission prompt is replaced by a progress modal:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Redeploying 2 pistons...                           │
+├─────────────────────────────────────────────────────┤
+│  ✓ Driveway Lights at Sunset                        │
+│  ✓ Side Gate Motion Light                           │
+│  ↻ Holiday Lights... (disabled — skipped)           │
+├─────────────────────────────────────────────────────┤
+│  Complete — 2 redeployed, 0 failed, 1 skipped       │
+│                                      [Done]         │
+└─────────────────────────────────────────────────────┘
+```
+
+Each row updates in real time as the redeploy progresses. Row states:
+- `↻ [Piston name]...` — currently redeploying (spinner or animated dots)
+- `✓ [Piston name]` — success
+- `✗ [Piston name] — [short error message]` — failed
+- `— [Piston name] (skipped — disabled)` — skipped (see edge cases below)
+
+The summary line at the bottom shows final counts.
+
+**[Done]** appears only after all pistons have been processed. Closes the modal.
+
+If any pistons failed, a **[Retry Failed]** button also appears alongside **[Done]**.
+Clicking it re-attempts only the failed pistons.
+
+### Progress Modal — HA Disconnected During Redeploy
+
+If the HA connection drops mid-redeploy:
+- Stop the redeploy queue immediately
+- Mark the current in-progress piston as ✗ (interrupted)
+- Show an error row at the bottom: `⚠ HA connection lost — redeploy stopped`
+- Show `[Retry when reconnected]` and `[Done]` buttons
+- **[Retry when reconnected]** is enabled and clickable only after HA reconnects
+- When clicked, resumes from the first unfinished piston in the queue
+- Pistons that succeeded before the disconnect remain marked ✓ and are not re-run
+
+### Edge Cases
+
+**Never-deployed pistons** (piston exists in PistonCore but has never been deployed to HA):
+- These appear in the expanded piston list with label: `(never deployed)`
+- They are included in the redeploy queue — **[Redeploy All Now]** runs a first deploy for them
+- This is intentional: the global change means the piston would compile wrong if deployed later without the flag being set
+- If the never-deployed piston has `entity_ids: []` on any node: the redeploy will fail with a compile error (unmapped devices). Show ✗ with error. User must fix the piston first.
+
+**Disabled pistons** (piston has `enabled: false`):
+- Do NOT include disabled pistons in the **[Redeploy All Now]** queue
+- They still get `stale_globals` set in the index — they will be redeployed when the user re-enables them
+- In the expanded piston list in the permission prompt, show them with: `(disabled — will redeploy on next enable)`
+- In the progress modal if somehow queued: mark as `— [name] (skipped — disabled)`
+
+**Multiple globals changed in one session:**
+- If the user edits two different globals before navigating away, and each affects overlapping piston sets, the stale flags accumulate — `stale_globals: ["global_id_1", "global_id_2"]`
+- A single redeploy clears all stale flags for that piston regardless of how many globals caused the stale state
+- The permission prompt shows the combined total: *"4 pistons need redeployment (2 globals changed)"*
+- The piston list banner similarly shows: *"2 globals were updated — 4 pistons need redeployment."*
+- Clicking **[Redeploy All Now]** from either the prompt or the banner always redeploies the full union of affected pistons (deduplicated)
+
+**Revert detection:**
+- If the user edits a global's device list and then edits it again in the same session to restore the original list, PistonCore does NOT auto-clear the stale flag
+- Stale flags are only cleared by a successful redeploy — not by detecting that the global value matches what it was before
+- Reason: PistonCore does not store the "before" state of a global edit, and the definition of "original" is ambiguous if the piston was last deployed at some earlier state
+- The user must redeploy to confirm the stale flag is resolved
+
+**Piston currently running when redeploy is triggered:**
+- Check piston run status before initiating redeploy for that piston
+- If piston is actively running (HA script is executing): wait up to 30 seconds for it to finish, then redeploy
+- If piston mode is `restart`: proceed with redeploy immediately (restart mode handles this natively in HA)
+- If piston is still running after 30 seconds: show ✗ with message: *"Skipped — piston was running. Retry manually."*
+- Never forcibly kill a running piston
 
 ### 7.2 Piston Variables
 

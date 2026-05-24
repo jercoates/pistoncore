@@ -1,10 +1,11 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 56 complete (D-S1) — DESIGN.md v1.2: Architecture Pivot section
-added, device_map references marked superseded, fat compiler context corrected,
-has_missing_devices retired, MISSING_SPECS.md Item 21 added.
-Next: W-S8 (wizard coding)
+**Last Updated:** Session 57 complete — full spec audit. DESIGN.md v1.3, STATEMENT_TYPES.md v2.1,
+WIZARD_SPEC.md v2.1, COMPILER_SPEC.md v1.3, PYSCRIPT_COMPILER_SPEC.md v1.1, HA_LIMITATIONS.md,
+MISSING_SPECS.md updated. for_each entity_ids locked. Startup sequence specced.
+Snapshot import flow specced. Multi-entity HA behavior confirmed and documented.
+Next: W-S8 (wizard coding) — upload list updated below.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -68,27 +69,38 @@ future session before the session closes. Never leave a gap unassigned.
 ### D-S1: DESIGN.md — Architecture Pivot Update ✅ (Session 56)
 
 **Completed — see DESIGN.md v1.2.**
-
-Changes made:
-- Architecture Pivot section added at top of document (what changed, which sections superseded, where to find current specs)
-- Sections 6.1, 6.2, 6.3, 6.4, 6.5, 15.6 marked ⚠ SUPERSEDED with redirects to PISTON_FORMAT.md v2.1 / COMPILER_SPEC.md v1.2
-- Fat compiler context object (Section 14) — device_map field removed, now matches COMPILER_SPEC.md v1.2 Section 7
-- has_missing_devices flag retired (documented in Architecture Pivot section)
-- Core philosophy and write-a-piston.md spec references updated
-- Session 55 and Session 56 entries added to Development Log
-- MISSING_SPECS.md Item 21 (Snapshot import flow) — add this when MISSING_SPECS.md is next updated
-
-**Gaps resolved by this session:**
-- GAP-S55-1: DESIGN.md stale → CLOSED
-- GAP-S55-2: Fat compiler context device_map field → CLOSED
-- GAP-S55-4: has_missing_devices flag status → CLOSED (retired)
-
-**Still open:**
-- GAP-S55-3 → MISSING_SPECS.md Item 21: Snapshot import flow needs redesign spec (add to MISSING_SPECS.md in next convenient session)
+GAP-S55-1, GAP-S55-2, GAP-S55-4 closed. GAP-S55-3 resolved in Session 57.
 
 ---
 
+### D-S2: Full Spec Audit ✅ (Session 57)
 
+**Completed — all spec files updated.**
+
+- DESIGN.md → v1.3: Sections 8, 9.1, 9.2, 6.10, 6.11, 13, 16, 26, 32, 34 updated.
+  Multi-entity HA native support confirmed and documented. Startup sequence fully specced.
+  Snapshot import flow redesigned for logic_version 2. Orphan handling corrected (flag, never auto-delete).
+  Unavailable ≠ missing distinction documented.
+- STATEMENT_TYPES.md → v2.1: Action schema updated (role+entity_ids). for_each updated
+  (list_role retired, entity_ids on node). Condition schema updated (entity_ids field added).
+  on_event condition example updated.
+- WIZARD_SPEC.md → v2.1: W-2-foreach specced with entity_ids. Globals picker section
+  updated (no longer deferred). Multi-select behavior updated for globals.
+- COMPILER_SPEC.md → v1.3: Trigger compilation uses entity_ids array (no expansion).
+  Action compilation uses entity_ids array (no expansion). for_each reads entity_ids from node.
+- PYSCRIPT_COMPILER_SPEC.md → v1.1: Section 5 rewritten (entity_ids on nodes, no device_map).
+  All handlers updated. Verification example updated to logic_version 2.
+- HA_LIMITATIONS.md: Multi-entity native support documented. Entity ID changes updated.
+  Handled items list updated.
+- MISSING_SPECS.md: Item 21 resolved. Items 22 and 23 added.
+
+**Gaps opened this session — all assigned:**
+- GAP-S57-1 → MISSING_SPECS Item 22: Piston variable `devices` type W-7 multi-select unspecced
+- GAP-S57-2 → MISSING_SPECS Item 23: for_each with piston variable list source unspecced (v1 recommendation: inline only)
+- GAP-S57-3 → Spec session before AI prompt work: AI_PROMPT_SPEC.md entirely written against old device_map model — must be rewritten before write-a-piston.md is written
+- GAP-S57-4 → B-1 or before: MISSING_SPECS.md Items 7 and 8 reference device_map/device_map_meta terminology — update before storage/missing-device handler is coded
+
+---
 
 **Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
 Update `_saveDeviceCmd` to write the new action node format:
@@ -96,45 +108,55 @@ Update `_saveDeviceCmd` to write the new action node format:
 - `entity_ids` = array of real HA entity IDs
 - Remove any call to `registerDeviceRole` (goes away with device_map)
 - `ha_service` = `domain + "." + command`
-See WIZARD_SPEC.md v2.0 Screen W-6 Action Node JSON output for exact schema.
+See WIZARD_SPEC.md v2.1 Screen W-6 Action Node JSON output for exact schema.
 
 **Step 1 — Remove registerDeviceRole from editor.js**
 Once wizard-action.js is updated, `registerDeviceRole()` is dead code. Remove it.
 
 **Step 2 — Verify wizard-condition.js entity_ids output matches new spec**
 Confirm `_buildConditionNode` writes `role` + `entity_ids` (not just role name).
-Reference: WIZARD_SPEC.md v2.0 Screen W-4 Condition JSON output.
+Reference: WIZARD_SPEC.md v2.1 Screen W-4 Condition JSON output.
 
-**Step 3 — GAP-S45-4 — Role mapping end-to-end smoke test**
+**Step 3 — Wire globals into device picker**
+WIZARD_SPEC.md v2.1 now defines how global Device/Devices variables appear in the
+picker. wizard-core.js needs to load and display globals from the globals API in the
+picker sections. Entity_ids resolved at commit time, written to node.
+
+**Step 4 — GAP-S45-4 — Role mapping end-to-end smoke test**
 Build one real piston with real HA devices. Verify entity_ids populated on all nodes.
 
-**Step 4 — GAP-S44-1 (if time):** Group condition editing
+**Step 5 — GAP-S44-1 (if time):** Group condition editing
 
 **Upload for this session:**
 wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
 wizard-loops.js, wizard-statement.js, editor.js, list.js,
-WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
----
-
-### B-1: Backend — compiler.py Entity IDs Direct Read + MISSING_ENTITY Validation
+WIZARD_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 **This is a backend-only session. No frontend changes.**
 
 **What to implement:**
-1. Remove all `device_map` lookup from `compiler.py`
-2. Read `entity_ids` directly from condition nodes (everywhere `role` was used for lookup)
-3. Read `entity_ids` directly from action nodes (everywhere `devices[]` was used for lookup)
-4. Implement `resolve_entities()` per COMPILER_SPEC.md v1.2 Section 8
-5. Add `MISSING_ENTITY` compiler error per COMPILER_SPEC.md v1.2 Section 13
-6. Add entity validation as Stage 2 in pre-deploy pipeline per Section 15
+1. Remove all `device_map` / `list_role` lookup from `compiler.py`
+2. Read `entity_ids` directly from condition nodes
+3. Read `entity_ids` directly from action nodes
+4. Read `entity_ids` directly from for_each nodes (list_role retired)
+5. Implement `resolve_entities()` per COMPILER_SPEC.md v1.3 Section 8
+6. Add `MISSING_ENTITY` compiler error per COMPILER_SPEC.md v1.3 Section 13
+7. Add entity validation as Stage 2 in pre-deploy pipeline per Section 15
+8. Multi-entity triggers: pass entity_ids array directly — do NOT expand per entity
+9. Multi-entity actions: pass entity_ids array directly — do NOT emit one block per entity
+10. for_each: write entity_ids list inline in YAML — no lookup needed
 
-**Reference:** COMPILER_SPEC.md v1.2 Sections 8, 9.3, 10.2, 11, 13, 15
-PISTON_FORMAT.md v2.1 Condition Object Schema and Action Node Schema
+**Also in this session:**
+- Update MISSING_SPECS.md Items 7 and 8 to remove device_map/device_map_meta language
+  (GAP-S57-4)
+- Clarify for_each list_role resolution note in COMPILER_SPEC.md (GAP-S55-5)
+
+**Reference:** COMPILER_SPEC.md v1.3 Sections 8, 9.3, 10.2, 11, 13, 15
+PISTON_FORMAT.md v2.1, STATEMENT_TYPES.md v2.1
 
 **Upload for this session:**
 compiler.py, context_builder.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -159,9 +181,12 @@ api.py, list.js, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### G-4: Editor + Wizard — Wire Globals Throughout
 
+**Blocked by MISSING_SPECS.md Item 24** — global device edit redeploy prompt must
+be specced before this session starts. Read Item 24 and resolve it first.
+
 **Upload for this session:**
 wizard-core.js, wizard-condition.js, wizard-action.js, editor.js,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+WIZARD_SPEC.md, MISSING_SPECS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -212,6 +237,24 @@ Only attempt once W-S7b and W-S8 pass and globals G-1/G-2/G-2b are complete.
 ---
 
 ## DONE — Completed Sessions
+
+### Session 57 — D-S2: Full Spec Audit ✅
+DESIGN.md → v1.3: startup sequence (Sections 9.1/9.2), multi-entity HA native support
+  (Section 8), Snapshot format v2 (Section 6.10), import flow redesigned (Section 6.11),
+  manual edit detection expanded (Section 13), orphan scan corrected—flag not delete
+  (Sections 9.1/16), piston_index.json added (Section 26), open items updated (Section 32).
+STATEMENT_TYPES.md → v2.1: action schema (role+entity_ids), for_each schema (entity_ids
+  on node, list_role retired), condition schema (entity_ids field added), on_event updated.
+WIZARD_SPEC.md → v2.1: W-2-foreach specced with entity_ids, globals picker specced
+  (no longer deferred), multi-select behavior updated for globals.
+COMPILER_SPEC.md → v1.3: trigger/action use entity_ids arrays (no expansion), for_each
+  reads entity_ids from node directly.
+PYSCRIPT_COMPILER_SPEC.md → v1.1: Section 5 rewritten (entity_ids on nodes), all
+  handlers updated, verification example updated to logic_version 2.
+HA_LIMITATIONS.md: multi-entity native support confirmed and documented, entity ID
+  changes updated, handled items list updated.
+MISSING_SPECS.md: Item 21 resolved, Items 22/23 added.
+GAP-S55-3, GAP-S55-5 closed. GAP-S57-1 through GAP-S57-4 opened and assigned.
 
 ### Session 56 — D-S1: DESIGN.md Architecture Pivot Update ✅
 DESIGN.md → v1.2: Architecture Pivot section added at top. Sections 6.1, 6.2, 6.3, 6.4,
@@ -272,26 +315,36 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
 ## Open Gaps — All Assigned
 
 ### GAP-S55-1 → CLOSED (Session 56 / D-S1): DESIGN.md stale — contradicts entity_ids model
-  Architecture Pivot section added. Superseded sections marked. DESIGN.md v1.2.
+### GAP-S55-2 → CLOSED (Session 56 / D-S1): Fat compiler context object still shows device_map
+### GAP-S55-3 → CLOSED (Session 57 / D-S2): Snapshot import flow — resolved in DESIGN.md Sections 6.10/6.11
+### GAP-S55-4 → CLOSED (Session 56 / D-S1): has_missing_devices flag retired
+### GAP-S55-5 → CLOSED (Session 57 / D-S2): for_each list_role — retired. entity_ids on node. COMPILER_SPEC.md v1.3 updated.
 
-### GAP-S55-2 → CLOSED (Session 56 / D-S1): Fat compiler context object in DESIGN.md still shows device_map field
-  Section 14 corrected. Now matches COMPILER_SPEC.md v1.2 Section 7.
+### GAP-S57-1 → CLOSED (Session 57): Piston variable `devices` type W-7 multi-select
+  Resolved in WIZARD_SPEC.md v2.1 and PISTON_FORMAT.md v2.2.
+  W-7 uses full multi-select device picker for `devices` type. default_value is
+  `{ "role": "label", "entity_ids": [...] }` object, same pattern as action/condition nodes.
 
-### GAP-S55-3 → MISSING_SPECS.md Item 21: Snapshot import flow undefined under new model
-  Old model: import populated device_map from role placeholders.
-  New model: roles are on individual nodes — import flow needs redesign.
-  What happens when a Snapshot is imported and entity_ids need to be mapped?
-  Add to MISSING_SPECS.md as Item 21 and spec before S2-3 (Snapshot Export) is built.
+### GAP-S57-2 → CLOSED (Session 57): for_each with piston variable list source
+  Decision: NOT supported in v1. for_each always requires inline entity_ids on the node.
+  HA native script requires static list at compile time — runtime variable reference impossible.
+  Documented in WIZARD_SPEC.md v2.1 W-7 and PISTON_FORMAT.md v2.2. V2 feature.
 
-### GAP-S55-4 → CLOSED (Session 56 / D-S1): has_missing_devices flag — status unclear
-  Documented in Architecture Pivot section as retired. Remove from any code that reads/writes it.
+### GAP-S57-5 → MISSING_SPECS Item 24 + G-4: Global device edit redeploy prompt unspecced
+  When a user saves changes to a Device/Devices global, PistonCore must prompt for
+  permission to redeploy all pistons that baked that global's entity_ids at compile time.
+  DESIGN.md Section 7.1 now has the core flow. Full UX spec (progress modal, banner,
+  stale flag lifecycle) is in MISSING_SPECS.md Item 24 — must be resolved before G-4 is coded.
 
-### GAP-S55-5 → COMPILER_SPEC.md: for_each list_role resolution needs clarification
-  COMPILER_SPEC.md Section 10.2 for_each example uses "list_role" but the explanation
-  of how compiler resolves it from global_variables is buried. Add a clear note
-  immediately after the for_each example explaining the lookup path.
-  Fix in B-1 session when compiler.py is being updated — minor clarification only.
+### GAP-S57-3 → AI prompt spec session (before S4-10): AI_PROMPT_SPEC.md stale
+  Entire output format section references device_map/device_map_meta — wrong for
+  logic_version 2. Must be rewritten before write-a-piston.md is written.
+  Not blocking any current session. Block S4-10 until this is done.
 
+### GAP-S57-4 → B-1: MISSING_SPECS.md Items 7 and 8 reference device_map terminology
+  Item 7 (SQLite schema) says device_state_cache tracks device_map entities.
+  Item 8 references device_map_meta cardinality. Both need updating before
+  storage/missing-device handler is coded in B-1.
 
 ### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
 ### GAP-S34-1 → S4-16: _compile_single_condition has no warnings param
@@ -306,17 +359,11 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
 ### GAP-S47-1 → S4-16: Structure line --block-left position needs fine-tuning
 ### GAP-S50-1 → S3-1: compiler does not handle device initial_value disambiguation
 ### GAP-S30-3 → S4-16: Double config load per compile call
-### GAP-S51-1 → CLOSED (Session 52): _goBlockConfirm scopes wizard without close/reopen
-### GAP-S52-1 → CLOSED (Session 53): insertStatement condition fallthrough fixed.
-  _replaceCondition() and _removeConditionNode() added. registerDeviceRole() added to Editor API.
-### GAP-S52-2 → W-S7b: Action wizard device search missing / stale sel state after
-  scoped wizard flow. May be pre-existing or caused by sel reset in scoped context.
-  Investigate with fresh piston before assuming regression.
-### GAP-S52-3 → W-S7b: Add task button not working in some action wizard flows.
-  May be pre-existing from wizard split. Needs editor.js + wizard-action.js review.
-### GAP-S53-1 → W-S8: Deleting a condition inside a block fails silently
-  FIXED in Session 53 — _removeConditionNode() added to deleteStatement path.
-  Conditions inside if/while/repeat/on_event blocks can now be deleted.
+### GAP-S51-1 → CLOSED (Session 52)
+### GAP-S52-1 → CLOSED (Session 53)
+### GAP-S52-2 → W-S8: Action wizard device search missing / stale sel state
+### GAP-S52-3 → W-S8: Add task button not working in some action wizard flows
+### GAP-S53-1 → CLOSED (Session 53)
 
 ### GAP-S53-2 → W-S8: Attribute dropdown empty for real devices
   wizard-condition.js _loadCapsIntoSelect calls API.getDeviceCapabilities — method

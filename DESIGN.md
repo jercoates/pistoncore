@@ -676,12 +676,85 @@ This model was a deliberate decision. Device globals being compile-time eliminat
 
 **Stale piston tracking for Device/Devices globals:**
 
-PistonCore tracks which pistons reference each Device or Devices global. When the device list changes, PistonCore flags affected pistons as stale and shows a banner on the piston list page:
+PistonCore tracks which pistons reference each Device or Devices global via
+`/pistoncore-userdata/globals_index.json` — a map of global variable ID to the list
+of piston IDs that reference it. Updated on every successful compile.
 
-*"'Smoke Detectors' was updated — 3 pistons need redeployment to pick up your changes."*
+### Global Device Edit — Save Flow
+
+When the user saves changes to a Device or Devices global (adds, removes, or replaces
+any entity in the list), PistonCore must:
+
+**Step 1 — Check the index**
+Look up the global's ID in `globals_index.json`. Get the list of piston IDs that
+reference it.
+
+**Step 2 — If no pistons reference this global**
+Save and close. No prompt needed.
+
+**Step 3 — If one or more pistons reference this global**
+Save the global change first. Then immediately show a permission prompt — do not
+proceed without user acknowledgement:
+
+> **"[Global name]" was updated**
+> *[N] piston(s) bake this device list at deploy time and are now running with the
+> old list. Redeploy them now to pick up the change?*
+>
+> **[Redeploy All Now]** — redeploy all affected pistons immediately, in sequence.
+> If a piston is currently running, wait for it to finish before redeploying (or
+> restart-mode pistons will be restarted).
+>
+> **[I'll Do It Later]** — close the prompt. Affected pistons are flagged stale
+> on the piston list. The user can redeploy individually or in bulk later.
+>
+> **[Show Me Which Pistons]** — expand the prompt to list piston names before
+> committing to redeploy.
+
+**Never auto-redeploy without user permission.** The user may be editing globals
+at an inconvenient time and a mass redeploy could interrupt running automations.
+
+### Stale Flag — How It Looks
+
+Pistons flagged stale due to a global device change show on the piston list with:
+- ⚠ indicator on the piston row
+- Tooltip/subtitle: *"Device list outdated — global '[name]' was changed"*
+- This is distinct from `entity_missing` (entity gone from HA) and `manually_edited`
+  (compiled file was hand-edited)
+
+The `piston_index.json` entry gets a `stale_globals: ["global_id_1"]` field listing
+which globals caused the stale state. Cleared when the piston is successfully redeployed.
+
+### Redeploy All Flow
+
+When the user chooses **[Redeploy All Now]** (from the prompt or from the piston list
+banner):
+
+1. Show a progress modal: *"Redeploying 3 pistons..."*
+2. Redeploy each affected piston in sequence (not parallel — avoids HA reload race conditions)
+3. For each piston:
+   - Compile → yamllint → deploy → reload
+   - If success: mark piston as no longer stale, show ✓ in progress modal
+   - If failure: show ✗ with the error, continue with remaining pistons
+4. When all done: summary — *"3 redeployed, 0 failed"* or *"2 redeployed, 1 failed — see details"*
+5. User can retry failed pistons individually from the piston list
+
+### Piston List Banner
+
+When any pistons are stale due to global changes, show a persistent banner at the
+top of the piston list (below the HA connection status):
+
+*"'[Global name]' was updated — [N] pistons need redeployment."*
 `[Redeploy All]` `[Review]`
 
-PistonCore maintains a persistent index at `/pistoncore-userdata/globals_index.json` mapping each global variable ID to the list of piston IDs that reference it. Updated on every successful compile.
+If multiple globals were changed and each affects different pistons, group by global:
+
+*"2 globals were updated — [N] pistons total need redeployment."*
+`[Redeploy All]` `[Review]`
+
+### Full Spec
+
+Full UX flow, progress modal layout, and error handling are in MISSING_SPECS.md Item 24.
+That item must be resolved before the globals edit UI (G-4) is built.
 
 ### 7.2 Piston Variables
 
@@ -1729,7 +1802,9 @@ Full export including entity mappings. Labeled clearly: *"For your own restore o
   piston_index.json           lightweight index of all pistons — rebuilt on startup and
                               updated on every save/delete. Piston list reads this, not raw files.
                               Fields per entry: id, name, compile_target, logic_version,
-                              enabled, folder, manually_edited, entity_missing, last_compiled_at
+                              enabled, folder, manually_edited, entity_missing, last_compiled_at,
+                              stale_globals (array of global IDs whose device list changed
+                              since last deploy — empty array if current)
   globals.json                global variable definitions (reference list)
   globals_index.json          piston-to-global reference index (auto-maintained)
   pistoncore.db               SQLite database — run log, entity state cache, compile index

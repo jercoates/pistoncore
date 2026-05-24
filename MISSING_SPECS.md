@@ -536,38 +536,71 @@ Backup import: entity_ids already populated, skip role mapping dialog entirely.
 
 ---
 
-## 22. Piston Variable `devices` Type — Wizard W-7 Multi-Select — MISSING
+## 22. Piston Variable `devices` Type — Wizard W-7 Multi-Select — RESOLVED (Session 57)
 
-**Blocks:** W-S8 wizard coding for piston variables
-**Needs to be written before:** Piston variable `devices` type is implemented in W-7
-**What it must cover:**
-- When var_type is `devices` (plural), the initial value picker must be a multi-select device picker — same picker as W-5/W-4, not a single-select
-- How are the selected entity_ids stored on the variable? Does the `initial_value` field become an array of entity_ids? Or is it stored as a role+entity_ids pair?
-- How does the editor render a `devices` variable initial value? List of friendly names?
-- How does the compiler handle a `devices` piston variable? Inline list baked at compile time, same as action node entity_ids?
-- How does the user reference `$myDevices` in a condition or action — does it expand to multiple targets?
+**Resolved in WIZARD_SPEC.md v2.1 and PISTON_FORMAT.md v2.2.**
 
-**Reference:** STATEMENT_TYPES.md W-7 variable schema, PISTON_FORMAT.md variable types table.
+W-7 uses full multi-select device picker when var_type is `devices`. `default_value`
+is `{ "role": "display label", "entity_ids": ["entity.id", ...] }` — same pattern as
+action and condition nodes. Entity_ids captured from live HA at commit time.
 
 ---
 
-## 23. for_each Piston Variable `devices` as List Source — MISSING
+## 23. for_each Piston Variable `devices` as List Source — RESOLVED (Session 57)
 
-**Blocks:** for_each where the list comes from a piston variable rather than inline entity_ids
-**Needs to be written before:** for_each with piston variable list source is implemented
-**What it must cover:**
-- Can a for_each loop over a piston `devices` variable instead of an inline entity_ids list?
-- If so, how is this represented in the JSON? A separate `list_variable` field alongside `entity_ids`?
-- At compile time, if the source is a piston variable, the entity_ids are not known at compile time (piston variables are runtime values). Does this force PyScript?
-- Or is the rule simpler: for_each always requires an inline entity_ids list, and piston `devices` variables cannot be used as for_each list sources in v1?
+**Decision: NOT supported in v1. Inline entity_ids only.**
 
-**Recommended decision for v1:** Require inline entity_ids on for_each (as specced in STATEMENT_TYPES.md v2.1). Piston `devices` variables as for_each list sources are a v2 feature. This keeps the compiler simple — the list is always static and known at compile time.
-
-**Reference:** STATEMENT_TYPES.md Section 6 (for_each schema), DESIGN.md Section 7 (variable types).
+HA native script `repeat: for_each:` requires a static list in the YAML. A runtime
+variable reference is impossible. Documented in WIZARD_SPEC.md v2.1 W-7 and
+PISTON_FORMAT.md v2.2. V2 feature if needed.
 
 ---
 
-## DONE
+## 24. Global Device Edit — Redeploy Prompt and Progress Flow — MISSING
+
+**Blocks:** G-4 (globals editor wiring), any globals UI edit implementation
+**Needs to be written before:** G-4 is coded
+**What it must cover:**
+
+### Permission Prompt
+- Exact layout of the prompt shown when a Device/Devices global is saved and
+  dependent pistons exist
+- "Show me which pistons" expansion — what does the piston list look like inside
+  the prompt? Name, folder, last deployed time?
+- What if a piston in the list has never been deployed? (No compiled file exists —
+  nothing to go stale. Still show it in the list? Still prompt?)
+- What if a piston in the list is currently disabled? (Still flag stale? Still
+  offer to redeploy?)
+- What if a piston references the global but has already been flagged for a
+  different stale reason? (Merge stale flags — don't overwrite)
+
+### Redeploy All Progress Modal
+- Exact layout — piston names, progress indicators (pending/running/success/failed)
+- What if the user closes the modal mid-redeploy? Does it continue in the background
+  or stop?
+- What if HA is disconnected when redeploy starts? Block and show error, or queue?
+- Order of redeploy — alphabetical? By folder? User-reorderable?
+
+### Piston List Banner
+- Exact banner text for single global vs multiple globals changed
+- Banner dismissible? Or only clears when all affected pistons are redeployed?
+- "Review" button — opens a filtered piston list view? Or a modal?
+- Where does the banner appear relative to other banners (HA disconnected, etc.)?
+  Priority order between banners must be defined.
+
+### Stale Flag Lifecycle
+- When is `stale_globals` set on a piston? (When global saved with changes)
+- When is it cleared? (Only on successful redeploy of that piston)
+- If a piston is deleted while stale, does the stale flag matter? (No — clean up index entry)
+- If the global itself is deleted after flagging pistons stale, what happens?
+  (Clear stale_globals for that global ID — the reference is gone, no redeploy needed)
+- If the user reverts the global change (puts the same entities back), should stale
+  pistons be un-flagged? (Probably yes — compare entity_ids before and after save)
+
+**Reference:** DESIGN.md Section 7.1 (stale piston tracking), Section 26 (piston_index.json
+stale_globals field). globals_index.json (which pistons reference which global).
+
+---
 
 ### Item 1 — PyScript Compiler Spec (Session 24)
 PYSCRIPT_COMPILER_SPEC.md written. All 6 gaps resolved. Status: READY TO CODE.
@@ -581,6 +614,14 @@ context_builder.py created. build_compiler_context(piston) implemented.
 ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
 get_ha_version() added. api.py _compile() stub replaced with real context.
 _get_app_version() removed (dead code after _compile() rewrite).
+
+### Item 22 — Piston Variable `devices` Type W-7 Multi-Select (Session 57)
+Resolved in WIZARD_SPEC.md v2.1 and PISTON_FORMAT.md v2.2. Multi-select picker,
+default_value as role+entity_ids object.
+
+### Item 23 — for_each Piston Variable List Source (Session 57)
+Decision: not supported in v1. Inline entity_ids only. Documented in WIZARD_SPEC.md
+v2.1 and PISTON_FORMAT.md v2.2.
 
 ### Item 21 — Snapshot Import Flow Logic Version 2 (Session 57)
 Resolved in DESIGN.md v1.3 Sections 6.10 and 6.11. Role-based mapping dialog, entity_ids

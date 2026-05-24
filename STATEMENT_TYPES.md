@@ -1,8 +1,9 @@
 # PistonCore — Statement Types Reference
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** Authoritative — Required reference before compiler or wizard coding
-**Last Updated:** May 2026 (Session 35 — nested tree model)
+**Last Updated:** May 2026 (Session 57 — action schema updated to role+entity_ids,
+  for_each list_role replaced with role+entity_ids, condition schema updated with entity_ids)
 
 This document defines every statement type PistonCore supports. For each type it specifies:
 1. The structured JSON schema the wizard writes
@@ -71,7 +72,8 @@ This is consistent with the nested tree model — everything is embedded.
   "id": "stmt_001",
   "type": "action",
   "async": false,
-  "devices": ["role_name"],
+  "role": "Living Room Light",
+  "entity_ids": ["light.living_room"],
   "tasks": [
     {
       "id": "task_001",
@@ -81,7 +83,7 @@ This is consistent with the nested tree model — everything is embedded.
       "parameters": {
         "brightness_pct": 75
       },
-      "mode_restriction": []
+      "description": null
     }
   ],
   "description": null,
@@ -91,9 +93,32 @@ This is consistent with the nested tree model — everything is embedded.
 
 **Fields:**
 - `async` — boolean, default false. If true renders as `async with`
-- `devices` — array of role names from device_map
+- `role` — human-readable label shown in the editor (e.g. `"Living Room Light"`). Display only. Written at wizard commit time. Never used for compilation.
+- `entity_ids` — array of real HA entity IDs. Written at wizard commit time from the live device picker selection. Always an array, even for a single device. The compiler reads this directly — it never looks up a role name. Multi-device example: `["light.living_room", "light.kitchen", "light.hallway"]`
 - `tasks` — array of task objects embedded directly in the action node (see task schema below)
-- `mode_restriction` — array of HA mode IDs, empty = no restriction
+
+**Multi-device example:**
+```json
+{
+  "id": "stmt_001",
+  "type": "action",
+  "async": false,
+  "role": "Downstairs Lights",
+  "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"],
+  "tasks": [
+    {
+      "id": "task_001",
+      "command": "turn_on",
+      "domain": "light",
+      "ha_service": "light.turn_on",
+      "parameters": { "brightness_pct": 100 },
+      "description": null
+    }
+  ],
+  "description": null,
+  "disabled": false
+}
+```
 
 ### Task Schema
 
@@ -136,6 +161,7 @@ Single task shorthand (when only one task and no restrictions):
 
 ### Compiler Output
 
+Single device:
 ```yaml
 - alias: "stmt_001"
   action: light.turn_on
@@ -145,6 +171,22 @@ Single task shorthand (when only one task and no restrictions):
     brightness_pct: 75
   continue_on_error: true
 ```
+
+Multi-device — entity_ids array passed directly to target (HA handles all entities simultaneously):
+```yaml
+- alias: "stmt_001"
+  action: light.turn_on
+  target:
+    entity_id:
+      - light.living_room
+      - light.kitchen
+      - light.hallway
+  data:
+    brightness_pct: 75
+  continue_on_error: true
+```
+
+The compiler always emits `target.entity_id` as a list when `entity_ids` has more than one entry. Single-entity pistons may use a scalar string for readability — both forms are valid HA YAML.
 
 ---
 
@@ -408,7 +450,8 @@ repeat only supports count-based loops.
   "type": "for_each",
   "async": false,
   "variable": "$device",
-  "list_role": "SmokeDetectors",
+  "role": "Smoke Detectors",
+  "entity_ids": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "statements": [],
   "description": null,
   "disabled": false
@@ -416,15 +459,38 @@ repeat only supports count-based loops.
 ```
 
 **Fields:**
+- `variable` — the loop variable name (with `$` prefix). On each iteration, `$device` holds the current entity_id string.
+- `role` — human-readable label shown in the editor. Display only. Never used by the compiler.
+- `entity_ids` — array of real HA entity IDs to iterate over. Written at wizard commit time from the live device picker selection. The compiler uses this list directly — no lookup, no runtime resolution.
 - `statements` — array of child statement objects embedded directly (nested tree model)
+
+**The same rule as action and condition nodes:** entity_ids are captured from the live HA device picker at wizard commit time and stored directly on the node. If the user picks a global Devices variable in the picker, its entity_ids are resolved and written inline at that moment. The compiled YAML always has a static list.
+
+Inside the loop body, `$device` holds the current entity_id and can be referenced in actions:
+```json
+{
+  "id": "task_001",
+  "command": "turn_on",
+  "domain": "light",
+  "ha_service": "light.turn_on",
+  "parameters": {},
+  "description": null
+}
+```
+The compiler emits `target.entity_id: "{{ repeat.item }}"` for actions inside a for_each body.
 
 ### Editor Render
 
 ```
-for each ($device in {SmokeDetectors})
+for each ($device in {Smoke Detectors})
 do
   [statements]
 end for each;
+```
+
+The role label is shown in curly braces. The entity count is shown as a subtitle when the block is collapsed:
+```
+for each ($device in {Smoke Detectors})  ← 2 devices
 ```
 
 ### Compiler Output
@@ -436,8 +502,10 @@ end for each;
       - sensor.smoke_detector_basement
       - sensor.smoke_detector_kitchen
     sequence:
-      [compiled statements]
+      [compiled statements — actions use target.entity_id: "{{ repeat.item }}"]
 ```
+
+The compiler writes the `entity_ids` array directly into `for_each:`. No lookup required.
 
 ---
 
@@ -628,8 +696,9 @@ always be emitted when compiling an `on_event` statement, regardless of context.
     {
       "id": "cond_001",
       "is_trigger": true,
-      "aggregation": "any",
       "role": "Doors",
+      "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
+      "aggregation": "any",
       "attribute": "contact",
       "attribute_type": "binary",
       "device_class": "door",
@@ -1040,20 +1109,30 @@ The same schema is used for both triggers (`is_trigger: true`) and conditions
 {
   "id": "cond_001",
   "is_trigger": false,
-  "aggregation": "any",
   "role": "Doors",
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
+  "aggregation": "any",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
   "operator": "changes to",
   "display_value": "Open",
   "compiled_value": "on",
+  "value_to": null,
   "duration": null,
   "duration_unit": null,
   "group_operator": "and",
-  "subscription_method": "auto"
+  "interaction": "any"
 }
 ```
+
+**Fields:**
+- `role` — human-readable label shown in the editor. Display only. Never used by the compiler.
+- `entity_ids` — array of real HA entity IDs. Written at wizard commit time from the live device picker. Always an array. The compiler reads this directly. For time/date/mode/virtual conditions: empty array `[]`.
+- `aggregation` — `"any"` / `"all"` / `"none"`. Applies when multiple entities selected. Use `"any"` for single-device conditions. Determines how the compiler generates the trigger or condition template.
+- `compiled_value` — the HA state string used by the compiler (e.g. `"on"`). Always used by the compiler, never `display_value`.
+- `display_value` — the friendly label shown in the editor (e.g. `"Open"`). For binary sensors this differs from `compiled_value`. For all other types they are the same.
+- `interaction` — `"any"` / `"physical"` / `"programmatic"`. Defaults to `"any"`.
 
 ### Time Condition
 

@@ -1,7 +1,7 @@
 # PistonCore — Missing Specs Tracker
 
 **Status:** Living document — add to this when a gap is found, remove when the spec is written
-**Last Updated:** Session 55 — Items 17–20 added
+**Last Updated:** Session 57 — Item 21 resolved (DESIGN.md Sections 6.10/6.11), Items 22–23 added
 **Purpose:** Track spec gaps that will block coding when we reach those features.
            Every item here must be resolved before its dependent task is started.
 
@@ -524,6 +524,49 @@ types grow beyond 15-20. Implement after v1 smoke test passes and compiler is st
 
 ---
 
+## 21. Snapshot Import Flow — Logic Version 2 — RESOLVED (Session 57)
+
+**Resolved in DESIGN.md v1.3 Sections 6.10 and 6.11.**
+
+Snapshot format under logic_version 2: condition and action nodes have `entity_ids: []`
+with `role` label preserved. Import flow: collect unique roles from tree → mapping dialog
+(one role at a time, multi-select picker) → populate entity_ids on all matching nodes.
+Role name uniqueness rule: same role name = same entity selection applied to all nodes.
+Backup import: entity_ids already populated, skip role mapping dialog entirely.
+
+---
+
+## 22. Piston Variable `devices` Type — Wizard W-7 Multi-Select — MISSING
+
+**Blocks:** W-S8 wizard coding for piston variables
+**Needs to be written before:** Piston variable `devices` type is implemented in W-7
+**What it must cover:**
+- When var_type is `devices` (plural), the initial value picker must be a multi-select device picker — same picker as W-5/W-4, not a single-select
+- How are the selected entity_ids stored on the variable? Does the `initial_value` field become an array of entity_ids? Or is it stored as a role+entity_ids pair?
+- How does the editor render a `devices` variable initial value? List of friendly names?
+- How does the compiler handle a `devices` piston variable? Inline list baked at compile time, same as action node entity_ids?
+- How does the user reference `$myDevices` in a condition or action — does it expand to multiple targets?
+
+**Reference:** STATEMENT_TYPES.md W-7 variable schema, PISTON_FORMAT.md variable types table.
+
+---
+
+## 23. for_each Piston Variable `devices` as List Source — MISSING
+
+**Blocks:** for_each where the list comes from a piston variable rather than inline entity_ids
+**Needs to be written before:** for_each with piston variable list source is implemented
+**What it must cover:**
+- Can a for_each loop over a piston `devices` variable instead of an inline entity_ids list?
+- If so, how is this represented in the JSON? A separate `list_variable` field alongside `entity_ids`?
+- At compile time, if the source is a piston variable, the entity_ids are not known at compile time (piston variables are runtime values). Does this force PyScript?
+- Or is the rule simpler: for_each always requires an inline entity_ids list, and piston `devices` variables cannot be used as for_each list sources in v1?
+
+**Recommended decision for v1:** Require inline entity_ids on for_each (as specced in STATEMENT_TYPES.md v2.1). Piston `devices` variables as for_each list sources are a v2 feature. This keeps the compiler simple — the list is always static and known at compile time.
+
+**Reference:** STATEMENT_TYPES.md Section 6 (for_each schema), DESIGN.md Section 7 (variable types).
+
+---
+
 ## DONE
 
 ### Item 1 — PyScript Compiler Spec (Session 24)
@@ -538,6 +581,10 @@ context_builder.py created. build_compiler_context(piston) implemented.
 ha_client.py: get_all_states(), get_services_for_domains(), get_areas(),
 get_ha_version() added. api.py _compile() stub replaced with real context.
 _get_app_version() removed (dead code after _compile() rewrite).
+
+### Item 21 — Snapshot Import Flow Logic Version 2 (Session 57)
+Resolved in DESIGN.md v1.3 Sections 6.10 and 6.11. Role-based mapping dialog, entity_ids
+population on all matching nodes, backup import bypass, role uniqueness rule all specced.
 
 ---
 

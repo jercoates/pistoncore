@@ -1,8 +1,9 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 55 — combined specs, entity_ids on nodes, device_map eliminated)
+**Last Updated:** May 2026 (Session 57 — for_each uses role+entity_ids, globals picker
+  specced and no longer deferred, multi-select behavior updated)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
@@ -165,9 +166,9 @@ const filtered = raw.filter(d => {
 ─ Physical Devices ─────────────────
   [area grouped + filtered + deduplicated HA entities]
 ─ Local Variables (Device type) ────
-  [$varName — filtered to var_type === 'device']
+  [$varName — filtered to var_type === 'device' or 'devices']
 ─ Global Variables (Device type) ───
-  [@globalName — deferred until globals implemented]
+  [@globalName — filtered to type === 'Device' or 'Devices' from globals.json]
 ─ System Variables ─────────────────
   [$currentEventDevice]
   [$previousEventDevice]
@@ -176,14 +177,19 @@ const filtered = raw.filter(d => {
   [$location]
 ```
 
+**Global Variables section:** Now implemented (Sessions 48–50). Shows all globals of type `Device` or `Devices` from `globals.json`. When the user selects a global variable from this section, the wizard resolves its `entity_ids` from live HA state at commit time and writes them directly to the node — same as selecting physical devices. The global name becomes the `role` label. This means changes to the global's device list in the future require reopening the wizard and recommitting to pick up the new entities.
+
 Demo devices shown when no HA connection or as fallback.
 
 ### Multi-Select Behavior
 
 - Virtual devices: single-select, clicking immediately advances to next screen
 - Physical devices: multi-select (aggregation bar appears when >1 selected)
-- Piston variables: multi-select
+- Local variables (device type): multi-select
+- Global variables (Device/Devices type): single-select per global, but multiple globals can be selected together or mixed with physical devices. All selected entity_ids are merged into one flat array at commit time.
 - System variables: single-select
+
+**The aggregation bar** appears whenever more than one entity_id will be written to the node — whether from multiple physical devices, multiple globals, or a mix. The user picks any/all/none before committing.
 
 ### Search
 
@@ -262,7 +268,9 @@ JSON output:
 
 ### W-2-foreach: For Each Loop Detail
 
-Fields: Counter variable (optional), List of devices (device picker)
+Fields:
+- **Loop variable** — text input with `$` prefix enforced (e.g. `$device`). Default: `$device`
+- **Devices to loop over** — full device picker (same as W-5, multi-select). User can select any combination of physical devices and/or global Devices variables. If a global Devices variable is selected, its entity_ids are resolved from live HA data at commit time and written directly to the node — not stored as a reference.
 
 Footer: `← Back` | `Add a statement` (inserts node, closes)
 
@@ -273,12 +281,15 @@ JSON output:
   "type": "for_each",
   "async": false,
   "variable": "$device",
-  "list_role": "SmokeDetectors",
+  "role": "Smoke Detectors",
+  "entity_ids": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "statements": [],
   "description": null,
   "disabled": false
 }
 ```
+
+`role` is the label the user sees in the editor — either the friendly name(s) of the selected devices, a global variable name, or a mix. `entity_ids` is always the resolved list of real HA entity IDs captured at commit time.
 
 ### W-2-exit: Exit Detail
 

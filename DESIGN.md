@@ -1,8 +1,8 @@
 # PistonCore Design Document
 
-**Version:** 1.5
+**Version:** 1.6
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 61 — Section 7.1 expanded: global naming convention, maintenance strategy, sample piston global reference rules, name validation rules all moved from MISSING_SPECS Item 10)
+**Last Updated:** May 2026 (Session 62 — Section 9.2 expanded: entity state subscription vs polling decision; MISSING_SPECS Item 25 resolved)
 
 ---
 
@@ -1013,6 +1013,33 @@ Re-run Step 3 from Section 9.1 whenever HA WebSocket reconnects. Updates the orp
 ### Piston Index Rebuild — On Every Piston Save or Delete
 
 The piston index is always kept current — not just at startup. Every save and delete operation updates the index immediately.
+
+### Entity State Subscription vs Polling — Decision
+
+**PistonCore uses polling only for entity validation. It does not subscribe to `state_changed` events.**
+
+Rationale: The goal of entity validation is to detect when an entity_id no longer exists in the HA registry — not to track its current state. The entity registry changes infrequently (device renamed, integration removed, device deleted). A 30-minute poll is more than adequate for this purpose. Subscribing to every `state_changed` event for every entity across all deployed pistons would produce enormous WebSocket traffic for no benefit — the state values themselves are not what PistonCore is tracking.
+
+**What polling covers:**
+- Entity validation every 30 minutes (Section 9.2 above) — checks entity_id still exists in registry
+- HA connection health every 60 seconds — ping/pong on the WebSocket
+
+**What subscribing covers:**
+- `entity_state_cache` updates — PistonCore DOES subscribe to `state_changed` events, but only for entities that are already tracked (i.e., referenced in deployed pistons). This subscription is used solely to keep `entity_state_cache` current so that when an entity goes missing, PistonCore can show its last known friendly name in the warning message. It is not used for validation.
+
+**Subscription list management:**
+- On startup: subscribe to `state_changed` for all entity_ids found across all deployed piston nodes (condition, action, for_each). This is the initial tracked set.
+- On successful piston deploy: add any new entity_ids from that piston to the subscription list.
+- On piston delete: remove entity_ids that are no longer referenced by any other deployed piston.
+- On HA WebSocket reconnect: re-subscribe to the full tracked set. The subscription does not survive a reconnect — it must be re-established every time the connection is restored.
+
+**For Device/Devices globals:** PistonCore does NOT subscribe to state changes for global entity_ids to detect when to prompt for redeploy. The global device list only changes when the user edits it in PistonCore — that edit triggers the stale flag directly (Section 7.1). No external subscription needed.
+
+**Summary — ha_client.py responsibilities:**
+- Subscribe to `state_changed` for tracked entities → update `entity_state_cache` only
+- Poll entity registry every 30 minutes → run entity validation
+- Ping WebSocket every 60 seconds → maintain connection health
+- Re-subscribe on reconnect → restore tracked entity subscription list
 
 ---
 

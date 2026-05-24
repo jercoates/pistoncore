@@ -1,7 +1,7 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 61 — MISSING_SPECS Items 6/10/12/19/20 body content moved to correct target documents (TEST_STRATEGY.md, DESIGN.md v1.5, BEST_PRACTICES.md, FRONTEND_SPEC.md v1.3, COMPILER_SPEC.md v1.5). HA_LIMITATIONS.md updated against HA 2026.4. Next: W-S8.
+**Last Updated:** Session 62 — MISSING_SPECS Items 25/26/27 resolved. DESIGN.md v1.6, FRONTEND_SPEC.md v1.4. All specs complete except Item 15 (write-a-piston.md prompt — deferred). Next: W-S8.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions:** See TASKS_HISTORY.md
 

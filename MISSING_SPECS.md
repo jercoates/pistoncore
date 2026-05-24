@@ -1,7 +1,7 @@
 # PistonCore — Missing Specs Tracker
 
 **Status:** Living document — add to this when a gap is found, remove when the spec is written
-**Last Updated:** Session 61 — Items 6/10/12/19/20 body content moved to their correct target documents (TEST_STRATEGY.md, DESIGN.md v1.5, BEST_PRACTICES.md, FRONTEND_SPEC.md v1.3, COMPILER_SPEC.md v1.5). MISSING_SPECS now contains only pointers for resolved items.
+**Last Updated:** Session 62 — Items 25/26/27 resolved. All MISSING_SPECS items now resolved. Item 15 (write-a-piston.md prompt content) deferred intentionally.
 **Purpose:** Track spec gaps that will block coding when we reach those features.
            Every item here must be resolved before its dependent task is started.
 
@@ -309,120 +309,24 @@ Registry pattern is a post-S3-2 refactor.
 
 ---
 
-## 25. HA Entity State Subscription vs Polling — MISSING
+## 25. HA Entity State Subscription vs Polling — RESOLVED (Session 62)
 
-**Blocks:** S4-17 (HA Connection Reliability), startup sequence implementation
-**Needs to be written before:** ha_client.py event subscription work begins
-**What it must cover:**
-- Does PistonCore subscribe to HA `state_changed` events via WebSocket for entities
-  referenced in deployed pistons, or does it rely solely on the scheduled 30-minute
-  poll defined in DESIGN.md Section 9.2?
-- If subscribing: how does PistonCore maintain the subscription list? When a piston
-  is deployed or deleted, how does the subscription list update?
-- If polling only: is 30 minutes acceptable for detecting renamed/deleted entities?
-- For globals: when a Device/Devices global's entity_ids change, does PistonCore
-  need to subscribe to those entity state changes to know when to prompt for redeploy?
-- What happens when HA WebSocket reconnects — does the subscription list need to
-  be re-established?
-
-**Reference:** DESIGN.md Sections 9.1, 9.2, 7.1
+Full spec written into **DESIGN.md v1.6 Section 9.2** — "Entity State Subscription vs Polling — Decision" subsection.
+Decision: polling only for entity validation (30-min schedule). `state_changed` subscription maintained only for `entity_state_cache` updates. Subscription list managed on deploy/delete/reconnect. No subscription needed for global device change detection.
 
 ---
 
-## 26. Copy/Paste/Duplicate Statements — V1 SCOPE — MISSING
+## 26. Copy/Paste/Duplicate Statements — RESOLVED (Session 60 / D-S4)
 
-**This is v1 scope. Not deferred. WebCoRE had this and users depend on it.**
-Clipboard persists across pistons and browser sessions — not in-memory JS state.
-
-**Blocks:** W-S8 or dedicated frontend session
-**Needs to be written before:** clipboard feature is coded
-**What it must cover:**
-
-### Storage
-- Clipboard stored server-side in `/pistoncore-userdata/clipboard.json`
-- One clipboard slot — one statement subtree at a time (matches WebCoRE behavior)
-- Persists until user explicitly clears it or replaces it with a new copy
-- Survives browser refresh, piston navigation, container restart
-
-### Right-Click Context Menu (on selected statement)
-Per WebCoRE screenshot — right-click on a selected statement shows:
-- Copy selected statement
-- Duplicate selected statement
-- Cut selected statement
-- Delete selected statement
-- Clear clipboard (shown when clipboard has content)
-
-### Copy Behavior
-- Copy: write the selected statement's full JSON subtree to `clipboard.json`
-- Cut: same as Copy, then delete the statement from the current piston
-- Duplicate: copy + immediately paste as next sibling (no clipboard write)
-
-### Paste Behavior
-- Paste button shown on statement picker or as clipboard preview panel
-  (see WebCoRE Image 1 — "From clipboard" section with preview and "Paste this statement" button)
-- Before pasting: show a read-only preview of the clipboard statement
-- On paste: deep-copy the clipboard JSON, generate new UUIDs for every node
-  in the subtree (statement IDs, condition IDs, task IDs — all regenerated)
-- Paste inserts as a sibling after the currently selected statement, or at
-  the end of the current block if nothing is selected
-- Clipboard content remains after paste — can paste same statement multiple times
-
-### UUID Regeneration Rule
-Every `id` field in the pasted subtree must be regenerated. The same UUID must
-never appear twice in the same piston. Helper function: `deepCopyWithNewIds(node)`
-walks the tree recursively and replaces every `id` field with a fresh UUID.
-
-### Cross-Piston Use
-The primary use case is copying a useful statement from one piston and pasting
-it into a new or different piston. The clipboard persists specifically to support
-this workflow. No special handling needed — clipboard.json is piston-agnostic.
-
-### API Endpoints Needed
-- `GET /api/clipboard` — returns current clipboard content (null if empty)
-- `POST /api/clipboard` — saves statement subtree to clipboard
-- `DELETE /api/clipboard` — clears clipboard
-
-**Reference:** FRONTEND_SPEC.md (right-click menu, paste preview), DESIGN.md Section 26 (volume structure — add clipboard.json)
+Full spec written into **FRONTEND_SPEC.md** — "Copy / Paste / Duplicate Statements" section.
+Covers: server-side clipboard storage, right-click context menu, copy/cut/duplicate/paste behavior, UUID regeneration rule, cross-piston use, API endpoints.
 
 ---
 
-## 27. Piston Backup — Trigger, Download, Naming, Restore — MISSING
+## 27. Piston Backup — Trigger, Download, Naming, Restore — RESOLVED (Session 62)
 
-**Blocks:** S2-3 extended (Snapshot export + Backup export), piston list UI work
-**Needs to be written before:** export/backup feature is coded
-**What it must cover:**
-
-### Two Export Types
-DESIGN.md Section 6 distinguishes Snapshot from Backup. Both need UI:
-
-**Snapshot export** (sharing format — entity_ids stripped, role placeholders preserved):
-- Triggered from: piston Options menu → "Share / Export Snapshot"
-- Downloads as: `{piston-name}-snapshot.json`
-- Use case: community sharing, AI migration, WebCoRE import
-
-**Backup export** (full format — entity_ids preserved, everything intact):
-- Triggered from: piston Options menu → "Backup"
-- Downloads as: `{piston-name}-backup-{date}.json`
-- Use case: personal restore, moving between PistonCore instances
-
-### Bulk Backup
-- Settings page → "Backup All Pistons"
-- Downloads as: `pistoncore-backup-{date}.zip` containing all piston JSON files
-- No role stripping — full format for every piston
-
-### Restore / Import
-- Same import dialog handles both Snapshot and Backup (format detected automatically
-  per FRONTEND_SPEC.md Import Dialog section)
-- Backup restore: preserves original piston ID (for restore scenario) or assigns
-  new ID (for duplicate/migrate scenario) — user chooses
-- Snapshot import: always assigns new ID
-
-### File Naming Convention
-- Piston name slugified: spaces → hyphens, lowercase, special chars removed
-- Date format: YYYY-MM-DD
-- Examples: `kitchen-motion-backup-2026-05-24.json`, `door-chime-snapshot.json`
-
-**Reference:** DESIGN.md Section 6 (Snapshot vs Backup format), FRONTEND_SPEC.md (Import Dialog)
+Full spec written into **FRONTEND_SPEC.md v1.4** — "Snapshot and Backup Export" section.
+Covers: Snapshot export (entity_ids stripped, green button, file naming), Backup export (full format, amber button, file naming), Bulk Backup (zip from Settings), Restore/Import ID handling dialog, API endpoints.
 
 ---
 
@@ -495,7 +399,16 @@ Resolved: entity_ids on node directly. list_role retired. STATEMENT_TYPES.md and
 Resolved in COMPILER_SPEC.md v1.3 Section 13 and DESIGN.md v1.3 Section 9.
 
 ### Item 24 — Global Device Edit Redeploy Prompt UX (Session 60 / D-S4)
-Full spec in DESIGN.md v1.4 Section 7.1 — permission prompt layout, progress modal layout, all edge cases.
+Full spec in DESIGN.md v1.6 Section 7.1 — permission prompt layout, progress modal layout, all edge cases.
+
+### Item 25 — HA Entity State Subscription vs Polling (Session 62)
+Full spec in DESIGN.md v1.6 Section 9.2 — "Entity State Subscription vs Polling" subsection. Decision: polling for validation, subscription only for entity_state_cache.
+
+### Item 26 — Copy/Paste/Duplicate Statements (Session 60 / D-S4)
+Full spec in FRONTEND_SPEC.md v1.4 — "Copy / Paste / Duplicate Statements" section.
+
+### Item 27 — Piston Backup (Session 62)
+Full spec in FRONTEND_SPEC.md v1.4 — "Snapshot and Backup Export" section.
 
 ---
 

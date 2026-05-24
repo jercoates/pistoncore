@@ -143,18 +143,18 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 ---
 
-## Spec File Versions (after Session 61)
-- DESIGN.md v1.5 (Section 7.1 expanded: global naming convention, maintenance strategy)
+## Spec File Versions (after Session 62)
+- DESIGN.md v1.6 (Section 9.2: entity state subscription vs polling decision added)
 - PISTON_FORMAT.md v2.1
-- COMPILER_SPEC.md v1.5 (Section 20 rewritten: compiler registry pattern as future architecture)
+- COMPILER_SPEC.md v1.5
 - PYSCRIPT_COMPILER_SPEC.md v1.1
 - WIZARD_SPEC.md v2.2
 - STATEMENT_TYPES.md v2.1
-- FRONTEND_SPEC.md v1.3 (fast pre-check validation added as Future Spec section)
+- FRONTEND_SPEC.md v1.4 (Snapshot and Backup Export section added)
 - SAMPLE_PISTONS.md v1.0
 - TASKS_HISTORY.md v1.0
-- TEST_STRATEGY.md v1.0 (new — from MISSING_SPECS Item 6)
-- BEST_PRACTICES.md v1.0 (new — from MISSING_SPECS Item 12)
-- MISSING_SPECS.md — all resolved items now point to their correct target docs; Items 15/25/26/27 still open
+- TEST_STRATEGY.md v1.0
+- BEST_PRACTICES.md v1.0
+- MISSING_SPECS.md — all items resolved (Item 15 deferred intentionally)
 - AI_PROMPT_SPEC.md v2.0
-- HA_LIMITATIONS.md — updated May 2026 (variable scoping fix noted, version review log added)
+- HA_LIMITATIONS.md — reviewed May 2026 against HA 2026.4

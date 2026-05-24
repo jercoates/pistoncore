@@ -1,8 +1,8 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.3
+**Version:** 1.4
 **Status:** Authoritative — For Developer Use
-**Last Updated:** May 2026 (Session 61 — fast pre-check validation spec added as Future Spec section; moved from MISSING_SPECS Item 19)
+**Last Updated:** May 2026 (Session 62 — Snapshot and Backup Export section added; MISSING_SPECS Items 26/27 resolved)
 
 This document is written for the frontend developer. It defines exactly what to build.
 Read DESIGN.md first for background and philosophy. This document is the concrete implementation spec.
@@ -1722,6 +1722,89 @@ Empty folders are shown in the list (not hidden). The piston count shows `(0)`.
 ### Collapsed/Expanded State
 
 Folder sections can be collapsed by clicking the folder header. Collapsed state is saved to `localStorage` keyed by folder name. On next load, each folder restores its previous collapsed/expanded state. Default is expanded.
+
+---
+
+## Snapshot and Backup Export
+
+Two export types exist. They use different buttons, different file names, and serve different purposes. The distinction must be unmistakable to the user.
+
+### Snapshot Export — Safe to Share
+
+Strips all entity_ids, preserves role placeholders. Safe to post publicly.
+
+**Triggered from:** Status page `[📷 Snapshot]` button, or Editor `[📷 Snapshot]` button.
+
+**What happens:**
+1. Backend walks the piston's statement tree and sets `entity_ids: []` on every condition, action, and for_each node.
+2. `role` values are preserved as placeholders.
+3. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
+4. Browser downloads the file immediately. No confirmation dialog needed.
+
+**File naming:** `{slugified-piston-name}-snapshot.json`
+- Slug rules: lowercase, spaces → hyphens, strip all non-alphanumeric except hyphens
+- Example: "Front Door Chime" → `front-door-chime-snapshot.json`
+
+**Button appearance:** Green label — `[📷 Snapshot]` with tooltip: *"Share-safe export — entity IDs are removed."*
+
+### Backup Export — Personal Use Only
+
+Preserves all entity_ids intact. Not safe to share publicly.
+
+**Triggered from:** Status page `[📷 Backup]` button, or Editor `[📷 Backup]` button.
+
+**What happens:**
+1. Backend writes the full piston JSON as-is — no stripping.
+2. Browser downloads immediately. No confirmation dialog.
+
+**File naming:** `{slugified-piston-name}-backup-{YYYY-MM-DD}.json`
+- Example: "Front Door Chime" → `front-door-chime-backup-2026-05-24.json`
+
+**Button appearance:** Red/amber label — `[📷 Backup]` with tooltip: *"Full export including your device IDs — keep this private."*
+
+### Bulk Backup — All Pistons
+
+**Triggered from:** Settings page → `[Backup All Pistons]` button.
+
+**What happens:**
+1. Backend zips all piston JSON files from `/pistoncore-userdata/pistons/`.
+2. No stripping — full format for every piston.
+3. Browser downloads the zip.
+
+**File naming:** `pistoncore-backup-{YYYY-MM-DD}.zip`
+
+**No confirmation dialog** — bulk backup is always safe to trigger.
+
+### Restore / Import
+
+Both Snapshot and Backup files import through the same Import dialog (FRONTEND_SPEC.md Import Dialog section). Format is auto-detected by checking whether any node has non-empty `entity_ids`.
+
+**Backup restore — ID behavior:**
+When importing a Backup file, show a choice before saving:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Import backup — how do you want to handle this?    │
+├─────────────────────────────────────────────────────┤
+│  ● Restore original   — keeps the piston's original │
+│    ID. Replaces any existing piston with that ID.   │
+│                                                     │
+│  ○ Import as new copy — assigns a new ID. Original  │
+│    piston (if it still exists) is untouched.        │
+│                                                     │
+│                         [Cancel]  [Import]          │
+└─────────────────────────────────────────────────────┘
+```
+
+Default selection is "Import as new copy" — safer for most scenarios.
+
+**Snapshot import:** Always assigns a new ID. No choice presented.
+
+### API Endpoints
+
+- `GET /api/pistons/{uuid}/snapshot` — returns Snapshot JSON (entity_ids stripped)
+- `GET /api/pistons/{uuid}/backup` — returns full piston JSON
+- `GET /api/pistons/backup-all` — returns zip of all piston JSON files
 
 ---
 

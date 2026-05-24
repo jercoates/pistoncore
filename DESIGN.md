@@ -244,7 +244,7 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 **Internal stored format:** Structured JSON — every statement is a typed data object. The wizard writes structured data. The editor renders display text from that data. The compiler reads structured JSON directly. This is the working format — the source of truth for everything PistonCore does with a piston.
 
-**Shared/export/AI format (Snapshot JSON):** Structured JSON with empty `device_map` arrays and role name placeholders. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with personal device mappings removed. See Section 6.2.
+**Shared/export/AI format (Snapshot JSON):** Structured JSON with role name placeholders and empty entity_ids on nodes. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with entity IDs stripped from nodes. See Section 6.10.
 
 These two formats serve different purposes. The internal format is for the compiler and editor. The Snapshot format is for humans, AI, and community sharing.
 
@@ -1197,7 +1197,7 @@ Render functions live entirely in the frontend JavaScript. The backend never ren
 When exporting a piston as a Snapshot (shared format), the frontend render functions
 produce the display text shown in the Snapshot preview. The Snapshot itself is structured
 JSON — not piston_text. Render functions are used for display only, not as the export format.
-piston_text is retired as a v1 format — see Section 6.2.
+piston_text is retired as a v1 format — see Section 6.10 (Snapshot format).
 
 ### Reference
 
@@ -1829,7 +1829,7 @@ pistoncore/prompts/
 ```
 
 **write-a-piston.md** must contain:
-- The complete Snapshot JSON format (Section 6.2 of this document)
+- The complete Snapshot JSON format (Section 6.10 of this document)
 - The full list of valid statement types and their JSON schemas
 - The condition object schema including display_value/compiled_value split
 - The operator reference (from WIZARD_SPEC.md)

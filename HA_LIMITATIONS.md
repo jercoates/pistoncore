@@ -66,23 +66,40 @@ The `was` / `stays` distinction is critical and has real edge cases:
 
 ## 3. Device and Entity Limitations
 
-### Entity ID Changes Break device_map
+### Entity ID Changes Break Deployed Pistons
 
-If a user renames a device in HA, the entity ID may change. This breaks the
-device_map in any piston that references that device — the compiled YAML will
-reference an entity that no longer exists.
+If a user renames a device in HA, the entity ID may change. This breaks any piston
+that references that entity_id — the compiled YAML or PyScript will reference an entity
+that no longer exists.
 
-**Current status:** `has_missing_devices` flag detects this on HA connect.
-User sees ⚠️ and must remap via the define block. This is the intended flow
-but must be clearly communicated to users — it will happen regularly.
+**Current status (logic_version 2):** Entity IDs are stored directly on condition and
+action nodes. The scheduled entity validation (DESIGN.md Section 9.2) checks all
+deployed pistons every 30 minutes against the live HA entity registry. If an entity_id
+is missing from the registry (not just offline — actually gone), the piston is flagged
+`entity_missing: true` in the piston index and ⚠ appears on the piston list.
 
-### Multi-Device Aggregation Compilation
+**Important:** A device that is offline, unavailable, or has a dead battery is NOT
+missing — it still exists in the registry. The flag only fires when the entity_id is
+completely absent from HA (renamed, deleted, or integration removed).
 
-Device groups with Any/All/None aggregation must be compiled carefully.
-HA does not have a native "any of these entities" trigger — PistonCore must
-expand the device_map list and generate one trigger entry per entity.
-For conditions, Jinja2 any()/all() template expressions handle this.
-**Verify compiled output for multi-device triggers with real HA before shipping.**
+The fix flow: user opens the piston in the editor, updates the entity in the wizard
+device picker (which shows live HA entities), saves, redeploys.
+
+### Multi-Entity Compilation — Confirmed Native Support
+
+**HA natively accepts entity_id as an array in both triggers and action targets.**
+PistonCore does not need to expand multi-entity groups into multiple blocks.
+
+- **Triggers:** `entity_id: [list]` — one trigger block fires when any entity matches
+- **Actions:** `target.entity_id: [list]` — one action block applies to all entities simultaneously
+- **Conditions:** No native multi-entity support — PistonCore uses Jinja2 `any()`/`all()`/`none()` templates
+
+For PyScript, service calls accept `entity_id=["e1", "e2"]` as a Python list — same behavior.
+Triggers in PyScript use one `@state_trigger` string per entity (separate string arguments
+to the decorator, which PyScript OR's together) — this IS expansion, but it's the only
+option since `@state_trigger` takes string expressions not entity lists.
+
+**Verified against official HA docs (May 2026). Locked decision.**
 
 ### Entity vs Device Model
 
@@ -182,14 +199,16 @@ not re-litigated:
 - **No HA native break/on_event/cancel** → PyScript fallback via target-boundary.json ✅
 - **Binary sensors always report on/off** → Friendly label system in wizard,
   compiled_value always "on"/"off" ✅
-- **Device groups must be compile-time** → device_map baked at deploy ✅
+- **Entity IDs are compile-time** → entity_ids baked at wizard commit time, static in JSON ✅
 - **Loop variable scoping** → Compiler warning emitted ✅
-- **Entity IDs never shown to user** → Device picker + device_map abstraction ✅
+- **Entity IDs never shown to user** → Device picker + role label abstraction ✅
 - **HA churn on YAML syntax** → Versioned Jinja2 template system ✅
 - **Minimum HA version** → 2023.1 floor documented and checked on connect ✅
 - **`trigger:` vs `platform:` inside wait_for_trigger** → Compiler always uses
   `trigger:` key inside `wait_for_trigger` blocks. `platform:` is legacy syntax that
   causes silent reload errors in modern HA. ✅
+- **Multi-entity triggers and actions** → HA natively accepts entity_id arrays.
+  Native YAML: pass array directly. PyScript actions: pass Python list. No expansion needed. ✅
 
 ---
 
@@ -200,7 +219,7 @@ These are known gaps without a defined solution yet:
 - **State value quoting not enforced at compiler level** — `_compile_single_condition` passes `compiled_value` to templates without normalization. HA silently parses unquoted `on`/`off` as booleans, causing state checks to never match. Spec says handled — code does not enforce it. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
 - **`wait_for_trigger` timeout not emitted** — Compiler passes `stmt_id` and `at_time` to the wait_until template but does not emit `timeout:` or `continue_on_timeout:`. Pistons will hang forever if the time is missed. Spec says handled — code does not emit it. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
 - **Parallel branch `continue_on_error` not emitted at sequence level** — Compiler emits `continue_on_error` per-action only. One offline device kills the whole parallel block. COMPILER_SPEC Section 10.2 explicitly requires it at the branch sequence level. Fix required in S1-7. (Moved from Section 8 — was incorrectly listed as handled.)
-- Entity ID changes breaking device_map — detection exists, migration UX needs work
+- Entity ID changes flagged by scheduled validation (DESIGN.md Section 9.2) — UX needs work
 - Long-running piston timeouts — not yet handled
 - Global variable helper race conditions on simultaneous deploy — not yet handled
 - Sunrise/sunset negative offset edge cases — needs explicit testing

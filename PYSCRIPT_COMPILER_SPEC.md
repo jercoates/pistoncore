@@ -1,8 +1,10 @@
 # PistonCore — PyScript Compiler Specification
 
-**Version:** 1.0 (Draft — Incomplete)
-**Status:** READY TO CODE — all gaps resolved (Session 24)
-**Last Updated:** May 2026
+**Version:** 1.1
+**Status:** Authoritative
+**Last Updated:** May 2026 (Session 57 — device_map eliminated, entity_ids on nodes,
+  list_role replaced with entity_ids on for_each, Section 5 rewritten, Section 11
+  handlers updated, verification example updated to logic_version 2)
 
 Read DESIGN.md v1.1, COMPILER_SPEC.md v1.0, PISTON_FORMAT.md v1.0, and WIZARD_SPEC.md v0.6
 before this document. This spec is a companion to COMPILER_SPEC.md — that document covers
@@ -28,9 +30,10 @@ See Section 11.16 for full handler and limitation documentation.
 It is exactly `{ "id": "stmt_xxx", "type": "cancel_pending_tasks" }` with no other fields.
 Gap marker removed from Section 11.17.
 
-### GAP 3 — RESOLVED (Session 24)
-`list_role` confirmed as the correct field name by STATEMENT_TYPES.md Section 6.
-Gap marker removed from Section 11.8.
+### GAP 3 — SUPERSEDED (Session 57)
+`list_role` was confirmed as the field name in Session 24, but was eliminated in Session 57.
+`for_each` now uses `role` (display label) + `entity_ids` (array, same as action and
+condition nodes). See Section 11.8 for the updated handler. `list_role` no longer exists.
 
 ### GAP 4 — RESOLVED (Session 24)
 `until_conditions` confirmed by STATEMENT_TYPES.md Section 8 and PISTON_FORMAT.md.
@@ -65,8 +68,9 @@ pistons where `compile_target == "pyscript"`. That field is set automatically by
 compiler's detection logic — the user never sets it manually.
 
 **The compiler reads structured JSON only.** It never parses piston_text. It reads the
-`statements` array of typed statement objects and the `device_map` of role → entity ID
-lists. See PISTON_FORMAT.md for the complete input schema.
+`statements` array of typed statement objects. Entity IDs are stored directly on
+condition, action, and for_each nodes — there is no `device_map`. See PISTON_FORMAT.md
+v2.1 for the complete input schema.
 
 **The compiler calls no HA endpoints.** All data it needs arrives pre-fetched in the
 fat compiler context object (COMPILER_SPEC.md Section 7).
@@ -159,7 +163,7 @@ when `compile_target == "pyscript"`. It receives the fat context object:
 ```python
 def compile_pyscript(piston: dict, context: dict) -> CompilerResult:
     """
-    piston:  full piston JSON (statements, device_map, device_map_meta, mode, name, id, etc.)
+    piston:  full piston JSON (statements, mode, name, id, etc. — entity_ids are on nodes, no device_map)
     context: fat compiler context object (COMPILER_SPEC.md Section 7)
     Returns: CompilerResult — see COMPILER_SPEC.md Section 13 for the full contract
     """
@@ -248,30 +252,37 @@ renders those templates; the template content matches what the spec shows.
 
 ---
 
-## 5. Reading device_map
+## 5. Reading Entity IDs — Directly From Nodes
 
-The compiler resolves role names to entity IDs using `device_map` from the piston JSON.
+Entity IDs are stored directly on condition, action, and for_each nodes. There is no
+`device_map` or role lookup. The compiler reads `entity_ids` from each node directly.
 
 ```python
-# device_map structure — from PISTON_FORMAT.md:
-# { "role_name": ["entity_id_1", "entity_id_2", ...] }
-# Values are ALWAYS arrays, even for single-device roles.
+# Condition node — entity_ids read directly
+entity_ids = condition["entity_ids"]
+# → ["binary_sensor.front_door", "binary_sensor.back_door"]
 
-entity_ids = piston["device_map"].get("Doors", [])
-# → ["binary_sensor.front_door_contact", "binary_sensor.back_door_contact"]
+# Action node — entity_ids read directly
+entity_ids = stmt["entity_ids"]
+# → ["light.living_room", "light.kitchen"]
 
-# Cardinality comes from device_map_meta:
-cardinality = piston["device_map_meta"]["Doors"]["cardinality"]
-# → "single" or "multi"
+# for_each node — entity_ids read directly
+entity_ids = stmt["entity_ids"]
+# → ["sensor.smoke_1", "sensor.smoke_2"]
 ```
 
-**If a role has an empty array** (`[]`), the device is unmapped. Raise `CompilerError`
-with code `UNMAPPED_ROLE`. The missing-device handler (DESIGN.md Section 15.6) runs
-before compile — if execution reached the compiler, the map should be valid. Treat
-an empty array as a bug and fail hard.
+**If `entity_ids` is empty** on a node that requires entities, raise `CompilerError`
+with code `MISSING_ENTITY`. The entity validation pass (COMPILER_SPEC.md Section 8)
+runs before compilation and should have caught this — treat it as a bug if it reaches
+the compiler.
 
-**`device_map_meta`** tells the compiler whether a role was originally single or multi.
-A role with one entity but `cardinality: "multi"` means other devices are missing.
+**`role`** on every node is a display label only. The compiler never reads it for
+compilation logic. It may be included in comments for readability.
+
+```python
+role = stmt.get("role", "device")  # display label for comment only
+entity_ids = stmt["entity_ids"]    # this is what the compiler actually uses
+```
 
 ---
 
@@ -287,8 +298,9 @@ The wizard sets it based on which operator group the user picked (WIZARD_SPEC.md
 {
   "id": "cond_001",
   "is_trigger": true,
-  "aggregation": "any",
   "role": "Doors",
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
+  "aggregation": "any",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
@@ -381,7 +393,7 @@ This is the `dynamic_attribute_access` PyScript-forcing pattern. The device list
 compile-time (baked in). The dynamic part is attribute access on a loop variable:
 
 ```python
-# Device list baked in from device_map["BatteryDevices"] at compile time
+# Entity list baked in from entity_ids on the for_each node at compile time
 _battery_devices = [
     "sensor.front_door_battery",
     "sensor.back_door_battery",
@@ -480,31 +492,33 @@ Input condition:
 The `.old` guard on the expression ensures "changes to" fires only on the rising edge,
 not while already in that state.
 
-**Multi-device role, aggregation "any" — OR across all entities in the role:**
+**Multi-device, aggregation "any" — OR across all entities in entity_ids:**
 
 Input condition:
 ```json
 {
   "is_trigger": true, "role": "Doors", "attribute": "contact",
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door", "binary_sensor.garage_door"],
   "operator": "changes to", "compiled_value": "on", "aggregation": "any"
 }
 ```
 
 ```python
 @state_trigger(
-    "binary_sensor.front_door_contact == 'on' and binary_sensor.front_door_contact.old == 'off'",
-    "binary_sensor.back_door_contact == 'on' and binary_sensor.back_door_contact.old == 'off'",
-    "binary_sensor.garage_door_contact == 'on' and binary_sensor.garage_door_contact.old == 'off'"
+    "binary_sensor.front_door == 'on' and binary_sensor.front_door.old == 'off'",
+    "binary_sensor.back_door == 'on' and binary_sensor.back_door.old == 'off'",
+    "binary_sensor.garage_door == 'on' and binary_sensor.garage_door.old == 'off'"
 )
 ```
 
-Each entity in `device_map["Doors"]` becomes a separate string argument. PyScript OR's
-multiple string arguments — any one firing runs the function.
+Each entity in `entity_ids` becomes a separate string argument to `@state_trigger`.
+PyScript OR's multiple string arguments — any one firing runs the function.
+The entity list is read directly from `condition["entity_ids"]` — no role lookup.
 
 **Multi-role OR trigger** (e.g., `{Doors}` OR `{Windows}` — two separate is_trigger conditions):
 
-All entities from all triggering roles are expanded as separate string arguments on
-one `@state_trigger` decorator:
+All entities from all triggering condition `entity_ids` arrays are expanded as separate
+string arguments on one `@state_trigger` decorator:
 
 ```python
 @state_trigger(
@@ -641,9 +655,11 @@ def pistoncore_d4e2f9a1(trigger_type=None, var_name=None, value=None, **kwargs):
 
 ## 11. Statement Type Handlers
 
-The compiler builds a lookup map from the flat `statements` array before walking the
-tree, then resolves `then`, `else`, and `statements` child arrays by ID reference
-(PISTON_FORMAT.md — Statement References Inside Blocks).
+The compiler walks the nested `statements` tree recursively. Control flow nodes
+(`if`, `while`, `repeat`, `for`, `for_each`, `do`, `switch`, `on_event`, `every`)
+own their children directly — `then`, `else`, `statements`, `else_ifs`, and `cases`
+contain embedded child statement objects. No lookup map is built. No ID resolution is
+needed. Insert means add to the owning array. Remove means splice from it.
 
 Every handler emits Python with a comment identifying the statement ID:
 `# stmt_001 — {type}: {brief description}`
@@ -658,16 +674,17 @@ Input:
   "conditions": [{
     "id": "cond_001",
     "is_trigger": false,
-    "role": "FrontDoor",
+    "role": "Front Door",
+    "entity_ids": ["binary_sensor.front_door"],
     "attribute": "contact",
     "attribute_type": "binary",
     "operator": "is",
     "compiled_value": "on",
-    "aggregation": null,
+    "aggregation": "any",
     "group_operator": "and"
   }],
   "condition_operator": "and",
-  "then": ["stmt_002"],
+  "then": [ { ... embedded child statements ... } ],
   "else_ifs": [],
   "else": []
 }
@@ -713,7 +730,8 @@ Input:
 {
   "id": "stmt_002",
   "type": "action",
-  "devices": ["KitchenLight"],
+  "role": "Kitchen Light",
+  "entity_ids": ["light.kitchen_main"],
   "tasks": [{
     "id": "task_001",
     "command": "turn_on",
@@ -724,17 +742,24 @@ Input:
 }
 ```
 
-Single entity:
+Single entity — string:
 ```python
-# stmt_002 — action: KitchenLight → light.turn_on
+# stmt_002 — action: Kitchen Light → light.turn_on
 light.turn_on(entity_id="light.kitchen_main", brightness_pct=75)
 ```
 
-Multiple entities from a multi-device role:
+Multiple entities — Python list. PyScript passes the list directly to the HA service,
+which handles all entities simultaneously (same as the native YAML array):
 ```python
 # stmt_002 — action: Lights → light.turn_on
-light.turn_on(entity_id=["light.kitchen_main", "light.dining_room"], brightness_pct=75)
+light.turn_on(
+    entity_id=["light.kitchen_main", "light.dining_room"],
+    brightness_pct=75
+)
 ```
+
+The compiler reads `entity_ids` directly from the action node. If `len(entity_ids) == 1`,
+emit a string. If `len(entity_ids) > 1`, emit a list. Never loop over entities.
 
 Dynamic service call (when domain/service must be computed at runtime):
 ```python
@@ -885,15 +910,16 @@ Input:
 {
   "id": "stmt_009",
   "type": "for_each",
-  "variable": "device",
-  "list_role": "BatteryDevices",
-  "statements": ["stmt_010"]
+  "variable": "$device",
+  "role": "Battery Devices",
+  "entity_ids": ["sensor.front_door_battery", "sensor.back_door_battery"],
+  "statements": [ ... ]
 }
 ```
 
 ```python
-# stmt_009 — for_each: device in BatteryDevices
-# Entity list baked in from device_map["BatteryDevices"] at compile time
+# stmt_009 — for_each: $device in Battery Devices
+# Entity list captured from live HA picker at wizard commit time
 _battery_devices_list = [
     "sensor.front_door_battery",
     "sensor.back_door_battery"
@@ -902,6 +928,10 @@ for device in _battery_devices_list:
     # [compiled child statements]
     # $device in child statements compiles to the 'device' loop variable
 ```
+
+The compiler reads `entity_ids` directly from the node. The list variable name is
+derived from the role label for readability: `_` + slugify(role) + `_list`.
+Child statement actions targeting `$device` compile to `entity_id=device`.
 
 ### 11.9 while loop
 
@@ -939,7 +969,8 @@ Input:
   "until_conditions": [{
     "id": "cond_001",
     "is_trigger": false,
-    "role": "WaterSensors",
+    "role": "Water Sensors",
+    "entity_ids": ["binary_sensor.water_1", "binary_sensor.water_2"],
     "attribute": "moisture",
     "attribute_type": "binary",
     "operator": "is",
@@ -1127,7 +1158,7 @@ value = result.get("value")
 ```
 
 **Building the state_trigger expression** follows the same logic as `@state_trigger`
-decorator compilation (Section 10.1) — expand all entity IDs from `device_map[role]`,
+decorator compilation (Section 10.1) — read entity IDs directly from `condition["entity_ids"]`,
 build one expression string per entity, pass as a list to `task.wait_until()`.
 
 **`condition_operator`** with multiple conditions: build expressions for each condition
@@ -1244,7 +1275,7 @@ In addition to the six gaps in Section 0:
 - **File writing to HA** — backend responsibility. Compiler returns string only.
 - **Global variable helper creation/deletion** — backend responsibility.
 - **Hash computation** — backend computes after compiler returns the string.
-- **Device mapping validation** — backend validates `device_map` before calling compiler.
+- **Entity validation** — backend validates all entity_ids exist in HA before calling compiler (COMPILER_SPEC.md Section 8 — MISSING_ENTITY error).
 - **PyScript installation detection** — backend checks before deploying (DESIGN.md Section 3.2).
 - **Piston enable/disable** — backend renames the `.py` file (prepends `#` to filename).
 - **settings block** — contents undefined. Compiler ignores it.
@@ -1255,42 +1286,41 @@ In addition to the six gaps in Section 0:
 
 **Input piston JSON (door chime — triggers $currentEventDevice, forces PyScript):**
 
+Logic version 2 format — entity_ids on nodes, no device_map:
+
 ```json
 {
   "id": "d4e2f9a1",
   "name": "New Door / Window Chime",
   "mode": "restart",
+  "logic_version": 2,
   "compile_target": "pyscript",
-  "device_map": {
-    "Doors": ["binary_sensor.back_door_contact", "binary_sensor.front_door_contact"],
-    "KitchenSpeaker": ["media_player.kitchen_sonos"]
-  },
-  "device_map_meta": {
-    "Doors": { "cardinality": "multi" },
-    "KitchenSpeaker": { "cardinality": "single" }
-  },
   "variables": [{ "id": "var_001", "name": "message", "type": "string", "default_value": "" }],
   "statements": [
     {
       "id": "stmt_001", "type": "if",
       "conditions": [{
-        "id": "cond_001", "is_trigger": true, "aggregation": "any",
-        "role": "Doors", "attribute": "contact", "attribute_type": "binary",
+        "id": "cond_001", "is_trigger": true,
+        "role": "Doors",
+        "entity_ids": ["binary_sensor.back_door", "binary_sensor.front_door"],
+        "aggregation": "any",
+        "attribute": "contact", "attribute_type": "binary",
         "device_class": "door", "operator": "changes to",
         "display_value": "Open", "compiled_value": "on", "group_operator": "and"
       }],
       "condition_operator": "and",
-      "then": ["stmt_002", "stmt_003"],
+      "then": [
+        {
+          "id": "stmt_002", "type": "set_variable",
+          "variable": "message",
+          "value": { "type": "system_variable", "name": "$currentEventDevice" }
+        },
+        {
+          "id": "stmt_003", "type": "log_message",
+          "message": { "type": "variable", "name": "message" }
+        }
+      ],
       "else_ifs": [], "else": []
-    },
-    {
-      "id": "stmt_002", "type": "set_variable",
-      "variable": "message",
-      "value": { "type": "system_variable", "name": "$currentEventDevice" }
-    },
-    {
-      "id": "stmt_003", "type": "log_message",
-      "message": { "type": "variable", "name": "message" }
     }
   ]
 }
@@ -1304,8 +1334,8 @@ In addition to the six gaps in Section 0:
 # pc_globals_used: (none)
 
 @state_trigger(
-    "binary_sensor.back_door_contact == 'on' and binary_sensor.back_door_contact.old == 'off'",
-    "binary_sensor.front_door_contact == 'on' and binary_sensor.front_door_contact.old == 'off'"
+    "binary_sensor.back_door == 'on' and binary_sensor.back_door.old == 'off'",
+    "binary_sensor.front_door == 'on' and binary_sensor.front_door.old == 'off'"
 )
 def pistoncore_d4e2f9a1(trigger_type=None, var_name=None, value=None, old_value=None, **kwargs):
     """New Door / Window Chime"""
@@ -1330,8 +1360,12 @@ def pistoncore_d4e2f9a1(trigger_type=None, var_name=None, value=None, old_value=
                status="success")
 ```
 
+Note: entity_ids from `cond_001["entity_ids"]` are used directly to build the
+`@state_trigger` strings. No device_map lookup. The children of stmt_001 are
+embedded objects in `stmt_001["then"]` — no ID resolution needed.
+
 ---
 
 *End of PYSCRIPT_COMPILER_SPEC.md*
 
-*All gaps resolved Session 24. Spec is ready to code from.*
+*All gaps resolved Session 24. list_role updated to entity_ids on nodes Session 57.*

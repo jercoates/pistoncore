@@ -1,9 +1,9 @@
 # PistonCore Compiler Specification
 
-**Version:** 1.2
+**Version:** 1.3
 **Status:** Authoritative — Primary reference for all compiler coding
-**Last Updated:** May 2026 (Session 55 — device_map eliminated, entity_ids read directly from nodes,
-  MISSING_ENTITY validation added)
+**Last Updated:** May 2026 (Session 57 — multi-entity trigger/action use arrays not expansion;
+  for_each reads entity_ids directly from node; list_role retired)
 
 Read DESIGN.md v1.1 before this document.
 This document defines exactly how the compiler turns piston structured JSON into native HA files.
@@ -448,7 +448,7 @@ Use the condition object's `id` field directly:
 }
 ```
 
-Compiles to (one trigger per entity in entity_ids):
+Compiles to (entity_ids passed as array — HA fires when any entity matches):
 ```yaml
 - trigger: state
   id: cond_001
@@ -456,17 +456,21 @@ Compiles to (one trigger per entity in entity_ids):
   to: "on"
 ```
 
-For multi-device (multiple entity_ids), emit one trigger block per entity_id:
+For multi-device (multiple entity_ids), pass the array directly — HA natively fires
+when any entity in the list matches. No expansion needed:
 ```yaml
 - trigger: state
   id: cond_001
-  entity_id: binary_sensor.front_door
-  to: "on"
-- trigger: state
-  id: cond_001
-  entity_id: binary_sensor.back_door
+  entity_id:
+    - binary_sensor.front_door
+    - binary_sensor.back_door
   to: "on"
 ```
+
+**This is the correct and authoritative approach for native HA script triggers.**
+HA's state trigger accepts `entity_id` as a list natively. One trigger block, multiple
+entities — HA fires when any entity in the list changes to the specified state.
+Do not expand multi-entity triggers into multiple trigger blocks.
 
 Binary state values are translated from `compiled_value` to HA state strings.
 The compiler always uses `compiled_value` — never `display_value`.
@@ -607,7 +611,7 @@ compile function for each statement type.
 
 **The compiler reads `entity_ids` directly from the action node.** No role-name lookup.
 
-Compiles to (one service call per entity in entity_ids):
+Single entity — scalar string:
 ```yaml
 - alias: "stmt_001"
   action: light.turn_on
@@ -618,8 +622,8 @@ Compiles to (one service call per entity in entity_ids):
   continue_on_error: true
 ```
 
-For multiple entity_ids, the compiler emits one action block per entity, or uses a
-target list when HA supports it for the domain:
+Multiple entity_ids — pass array directly. HA applies the action to all entities
+simultaneously. One action block, no expansion:
 ```yaml
 - alias: "stmt_001"
   action: light.turn_on
@@ -631,6 +635,9 @@ target list when HA supports it for the domain:
     brightness_pct: 75
   continue_on_error: true
 ```
+
+**This is the correct and authoritative approach.** HA's action target natively accepts
+`entity_id` as a list. Never emit one action block per entity — always pass the array.
 
 `continue_on_error: true` is added to every service call — a single device failure
 must not stop the piston.
@@ -756,22 +763,32 @@ For full for-loop control, compile target must be PyScript.
   "id": "stmt_006",
   "type": "for_each",
   "variable": "$device",
-  "list_role": "SmokeDetectors",
+  "role": "Smoke Detectors",
+  "entity_ids": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "statements": [ ... ]
 }
 ```
 
-The `list_role` field references a global Device/Devices variable. The compiler
-looks up the corresponding `entity_ids` from `context["global_variables"]`.
+The compiler reads `entity_ids` directly from the node — same model as action and
+condition nodes. No lookup in any map. The list was captured from the live HA device
+picker at wizard commit time and is static in the JSON.
 
 ```yaml
 - alias: "stmt_006"
   repeat:
     for_each:
-      - media_player.kitchen_sonos
-      - media_player.living_room_sonos
+      - sensor.smoke_detector_basement
+      - sensor.smoke_detector_kitchen
     sequence:
-      <compiled statements>
+      <compiled statements — actions inside body use target.entity_id: "{{ repeat.item }}">
+```
+
+Actions inside the for_each body that target the loop variable compile to:
+```yaml
+- action: light.turn_on
+  target:
+    entity_id: "{{ repeat.item }}"
+  continue_on_error: true
 ```
 
 #### switch

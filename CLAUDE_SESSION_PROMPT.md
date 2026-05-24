@@ -151,7 +151,7 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - **GAP-S57-16 → D-S3:** Global variable visual distinction in editor unspecced — blocks editor.js rendering
 - **GAP-S57-17 → D-S3:** Corrupt piston loading behavior unspecced — blocks editor coding
 - **GAP-S57-3 → AI prompt spec session:** AI_PROMPT_SPEC.md stale (device_map model) — blocks S4-10
-- **GAP-S57-4 → B-1:** MISSING_SPECS.md Items 7/8 reference device_map terminology
+- **GAP-S57-4 → CLOSED (Session 58 / D-S3):** MISSING_SPECS.md Items 7/8 fixed — entity_state_cache, MISSING_ENTITY model
 - **GAP-S57-5 → MISSING_SPECS Item 24 + G-4:** Global device edit redeploy prompt
   full UX spec needed before G-4 is coded
 - compiler.py: needs entity_ids direct read + MISSING_ENTITY validation — B-1

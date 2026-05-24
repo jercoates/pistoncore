@@ -197,11 +197,13 @@ Tables to define:
 - run_id, sequence_number, timestamp, event_type (trigger/condition/action/log/error),
   statement_id, message
 
-`device_state_cache` — last known state of every entity in any piston's device_map
+`entity_state_cache` — last known state of every entity referenced in any deployed piston
 - entity_id, friendly_name, last_seen (timestamp), last_known_state
-- Used by missing device handler to show "last known name" when entity disappears
+- Used by missing entity handler to show "last known name" when entity disappears
 - Updated on every HA connect and on every state_changed event for tracked entities
-- This resolves the device change tracking gap (see item 8 below)
+- Tracked entities = all entity_ids found across all deployed piston nodes
+  (condition nodes, action nodes, for_each nodes)
+- This resolves the entity change tracking gap (see item 8 below)
 
 `compile_index` — one row per piston, updated on every successful compile
 - piston_id, compiled_at, compile_target, file_hash, logic_version, ui_version
@@ -221,28 +223,31 @@ Section 13 (file hash). Volume structure in DESIGN.md Section 26.
 
 ---
 
-## 8. Device Change Tracking Data Shape — MISSING
+## 8. Entity Change Tracking Data Shape — MISSING
 
-**Blocks:** S4-2 missing device handler implementation
-**Needs to be written before:** Missing device handler is coded
+**Blocks:** S4-2 missing entity handler implementation
+**Needs to be written before:** Missing entity handler is coded
 **What it must cover:**
-- Exact fields stored per entity in device_state_cache (see item 7 above —
-  this is resolved by the SQLite device_state_cache table)
+- Exact fields stored per entity in entity_state_cache (see item 7 above —
+  resolved by the SQLite entity_state_cache table)
 - What triggers a cache update:
   - On every HA connect (full refresh of all tracked entities)
   - On state_changed WebSocket event for any tracked entity
-  - On successful piston save (new entities added to device_map get added to cache)
+  - On successful piston save (new entity_ids added to nodes get added to cache)
 - What the comparison logic looks like on HA connect:
-  - For each entity_id in all piston device_maps, check if it exists in HA entity list
-  - If missing: check device_map_meta cardinality → hard flag (single) or degrade (multi)
-  - Use friendly_name from device_state_cache for the warning message
-- What "exists in HA" means: entity_id present in the entity registry, regardless of
-  whether it is currently available or unavailable
+  - For each entity_id across all piston nodes (condition, action, for_each),
+    check if it exists in HA entity registry
+  - If missing: emit MISSING_ENTITY — no cardinality distinction in v1
+    (all missing entities are errors regardless of single vs multi)
+  - Use friendly_name from entity_state_cache for the warning message
+- What "exists in HA" means: entity_id present in the entity registry, regardless
+  of whether it is currently available or unavailable (unavailable ≠ missing)
 - How the cache handles entity renames (old entity_id disappears, new one appears —
   PistonCore cannot automatically detect this is the same physical device)
 
-**Reference:** DESIGN.md Section 15.6. MISSING_SPECS.md item 7 (SQLite schema).
-HA_LIMITATIONS.md Section 3 (entity ID changes).
+**Reference:** DESIGN.md Sections 9.1, 9.2 (entity validation). MISSING_SPECS.md
+item 7 (SQLite schema). HA_LIMITATIONS.md Section 3 (entity ID changes).
+COMPILER_SPEC.md v1.3 Section 13 (MISSING_ENTITY error).
 
 ---
 

@@ -340,10 +340,10 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   logic_version 2. Must be rewritten before write-a-piston.md is written.
   Not blocking any current session. Block S4-10 until this is done.
 
-### GAP-S57-4 → B-1: MISSING_SPECS.md Items 7 and 8 reference device_map terminology
-  Item 7 (SQLite schema) says device_state_cache tracks device_map entities.
-  Item 8 references device_map_meta cardinality. Both need updating before
-  storage/missing-device handler is coded in B-1.
+### GAP-S57-4 → CLOSED (Session 58 / D-S3): MISSING_SPECS.md Items 7 and 8 device_map terminology
+  Items 7 and 8 updated — device_state_cache renamed entity_state_cache, device_map
+  references replaced with entity_ids-on-nodes model, cardinality distinction removed
+  (all missing entities are MISSING_ENTITY errors in v1).
 
 ### GAP-S58-1 → MISSING_SPECS Item 25: HA entity state subscription vs polling unspecced
   Does PistonCore subscribe to HA state_changed events or poll only?

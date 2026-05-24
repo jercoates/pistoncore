@@ -25,7 +25,14 @@ architecture and code. Never does targeted/line-level edits — only full file r
 cd /mnt/user/appdata/pistoncore-dev && git pull && docker build --no-cache -t pistoncore . && docker stop pistoncore && docker rm pistoncore && docker run -d --name pistoncore --restart unless-stopped -p 7777:7777 -v /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize pistoncore
 ```
 
-## Current Priority — Session 58: W-S8 (Wizard Coding)
+## Current Priority — Session 58: D-S3 (Spec Cleanup — REQUIRED BEFORE W-S8)
+
+**D-S3 must happen before any W-S8 wizard coding. GAP-S57-6 through GAP-S57-14 will
+block wizard coding immediately if not resolved first.**
+
+---
+
+## Next After D-S3 — W-S8 (Wizard Coding)
 
 **This is a coding session.**
 
@@ -198,5 +205,45 @@ Block: AI prompt work (S4-10), compiler testing (S3-1).
 A repo-wide grep for list_role, device_map, device_map_meta, has_missing_devices,
 and devices: ["role_name"] has not been run across all spec files. STATEMENT_TYPES.md
 early examples may still mix old/new patterns. Run the grep and fix any remaining hits.
+
+## Multi-Device Spec Gaps — Must Fix in D-S3 Before W-S8 Coding
+
+External review confirmed these are missing from current specs. W-S8 wizard coding
+will hit every one of these immediately. D-S3 must resolve them all first.
+
+### GAP-S57-10 → D-S3: Role label generation for multi-device nodes unspecced
+When a user picks 3 devices in the wizard, what string goes in `role`?
+Options: join friendly names ("Front Door, Back Door, Garage Door"), use a generic
+label ("Multiple Doors"), or use the first device name + count ("Front Door +2").
+This affects editor rendering, snapshot export, and import dialog display.
+Must be decided and written into WIZARD_SPEC.md and STATEMENT_TYPES.md.
+
+### GAP-S57-11 → D-S3: Wizard commit logic for mixed selections unspecced
+When a user mixes physical devices AND Device/Devices globals in one node,
+how is the final entity_ids array built? Are the global's entity_ids resolved
+and merged inline with the physical device entity_ids? What order? What happens
+to the role label when the source is mixed? Not specced anywhere.
+
+### GAP-S57-12 → D-S3: Aggregation choice not tied to JSON output or compiler behavior
+The aggregation bar (any/all/none) is described in the wizard picker but the
+connection between what the user picks and what gets written to the condition node
+and how the compiler uses it is not explicitly specced end-to-end.
+Must be a clear table: aggregation value → JSON field → compiler output → HA YAML.
+
+### GAP-S57-13 → D-S3: Edit pre-fill for multi-device nodes unspecced
+When a user clicks an existing multi-device condition or action to edit it,
+how does the wizard populate? The entity_ids array must be matched back to
+device picker selections. How are the devices re-displayed? How are globals
+identified vs physical devices in an existing entity_ids list?
+Not specced in WIZARD_SPEC.md.
+
+### GAP-S57-14 → D-S3: Zero devices selected — wizard behavior unspecced
+What happens if the user clicks Done/Add with no devices selected?
+Block the button? Show inline error? Not specced. Must be defined.
+
+### D-S3 Now Blocks W-S8
+D-S3 must happen BEFORE W-S8. The wizard coding session will immediately hit
+GAP-S57-10 through GAP-S57-14 plus GAP-S57-6 through GAP-S57-9.
+Do not start W-S8 wizard coding until D-S3 is complete.
 
 CLEAN UP ALL STALE REFERENCES WHY THE FUCK DID YOU LEAVE THEM see the new rule above

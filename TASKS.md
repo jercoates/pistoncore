@@ -409,3 +409,33 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
 **Upload for D-S3:**
 FRONTEND_SPEC.md, DESIGN.md, STATEMENT_TYPES.md,
 CLAUDE_SESSION_PROMPT.md, TASKS.md, MISSING_SPECS.md
+
+## D-S3 NOW BLOCKS W-S8 — Do D-S3 First
+
+D-S3 must be completed before W-S8 wizard coding starts.
+W-S8 will immediately hit the multi-device gaps below.
+
+### D-S3 additions from Session 57 external review:
+
+**GAP-S57-10 → D-S3:** Role label generation for multi-device nodes
+  What string goes in `role` when user picks 3 devices? Affects editor,
+  snapshot, import. Decide and write into WIZARD_SPEC.md + STATEMENT_TYPES.md.
+
+**GAP-S57-11 → D-S3:** Wizard commit logic for mixed physical + global selections
+  How is entity_ids built when mixing physical devices and Device globals?
+  What is the role label? Not specced.
+
+**GAP-S57-12 → D-S3:** Aggregation not tied end-to-end to JSON + compiler output
+  Need explicit table: aggregation value → JSON → compiler → HA YAML.
+
+**GAP-S57-13 → D-S3:** Edit pre-fill for multi-device nodes
+  How does wizard re-populate from existing entity_ids on edit?
+  How are globals identified vs physical devices in existing list?
+
+**GAP-S57-14 → D-S3:** Zero devices selected — wizard behavior
+  Block Done button? Inline error? Must be defined.
+
+**Upload for D-S3:**
+FRONTEND_SPEC.md, DESIGN.md, STATEMENT_TYPES.md, WIZARD_SPEC.md,
+PISTON_FORMAT.md, COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md,
+TASKS.md, MISSING_SPECS.md

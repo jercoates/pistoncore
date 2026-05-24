@@ -19,67 +19,73 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - Do not write code in a spec session. Specs only.
 - Do not write code without permission. Do not omit this line when writing a new prompt again.
 - Never mark a section as SUPERSEDED and leave the stale content. Either rewrite it correctly or delete it. A warning label on wrong information is not a fix — it is still wrong information.
+- All specs must be complete before any coding session starts. No exceptions. Missing specs always bite harder than the tokens cost to write them.
 
 ## Deploy Command (Unraid)
 ```
 cd /mnt/user/appdata/pistoncore-dev && git pull && docker build --no-cache -t pistoncore . && docker stop pistoncore && docker rm pistoncore && docker run -d --name pistoncore --restart unless-stopped -p 7777:7777 -v /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize pistoncore
 ```
 
-## Current Priority — Session 58: D-S3 (Spec Cleanup — REQUIRED BEFORE W-S8)
+## Current Priority — Session 59: D-S4 (Remaining Spec Completion)
 
-**D-S3 must happen before any W-S8 wizard coding. GAP-S57-6 through GAP-S57-14 will
-block wizard coding immediately if not resolved first.**
+**This is a spec-only session. No code.**
+Complete all remaining unspecced items before any coding session starts.
 
----
-
-## Next After D-S3 — W-S8 (Wizard Coding)
-
-**This is a coding session.**
-
-### Upload for Session 58:
-wizard-core.js, wizard-condition.js, wizard-action.js, wizard-statement.js,
-wizard-loops.js, wizard-variable.js, editor.js, list.js,
-WIZARD_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md,
+### Upload for Session 59:
+DESIGN.md, FRONTEND_SPEC.md, WIZARD_SPEC.md, COMPILER_SPEC.md,
+PISTON_FORMAT.md, STATEMENT_TYPES.md, MISSING_SPECS.md,
 CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What to do this session:
+### What to do this session (in order):
 
-**Read first:** All uploaded files before writing a single line.
+**Step 1 — Close housekeeping gaps (small, do first)**
+- GAP-S57-7: Add duplicate role name note to DESIGN.md Section 6.11
+  (same role name on import = same entity_ids on all matching nodes — intentional)
+- GAP-S57-6/15/16/17: Mark closed in TASKS.md (already done in FRONTEND_SPEC.md v1.1)
 
-**Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
-Update `_saveDeviceCmd` to write the new action node format:
-- `role` = friendly label string
-- `entity_ids` = array of real HA entity IDs (from live device picker)
-- Remove any call to `registerDeviceRole` (dead code with device_map gone)
-- `ha_service` = `domain + "." + command`
-See WIZARD_SPEC.md v2.1 Screen W-6 Action Node JSON output for exact schema.
+**Step 2 — GAP-S57-8: SAMPLE_PISTONS.md**
+Create a new file with 3 complete logic_version 2 piston examples:
+- Simple: single trigger, single action (door opens → light on)
+- Multi-device: multi-entity trigger with aggregation, multi-entity action
+- Global variable: uses a global Devices variable, for_each loop
+All examples must be valid against PISTON_FORMAT.md v2.2 and STATEMENT_TYPES.md v2.1.
 
-**Step 1 — Remove registerDeviceRole from editor.js**
-Once wizard-action.js is updated, `registerDeviceRole()` is dead code. Remove it.
+**Step 3 — MISSING_SPECS Item 24: Global device edit redeploy prompt UX**
+Full UX spec for the permission prompt, progress modal, banner, and stale flag
+lifecycle. Covers all edge cases (never-deployed pistons, disabled pistons,
+merged stale flags, HA disconnected during redeploy, revert detection).
+Write into DESIGN.md Section 7.1 (expand the existing summary) or a new subsection.
 
-**Step 2 — Verify wizard-condition.js entity_ids output matches new spec**
-Confirm `_buildConditionNode` writes `role` + `entity_ids` (not just role name).
-Reference: WIZARD_SPEC.md v2.1 Screen W-4 Condition JSON output.
+**Step 4 — Error states inventory**
+Every error the backend can return and how the frontend displays it.
+Covers: compile errors, deploy errors, HA connection errors, missing entity,
+YAML validation failure, file permission errors, piston not found, etc.
+Write into FRONTEND_SPEC.md as a new section.
 
-**Step 3 — Wire globals into device picker**
-WIZARD_SPEC.md v2.1 now specifies how global Device/Devices variables appear in
-the picker. wizard-core.js needs to load and display globals from the globals API
-in the picker sections. Entity_ids resolved at commit time, written to node.
+**Step 5 — Piston list UI states**
+Every combination of piston row state:
+deployed+healthy, deployed+entity_missing, deployed+manually_edited,
+deployed+stale_globals, orphaned, never deployed, disabled, currently running.
+What icon/color/text shows for each. Write into FRONTEND_SPEC.md.
 
-**Step 4 — wizard-variable.js devices type**
-When var_type is `devices`, the initial value widget must be the full multi-select
-device picker. default_value stored as `{ "role": "label", "entity_ids": [...] }`.
-See WIZARD_SPEC.md v2.1 Screen W-7 and PISTON_FORMAT.md v2.2 variable section.
+**Step 6 — Status page full layout**
+Complete spec for the piston status page: layout, sections, run log display,
+compile preview panel, test button flow, deploy button states.
+Write into FRONTEND_SPEC.md.
 
-**Step 5 — Fix open gaps (in priority order, as time allows)**
-- GAP-S52-2: Action wizard stale sel state after scoped flow
-- GAP-S52-3: Add task button not working in some action wizard flows
-- GAP-S52-4: open() shallow copy — complex edit nodes don't populate correctly
-- GAP-S53-2: Attribute dropdown empty for real devices (_loadCapsIntoSelect wrong API call)
-- GAP-S53-3: Condition edit not pre-filling / no Delete button
-- GAP-S53-4: "on/null" rendering in editor (_condLine null check on value_to)
-- GAP-S53-5: Switch case statements missing branch
-- GAP-S44-1: Group condition editing not implemented
+**Step 7 — MISSING_SPECS Items 2-6, 10-12, 14, 19, 20**
+Work through each remaining open MISSING_SPECS item and write the spec
+directly into the appropriate document. Do not leave items as "MISSING" —
+write the actual spec.
+
+**Step 8 — HA_LIMITATIONS.md Section 3**
+Rewrite Section 3 to remove device_map and has_missing_devices references.
+Use the entity validation model from DESIGN.md Section 9.2.
+
+**Step 9 — AI_PROMPT_SPEC.md**
+Rewrite entirely for logic_version 2. Remove all device_map/device_map_meta
+references. New model: entity_ids on nodes, role labels as placeholders,
+Snapshot format per DESIGN.md Section 6.10/6.11. This is GAP-S57-3.
 
 ---
 
@@ -104,6 +110,7 @@ See WIZARD_SPEC.md v2.1 Screen W-7 and PISTON_FORMAT.md v2.2 variable section.
 - Compiler reads entity_ids directly — no role lookup needed
 - On compile: backend validates every entity_id against live HA entity states
 - Missing entity → MISSING_ENTITY compiler error with clear user message
+- User fixes in editor, recompiles
 
 ## Multi-Entity Compilation — Confirmed HA Native (Session 57)
 - **Triggers:** pass entity_ids array directly — one trigger block, HA fires on any match
@@ -134,139 +141,49 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
   WIZARD_SPEC.md v2.0. device_map eliminated. entity_ids on nodes. MISSING_ENTITY defined.
 - **DESIGN.md UPDATED (Session 56):** v1.2 — Architecture Pivot section added,
   superseded sections marked, fat compiler context corrected, has_missing_devices retired.
-- **FULL SPEC AUDIT (Session 57):** DESIGN.md v1.3, STATEMENT_TYPES.md v2.1,
-  WIZARD_SPEC.md v2.1, COMPILER_SPEC.md v1.3, PYSCRIPT_COMPILER_SPEC.md v1.1,
-  HA_LIMITATIONS.md, MISSING_SPECS.md updated. for_each entity_ids locked.
-  Startup sequence specced (Sections 9.1/9.2). Snapshot import flow specced (Sections 6.10/6.11).
-  Multi-entity HA native behavior confirmed. Globals redeploy prompt specced (Section 7.1).
-  Piston variable devices type specced (WIZARD_SPEC W-7, PISTON_FORMAT v2.2).
-  for_each v1 rule: inline entity_ids only.
+- **FULL SPEC AUDIT (Session 57):** All spec files updated to logic_version 2 model.
+- **D-S3 COMPLETE (Session 58):** DESIGN.md v1.3 fully cleaned — no active stale refs.
+  FRONTEND_SPEC.md v1.1 — Import dialog, role labels, aggregation, validation feedback,
+  global visual distinction, corrupt loading, copy/paste, WebSocket protocol, Settings page.
+  WIZARD_SPEC.md v2.2 — multi-device spec complete (GAP-S57-10 through S57-14).
+  MISSING_SPECS Items 7/8 rewritten. Items 22/23 resolved. Items 25/26/27 added.
+  reference/README.md created. Grep sweep clean (GAP-S57-9).
 
 ## Frontend File Locations
 - frontend/js/ — all JS files
 - frontend/css/style.css — all CSS
 
-## Open Critical Gaps (as of Session 57)
-- **GAP-S57-15 → D-S3:** Editor inline validation feedback unspecced — blocks editor.js work
-- **GAP-S57-16 → D-S3:** Global variable visual distinction in editor unspecced — blocks editor.js rendering
-- **GAP-S57-17 → D-S3:** Corrupt piston loading behavior unspecced — blocks editor coding
-- **GAP-S57-3 → AI prompt spec session:** AI_PROMPT_SPEC.md stale (device_map model) — blocks S4-10
-- **GAP-S57-4 → CLOSED (Session 58 / D-S3):** MISSING_SPECS.md Items 7/8 fixed — entity_state_cache, MISSING_ENTITY model
-- **GAP-S57-5 → MISSING_SPECS Item 24 + G-4:** Global device edit redeploy prompt
-  full UX spec needed before G-4 is coded
-- compiler.py: needs entity_ids direct read + MISSING_ENTITY validation — B-1
-- GAP-S52-2: Action wizard stale sel state
-- GAP-S52-3: Add task button wrong behavior
-- GAP-S52-4: open() shallow copy for complex edit nodes
-- GAP-S53-2: Attribute dropdown needs real device test
-- GAP-S53-3: Condition edit pre-fill needs verification
-- GAP-S53-4: "on/null" rendering in editor
-- GAP-S53-5: Switch case statements missing branch
-- GAP-S46-4 → G-3: Imported globals land in wrong place
-- GAP-S44-1 → W-S8: Group condition editing not implemented
+## WARNING — /reference folder
+Do NOT read any file in /reference. Those are archived session artifacts.
+See reference/README.md. All authoritative specs are in the repo root.
 
-## Warning — DESIGN.md Still Has Stale Sections (GAP-S57-6 → D-S3)
-DESIGN.md v1.3 Sections 6.1, 6.2, 6.3, 6.4, 6.5, and 15.6 still contain wrong
-device_map content. They were marked SUPERSEDED this session — that was wrong per
-the new rule. D-S3 must rewrite or delete them entirely. Do not code from these
-sections. Use PISTON_FORMAT.md v2.2, COMPILER_SPEC.md v1.3, WIZARD_SPEC.md v2.1.
+## Open Gaps (as of Session 58)
 
-## Spec File Versions (as of Session 57)
+**Still needs spec work (D-S4):**
+- GAP-S57-3 → D-S4: AI_PROMPT_SPEC.md rewrite (device_map model, fully stale)
+- GAP-S57-7 → D-S4: DESIGN.md Section 6.11 duplicate role name note (small)
+- GAP-S57-8 → D-S4: SAMPLE_PISTONS.md missing (blocks AI prompt + compiler testing)
+- GAP-S58-3 → D-S4: Piston backup spec (MISSING_SPECS Item 27 summary exists, needs full spec in FRONTEND_SPEC.md)
+- MISSING_SPECS Items 2-6, 10-12, 14, 19, 20 — all still open, write specs directly
+- Error states inventory — not specced
+- Piston list UI row states — not specced
+- Status page full layout — not specced
+- MISSING_SPECS Item 24 — global device edit redeploy prompt UX detail
+
+**Coding gaps (after D-S4):**
+- GAP-S57-5 → G-4: Global device edit redeploy prompt (blocked on Item 24 spec)
+- GAP-S52-2/3/4, GAP-S53-2/3/4/5, GAP-S44-1 → W-S8
+- compiler.py entity_ids direct read + MISSING_ENTITY → B-1
+- GAP-S46-4 → G-3
+
+## Spec File Versions (as of Session 58)
 - DESIGN.md v1.3
 - PISTON_FORMAT.md v2.2
 - COMPILER_SPEC.md v1.3
 - PYSCRIPT_COMPILER_SPEC.md v1.1
-- WIZARD_SPEC.md v2.1
+- WIZARD_SPEC.md v2.2
 - STATEMENT_TYPES.md v2.1
-- MISSING_SPECS.md — Items 1,9,13,17,18,21,22,23 resolved; Items 2-8,10-12,14-16,19-20,24 open
-
-## Unresolved Grok Review Items — Must Address Before W-S8 Closes
-
-These were flagged in the external Grok review and not fully resolved. Do NOT let
-these get lost. Assign each to a session at the start of W-S8 if not doing them now.
-
-### GAP-S57-6 → D-S3: FRONTEND_SPEC.md unread and potentially stale
-FRONTEND_SPEC.md is referenced as authoritative for editor rendering in PISTON_FORMAT.md
-but was never read or updated this session. It almost certainly has device_map references
-and stale rendering rules. Must be read and updated before any editor coding resumes.
-Block: any editor.js coding session that touches rendering.
-
-### GAP-S57-7 → D-S3: DESIGN.md Section 6.11 missing duplicate role name note
-Snapshot import flow (Section 6.11) does not explicitly document that duplicate role
-names across nodes are intentional — same role name gets same entity_ids on import.
-This is a feature not a bug and must be called out clearly so importers don't
-treat it as an error. Small addition only.
-
-### GAP-S57-8 → D-S3: Sample piston in logic_version 2 format missing
-No sample piston file exists showing a complete valid logic_version 2 piston JSON.
-COMPILER_SPEC.md Section 18 has one hand-written example but a dedicated
-SAMPLE_PISTONS.md with multiple examples (simple, multi-device, global variable)
-is needed for testing and as a reference for AI prompt generation.
-Block: AI prompt work (S4-10), compiler testing (S3-1).
-
-### GAP-S57-9 → CLOSED (Session 58 / D-S3): Full grep completed
-All stale references confirmed only in pre-session upload files. All output
-files clean. Confirmed across all 8 spec files.
-
-## Multi-Device Spec Gaps — Must Fix in D-S3 Before W-S8 Coding
-
-External review confirmed these are missing from current specs. W-S8 wizard coding
-will hit every one of these immediately. D-S3 must resolve them all first.
-
-### GAP-S57-10 → CLOSED (Session 58 / D-S3): Role label generation
-When a user picks 3 devices in the wizard, what string goes in `role`?
-Options: join friendly names ("Front Door, Back Door, Garage Door"), use a generic
-label ("Multiple Doors"), or use the first device name + count ("Front Door +2").
-This affects editor rendering, snapshot export, and import dialog display.
-Must be decided and written into WIZARD_SPEC.md and STATEMENT_TYPES.md.
-
-### GAP-S57-11 → CLOSED (Session 58 / D-S3): Mixed selection commit logic
-When a user mixes physical devices AND Device/Devices globals in one node,
-how is the final entity_ids array built? Are the global's entity_ids resolved
-and merged inline with the physical device entity_ids? What order? What happens
-to the role label when the source is mixed? Not specced anywhere.
-
-### GAP-S57-12 → CLOSED (Session 58 / D-S3): Aggregation commit
-The aggregation bar (any/all/none) is described in the wizard picker but the
-connection between what the user picks and what gets written to the condition node
-and how the compiler uses it is not explicitly specced end-to-end.
-Must be a clear table: aggregation value → JSON field → compiler output → HA YAML.
-D-S3 must add aggregation table to WIZARD_SPEC.md and COMPILER_SPEC.md:
-any→entity_id array (HA native), all→nested AND templates, none→NOT wrapper.
-
-### GAP-S57-13 → CLOSED (Session 58 / D-S3): Edit pre-fill hydration
-When a user clicks an existing multi-device condition or action to edit it,
-how does the wizard populate? The entity_ids array must be matched back to
-device picker selections. How are the devices re-displayed? How are globals
-identified vs physical devices in an existing entity_ids list?
-Not specced in WIZARD_SPEC.md.
-Hydration rule: read entity_ids array → load into WizardCore.sel.selected_entity_ids
-Set → use Set to flag checked state during list render phase.
-
-### GAP-S57-14 → CLOSED (Session 58 / D-S3): Zero devices validation
-What happens if the user clicks Done/Add with no devices selected?
-Block the button? Show inline error? Not specced. Must be defined.
-UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit
-button and show wiz-error-banner: "You must select at least one device or variable."
-
-### GAP-S57-15 → D-S3: Editor inline validation feedback unspecced
-Editor has no pre-compile warnings for missing entity_ids, empty nodes, or invalid
-attributes. Compiler defines MISSING_ENTITY but editor display of pre-compile
-warnings is completely unspecced. Must be written into FRONTEND_SPEC.md before
-any editor.js validation work.
-
-### GAP-S57-16 → D-S3: Global variable visual distinction in editor unspecced
-When rendering, `{@MyLights}` (global reference) must look different from a raw
-multi-device list. No rendering rule exists for this distinction in FRONTEND_SPEC.md.
-Must be specced before editor.js rendering work.
-
-### GAP-S57-17 → D-S3: Corrupt piston loading behavior unspecced
-What does the editor show for malformed JSON, missing entity_ids, or wrong
-logic_version? No error recovery spec exists. Must be defined before editor
-coding resumes.
-
-### D-S3 Now Blocks W-S8
-D-S3 must happen BEFORE W-S8. The wizard coding session will immediately hit
-GAP-S57-6 through GAP-S57-17. Do not start W-S8 wizard coding until D-S3 is complete.
-
-CLEAN UP ALL STALE REFERENCES WHY THE FUCK DID YOU LEAVE THEM see the new rule above
+- FRONTEND_SPEC.md v1.1
+- MISSING_SPECS.md — Items 1,9,13,17,18,21,22,23 resolved; Items 2-8,10-12,14-16,19-20,24-27 open
+- AI_PROMPT_SPEC.md — STALE, needs full rewrite (GAP-S57-3)
+- HA_LIMITATIONS.md — Section 3 still stale (device_map references)

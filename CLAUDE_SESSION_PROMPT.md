@@ -204,24 +204,9 @@ SAMPLE_PISTONS.md with multiple examples (simple, multi-device, global variable)
 is needed for testing and as a reference for AI prompt generation.
 Block: AI prompt work (S4-10), compiler testing (S3-1).
 
-### GAP-S57-9 → D-S3: Full grep for list_role/device_map stragglers
-A repo-wide grep for list_role, device_map, device_map_meta, has_missing_devices,
-and devices: ["role_name"] has not been run across all spec files. STATEMENT_TYPES.md
-early examples may still mix old/new patterns. Run the grep and fix any remaining hits.
-devices array references in action/condition context
-device_labels
-device_id as a state key
-Grep targets (exact): device_map (active spec text), devices (as node attribute),
-device_id, device_labels, [role] fallback pattern, _resolve_role_entities,
-initial_device_id singular, device_label singular. Fix all hits before W-S8.
-
-device_map — active spec text only, not historical sections
-devices — as a node data attribute (not the devices type keyword)
-device_id / device_labels — transient state keys
-[role] fallback pattern
-_resolve_role_entities — old compiler helper, should be gone
-initial_device_id singular — replace with initial_device_ids array
-device_label singular — replace with role
+### GAP-S57-9 → CLOSED (Session 58 / D-S3): Full grep completed
+All stale references confirmed only in pre-session upload files. All output
+files clean. Confirmed across all 8 spec files.
 
 ## Multi-Device Spec Gaps — Must Fix in D-S3 Before W-S8 Coding
 

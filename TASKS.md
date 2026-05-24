@@ -429,11 +429,10 @@ W-S8 will immediately hit GAP-S57-6 through GAP-S57-14.
   SAMPLE_PISTONS.md needed with simple, multi-device, and global variable examples.
   Blocks AI prompt work and compiler smoke testing.
 
-**GAP-S57-9 → D-S3:** Full grep for list_role/device_map stragglers
-  Repo-wide grep across all spec files. Fix all hits before W-S8.
-  Exact targets: device_map (active spec text), devices (as node attribute),
-  device_id, device_labels, [role] fallback pattern, _resolve_role_entities,
-  initial_device_id singular, device_label singular.
+**GAP-S57-9 → CLOSED (Session 58 / D-S3):** Full grep completed. All stale references exist
+  only in pre-session uploaded files. All output files are clean. Confirmed across:
+  STATEMENT_TYPES.md, WIZARD_SPEC.md, COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md,
+  HA_LIMITATIONS.md, DESIGN.md, FRONTEND_SPEC.md, MISSING_SPECS.md.
 
 **GAP-S57-10 → D-S3:** Role label generation for multi-device nodes
   What string goes in `role` when user picks 3 devices? Affects editor,

@@ -258,7 +258,7 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
-For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.2.
+For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.1.
 
 ---
 
@@ -283,7 +283,7 @@ Summary: PistonCore detects Snapshot vs Backup by checking whether entity_ids ar
 
 ### 6.4 Wrapper Fields
 
-The authoritative wrapper field reference is in PISTON_FORMAT.md v2.2.
+The authoritative wrapper field reference is in PISTON_FORMAT.md v2.1.
 
 Current wrapper fields (logic_version 2):
 
@@ -1870,7 +1870,7 @@ against the current spec.
 
 ## 32. Open Items Blocking Coding
 
-1. **COMPILER_SPEC.md** — current as of Session 55 (v1.2). No longer blocking. Update for_each list_role resolution before B-1 coding.
+1. **COMPILER_SPEC.md** — current as of Session 57 (v1.3). No longer blocking.
 2. **AI-REVIEW-PROMPT.md** — update to reflect current architecture before next external review.
 3. **settings / end settings block contents** — research WebCoRE behavior, define before implementing.
 4. **AI Prompt feature** — AI_PROMPT_SPEC.md must be rewritten for logic_version 2 (device_map references are stale). write-a-piston.md cannot be written until AI_PROMPT_SPEC.md is updated. Blocked until Snapshot format (Section 6.10) is stable.
@@ -1883,6 +1883,7 @@ against the current spec.
 11. **HA_LIMITATIONS.md Section 3** — references device_map and has_missing_devices. Fix in a dedicated HA_LIMITATIONS session — not blocking current work.
 12. **WIZARD_SPEC.md globals picker** — CLOSED Session 57 / D-S2. No longer deferred.
 13. **for_each list_role architecture** — CLOSED Session 57 / D-S2. entity_ids on node, list_role retired. See STATEMENT_TYPES.md v2.1 Section 6.
+14. **SAMPLE_PISTONS.md** — CLOSED Session 59 / D-S4. Three logic_version 2 examples created (simple, multi-device, global+for_each).
 
 ---
 

@@ -1,8 +1,61 @@
 # PistonCore Design Document
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026
+**Last Updated:** May 2026 (Session 56 — Architecture Pivot section added; device_map sections marked superseded)
+
+---
+
+## ⚠ ARCHITECTURE PIVOT — Session 55 (Read This First)
+
+**device_map has been eliminated as of logic_version 2.**
+
+This document was written before Session 55 and contains several sections that
+describe the old device_map architecture. Those sections have been marked with
+`⚠ SUPERSEDED` notices below. **Do not implement from those sections.**
+
+### What Changed in Session 55
+
+| Before (logic_version 1) | After (logic_version 2) |
+|---|---|
+| Piston wrapper held a `device_map` dict: `{ "role_name": ["entity.id"] }` | No `device_map` on the piston wrapper |
+| Compiler looked up entities by role name in device_map | Entity IDs stored directly on each condition and action node |
+| Import populated device_map from role placeholders | Import flow needs redesign — entity_ids must be mapped per-node |
+| Missing device: silent degrade or hard-flag via `has_missing_devices` | Missing entity: `MISSING_ENTITY` compiler error at compile time |
+| `role` field used by compiler for entity lookup | `role` is display label only — compiler never reads it for lookup |
+
+### Which Sections Are Superseded
+
+The following sections in this document describe the old device_map model
+and must not be used as implementation guidance:
+
+- **Section 6.1** — Internal JSON example shows `device_map` and `has_missing_devices` in wrapper
+- **Section 6.2** — Snapshot format shows `device_map` / `device_map_meta`
+- **Section 6.3** — Import flow references `device_map` detection
+- **Section 6.4** — Wrapper field table includes `device_map`, `device_map_meta`, `has_missing_devices`
+- **Section 6.5** — Compiler consumer row says "reads device_map"
+- **Section 14 (Fat Compiler Context)** — shows `device_map` field in context object
+- **Section 15.6** — Missing Device Handling (hard-flag vs degrade model)
+
+### Where to Find the Correct Current Specs
+
+| Topic | Authoritative source |
+|---|---|
+| Piston JSON format (wrapper + node schemas) | PISTON_FORMAT.md v2.1 |
+| Condition and action node `entity_ids` fields | PISTON_FORMAT.md v2.1 — Condition Object Schema and Action Node Schema |
+| Compiler entity resolution | COMPILER_SPEC.md v1.2 — Section 8 (`resolve_entities`) |
+| Fat compiler context object (no device_map) | COMPILER_SPEC.md v1.2 — Section 7 |
+| MISSING_ENTITY compiler error | COMPILER_SPEC.md v1.2 — Section 13 |
+| Entity validation in deploy pipeline | COMPILER_SPEC.md v1.2 — Section 15 |
+| Snapshot import flow (redesign needed) | MISSING_SPECS.md Item 21 (spec pending) |
+
+### has_missing_devices Flag — Retired
+
+`has_missing_devices` is retired under logic_version 2. The old model set this flag
+on piston load when a device_map entity was missing from HA. Under the new model,
+entity validation happens at compile time and produces a `MISSING_ENTITY` compiler error.
+There is no piston-level missing-device flag. Remove `has_missing_devices` from any
+code that reads or writes it.
 
 ---
 
@@ -24,7 +77,7 @@ It does not add devices, manage integrations, or extend HA's capabilities in any
 * **Automations are yours.** Compiled files are standard HA files. PistonCore is the source of truth for your pistons — the compiled files on HA are just the output.
 * **PistonCore never touches files it did not create.** Your existing hand-written automations, scripts, and YAML files are completely safe. PistonCore only ever writes to its own subfolder. This rule is enforced architecturally via file signature checking — see Section 13.
 * **Compiled files are compiler-owned artifacts.** Files written by PistonCore to HA directories are deployment artifacts, not source files. They may be replaced wholesale on recompile. The piston JSON is always the source of truth — never the compiled HA file. Users who hand-edit compiled files will be warned at next deploy via the hash check.
-* **Structured JSON is the internal master format.** Every piston is stored as a structured JSON object. The wizard writes structured data for every statement. The editor renders display text from that data — text is always generated from the JSON, never the other way around. This is the same proven model WebCoRE used. The compiler reads structured JSON directly — no text parsing required. Sharing and AI import use the Snapshot format — structured JSON with empty `device_map` and role name placeholders. No text parsing required on import. Nothing drifts because the structured JSON is always the single source of truth.
+* **Structured JSON is the internal master format.** Every piston is stored as a structured JSON object. The wizard writes structured data for every statement. The editor renders display text from that data — text is always generated from the JSON, never the other way around. This is the same proven model WebCoRE used. The compiler reads structured JSON directly — no text parsing required. Sharing and AI import use the Snapshot format — structured JSON with role name placeholders and no entity IDs. No text parsing required on import. Nothing drifts because the structured JSON is always the single source of truth.
 * **Shareable by design.** Pistons are stored and shared as plain JSON. Paste them anywhere — a forum post, a GitHub Gist, a Discord message. Import from a URL or paste directly. No account required, no server involved.
 * **AI-friendly from day one.** The piston JSON format is simple and fully documented so AI assistants can generate valid pistons from a plain English description.
 * **Open and community driven.** MIT licensed. Anyone can host, fork, modify, or contribute.
@@ -244,11 +297,16 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 **Internal stored format:** Structured JSON — every statement is a typed data object. The wizard writes structured data. The editor renders display text from that data. The compiler reads structured JSON directly. This is the working format — the source of truth for everything PistonCore does with a piston.
 
-**Shared/export/AI format (Snapshot JSON):** Structured JSON with empty `device_map` arrays and role name placeholders. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with personal device mappings removed. See Section 6.2.
+**Shared/export/AI format (Snapshot JSON):** Structured JSON with role name placeholders and no entity IDs. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with entity IDs stripped from nodes. See Section 6.2.
 
 These two formats serve different purposes. The internal format is for the compiler and editor. The Snapshot format is for humans, AI, and community sharing.
 
 ### 6.1 Internal Stored Format
+
+> ⚠ SUPERSEDED — The JSON example below shows the logic_version 1 format which included
+> `device_map` and `has_missing_devices` on the wrapper. Both are eliminated in logic_version 2.
+> See PISTON_FORMAT.md v2.1 for the current wrapper schema and complete example.
+> The narrative text below remains accurate — only the JSON example is stale.
 
 The internal piston file contains a wrapper plus a `statements` array of structured JSON objects. This is the same proven model WebCoRE used, adapted for Home Assistant.
 
@@ -312,6 +370,13 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
 ### 6.2 Snapshot Format — The Share and AI Format
+
+> ⚠ SUPERSEDED — The Snapshot JSON example below shows the logic_version 1 format which
+> included `device_map` and `device_map_meta`. Both are eliminated in logic_version 2.
+> The new Snapshot format uses role name placeholders on individual condition and action
+> nodes instead of a central device_map. The Snapshot import flow is being redesigned —
+> see MISSING_SPECS.md Item 21 for the pending spec.
+> The narrative concept (share format strips entity IDs, preserves roles) remains correct.
 
 When a piston is exported as a Snapshot, shared in a forum post, or generated
 by an AI, the format is the internal structured JSON with two differences:
@@ -389,6 +454,13 @@ from a WebCoRE screenshot.
 
 ### 6.3 Import Flow — Role Mapping
 
+> ⚠ SUPERSEDED — This import flow was designed for the logic_version 1 device_map model.
+> It detects empty `device_map` arrays and runs role mapping to populate them.
+> Under logic_version 2, there is no central device_map. Entity IDs live on individual
+> condition and action nodes. The import flow must be redesigned to map roles per-node
+> rather than populating a wrapper-level dict. Full redesign spec is pending —
+> see MISSING_SPECS.md Item 21. Do not implement from this section.
+
 When a user imports a Snapshot (from AI, from sharing, from the community),
 the flow is:
 
@@ -412,6 +484,10 @@ One path handles everything. The role mapping step is skipped entirely if
 
 ### 6.4 Wrapper Fields
 
+> ⚠ SUPERSEDED — This table reflects the logic_version 1 wrapper schema.
+> `has_missing_devices`, `device_map`, and `device_map_meta` are all eliminated in
+> logic_version 2. See PISTON_FORMAT.md v2.1 Wrapper Field Reference for the current table.
+
 | Field | Internal | Snapshot | Backup | Purpose |
 |---|---|---|---|---|
 | `id` | ✅ | new on import | ✅ preserved | Immutable UUID |
@@ -433,15 +509,20 @@ bumps `logic_version` only. Never collapse them into one field.
 
 ### 6.5 What Each Consumer Does
 
+> ⚠ PARTIALLY SUPERSEDED — The Compiler row below says "reads statements + device_map".
+> Under logic_version 2, the compiler reads `entity_ids` directly from condition and action
+> nodes — there is no device_map. See COMPILER_SPEC.md v1.2 Section 8 (`resolve_entities`).
+> All other rows remain accurate.
+
 | Consumer | Reads | Does |
 |---|---|---|
 | Editor | `statements` | Renders display text from structured data |
 | Wizard | `statements` | Reads structured data to pre-populate edit, writes structured data on save |
-| Compiler | `statements` + `device_map` | Reads typed statement objects directly — no text parsing |
-| Import dialog | Snapshot JSON | Validates format, detects empty device_map, runs role mapping flow |
-| Piston list | Wrapper only | Reads `name`, `id`, `has_missing_devices` — never touches statements |
-| Snapshot export | `statements` + wrapper | Strips entity IDs from device_map, clears id for reassignment |
-| Backup export | Everything | Returns full internal format including populated `device_map` |
+| Compiler | `statements` (entity_ids on nodes) | Reads typed statement objects directly — no text parsing, no device_map lookup |
+| Import dialog | Snapshot JSON | Validates format, runs role mapping flow — *redesign pending (MISSING_SPECS Item 21)* |
+| Piston list | Wrapper only | Reads `name`, `id` — never touches statements |
+| Snapshot export | `statements` + wrapper | Strips entity IDs from nodes, clears id for reassignment |
+| Backup export | Everything | Returns full internal format including entity_ids on nodes |
 
 ---
 
@@ -453,7 +534,8 @@ structured data on the fly — the same way WebCoRE did with its
 a defined render function that produces the corresponding plain English
 display line.
 
-**Example:** A structured condition object:
+**Example:** A structured condition object (note: `entity_ids` field omitted
+from this example for brevity — see PISTON_FORMAT.md v2.1 for the full schema):
 ```json
 {
   "operator": "changes to",
@@ -469,7 +551,7 @@ Renders as: `⚡ Any of {Doors}'s contact changes to Open`
 Render functions live in the frontend. They are called by the editor for
 display and by the status page for the read-only script panel.
 Snapshot export does NOT use render functions — it exports the structured
-JSON directly with device_map emptied.
+JSON directly with entity IDs stripped from nodes.
 
 ---
 
@@ -841,16 +923,19 @@ The compiler passes a "fat" context object to every Jinja2 template. Logic that 
 
 **Standard compiler context object — contract for template authors:**
 
+> Note: `device_map` has been removed from the context object as of Session 55.
+> Entity IDs are read directly from condition and action nodes — no role lookup needed.
+> The authoritative context object spec is COMPILER_SPEC.md v1.2 Section 7.
+
 ```python
 {
-    "piston":             { ... },   # Full piston JSON
-    "device_map":         { ... },   # role → entity_id mapping
+    "piston":             { ... },   # Full piston JSON including statements
     "entity_states":      { ... },   # entity_id → current state/attributes from HA
     "services":           { ... },   # available services for referenced domains
     "ha_version":         "2025.6",  # detected HA version string
     "pistoncore_version": "1.0",
-    "global_variables":   [ ... ],   # all defined globals with type and helper entity_id
-    "piston_variables":   [ ... ],   # variables defined in this piston
+    "global_variables":   [ ... ],   # all defined globals — see COMPILER_SPEC.md v1.2 Section 7
+    "piston_variables":   [ ... ],   # variables defined in this piston's variables[] array
     "areas":              { ... },   # area_id → area name
     "zones":              [ ... ],   # all HA zones
 }
@@ -958,6 +1043,25 @@ The complete statement type list and their required render patterns are defined 
 ---
 
 ## 15.6 Missing Device Handling
+
+> ⚠ SUPERSEDED — This section describes the logic_version 1 missing device model:
+> hard-flag vs degrade, `has_missing_devices` flag, per-role cardinality, and the
+> import role mapping fix flow. All of this is replaced under logic_version 2.
+>
+> **Current behavior (logic_version 2):**
+> Entity validation runs at compile time, not at HA connect. If any `entity_ids` value
+> on a condition or action node does not exist in the current HA entity registry, the
+> compiler emits a `MISSING_ENTITY` error. The piston cannot be deployed until the error
+> is resolved. The user fixes the entity in the editor and recompiles.
+>
+> There is no `has_missing_devices` flag. There is no per-role cardinality distinction
+> at this stage — all missing entities are compile errors. The hard-flag vs degrade
+> split may be revisited in a future session once the node-level entity model is
+> tested in practice.
+>
+> See COMPILER_SPEC.md v1.2 Section 13 (MISSING_ENTITY error) and Section 15
+> (entity validation in the deploy pipeline) for the authoritative current spec.
+> Do not implement from the text below.
 
 ### Single-Device Statements — Hard Flag, Block Redeploy
 
@@ -1588,7 +1692,7 @@ pistoncore/prompts/
 - The full list of valid statement types and their JSON schemas
 - The condition object schema including display_value/compiled_value split
 - The operator reference (from WIZARD_SPEC.md)
-- Role placeholder rules — device_map keys with empty arrays
+- Role placeholder rules — role names on nodes with empty entity_ids arrays
 - compile_target rules (when to use pyscript vs native_script)
 - System variables reference
 - A complete working example in Snapshot JSON format
@@ -1689,6 +1793,12 @@ compiler.py field name alignment pass — all field names brought in line with P
 
 ### Session 25 — May 2026
 Full session of spec and task management. No code written. External Design Claude review (AIReviews5-6-26.md) processed and all action items incorporated. TASKS.md: all Stage 1 and 2 Upload lines updated with required spec files; S1-7 Compiler Bug Fixes (2 sessions) added — session 1 before S1-5 to fix triggers and condition indentation before any HA write; S1-6 Fat Compiler Context Assembly added between S1-5 and S1-7 session 2; S3-2 Deferred Validation Testing added after S3-1; S4-15 Operational Hardening added; S4-0 reordered with Error States Inventory first; S4-10 write-a-piston.md blocker noted; Gap A–G from Grok repo review incorporated. MISSING_SPECS.md: Items 13 (Fat Compiler Context), 14 (Time Condition Compiler Path), 15 (write-a-piston.md) added. PISTON_FORMAT.md: "Two Formats" intro corrected to reference Snapshot JSON; piston_text field added to wrapper table with warning block and "fail loudly on render failure" rule; "What This Format Is Not" updated. HA_LIMITATIONS.md: state value quoting (Bug 11), wait_for_trigger timeout (Bug 3), parallel branch continue_on_error (Bug 12) moved from "already handled" to "known gaps" — were incorrectly marked as handled. DESIGN.md: duplicate Section 32 heading fixed (Standing Questions → Section 33, Development Log → Section 34). STATEMENT_TYPES.md Section 16 header confirmed present — was already fixed, no change needed.
+
+### Session 55 — May 2026
+Architecture pivot: device_map eliminated. PISTON_FORMAT.md → v2.1 (device_map removed, entity_ids + role fields on condition and action nodes, logic_version 2, hand-written example updated). COMPILER_SPEC.md → v1.2 (Section 8 resolve_entities added, Sections 9.3/10.2/11 read entity_ids directly, Section 13 MISSING_ENTITY error added, Section 15 entity validation added as Stage 2, Section 18 hand-written example updated). WIZARD_SPEC.md → v2.0 (combined with WIZARD_REBUILD_SPEC.md, condition and action output schemas updated with entity_ids). MISSING_SPECS.md: Items 17–20 added. TASKS.md: W-S8 upload list and B-1 backend compiler session added.
+
+### Session 56 — May 2026 (D-S1)
+Spec session. No code. DESIGN.md updated to reflect Session 55 architecture pivot. Added Architecture Pivot section at top of document. Removed device_map from fat compiler context object (Section 14) — now matches COMPILER_SPEC.md v1.2 Section 7. Marked Sections 6.1, 6.2, 6.3, 6.4, 6.5, 15.6 as ⚠ SUPERSEDED with redirects to current specs. has_missing_devices flag retired. Core Philosophy and write-a-piston.md spec references updated. DESIGN.md version bumped to v1.2.
 
 ---
 

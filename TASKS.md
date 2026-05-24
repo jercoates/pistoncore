@@ -345,6 +345,22 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   references replaced with entity_ids-on-nodes model, cardinality distinction removed
   (all missing entities are MISSING_ENTITY errors in v1).
 
+### GAP-S58-1 → CLOSED (Session 58 / D-S3): HA entity state subscription vs polling
+  Specced directly in FRONTEND_SPEC.md WebSocket Protocol section and DESIGN.md Section 9.2.
+  Scheduled polling every 30 min. WebSocket events for real-time run/deploy status.
+  No subscription model for entity state changes in v1 — polling only.
+
+### GAP-S58-4 → CLOSED (Session 58 / D-S3): WebSocket protocol unspecced
+  Full message protocol specced in FRONTEND_SPEC.md v1.1 — all message types,
+  frontend behavior per type, subscription model for run logs.
+
+### GAP-S58-5 → CLOSED (Session 58 / D-S3): Settings page unspecced
+  Full settings page layout, fields, validation, addon mode specced in FRONTEND_SPEC.md v1.1.
+
+### GAP-S58-6 → Immediate: /reference folder needs README
+  Add README.md to /reference warning Claude not to read those files.
+  DONE — reference_README.md produced this session. Commit to repo as reference/README.md.
+
 ### GAP-S58-1 → MISSING_SPECS Item 25: HA entity state subscription vs polling unspecced
   Does PistonCore subscribe to HA state_changed events or poll only?
   Spec before ha_client.py event subscription work.

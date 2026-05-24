@@ -1,11 +1,9 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Authoritative — For Developer Use
-**Last Updated:** May 2026 (Session 58 / D-S3 — Import Dialog rewritten for
-logic_version 2, device_map references removed, Role Label Display Rules added,
-Aggregation Display Rules added, Inline Validation Feedback added, Global Variable
-Visual Distinction added, Corrupt Piston Loading added, Open Items updated)
+**Last Updated:** May 2026 (Session 58 / D-S3 — WebSocket protocol specced,
+  Settings page specced, clipboard API endpoints added, API endpoint list updated)
 
 This document is written for the frontend developer. It defines exactly what to build.
 Read DESIGN.md first for background and philosophy. This document is the concrete implementation spec.
@@ -758,19 +756,156 @@ Backend endpoints the frontend uses:
 - `GET /api/device/{id}/triggers` — valid triggers for a device
 - `GET /api/device/{id}/conditions` — valid conditions for a device
 - `GET /api/device/{id}/services` — valid services for a device with parameter schema
-- `GET /api/pistons` — all pistons with status
+- `GET /api/pistons` — all pistons with status (reads piston_index.json)
 - `GET /api/piston/{id}` — single piston JSON
 - `POST /api/piston/{id}/save` — save piston JSON to volume
 - `POST /api/piston/{id}/deploy` — compile and deploy to HA
 - `POST /api/piston/{id}/test` — fire piston manually (always live fire, always confirms first)
 - `POST /api/piston/{id}/test_compile` — compile and return output for preview (does not deploy)
 - `GET /api/globals` — all global variables
-- `PUT /config` — save HA connection settings
-- `WebSocket /ws` — live log updates, trace data, run status events
+- `PUT /api/config` — save HA connection settings
+- `GET /api/clipboard` — current clipboard content or null
+- `POST /api/clipboard` — save statement subtree to clipboard
+- `DELETE /api/clipboard` — clear clipboard
+- `WebSocket /ws` — live log updates, trace data, run status, deploy status events
 
 The capability map (which operators are valid for which attribute types) lives in the frontend. Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA. The backend provides raw HA data. The frontend applies the map.
 
-Exact endpoint signatures to be confirmed with the backend developer.
+---
+
+## WebSocket Protocol
+
+The frontend connects to `ws://{host}/ws` on page load and maintains a persistent
+connection. All real-time events flow through this single connection.
+
+### Connection Lifecycle
+
+- Connect on page load
+- On disconnect: show "HA Disconnected" banner, attempt reconnect with exponential
+  backoff (1s, 2s, 4s, 8s, max 60s)
+- On reconnect: re-subscribe to any active piston run log, refresh piston index
+
+### Message Format
+
+All messages are JSON. Every message has a `type` field.
+
+**Frontend → Backend:**
+```json
+{ "type": "subscribe_run", "piston_id": "a3f8c2d1" }
+{ "type": "unsubscribe_run", "piston_id": "a3f8c2d1" }
+{ "type": "ping" }
+```
+
+**Backend → Frontend:**
+```json
+{ "type": "pong" }
+{ "type": "run_start", "piston_id": "a3f8c2d1", "run_id": "uuid", "timestamp": "..." }
+{ "type": "run_log", "piston_id": "a3f8c2d1", "run_id": "uuid", "sequence": 1,
+  "event_type": "trigger|condition|action|log|error", "statement_id": "stmt_001",
+  "message": "...", "timestamp": "..." }
+{ "type": "run_complete", "piston_id": "a3f8c2d1", "run_id": "uuid",
+  "status": "success|error", "duration_ms": 142, "timestamp": "..." }
+{ "type": "deploy_start", "piston_id": "a3f8c2d1" }
+{ "type": "deploy_complete", "piston_id": "a3f8c2d1",
+  "status": "success|error", "message": "..." }
+{ "type": "entity_missing", "piston_id": "a3f8c2d1",
+  "entity_ids": ["binary_sensor.front_door"], "role": "Front Door" }
+{ "type": "piston_index_updated" }
+{ "type": "ha_connected" }
+{ "type": "ha_disconnected" }
+```
+
+### Frontend Behavior Per Message Type
+
+| Message type | Frontend action |
+|---|---|
+| `run_start` | Show run indicator on piston list row and status page |
+| `run_log` | Append to live log panel on status page if subscribed |
+| `run_complete` | Update run indicator, show duration, refresh last run time |
+| `deploy_start` | Show deploy spinner on piston list row and status page |
+| `deploy_complete` | Hide spinner, show success/error, refresh piston index |
+| `entity_missing` | Show ⚠ on piston list row, update entity_missing flag |
+| `piston_index_updated` | Refresh piston list from piston_index.json |
+| `ha_connected` | Hide "HA Disconnected" banner, enable deploy button |
+| `ha_disconnected` | Show "HA Disconnected" banner, disable deploy button |
+
+### Subscription Model
+
+The frontend subscribes to run logs for a specific piston when the user is on that
+piston's status page. On navigating away: unsubscribe. The backend only streams
+`run_log` events for subscribed pistons — it never broadcasts all run events to all clients.
+
+---
+
+## Settings Page
+
+The Settings page is accessible from the main nav. It is a simple form — no wizard,
+no multi-step flow.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Settings                                           │
+├─────────────────────────────────────────────────────┤
+│  Home Assistant Connection                          │
+│                                                     │
+│  HA URL          [http://homeassistant.local:8123]  │
+│  Long-lived token [●●●●●●●●●●●●●●●●●●●●] [Show]   │
+│  [Test Connection]                                  │
+│  Status: ● Connected — HA 2026.5                    │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  Deployment                                         │
+│                                                     │
+│  Deployment type   ○ Docker  ○ HA Addon             │
+│  Entity check interval  [30] minutes                │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  Danger Zone                                        │
+│                                                     │
+│  [Backup All Pistons]  Downloads all pistons as zip │
+│  [Clear Run Log]       Clears all run history       │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│                              [Cancel]  [Save]       │
+└─────────────────────────────────────────────────────┘
+```
+
+### Fields
+
+**HA URL** — text input. Must start with `http://` or `https://`. Validated on save.
+
+**Long-lived token** — password input. Shown masked. `[Show]` toggles visibility.
+If unchanged on save (user didn't type in the field): do not overwrite the stored token.
+Show `[●●●●●●●●]` as placeholder when a token is already stored.
+
+**Test Connection** — fires `GET /api/config` with the current URL and token values
+(not yet saved). Shows inline result: ✓ Connected — HA 2026.5 | ✗ Could not connect.
+
+**Deployment type** — radio. Docker or HA Addon. Affects which features are shown
+throughout the UI (PyScript indicator, token field visibility).
+
+**Entity check interval** — number input, default 30. Minimum 5. Label: "minutes".
+Stored in `config.json` as `entity_check_interval_minutes`.
+
+**Backup All Pistons** — triggers `GET /api/pistons/backup` which returns a zip of
+all piston JSON files. Browser downloads it. Filename: `pistoncore-backup-{date}.zip`.
+
+**Clear Run Log** — confirmation dialog: *"This will delete all run history. Cannot be undone."* `[Cancel]` `[Clear]`. On confirm: `DELETE /api/logs`.
+
+### Validation
+
+- HA URL empty → show inline error, block save
+- HA URL malformed → show inline error, block save
+- Entity check interval < 5 → normalize to 5 on save with a note
+- Token empty when no token was previously stored → show inline error, block save
+- Token field unchanged (still showing ●●●● placeholder) → preserve existing token
+
+### Addon Mode
+
+When `deployment_type === "addon"`: hide the HA URL and Long-lived token fields entirely.
+The supervisor token is automatic. Show instead: *"Running as HA Addon — connection is automatic."*
 
 ---
 

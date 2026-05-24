@@ -1,11 +1,10 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 57 complete — full spec audit. DESIGN.md v1.3, STATEMENT_TYPES.md v2.1,
-WIZARD_SPEC.md v2.1, COMPILER_SPEC.md v1.3, PYSCRIPT_COMPILER_SPEC.md v1.1, HA_LIMITATIONS.md,
-MISSING_SPECS.md updated. for_each entity_ids locked. Startup sequence specced.
-Snapshot import flow specced. Multi-entity HA behavior confirmed and documented.
-Next: W-S8 (wizard coding) — upload list updated below.
+**Last Updated:** Session 57 complete + post-session external review.
+GAP-S57-15/16/17 added (editor inline validation, global visual distinction,
+corrupt piston loading). D-S3 confirmed blocks W-S8. W-S8 and B-1 task entries
+cleaned up and properly structured. Next: D-S3.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 
 ---
@@ -346,6 +345,18 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   Item 8 references device_map_meta cardinality. Both need updating before
   storage/missing-device handler is coded in B-1.
 
+### GAP-S57-15 → D-S3: Editor inline validation feedback unspecced
+  Editor has no pre-compile warnings for missing entity_ids or empty nodes.
+  Must be written into FRONTEND_SPEC.md.
+
+### GAP-S57-16 → D-S3: Global variable visual distinction in editor unspecced
+  {@MyLights} must look different from raw multi-device list in editor rendering.
+  No rendering rule exists. Must be written into FRONTEND_SPEC.md.
+
+### GAP-S57-17 → D-S3: Corrupt piston loading behavior unspecced
+  No error recovery spec for malformed JSON, missing entity_ids, wrong logic_version.
+  Must be defined before editor coding resumes.
+
 ### GAP-S33-2 → S3-2: condition_and/or template indentation needs real-world testing
 ### GAP-S34-1 → S4-16: _compile_single_condition has no warnings param
 ### GAP-S38-1 → S2-2: /api/logs route missing from api.py
@@ -389,9 +400,12 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   Needs explicit field mapping per node type in _route() or a deep-copy utility.
   Identified by Grok scan of current codebase post-wizard-split.
 
-### D-S3: Post-Audit Cleanup (after W-S8, before B-1)
+### D-S3: Post-Audit Cleanup — BLOCKS W-S8 (Do This First)
 
-**Blocks:** editor.js rendering coding, AI prompt work, compiler testing
+**D-S3 must be completed before W-S8 wizard coding starts.**
+W-S8 will immediately hit GAP-S57-6 through GAP-S57-14.
+
+**Blocks:** W-S8, editor.js rendering coding, AI prompt work, compiler testing
 
 **GAP-S57-6 → D-S3:** FRONTEND_SPEC.md unread and potentially stale
   Read and update for entity_ids model before any editor rendering coding.
@@ -404,18 +418,10 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   Blocks AI prompt work and compiler smoke testing.
 
 **GAP-S57-9 → D-S3:** Full grep for list_role/device_map stragglers
-  Repo-wide grep across all spec files. Fix any remaining hits.
-
-**Upload for D-S3:**
-FRONTEND_SPEC.md, DESIGN.md, STATEMENT_TYPES.md,
-CLAUDE_SESSION_PROMPT.md, TASKS.md, MISSING_SPECS.md
-
-## D-S3 NOW BLOCKS W-S8 — Do D-S3 First
-
-D-S3 must be completed before W-S8 wizard coding starts.
-W-S8 will immediately hit the multi-device gaps below.
-
-### D-S3 additions from Session 57 external review:
+  Repo-wide grep across all spec files. Fix all hits before W-S8.
+  Exact targets: device_map (active spec text), devices (as node attribute),
+  device_id, device_labels, [role] fallback pattern, _resolve_role_entities,
+  initial_device_id singular, device_label singular.
 
 **GAP-S57-10 → D-S3:** Role label generation for multi-device nodes
   What string goes in `role` when user picks 3 devices? Affects editor,
@@ -427,15 +433,104 @@ W-S8 will immediately hit the multi-device gaps below.
 
 **GAP-S57-12 → D-S3:** Aggregation not tied end-to-end to JSON + compiler output
   Need explicit table: aggregation value → JSON → compiler → HA YAML.
+  any→entity_id array (HA native), all→nested AND templates, none→NOT wrapper.
 
 **GAP-S57-13 → D-S3:** Edit pre-fill for multi-device nodes
   How does wizard re-populate from existing entity_ids on edit?
-  How are globals identified vs physical devices in existing list?
+  Hydration rule: read entity_ids array → load into WizardCore.sel.selected_entity_ids
+  Set → use Set to flag checked state during list render phase.
 
 **GAP-S57-14 → D-S3:** Zero devices selected — wizard behavior
-  Block Done button? Inline error? Must be defined.
+  UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit
+  button and show wiz-error-banner: "You must select at least one device or variable."
+
+**GAP-S57-15 → D-S3:** Editor inline validation feedback unspecced
+  Editor has no pre-compile warnings for missing entity_ids, empty nodes, or invalid
+  attributes. Compiler defines MISSING_ENTITY but editor display of pre-compile
+  warnings is completely unspecced. Must be written into FRONTEND_SPEC.md.
+
+**GAP-S57-16 → D-S3:** Global variable visual distinction in editor unspecced
+  When rendering, {@MyLights} (global reference) must look different from a raw
+  multi-device list. No rendering rule exists for this distinction.
+  Must be written into FRONTEND_SPEC.md before editor.js work.
+
+**GAP-S57-17 → D-S3:** Corrupt piston loading behavior unspecced
+  What does the editor show for malformed JSON, missing entity_ids, or wrong
+  logic_version? No error recovery spec exists. Must be defined before editor
+  coding resumes.
 
 **Upload for D-S3:**
 FRONTEND_SPEC.md, DESIGN.md, STATEMENT_TYPES.md, WIZARD_SPEC.md,
 PISTON_FORMAT.md, COMPILER_SPEC.md, CLAUDE_SESSION_PROMPT.md,
 TASKS.md, MISSING_SPECS.md
+
+---
+
+### W-S8: Wizard Coding (After D-S3 Only)
+
+**Upload for W-S8:**
+wizard-core.js, wizard-condition.js, wizard-action.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, editor.js, list.js,
+WIZARD_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+**Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
+Update `_saveDeviceCmd` to write the new action node format:
+- `role` = friendly label string (generated per GAP-S57-10 rule from D-S3)
+- `entity_ids` = array of real HA entity IDs (from live device picker)
+- Remove any call to `registerDeviceRole` (dead code with device_map gone)
+- `ha_service` = `domain + "." + command`
+See WIZARD_SPEC.md v2.1 Screen W-6 Action Node JSON output for exact schema.
+
+**Step 1 — Remove registerDeviceRole from editor.js**
+Once wizard-action.js is updated, `registerDeviceRole()` is dead code. Remove it.
+
+**Step 2 — Verify wizard-condition.js entity_ids output matches new spec**
+Confirm `_buildConditionNode` writes `role` + `entity_ids` (not just role name).
+Reference: WIZARD_SPEC.md v2.1 Screen W-4 Condition JSON output.
+
+**Step 3 — Wire globals into device picker**
+wizard-core.js needs to load and display globals from the globals API in the picker.
+Entity_ids resolved at commit time, written to node. See WIZARD_SPEC.md v2.1.
+
+**Step 4 — wizard-variable.js devices type**
+When var_type is `devices`, use full multi-select device picker.
+default_value = `{ "role": "label", "entity_ids": [...] }`.
+See WIZARD_SPEC.md v2.1 W-7 and PISTON_FORMAT.md v2.2.
+
+**Step 5 — Fix open gaps (in priority order, as time allows)**
+- GAP-S52-2: Action wizard stale sel state
+- GAP-S52-3: Add task button wrong behavior
+- GAP-S52-4: open() shallow copy for complex edit nodes
+- GAP-S53-2: Attribute dropdown empty for real devices
+- GAP-S53-3: Condition edit pre-fill needs verification
+- GAP-S53-4: "on/null" rendering in editor
+- GAP-S53-5: Switch case statements missing branch
+- GAP-S44-1: Group condition editing not implemented
+
+---
+
+### B-1: Backend — compiler.py Entity IDs Direct Read + MISSING_ENTITY Validation
+
+**This is a backend-only session. No frontend changes.**
+
+**What to implement:**
+1. Remove all `device_map` / `list_role` lookup from `compiler.py`
+2. Read `entity_ids` directly from condition nodes
+3. Read `entity_ids` directly from action nodes
+4. Read `entity_ids` directly from for_each nodes (list_role retired)
+5. Implement `resolve_entities()` per COMPILER_SPEC.md v1.3 Section 8
+6. Add `MISSING_ENTITY` compiler error per COMPILER_SPEC.md v1.3 Section 13
+7. Add entity validation as Stage 2 in pre-deploy pipeline per Section 15
+8. Multi-entity triggers: pass entity_ids array directly — do NOT expand per entity
+9. Multi-entity actions: pass entity_ids array directly — do NOT emit one block per entity
+10. for_each: write entity_ids list inline in YAML — no lookup needed
+
+**Also in this session:**
+- Update MISSING_SPECS.md Items 7 and 8 to remove device_map/device_map_meta language (GAP-S57-4)
+
+**Reference:** COMPILER_SPEC.md v1.3 Sections 8, 9.3, 10.2, 11, 13, 15
+PISTON_FORMAT.md v2.2, STATEMENT_TYPES.md v2.1
+
+**Upload for B-1:**
+compiler.py, context_builder.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
+STATEMENT_TYPES.md, CLAUDE_SESSION_PROMPT.md, TASKS.md, MISSING_SPECS.md

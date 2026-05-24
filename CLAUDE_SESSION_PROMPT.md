@@ -147,6 +147,9 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - frontend/css/style.css — all CSS
 
 ## Open Critical Gaps (as of Session 57)
+- **GAP-S57-15 → D-S3:** Editor inline validation feedback unspecced — blocks editor.js work
+- **GAP-S57-16 → D-S3:** Global variable visual distinction in editor unspecced — blocks editor.js rendering
+- **GAP-S57-17 → D-S3:** Corrupt piston loading behavior unspecced — blocks editor coding
 - **GAP-S57-3 → AI prompt spec session:** AI_PROMPT_SPEC.md stale (device_map model) — blocks S4-10
 - **GAP-S57-4 → B-1:** MISSING_SPECS.md Items 7/8 reference device_map terminology
 - **GAP-S57-5 → MISSING_SPECS Item 24 + G-4:** Global device edit redeploy prompt
@@ -261,9 +264,24 @@ Block the button? Show inline error? Not specced. Must be defined.
 UI invariant: if WizardCore.sel.selected_entity_ids.size === 0, disable commit
 button and show wiz-error-banner: "You must select at least one device or variable."
 
+### GAP-S57-15 → D-S3: Editor inline validation feedback unspecced
+Editor has no pre-compile warnings for missing entity_ids, empty nodes, or invalid
+attributes. Compiler defines MISSING_ENTITY but editor display of pre-compile
+warnings is completely unspecced. Must be written into FRONTEND_SPEC.md before
+any editor.js validation work.
+
+### GAP-S57-16 → D-S3: Global variable visual distinction in editor unspecced
+When rendering, `{@MyLights}` (global reference) must look different from a raw
+multi-device list. No rendering rule exists for this distinction in FRONTEND_SPEC.md.
+Must be specced before editor.js rendering work.
+
+### GAP-S57-17 → D-S3: Corrupt piston loading behavior unspecced
+What does the editor show for malformed JSON, missing entity_ids, or wrong
+logic_version? No error recovery spec exists. Must be defined before editor
+coding resumes.
+
 ### D-S3 Now Blocks W-S8
 D-S3 must happen BEFORE W-S8. The wizard coding session will immediately hit
-GAP-S57-10 through GAP-S57-14 plus GAP-S57-6 through GAP-S57-9.
-Do not start W-S8 wizard coding until D-S3 is complete.
+GAP-S57-6 through GAP-S57-17. Do not start W-S8 wizard coding until D-S3 is complete.
 
 CLEAN UP ALL STALE REFERENCES WHY THE FUCK DID YOU LEAVE THEM see the new rule above

@@ -24,14 +24,15 @@ architecture and code. Never does targeted/line-level edits — only full file r
 cd /mnt/user/appdata/pistoncore-dev && git pull && docker build --no-cache -t pistoncore . && docker stop pistoncore && docker rm pistoncore && docker run -d --name pistoncore --restart unless-stopped -p 7777:7777 -v /mnt/user/appdata/pistoncore/userdata:/pistoncore-userdata -v /mnt/user/appdata/pistoncore/customize:/pistoncore-customize pistoncore
 ```
 
-## Current Priority — Session 57: W-S8 (Wizard Coding)
+## Current Priority — Session 58: W-S8 (Wizard Coding)
 
 **This is a coding session.**
 
-### Upload for Session 57:
+### Upload for Session 58:
 wizard-core.js, wizard-condition.js, wizard-action.js, wizard-statement.js,
-wizard-loops.js, wizard-variable.js, editor.js,
-WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+wizard-loops.js, wizard-variable.js, editor.js, list.js,
+WIZARD_SPEC.md, PISTON_FORMAT.md, STATEMENT_TYPES.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### What to do this session:
 
@@ -40,19 +41,29 @@ WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 **Step 0 — wizard-action.js _saveDeviceCmd rewrite (REQUIRED FIRST)**
 Update `_saveDeviceCmd` to write the new action node format:
 - `role` = friendly label string
-- `entity_ids` = array of real HA entity IDs
-- Remove any call to `registerDeviceRole` (goes away with device_map)
+- `entity_ids` = array of real HA entity IDs (from live device picker)
+- Remove any call to `registerDeviceRole` (dead code with device_map gone)
 - `ha_service` = `domain + "." + command`
-See WIZARD_SPEC.md v2.0 Screen W-6 Action Node JSON output for exact schema.
+See WIZARD_SPEC.md v2.1 Screen W-6 Action Node JSON output for exact schema.
 
 **Step 1 — Remove registerDeviceRole from editor.js**
 Once wizard-action.js is updated, `registerDeviceRole()` is dead code. Remove it.
 
 **Step 2 — Verify wizard-condition.js entity_ids output matches new spec**
 Confirm `_buildConditionNode` writes `role` + `entity_ids` (not just role name).
-Reference: WIZARD_SPEC.md v2.0 Screen W-4 Condition JSON output.
+Reference: WIZARD_SPEC.md v2.1 Screen W-4 Condition JSON output.
 
-**Step 3 — Fix open gaps (in priority order, as time allows)**
+**Step 3 — Wire globals into device picker**
+WIZARD_SPEC.md v2.1 now specifies how global Device/Devices variables appear in
+the picker. wizard-core.js needs to load and display globals from the globals API
+in the picker sections. Entity_ids resolved at commit time, written to node.
+
+**Step 4 — wizard-variable.js devices type**
+When var_type is `devices`, the initial value widget must be the full multi-select
+device picker. default_value stored as `{ "role": "label", "entity_ids": [...] }`.
+See WIZARD_SPEC.md v2.1 Screen W-7 and PISTON_FORMAT.md v2.2 variable section.
+
+**Step 5 — Fix open gaps (in priority order, as time allows)**
 - GAP-S52-2: Action wizard stale sel state after scoped flow
 - GAP-S52-3: Add task button not working in some action wizard flows
 - GAP-S52-4: open() shallow copy — complex edit nodes don't populate correctly
@@ -72,17 +83,27 @@ Reference: WIZARD_SPEC.md v2.0 Screen W-4 Condition JSON output.
 - Context_builder.py for fat compiler context assembly
 - Piston identity via UUID throughout
 - Editor must render from JSON correctly 100% of the time
-- **device_map ELIMINATED** — entity_ids stored directly on condition and action nodes
+- **device_map ELIMINATED** — entity_ids stored directly on condition, action, and for_each nodes
 - **entity_ids validated against live HA on every compile**
+- **entity_ids captured from live HA device picker at wizard commit time — never at runtime**
 
-## Device Data Model — Locked Decision (Session 54)
+## Device Data Model — Locked Decision (Session 55)
 - Condition nodes: role (display label) + entity_ids (real HA entity ID array)
 - Action nodes: role (display label) + entity_ids (real HA entity ID array)
-- No device_map at piston wrapper level
+- for_each nodes: role (display label) + entity_ids (real HA entity ID array)
+- Piston variable type `devices`: default_value = { role, entity_ids }
+- No device_map at piston wrapper level anywhere
 - Compiler reads entity_ids directly — no role lookup needed
 - On compile: backend validates every entity_id against live HA entity states
 - Missing entity → MISSING_ENTITY compiler error with clear user message
-- User fixes in editor, recompiles
+
+## Multi-Entity Compilation — Confirmed HA Native (Session 57)
+- **Triggers:** pass entity_ids array directly — one trigger block, HA fires on any match
+- **Actions:** pass entity_ids array directly to target.entity_id — one action block
+- **Conditions:** Jinja2 any()/all()/none() template — no native multi-entity support
+- **PyScript actions:** Python list `entity_id=[...]` — same behavior as YAML array
+- **PyScript triggers:** one @state_trigger string per entity (OR'd by PyScript)
+- Never expand multi-entity into multiple blocks in native HA script
 
 ## Wizard Architecture (Post-Split)
 Files: wizard-core.js, wizard-statement.js, wizard-condition.js,
@@ -105,17 +126,23 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
   WIZARD_SPEC.md v2.0. device_map eliminated. entity_ids on nodes. MISSING_ENTITY defined.
 - **DESIGN.md UPDATED (Session 56):** v1.2 — Architecture Pivot section added,
   superseded sections marked, fat compiler context corrected, has_missing_devices retired.
+- **FULL SPEC AUDIT (Session 57):** DESIGN.md v1.3, STATEMENT_TYPES.md v2.1,
+  WIZARD_SPEC.md v2.1, COMPILER_SPEC.md v1.3, PYSCRIPT_COMPILER_SPEC.md v1.1,
+  HA_LIMITATIONS.md, MISSING_SPECS.md updated. for_each entity_ids locked.
+  Startup sequence specced (Sections 9.1/9.2). Snapshot import flow specced (Sections 6.10/6.11).
+  Multi-entity HA native behavior confirmed. Globals redeploy prompt specced (Section 7.1).
+  Piston variable devices type specced (WIZARD_SPEC W-7, PISTON_FORMAT v2.2).
+  for_each v1 rule: inline entity_ids only.
 
 ## Frontend File Locations
 - frontend/js/ — all JS files
 - frontend/css/style.css — all CSS
 
-## Open Critical Gaps (as of Session 56)
-- **GAP-S55-3 → MISSING_SPECS Item 21:** Snapshot import flow undefined under new model
-  (add to MISSING_SPECS.md before S2-3 is built — not blocking W-S8)
-- **GAP-S55-5 → B-1:** for_each list_role resolution needs clarification in COMPILER_SPEC
-- wizard-action.js _saveDeviceCmd: still writes old format — fix in W-S8 (Step 0)
-- editor.js registerDeviceRole(): remove in W-S8 after _saveDeviceCmd updated (Step 1)
+## Open Critical Gaps (as of Session 57)
+- **GAP-S57-3 → AI prompt spec session:** AI_PROMPT_SPEC.md stale (device_map model) — blocks S4-10
+- **GAP-S57-4 → B-1:** MISSING_SPECS.md Items 7/8 reference device_map terminology
+- **GAP-S57-5 → MISSING_SPECS Item 24 + G-4:** Global device edit redeploy prompt
+  full UX spec needed before G-4 is coded
 - compiler.py: needs entity_ids direct read + MISSING_ENTITY validation — B-1
 - GAP-S52-2: Action wizard stale sel state
 - GAP-S52-3: Add task button wrong behavior
@@ -128,6 +155,15 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - GAP-S44-1 → W-S8: Group condition editing not implemented
 
 ## Warning — DESIGN.md Section Notes
-DESIGN.md v1.2 is current. Sections 6.1, 6.2, 6.3, 6.4, 6.5, and 15.6 are marked
-⚠ SUPERSEDED — they describe the old device_map model. Use PISTON_FORMAT.md v2.1,
-COMPILER_SPEC.md v1.2, and WIZARD_SPEC.md v2.0 as the authoritative sources.
+DESIGN.md v1.3 is current. Sections 6.1, 6.2, 6.3, 6.4, 6.5, and 15.6 are marked
+⚠ SUPERSEDED — they describe the old device_map model. Use PISTON_FORMAT.md v2.2,
+COMPILER_SPEC.md v1.3, and WIZARD_SPEC.md v2.1 as the authoritative sources.
+
+## Spec File Versions (as of Session 57)
+- DESIGN.md v1.3
+- PISTON_FORMAT.md v2.2
+- COMPILER_SPEC.md v1.3
+- PYSCRIPT_COMPILER_SPEC.md v1.1
+- WIZARD_SPEC.md v2.1
+- STATEMENT_TYPES.md v2.1
+- MISSING_SPECS.md — Items 1,9,13,17,18,21,22,23 resolved; Items 2-8,10-12,14-16,19-20,24 open

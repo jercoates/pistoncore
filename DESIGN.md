@@ -1,61 +1,8 @@
 # PistonCore Design Document
 
-**Version:** 1.2
+**Version:** 1.3
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 56 — Architecture Pivot section added; device_map sections marked superseded)
-
----
-
-## ⚠ ARCHITECTURE PIVOT — Session 55 (Read This First)
-
-**device_map has been eliminated as of logic_version 2.**
-
-This document was written before Session 55 and contains several sections that
-describe the old device_map architecture. Those sections have been marked with
-`⚠ SUPERSEDED` notices below. **Do not implement from those sections.**
-
-### What Changed in Session 55
-
-| Before (logic_version 1) | After (logic_version 2) |
-|---|---|
-| Piston wrapper held a `device_map` dict: `{ "role_name": ["entity.id"] }` | No `device_map` on the piston wrapper |
-| Compiler looked up entities by role name in device_map | Entity IDs stored directly on each condition and action node |
-| Import populated device_map from role placeholders | Import flow needs redesign — entity_ids must be mapped per-node |
-| Missing device: silent degrade or hard-flag via `has_missing_devices` | Missing entity: `MISSING_ENTITY` compiler error at compile time |
-| `role` field used by compiler for entity lookup | `role` is display label only — compiler never reads it for lookup |
-
-### Which Sections Are Superseded
-
-The following sections in this document describe the old device_map model
-and must not be used as implementation guidance:
-
-- **Section 6.1** — Internal JSON example shows `device_map` and `has_missing_devices` in wrapper
-- **Section 6.2** — Snapshot format shows `device_map` / `device_map_meta`
-- **Section 6.3** — Import flow references `device_map` detection
-- **Section 6.4** — Wrapper field table includes `device_map`, `device_map_meta`, `has_missing_devices`
-- **Section 6.5** — Compiler consumer row says "reads device_map"
-- **Section 14 (Fat Compiler Context)** — shows `device_map` field in context object
-- **Section 15.6** — Missing Device Handling (hard-flag vs degrade model)
-
-### Where to Find the Correct Current Specs
-
-| Topic | Authoritative source |
-|---|---|
-| Piston JSON format (wrapper + node schemas) | PISTON_FORMAT.md v2.1 |
-| Condition and action node `entity_ids` fields | PISTON_FORMAT.md v2.1 — Condition Object Schema and Action Node Schema |
-| Compiler entity resolution | COMPILER_SPEC.md v1.2 — Section 8 (`resolve_entities`) |
-| Fat compiler context object (no device_map) | COMPILER_SPEC.md v1.2 — Section 7 |
-| MISSING_ENTITY compiler error | COMPILER_SPEC.md v1.2 — Section 13 |
-| Entity validation in deploy pipeline | COMPILER_SPEC.md v1.2 — Section 15 |
-| Snapshot import flow (redesign needed) | MISSING_SPECS.md Item 21 (spec pending) |
-
-### has_missing_devices Flag — Retired
-
-`has_missing_devices` is retired under logic_version 2. The old model set this flag
-on piston load when a device_map entity was missing from HA. Under the new model,
-entity validation happens at compile time and produces a `MISSING_ENTITY` compiler error.
-There is no piston-level missing-device flag. Remove `has_missing_devices` from any
-code that reads or writes it.
+**Last Updated:** May 2026 (Session 57 — startup sequence, multi-entity compilation, Snapshot format v2, import flow redesigned, open items updated)
 
 ---
 
@@ -297,16 +244,11 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 **Internal stored format:** Structured JSON — every statement is a typed data object. The wizard writes structured data. The editor renders display text from that data. The compiler reads structured JSON directly. This is the working format — the source of truth for everything PistonCore does with a piston.
 
-**Shared/export/AI format (Snapshot JSON):** Structured JSON with role name placeholders and no entity IDs. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with entity IDs stripped from nodes. See Section 6.2.
+**Shared/export/AI format (Snapshot JSON):** Structured JSON with empty `device_map` arrays and role name placeholders. Used for AI import, community sharing, and WebCoRE migration. The same structured JSON the compiler and editor already use — just with personal device mappings removed. See Section 6.2.
 
 These two formats serve different purposes. The internal format is for the compiler and editor. The Snapshot format is for humans, AI, and community sharing.
 
 ### 6.1 Internal Stored Format
-
-> ⚠ SUPERSEDED — The JSON example below shows the logic_version 1 format which included
-> `device_map` and `has_missing_devices` on the wrapper. Both are eliminated in logic_version 2.
-> See PISTON_FORMAT.md v2.1 for the current wrapper schema and complete example.
-> The narrative text below remains accurate — only the JSON example is stale.
 
 The internal piston file contains a wrapper plus a `statements` array of structured JSON objects. This is the same proven model WebCoRE used, adapted for Home Assistant.
 
@@ -370,13 +312,6 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
 ### 6.2 Snapshot Format — The Share and AI Format
-
-> ⚠ SUPERSEDED — The Snapshot JSON example below shows the logic_version 1 format which
-> included `device_map` and `device_map_meta`. Both are eliminated in logic_version 2.
-> The new Snapshot format uses role name placeholders on individual condition and action
-> nodes instead of a central device_map. The Snapshot import flow is being redesigned —
-> see MISSING_SPECS.md Item 21 for the pending spec.
-> The narrative concept (share format strips entity IDs, preserves roles) remains correct.
 
 When a piston is exported as a Snapshot, shared in a forum post, or generated
 by an AI, the format is the internal structured JSON with two differences:
@@ -454,13 +389,6 @@ from a WebCoRE screenshot.
 
 ### 6.3 Import Flow — Role Mapping
 
-> ⚠ SUPERSEDED — This import flow was designed for the logic_version 1 device_map model.
-> It detects empty `device_map` arrays and runs role mapping to populate them.
-> Under logic_version 2, there is no central device_map. Entity IDs live on individual
-> condition and action nodes. The import flow must be redesigned to map roles per-node
-> rather than populating a wrapper-level dict. Full redesign spec is pending —
-> see MISSING_SPECS.md Item 21. Do not implement from this section.
-
 When a user imports a Snapshot (from AI, from sharing, from the community),
 the flow is:
 
@@ -484,10 +412,6 @@ One path handles everything. The role mapping step is skipped entirely if
 
 ### 6.4 Wrapper Fields
 
-> ⚠ SUPERSEDED — This table reflects the logic_version 1 wrapper schema.
-> `has_missing_devices`, `device_map`, and `device_map_meta` are all eliminated in
-> logic_version 2. See PISTON_FORMAT.md v2.1 Wrapper Field Reference for the current table.
-
 | Field | Internal | Snapshot | Backup | Purpose |
 |---|---|---|---|---|
 | `id` | ✅ | new on import | ✅ preserved | Immutable UUID |
@@ -509,20 +433,15 @@ bumps `logic_version` only. Never collapse them into one field.
 
 ### 6.5 What Each Consumer Does
 
-> ⚠ PARTIALLY SUPERSEDED — The Compiler row below says "reads statements + device_map".
-> Under logic_version 2, the compiler reads `entity_ids` directly from condition and action
-> nodes — there is no device_map. See COMPILER_SPEC.md v1.2 Section 8 (`resolve_entities`).
-> All other rows remain accurate.
-
 | Consumer | Reads | Does |
 |---|---|---|
 | Editor | `statements` | Renders display text from structured data |
 | Wizard | `statements` | Reads structured data to pre-populate edit, writes structured data on save |
-| Compiler | `statements` (entity_ids on nodes) | Reads typed statement objects directly — no text parsing, no device_map lookup |
-| Import dialog | Snapshot JSON | Validates format, runs role mapping flow — *redesign pending (MISSING_SPECS Item 21)* |
-| Piston list | Wrapper only | Reads `name`, `id` — never touches statements |
-| Snapshot export | `statements` + wrapper | Strips entity IDs from nodes, clears id for reassignment |
-| Backup export | Everything | Returns full internal format including entity_ids on nodes |
+| Compiler | `statements` + `device_map` | Reads typed statement objects directly — no text parsing |
+| Import dialog | Snapshot JSON | Validates format, detects empty device_map, runs role mapping flow |
+| Piston list | Wrapper only | Reads `name`, `id`, `has_missing_devices` — never touches statements |
+| Snapshot export | `statements` + wrapper | Strips entity IDs from device_map, clears id for reassignment |
+| Backup export | Everything | Returns full internal format including populated `device_map` |
 
 ---
 
@@ -534,8 +453,7 @@ structured data on the fly — the same way WebCoRE did with its
 a defined render function that produces the corresponding plain English
 display line.
 
-**Example:** A structured condition object (note: `entity_ids` field omitted
-from this example for brevity — see PISTON_FORMAT.md v2.1 for the full schema):
+**Example:** A structured condition object:
 ```json
 {
   "operator": "changes to",
@@ -551,7 +469,7 @@ Renders as: `⚡ Any of {Doors}'s contact changes to Open`
 Render functions live in the frontend. They are called by the editor for
 display and by the status page for the read-only script panel.
 Snapshot export does NOT use render functions — it exports the structured
-JSON directly with entity IDs stripped from nodes.
+JSON directly with device_map emptied.
 
 ---
 
@@ -574,6 +492,149 @@ JSON directly with entity IDs stripped from nodes.
 * If either is missing, treat as v1
 * If either is from the future, warn and refuse to load — never silently corrupt
 
+---
+
+### 6.10 Snapshot Format — Logic Version 2 (Current)
+
+> This section defines the current Snapshot format for logic_version 2 pistons.
+> Section 6.2 above is marked superseded — it described the logic_version 1 format
+> which used `device_map`. This section replaces it as the authoritative Snapshot spec.
+
+**What a Snapshot is:** A piston exported for sharing, AI generation, or community distribution. Entity IDs are stripped. Role labels are preserved on nodes so the import dialog knows what to ask the user to map.
+
+**What a Snapshot is NOT:** A backup. Use Backup export for personal restore — it preserves all entity_ids and should never be shared publicly.
+
+#### Snapshot Wrapper
+
+Identical to the internal format wrapper (PISTON_FORMAT.md v2.1) with two differences:
+- A new `id` is assigned on import (not preserved from the Snapshot)
+- No `entity_ids` on any node (stripped on export)
+
+```json
+{
+  "id": "00000000",
+  "name": "Door Chime",
+  "description": "",
+  "folder": null,
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "compile_target": "native_script",
+  "created_at": "2026-05-01T08:00:00Z",
+  "modified_at": "2026-05-01T08:00:00Z",
+  "variables": [],
+  "statements": [ ... ]
+}
+```
+
+#### Snapshot Node Rules
+
+**Condition nodes:** `entity_ids` is always an empty array `[]`. `role` is preserved.
+```json
+{
+  "id": "cond_a3f8c2d1",
+  "is_trigger": true,
+  "role": "Front Door",
+  "entity_ids": [],
+  "aggregation": "any",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
+  "operator": "changes to",
+  "display_value": "Open",
+  "compiled_value": "on",
+  "group_operator": "and"
+}
+```
+
+**Action nodes:** `entity_ids` is always an empty array `[]`. `role` is preserved.
+```json
+{
+  "id": "stmt_b7e2f941",
+  "type": "action",
+  "role": "Announcement Speaker",
+  "entity_ids": [],
+  "tasks": [ ... ],
+  "description": null,
+  "disabled": false
+}
+```
+
+**Time conditions and non-device conditions:** unchanged — they have no `entity_ids` to begin with.
+
+#### Role Name Uniqueness Rule
+
+Role names must be unique within a Snapshot. If two action nodes in the same piston use `"role": "Lights"`, they will both be mapped together in the import dialog — the same entity selection applies to both. This is intentional: the role name is the mapping key. If different lights need different entity mappings, they need different role names.
+
+---
+
+### 6.11 Snapshot Import Flow — Logic Version 2
+
+> Section 6.3 above is marked superseded. This section defines the redesigned import
+> flow for logic_version 2 Snapshots. This spec is sufficient for implementation.
+> MISSING_SPECS.md Item 21 is resolved by this section.
+
+#### Step 1 — Validate and Detect
+
+User pastes Snapshot JSON (or imports from URL/file). PistonCore validates:
+- Valid JSON
+- Has required wrapper fields (`logic_version`, `statements`, `name`)
+- `logic_version` is not from the future
+- If `logic_version: 1`: warn that this is a legacy format, offer to convert or cancel
+
+#### Step 2 — Collect Unique Roles
+
+Walk the entire `statements` tree recursively. Collect every unique `role` value from:
+- Condition nodes where `entity_ids` is empty and `role` is not `"time"` / `"date"` / `"mode"` / system subjects
+- Action nodes where `entity_ids` is empty
+
+Build a deduplicated list of role names. Preserve order of first appearance.
+
+**Example:** A piston with 3 condition nodes and 2 action nodes all using `"role": "Doors"` and `"role": "Speaker"` → two roles to map: `["Doors", "Speaker"]`.
+
+#### Step 3 — Role Mapping Dialog
+
+For each unique role, show the device picker in sequence:
+
+```
+Map your devices — Step 1 of 2
+
+Role: "Doors"
+Used as: trigger (changes to Open), condition (is Open)
+
+[Device picker — search and multi-select]
+Selected: [front door ×] [back door ×]
+
+← Back    Skip    Next →
+```
+
+- The dialog shows where the role is used (trigger, condition, action) to give context
+- Multi-select is always available — the user decides whether one or many devices fill a role
+- Skip is available for roles the user doesn't want to map yet — piston imports with empty entity_ids, can be filled later in the editor
+- Back returns to the previous role
+
+#### Step 4 — Populate entity_ids
+
+After the user maps all roles, PistonCore walks the statement tree again and writes the selected entity_ids to every node whose `role` matches a mapped role:
+- All condition nodes with `role: "Doors"` → `entity_ids: ["binary_sensor.front_door", "binary_sensor.back_door"]`
+- All action nodes with `role: "Doors"` → same entity_ids
+
+This is a single pass — every node with the same role name gets the same entity_ids. This is why role name uniqueness matters (Section 6.10).
+
+#### Step 5 — Assign New ID and Save
+
+- Generate new UUID for the piston (Snapshots never preserve the original ID)
+- Set `created_at` and `modified_at` to now
+- Save to `/pistoncore-userdata/pistons/{new_uuid}.json`
+- Update piston index
+- Open in editor — user sees the fully mapped piston
+
+#### Backup Import (No Role Mapping)
+
+Backup files preserve all `entity_ids` — no role mapping dialog appears. PistonCore detects this by checking whether any condition or action node has a non-empty `entity_ids` array. If all nodes have entity_ids already populated, skip Steps 2–3 and go directly to Step 5 (with the original UUID preserved for Backup imports).
+
+---
 
 ## 7. Variables
 
@@ -692,6 +753,54 @@ Required behavior:
 
 If HA returns no usable capability data for a device, PistonCore shows a one-time **"Define this device"** screen for that specific device. The user labels each entity in plain English. PistonCore stores that definition locally on the volume. From that point on the device behaves like any HA-known device. Definitions are editable from **My Device Definitions** in PistonCore settings.
 
+### Multi-Entity Compilation — Confirmed HA Native Support
+
+**HA natively accepts an array of entity IDs in both triggers and action targets.**
+PistonCore does not need to expand multi-device groups into multiple trigger or action blocks.
+
+**Triggers — pass entity_ids array directly:**
+```yaml
+- trigger: state
+  entity_id:
+    - binary_sensor.front_door
+    - binary_sensor.back_door
+  to: "on"
+```
+One trigger block fires when ANY entity in the list changes. This is HA-native behavior — no expansion required.
+
+**Actions — pass entity_ids array directly:**
+```yaml
+- action: light.turn_on
+  target:
+    entity_id:
+      - light.living_room
+      - light.kitchen
+  data:
+    brightness_pct: 100
+```
+One action block applies to all entities simultaneously. This is HA-native behavior — no expansion required.
+
+**Conditions — no native multi-entity support.**
+HA `state` conditions only accept a single entity. For multi-entity conditions PistonCore compiles to a Jinja2 template using `any()`, `all()`, or `none()`:
+```yaml
+- condition: template
+  value_template: >
+    {{ ['binary_sensor.front_door', 'binary_sensor.back_door']
+       | map('states') | select('eq', 'on') | list | count > 0 }}
+```
+
+**Aggregation mapping:**
+
+| PistonCore aggregation | Trigger | Condition |
+|---|---|---|
+| `any` | `entity_id: [list]` — fires on any | Jinja2 `any(map('states') \| select('eq', value))` |
+| `all` | N/A — use template trigger | Jinja2 `all(map('states') \| select('eq', value))` |
+| `none` | N/A — use template trigger | Jinja2 `none(map('states') \| select('eq', value))` |
+
+For `all` and `none` aggregation on triggers, the compiler must use a template trigger since HA state triggers do not support ALL-match semantics natively. This is a known compiler complexity point — document in COMPILER_SPEC.md when the condition compiler is built.
+
+**This is a locked compilation decision. Do not reopen.**
+
 ---
 
 ## 9. HA Version Detection
@@ -704,6 +813,91 @@ On every HA connect (startup and reconnect):
 5. Re-check on reconnect in case HA was updated between connections
 
 This is required infrastructure for the versioned template system. It must be wired in before the compiler template system is built.
+
+---
+
+## 9.1 Startup Sequence
+
+On every PistonCore startup (container start or restart), the following steps run in order before the UI becomes available. Each step is logged. Failures are surfaced clearly — they never silently corrupt state.
+
+### Step 1 — Connect to HA
+
+Establish HA WebSocket connection and run Section 9 version detection. If HA is unreachable, start in degraded mode: piston list is readable, wizard and deploy are blocked, UI shows a persistent "HA disconnected" banner.
+
+### Step 2 — Build Piston Index
+
+Scan `/pistoncore-userdata/pistons/` and build an in-memory index of all piston files:
+- Read each JSON file's wrapper fields only (id, name, compile_target, logic_version, enabled, folder)
+- Write summary to `/pistoncore-userdata/piston_index.json`
+- This index is what the piston list page reads — never the raw piston files directly
+- If a piston file is corrupt or unreadable: log the error, add an error entry to the index, continue
+
+### Step 3 — Orphan Detection (HA → PistonCore)
+
+Scan the HA compiled output directories for PistonCore files that no longer have a corresponding piston in the piston index:
+- Scan `<ha_config>/automations/pistoncore/` for `pistoncore_*.yaml` files
+- Scan `<ha_config>/scripts/pistoncore/` for `pistoncore_*.yaml` files
+- Scan `<ha_config>/pyscript/pistoncore/` for `pistoncore_*.py` files
+- For each file: extract UUID from `pc_piston_id` in the signature header, check against piston index
+- If UUID not in index: **flag as orphan in the piston index — do NOT delete**
+- If file has no signature header: leave it completely alone — PistonCore did not create it
+
+**Orphaned compiled files are NEVER auto-deleted.** PistonCore shows them on the piston list as "Orphaned automation — no piston found" with a ⚠ indicator. The user decides what to do: either restore the piston or explicitly delete the compiled file from the status page. Auto-deletion risks destroying a running automation the user cares about — a wiped volume or a restore-from-backup scenario must never silently kill live automations.
+
+### Step 4 — Manual Edit Detection
+
+For every piston that has a compiled output file, check the file hash:
+- Read the `pc_hash` value from the file's signature header
+- Recompute the hash of the file content below the header
+- If hashes differ: mark the piston as `manually_edited: true` in the index
+- Show ⚠ on piston list, warning banner on status page:
+  *"This piston's compiled file was edited manually. PistonCore will overwrite it on next deploy."*
+- Do NOT auto-revert. Do NOT block the user. Inform only.
+
+### Step 5 — Entity Validation (Background)
+
+For every deployed piston, validate its `entity_ids` against the current HA entity registry:
+- Run asynchronously — do not block startup completion
+- For each condition and action node in each piston: check every entity_id against the entity registry from HA
+- **Missing means not in the registry at all** — the entity_id no longer exists in HA (device removed, renamed, integration deleted). A device that is offline, unavailable, or has a dead battery still exists in the registry — it is NOT missing and does NOT trigger this flag.
+- If any entity_id is genuinely missing from the registry: mark piston as `entity_missing: true` in the index
+- Show ⚠ on piston list. Status page shows which entity is missing by its last known role label.
+- This is informational only — the piston keeps running in HA. The compiled file is untouched. Nothing is deleted or modified.
+- The user decides what to do: fix the entity reference in the editor and redeploy, or leave it as-is.
+
+### Step 6 — configuration.yaml Check
+
+Check for PistonCore include directives (see Section 19). If missing, append them and set `ha_restart_required: true`.
+
+### Startup Completion
+
+After all steps complete (or fail gracefully): mark startup complete, unlock UI, log summary.
+
+---
+
+## 9.2 Scheduled Background Checks
+
+After startup, PistonCore runs lightweight background checks on a schedule. These never block the UI.
+
+### Entity Validation — Every 30 Minutes
+
+Repeat Step 5 from Section 9.1 for all deployed pistons. This catches devices whose entity_id was removed from HA (renamed, deleted, integration removed) between deploys. If a new missing entity is detected, update the piston index and show ⚠ on piston list.
+
+**Unavailable is not missing.** A device that is offline, dead battery, or temporarily unavailable still exists in the HA entity registry and does NOT trigger this flag. Only entities that no longer exist in the registry at all are flagged.
+
+**Why 30 minutes:** Frequent enough to catch changes within a reasonable window without hammering HA's entity registry. Configurable in `config.json` (`entity_check_interval_minutes`, default 30).
+
+### HA Connection Health — Every 60 Seconds
+
+Ping the HA WebSocket connection. If it drops: attempt reconnect with exponential backoff (1s, 2s, 4s, 8s, max 60s). Show connection status in UI header throughout.
+
+### Orphan Check — On Every HA Reconnect
+
+Re-run Step 3 from Section 9.1 whenever HA WebSocket reconnects. Updates the orphan flags in the piston index. Never auto-deletes anything.
+
+### Piston Index Rebuild — On Every Piston Save or Delete
+
+The piston index is always kept current — not just at startup. Every save and delete operation updates the index immediately.
 
 ---
 
@@ -855,9 +1049,31 @@ Every compiled file written by PistonCore includes a signature header:
 # pc_piston_id: a3f8c2d1 | pc_version: 1.0 | pc_hash: [hash of compiled content]
 ```
 
+The hash covers all file content below the two header lines. PistonCore only operates on files that contain its own signature. It never touches any other file.
+
+### On Startup — Informational Scan
+
+On startup, PistonCore checks the hash of every deployed compiled file (see Section 9.1 Step 4). If a file's hash does not match what PistonCore last recorded:
+- Mark the piston as `manually_edited: true` in the piston index
+- Show ⚠ on the piston list row
+- Show a warning banner on the piston's status page:
+  *"This piston's compiled file was edited manually since it was last deployed by PistonCore. Your changes will be overwritten on next deploy."*
+- **Do NOT revert automatically. Do NOT block the user. Inform only.**
+- The manually edited version keeps running in HA until the user redeploys.
+
+### On Deploy — Interactive Diff
+
 On deploy, if the existing file's hash does not match what PistonCore expects, it stops and shows a diff of exactly what changed, then asks: **Overwrite** or **Cancel**.
 
-PistonCore only operates on files that contain its own signature. It never touches any other file.
+This is a second, interactive check at deploy time — distinct from the informational startup scan. Both serve different purposes: startup tells you about the problem; deploy requires your explicit decision before overwriting.
+
+### Hash Storage
+
+The hash is stored in two places:
+1. In the compiled file header itself (`pc_hash` field) — lets PistonCore verify the file without any external record
+2. In the `compile_index` SQLite table (`file_hash` column, see MISSING_SPECS.md Item 7) — lets startup scan compare without reading every file's content, only the header line
+
+If the `compile_index` table is missing or corrupt, fall back to reading headers from compiled files directly.
 
 ---
 
@@ -923,19 +1139,16 @@ The compiler passes a "fat" context object to every Jinja2 template. Logic that 
 
 **Standard compiler context object — contract for template authors:**
 
-> Note: `device_map` has been removed from the context object as of Session 55.
-> Entity IDs are read directly from condition and action nodes — no role lookup needed.
-> The authoritative context object spec is COMPILER_SPEC.md v1.2 Section 7.
-
 ```python
 {
-    "piston":             { ... },   # Full piston JSON including statements
+    "piston":             { ... },   # Full piston JSON
+    "device_map":         { ... },   # role → entity_id mapping
     "entity_states":      { ... },   # entity_id → current state/attributes from HA
     "services":           { ... },   # available services for referenced domains
     "ha_version":         "2025.6",  # detected HA version string
     "pistoncore_version": "1.0",
-    "global_variables":   [ ... ],   # all defined globals — see COMPILER_SPEC.md v1.2 Section 7
-    "piston_variables":   [ ... ],   # variables defined in this piston's variables[] array
+    "global_variables":   [ ... ],   # all defined globals with type and helper entity_id
+    "piston_variables":   [ ... ],   # variables defined in this piston
     "areas":              { ... },   # area_id → area name
     "zones":              [ ... ],   # all HA zones
 }
@@ -1044,25 +1257,6 @@ The complete statement type list and their required render patterns are defined 
 
 ## 15.6 Missing Device Handling
 
-> ⚠ SUPERSEDED — This section describes the logic_version 1 missing device model:
-> hard-flag vs degrade, `has_missing_devices` flag, per-role cardinality, and the
-> import role mapping fix flow. All of this is replaced under logic_version 2.
->
-> **Current behavior (logic_version 2):**
-> Entity validation runs at compile time, not at HA connect. If any `entity_ids` value
-> on a condition or action node does not exist in the current HA entity registry, the
-> compiler emits a `MISSING_ENTITY` error. The piston cannot be deployed until the error
-> is resolved. The user fixes the entity in the editor and recompiles.
->
-> There is no `has_missing_devices` flag. There is no per-role cardinality distinction
-> at this stage — all missing entities are compile errors. The hard-flag vs degrade
-> split may be revisited in a future session once the node-level entity model is
-> tested in practice.
->
-> See COMPILER_SPEC.md v1.2 Section 13 (MISSING_ENTITY error) and Section 15
-> (entity validation in the deploy pipeline) for the authoritative current spec.
-> Do not implement from the text below.
-
 ### Single-Device Statements — Hard Flag, Block Redeploy
 
 If a statement, trigger, condition, or action depends on exactly one device and
@@ -1146,6 +1340,8 @@ device notification uses this existing data — it is not stored separately.
 
 ## 16. Orphan Automation Cleanup
 
+### PistonCore → HA (Delete Flow)
+
 When a piston is deleted in PistonCore:
 1. Call HA to delete the automation (`DELETE /api/config/automation/config/{automation_id}`)
 2. Delete the PyScript file if one exists
@@ -1153,6 +1349,29 @@ When a piston is deleted in PistonCore:
 4. If HA is offline, queue the cleanup in `pending_cleanup.json` and retry on next connect
 
 On every HA reconnect, PistonCore checks `pending_cleanup.json` and retries any queued cleanup operations.
+
+### HA → PistonCore (Startup Orphan Scan)
+
+On startup, PistonCore scans its compiled output directories for files whose UUID does not match a known piston in the piston index. This covers the case where:
+- The PistonCore userdata volume was wiped or restored from backup
+- A piston file was manually deleted from the userdata volume
+- Files were manually moved or copied
+
+**Orphan scan behavior:**
+- Find all `pistoncore_*.yaml` and `pistoncore_*.py` files in HA compiled directories
+- For each: check the `pc_piston_id` in the signature header against the piston index
+- If not found in index: **flag as orphan — show on piston list as "Orphaned automation — no piston found"**
+- If file has no signature header: leave it completely alone — PistonCore did not create it
+
+**HARD RULE — PistonCore never auto-deletes compiled HA files it discovers are orphaned.**
+The compiled automation is still running in HA. The user may have wiped their volume by mistake, or restored from a partial backup, or the piston JSON may just be temporarily missing. Auto-deletion would silently kill a live automation. The user must make an explicit decision:
+- **Restore:** If the user still has the piston JSON, they can reimport it and the UUID will match
+- **Delete:** From the orphan entry on the piston list, the user can explicitly request deletion — PistonCore then runs the normal delete flow (Section 16 PistonCore→HA)
+- **Ignore:** Leave the orphan running in HA as-is. PistonCore stops managing it.
+
+The same pending_cleanup.json queue used for explicit user-initiated deletes handles the "Delete" action from an orphan entry. The queue is only ever populated by explicit user action, never by automated detection.
+
+See Section 9.1 Step 3 for the full startup sequence context.
 
 ---
 
@@ -1506,11 +1725,18 @@ Full export including entity mappings. Labeled clearly: *"For your own restore o
 
 ```
 /pistoncore-userdata/
-  pistons/                    piston JSON files
+  pistons/                    piston JSON files (one per piston, named {uuid}.json)
+  piston_index.json           lightweight index of all pistons — rebuilt on startup and
+                              updated on every save/delete. Piston list reads this, not raw files.
+                              Fields per entry: id, name, compile_target, logic_version,
+                              enabled, folder, manually_edited, entity_missing, last_compiled_at
   globals.json                global variable definitions (reference list)
   globals_index.json          piston-to-global reference index (auto-maintained)
+  pistoncore.db               SQLite database — run log, entity state cache, compile index
+                              (see MISSING_SPECS.md Item 7 for schema)
   device-definitions/         custom device definitions
-  config.json                 PistonCore settings (ha_url, ha_token, deployment_type)
+  config.json                 PistonCore settings (ha_url, ha_token, deployment_type,
+                              entity_check_interval_minutes)
   pending_cleanup.json        queued orphan cleanup operations
   logs/
     pistoncore.log
@@ -1692,7 +1918,7 @@ pistoncore/prompts/
 - The full list of valid statement types and their JSON schemas
 - The condition object schema including display_value/compiled_value split
 - The operator reference (from WIZARD_SPEC.md)
-- Role placeholder rules — role names on nodes with empty entity_ids arrays
+- Role placeholder rules — device_map keys with empty arrays
 - compile_target rules (when to use pyscript vs native_script)
 - System variables reference
 - A complete working example in Snapshot JSON format
@@ -1729,14 +1955,19 @@ against the current spec.
 
 ## 32. Open Items Blocking Coding
 
-1. **COMPILER_SPEC.md** — current as of Session 24. No longer blocking.
+1. **COMPILER_SPEC.md** — current as of Session 55 (v1.2). No longer blocking. Update for_each list_role resolution before B-1 coding.
 2. **AI-REVIEW-PROMPT.md** — update to reflect current architecture before next external review.
 3. **settings / end settings block contents** — research WebCoRE behavior, define before implementing.
-4. **AI Prompt feature** — write-a-piston.md content, UI modal (see FRONTEND_SPEC.md).
+4. **AI Prompt feature** — AI_PROMPT_SPEC.md must be rewritten for logic_version 2 (device_map references are stale). write-a-piston.md cannot be written until AI_PROMPT_SPEC.md is updated. Blocked until Snapshot format (Section 6.10) is stable.
 5. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step.
 6. **Timer statement** — evaluate overlap with HA scheduler before including in v1.
 7. **on_event wizard warning** — wizard must display blocking behavior warning when user adds on_event block. See STATEMENT_TYPES.md Section 10.
 8. **on_event user documentation** — "PistonCore can't do this because HA can't do it" section needed in user docs covering on_event async limitation.
+9. **STATEMENT_TYPES.md action schema** — Section 1 (action) still shows old `devices: [role_name]` format. Must be updated to `role + entity_ids` before W-S8 wizard coding. Same for Section 19 condition object schema (lacks `entity_ids` field).
+10. **MISSING_SPECS.md Items 7 and 8** — reference old device_map terminology. Must be updated before storage/missing-device handler work.
+11. **HA_LIMITATIONS.md Section 3** — references device_map and has_missing_devices. Should be updated. Not blocking any immediate session.
+12. **WIZARD_SPEC.md globals picker** — still says "deferred until globals implemented." Globals are now implemented (Sessions 48–50). Update before W-S8.
+13. **for_each list_role architecture** — how does for_each resolve its device list under logic_version 2? Decision needed before B-1 compiler coding. See Section 6.11 note above.
 
 ---
 
@@ -1794,11 +2025,26 @@ compiler.py field name alignment pass — all field names brought in line with P
 ### Session 25 — May 2026
 Full session of spec and task management. No code written. External Design Claude review (AIReviews5-6-26.md) processed and all action items incorporated. TASKS.md: all Stage 1 and 2 Upload lines updated with required spec files; S1-7 Compiler Bug Fixes (2 sessions) added — session 1 before S1-5 to fix triggers and condition indentation before any HA write; S1-6 Fat Compiler Context Assembly added between S1-5 and S1-7 session 2; S3-2 Deferred Validation Testing added after S3-1; S4-15 Operational Hardening added; S4-0 reordered with Error States Inventory first; S4-10 write-a-piston.md blocker noted; Gap A–G from Grok repo review incorporated. MISSING_SPECS.md: Items 13 (Fat Compiler Context), 14 (Time Condition Compiler Path), 15 (write-a-piston.md) added. PISTON_FORMAT.md: "Two Formats" intro corrected to reference Snapshot JSON; piston_text field added to wrapper table with warning block and "fail loudly on render failure" rule; "What This Format Is Not" updated. HA_LIMITATIONS.md: state value quoting (Bug 11), wait_for_trigger timeout (Bug 3), parallel branch continue_on_error (Bug 12) moved from "already handled" to "known gaps" — were incorrectly marked as handled. DESIGN.md: duplicate Section 32 heading fixed (Standing Questions → Section 33, Development Log → Section 34). STATEMENT_TYPES.md Section 16 header confirmed present — was already fixed, no change needed.
 
-### Session 55 — May 2026
-Architecture pivot: device_map eliminated. PISTON_FORMAT.md → v2.1 (device_map removed, entity_ids + role fields on condition and action nodes, logic_version 2, hand-written example updated). COMPILER_SPEC.md → v1.2 (Section 8 resolve_entities added, Sections 9.3/10.2/11 read entity_ids directly, Section 13 MISSING_ENTITY error added, Section 15 entity validation added as Stage 2, Section 18 hand-written example updated). WIZARD_SPEC.md → v2.0 (combined with WIZARD_REBUILD_SPEC.md, condition and action output schemas updated with entity_ids). MISSING_SPECS.md: Items 17–20 added. TASKS.md: W-S8 upload list and B-1 backend compiler session added.
+### Session 57 — May 2026 (Spec Audit)
+Full cross-document audit. No code. Key findings and changes:
 
-### Session 56 — May 2026 (D-S1)
-Spec session. No code. DESIGN.md updated to reflect Session 55 architecture pivot. Added Architecture Pivot section at top of document. Removed device_map from fat compiler context object (Section 14) — now matches COMPILER_SPEC.md v1.2 Section 7. Marked Sections 6.1, 6.2, 6.3, 6.4, 6.5, 15.6 as ⚠ SUPERSEDED with redirects to current specs. has_missing_devices flag retired. Core Philosophy and write-a-piston.md spec references updated. DESIGN.md version bumped to v1.2.
+**DESIGN.md → v1.3:**
+- Section 8: Added Multi-Entity Compilation section confirming HA natively supports entity_id arrays in both triggers (state trigger) and action targets. No expansion needed. Conditions still require Jinja2 template for any/all/none. Aggregation mapping table added. This is a locked compilation decision.
+- Sections 9.1 and 9.2 added: Full startup sequence spec (6 steps: HA connect, piston index build, orphan scan, manual edit detection, entity validation, configuration.yaml check) and scheduled background checks (entity validation every 30 min, HA health every 60 sec, orphan check on reconnect).
+- Section 13 expanded: Manual edit detection now specifies startup behavior (informational scan → ⚠ flag) distinct from deploy behavior (interactive diff → Overwrite/Cancel). Hash stored in both file header and compile_index SQLite table.
+- Section 16 expanded: Added HA→PistonCore orphan scan direction (startup scan for compiled files whose UUID is not in the piston index).
+- Sections 6.10 and 6.11 added: Snapshot format under logic_version 2 fully specced (node rules, role uniqueness, wrapper). Import flow redesigned for logic_version 2 (5-step role collection → mapping dialog → entity_ids population). MISSING_SPECS.md Item 21 resolved.
+- Section 26: Volume structure updated — piston_index.json and pistoncore.db added.
+- Section 32: Open items updated — 13 items, stale entries corrected.
+
+**Audit findings documented in session chat (not yet fixed — need their own sessions):**
+- STATEMENT_TYPES.md Section 1 (action) still uses old devices/role_name format — fix before W-S8
+- STATEMENT_TYPES.md Section 19 condition schema lacks entity_ids — fix before W-S8
+- MISSING_SPECS.md Items 7 and 8 reference device_map terminology — fix before S4-2
+- AI_PROMPT_SPEC.md entirely written against old device_map model — fix before AI prompt work
+- WIZARD_SPEC.md globals picker still says "deferred" — fix before W-S8
+- HA_LIMITATIONS.md Section 3 references device_map and has_missing_devices — fix anytime
+- for_each list_role architecture under logic_version 2 undefined — decision needed before B-1
 
 ---
 

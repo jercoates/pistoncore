@@ -18,6 +18,7 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - One task per session. Do not combine tasks.
 - Do not write code in a spec session. Specs only.
 - Do not write code without permission. Do not omit this line when writing a new prompt again.
+- Never mark a section as SUPERSEDED and leave the stale content. Either rewrite it correctly or delete it. A warning label on wrong information is not a fix — it is still wrong information.
 
 ## Deploy Command (Unraid)
 ```
@@ -154,10 +155,11 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - GAP-S46-4 → G-3: Imported globals land in wrong place
 - GAP-S44-1 → W-S8: Group condition editing not implemented
 
-## Warning — DESIGN.md Section Notes
-DESIGN.md v1.3 is current. Sections 6.1, 6.2, 6.3, 6.4, 6.5, and 15.6 are marked
-⚠ SUPERSEDED — they describe the old device_map model. Use PISTON_FORMAT.md v2.2,
-COMPILER_SPEC.md v1.3, and WIZARD_SPEC.md v2.1 as the authoritative sources.
+## Warning — DESIGN.md Still Has Stale Sections (GAP-S57-6 → D-S3)
+DESIGN.md v1.3 Sections 6.1, 6.2, 6.3, 6.4, 6.5, and 15.6 still contain wrong
+device_map content. They were marked SUPERSEDED this session — that was wrong per
+the new rule. D-S3 must rewrite or delete them entirely. Do not code from these
+sections. Use PISTON_FORMAT.md v2.2, COMPILER_SPEC.md v1.3, WIZARD_SPEC.md v2.1.
 
 ## Spec File Versions (as of Session 57)
 - DESIGN.md v1.3
@@ -167,3 +169,34 @@ COMPILER_SPEC.md v1.3, and WIZARD_SPEC.md v2.1 as the authoritative sources.
 - WIZARD_SPEC.md v2.1
 - STATEMENT_TYPES.md v2.1
 - MISSING_SPECS.md — Items 1,9,13,17,18,21,22,23 resolved; Items 2-8,10-12,14-16,19-20,24 open
+
+## Unresolved Grok Review Items — Must Address Before W-S8 Closes
+
+These were flagged in the external Grok review and not fully resolved. Do NOT let
+these get lost. Assign each to a session at the start of W-S8 if not doing them now.
+
+### GAP-S57-6 → D-S3: FRONTEND_SPEC.md unread and potentially stale
+FRONTEND_SPEC.md is referenced as authoritative for editor rendering in PISTON_FORMAT.md
+but was never read or updated this session. It almost certainly has device_map references
+and stale rendering rules. Must be read and updated before any editor coding resumes.
+Block: any editor.js coding session that touches rendering.
+
+### GAP-S57-7 → D-S3: DESIGN.md Section 6.11 missing duplicate role name note
+Snapshot import flow (Section 6.11) does not explicitly document that duplicate role
+names across nodes are intentional — same role name gets same entity_ids on import.
+This is a feature not a bug and must be called out clearly so importers don't
+treat it as an error. Small addition only.
+
+### GAP-S57-8 → D-S3: Sample piston in logic_version 2 format missing
+No sample piston file exists showing a complete valid logic_version 2 piston JSON.
+COMPILER_SPEC.md Section 18 has one hand-written example but a dedicated
+SAMPLE_PISTONS.md with multiple examples (simple, multi-device, global variable)
+is needed for testing and as a reference for AI prompt generation.
+Block: AI prompt work (S4-10), compiler testing (S3-1).
+
+### GAP-S57-9 → D-S3: Full grep for list_role/device_map stragglers
+A repo-wide grep for list_role, device_map, device_map_meta, has_missing_devices,
+and devices: ["role_name"] has not been run across all spec files. STATEMENT_TYPES.md
+early examples may still mix old/new patterns. Run the grep and fix any remaining hits.
+
+CLEAN UP ALL STALE REFERENCES WHY THE FUCK DID YOU LEAVE THEM see the new rule above

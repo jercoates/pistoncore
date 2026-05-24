@@ -388,3 +388,24 @@ GAP-S52-3 opened → W-S7b: Add task button not working in some flows.
   _sel.devices, _sel.subject, _sel.tasks etc. often missing or wrong shape.
   Needs explicit field mapping per node type in _route() or a deep-copy utility.
   Identified by Grok scan of current codebase post-wizard-split.
+
+### D-S3: Post-Audit Cleanup (after W-S8, before B-1)
+
+**Blocks:** editor.js rendering coding, AI prompt work, compiler testing
+
+**GAP-S57-6 → D-S3:** FRONTEND_SPEC.md unread and potentially stale
+  Read and update for entity_ids model before any editor rendering coding.
+
+**GAP-S57-7 → D-S3:** DESIGN.md Section 6.11 duplicate role name behavior
+  Add explicit note that same role name = same entity_ids on import — intentional.
+
+**GAP-S57-8 → D-S3:** Sample piston in logic_version 2 format missing
+  SAMPLE_PISTONS.md needed with simple, multi-device, and global variable examples.
+  Blocks AI prompt work and compiler smoke testing.
+
+**GAP-S57-9 → D-S3:** Full grep for list_role/device_map stragglers
+  Repo-wide grep across all spec files. Fix any remaining hits.
+
+**Upload for D-S3:**
+FRONTEND_SPEC.md, DESIGN.md, STATEMENT_TYPES.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md, MISSING_SPECS.md

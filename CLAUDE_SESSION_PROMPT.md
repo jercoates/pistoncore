@@ -205,6 +205,10 @@ Block: AI prompt work (S4-10), compiler testing (S3-1).
 A repo-wide grep for list_role, device_map, device_map_meta, has_missing_devices,
 and devices: ["role_name"] has not been run across all spec files. STATEMENT_TYPES.md
 early examples may still mix old/new patterns. Run the grep and fix any remaining hits.
+devices array references in action/condition context
+device_labels
+device_id as a state key
+device_map in any active (non-historical) spec text
 
 ## Multi-Device Spec Gaps — Must Fix in D-S3 Before W-S8 Coding
 

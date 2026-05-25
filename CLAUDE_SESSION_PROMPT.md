@@ -20,6 +20,7 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - Do not write code without permission.
 - Never mark a section as SUPERSEDED and leave the stale content. Either rewrite it correctly or delete it.
 - All specs must be complete before any coding session starts. No exceptions.
+- **Coding discipline — fix what the user can see first.** If a backend change is required to fix a visible problem, make only the minimum change needed and return immediately to the frontend. Do not fix backend issues that are not directly blocking the current visible problem, even if you notice them. Log them as gaps in TASKS.md instead.
 
 ## Deploy Command (Unraid)
 ```

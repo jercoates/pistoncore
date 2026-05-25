@@ -288,13 +288,50 @@ const GlobalsDrawer = (() => {
     }
   }
 
+  // Allowed domains — same set as the wizard device picker.
+  const _ALLOWED_DOMAINS = new Set([
+    'light','switch','binary_sensor','sensor','media_player','cover','climate',
+    'fan','lock','input_boolean','input_number','input_select','automation',
+    'person','device_tracker','alarm_control_panel',
+  ]);
+
+  // Domain priority for picking the primary entity_id when a device has multiple.
+  const _DOMAIN_PRIORITY = [
+    'light','switch','cover','fan','climate','lock','media_player',
+    'input_boolean','input_number','input_select','automation',
+    'binary_sensor','sensor','person','device_tracker','alarm_control_panel',
+  ];
+
+  // Returns one entry per unique friendly_name with all entity_ids bundled.
+  // User sees one row per physical device — no duplicate rows per entity.
   function _filteredDevices(query) {
-    const lq = query.toLowerCase();
-    if (!lq) return _devices;
-    return _devices.filter(d =>
-      (d.friendly_name || '').toLowerCase().includes(lq) ||
-      (d.entity_id     || '').toLowerCase().includes(lq)
-    );
+    const lq = (query || '').toLowerCase();
+    const seen = new Set();
+    const allowed = (_devices || []).filter(d => {
+      const domain = (d.entity_id || '').split('.')[0];
+      if (!_ALLOWED_DOMAINS.has(domain)) return false;
+      if (seen.has(d.entity_id)) return false;
+      seen.add(d.entity_id);
+      return true;
+    });
+    const byName = new Map();
+    for (const d of allowed) {
+      const name = d.friendly_name || d.entity_id;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(d.entity_id);
+    }
+    const result = [];
+    for (const [friendly_name, entity_ids] of byName) {
+      if (lq && !friendly_name.toLowerCase().includes(lq) &&
+          !entity_ids.some(id => id.toLowerCase().includes(lq))) continue;
+      let primary = entity_ids[0];
+      for (const domain of _DOMAIN_PRIORITY) {
+        const match = entity_ids.find(id => id.startsWith(domain + '.'));
+        if (match) { primary = match; break; }
+      }
+      result.push({ friendly_name, entity_ids, primary_entity_id: primary });
+    }
+    return result;
   }
 
   function _renderDeviceRows(selected, query) {
@@ -314,25 +351,31 @@ const GlobalsDrawer = (() => {
     }
 
     list.innerHTML = matches.slice(0, 300).map(d => {
-      const eid   = _esc(d.entity_id);
-      const label = _esc(d.friendly_name || d.entity_id);
-      const sel   = selected.has(d.entity_id);
-      return `<div class="gf-device-row ${sel ? 'selected' : ''}" data-id="${eid}">
+      // A grouped device is selected if any of its entity_ids are in the selection set
+      const sel = d.entity_ids.some(id => selected.has(id));
+      const eid = _esc(d.primary_entity_id);
+      const label = _esc(d.friendly_name);
+      return `<div class="gf-device-row ${sel ? 'selected' : ''}"
+        data-id="${eid}"
+        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}">
         <span class="gf-device-name">${label}</span>
-        <span class="gf-device-id">${eid}</span>
         <span class="gf-device-check">${sel ? '✓' : ''}</span>
       </div>`;
     }).join('');
 
     list.querySelectorAll('.gf-device-row').forEach(row => {
       row.addEventListener('click', () => {
-        const id = row.dataset.id;
-        if (selected.has(id)) {
-          selected.delete(id);
+        let rowEntityIds;
+        try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [row.dataset.id]; }
+        catch { rowEntityIds = [row.dataset.id]; }
+
+        const isSelected = rowEntityIds.some(id => selected.has(id));
+        if (isSelected) {
+          rowEntityIds.forEach(id => selected.delete(id));
           row.classList.remove('selected');
           row.querySelector('.gf-device-check').textContent = '';
         } else {
-          selected.add(id);
+          rowEntityIds.forEach(id => selected.add(id));
           row.classList.add('selected');
           row.querySelector('.gf-device-check').textContent = '✓';
         }

@@ -201,6 +201,36 @@ const Wizard = (() => {
     });
   }
 
+  // _groupDevices: what the device picker UI uses.
+  // Returns one entry per unique friendly_name, with all entity_ids for that name bundled.
+  // Implements the design spec: user picks a physical device by friendly name —
+  // the capability/command picker resolves the correct entity_id downstream.
+  // Each entry: { friendly_name, entity_ids: [...], primary_entity_id }
+  const _DOMAIN_PRIORITY = [
+    'light','switch','cover','fan','climate','lock','media_player',
+    'input_boolean','input_number','input_select','automation',
+    'binary_sensor','sensor','person','device_tracker','alarm_control_panel',
+  ];
+  function _groupDevices(raw) {
+    const allowed = _filterDevices(raw);
+    const byName = new Map();
+    for (const d of allowed) {
+      const name = d.friendly_name || d.entity_id;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(d.entity_id);
+    }
+    const result = [];
+    for (const [friendly_name, entity_ids] of byName) {
+      let primary = entity_ids[0];
+      for (const domain of _DOMAIN_PRIORITY) {
+        const match = entity_ids.find(id => id.startsWith(domain + '.'));
+        if (match) { primary = match; break; }
+      }
+      result.push({ friendly_name, entity_ids, primary_entity_id: primary });
+    }
+    return result;
+  }
+
   function _getCapsForDomain(entityIdOrList) {
     const ids = Array.isArray(entityIdOrList)
       ? entityIdOrList
@@ -692,7 +722,7 @@ const Wizard = (() => {
 
     // Helper functions
     isTrigger, _durationLabel, _needsDuration,
-    _filterDevices, _getCapsForDomain,
+    _filterDevices, _groupDevices, _getCapsForDomain,
     _esc, _newId, _taskId, _condId,
     _render, _pushStep, _back, close,
     _deleteEditNode,

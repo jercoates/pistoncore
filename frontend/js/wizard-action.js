@@ -76,13 +76,14 @@ async function _loadActDevices() {
 }
 
 function _renderActDevList(query) {
-  const { _esc, _filterDevices, VIRTUAL_DEVICES, SYSTEM_VARS, DEMO_DEVICES } = WizardCore;
+  const { _esc, _groupDevices, VIRTUAL_DEVICES, SYSTEM_VARS, DEMO_DEVICES } = WizardCore;
   const el = document.getElementById('wiz-act-devlist');
   if (!el) return;
   const q = query.toLowerCase();
 
-  const physical = _filterDevices(WizardCore.deviceData).filter(d =>
-    !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
+  const grouped = _groupDevices(WizardCore.deviceData).filter(d =>
+    !q || d.friendly_name.toLowerCase().includes(q) ||
+    d.entity_ids.some(id => id.toLowerCase().includes(q))
   );
   const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
   const pistonDevVars = allLocals.filter(v =>
@@ -101,7 +102,7 @@ function _renderActDevList(query) {
     !q || d.friendly_name.toLowerCase().includes(q)
   );
 
-  const sel = new Set(WizardCore.sel.devices||[]);
+  const sel = new Set(WizardCore.sel.devices || []);
   let html = '';
 
   html += `<div class="wiz-device-group-header">Virtual devices</div>`;
@@ -111,15 +112,23 @@ function _renderActDevList(query) {
     html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
   }
 
-  if (physical.length) {
+  if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
-    html += physical.slice(0,150).map(d => _actDevRow(d.entity_id, d.friendly_name, sel.has(d.entity_id))).join('');
+    html += grouped.slice(0, 150).map(d => {
+      const isSelected = d.entity_ids.some(id => sel.has(id));
+      return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
+        data-id="${_esc(d.primary_entity_id)}"
+        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}"
+        data-label="${_esc(d.friendly_name)}">
+        <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
+      </div>`;
+    }).join('');
   }
 
   if (pistonDevVars.length) {
     html += `<div class="wiz-device-group-header">Piston variables</div>`;
     html += pistonDevVars.map(v =>
-      `<div class="wiz-device-row ${sel.has(v.name)?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+      `<div class="wiz-device-row ${sel.has(v.name) ? 'selected' : ''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
         <span class="wiz-dev-prefix">device</span>
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
@@ -130,7 +139,7 @@ function _renderActDevList(query) {
     html += `<div class="wiz-device-group-header">Global variables</div>`;
     html += globalDevVars.map(g => {
       const gid = `@${g.name}`;
-      return `<div class="wiz-device-row ${sel.has(gid)?'selected':''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+      return `<div class="wiz-device-row ${sel.has(gid) ? 'selected' : ''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
         <span class="wiz-dev-prefix">global</span>
         <span class="wiz-dev-label">${_esc(gid)}</span>
       </div>`;
@@ -147,7 +156,7 @@ function _renderActDevList(query) {
   html += `<div class="wiz-device-group-header">Demo devices</div>`;
   if (filteredDemo.length) {
     html += filteredDemo.map(d =>
-      `<div class="wiz-device-row ${sel.has(d.entity_id)?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+      `<div class="wiz-device-row ${sel.has(d.entity_id) ? 'selected' : ''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
         <span class="wiz-demo-badge">demo</span>
       </div>`
@@ -162,12 +171,18 @@ function _renderActDevList(query) {
     row.addEventListener('click', () => {
       const id = row.dataset.id;
       const isVirtual = id.startsWith('__');
+      // Parse all entity_ids bundled with this grouped device row
+      let rowEntityIds;
+      try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [id]; }
+      catch { rowEntityIds = [id]; }
+
       if (isVirtual) {
         el.querySelectorAll('.wiz-device-row').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
         WizardCore.sel.devices = [id];
         WizardCore.sel.device_id = id;
         WizardCore.sel.device_label = row.dataset.label;
+        WizardCore.sel.device_labels = [row.dataset.label];
         _updateActSelBar([row.dataset.label]);
         document.getElementById('wiz-act-next')?.removeAttribute('disabled');
         setTimeout(() => {
@@ -176,12 +191,16 @@ function _renderActDevList(query) {
         }, 150);
       } else {
         row.classList.toggle('selected');
-        const newSel = new Set(WizardCore.sel.devices||[]);
-        if (row.classList.contains('selected')) newSel.add(id); else newSel.delete(id);
+        const newSel = new Set(WizardCore.sel.devices || []);
+        if (row.classList.contains('selected')) {
+          rowEntityIds.forEach(eid => newSel.add(eid));
+        } else {
+          rowEntityIds.forEach(eid => newSel.delete(eid));
+        }
         WizardCore.sel.devices = [...newSel];
         WizardCore.sel.device_id = WizardCore.sel.devices[0] || '';
-        // Build label array now while the DOM rows are present — store for use at save time
-        const allLabels = WizardCore.sel.devices.map(d => el.querySelector(`[data-id="${CSS.escape(d)}"]`)?.dataset.label || d);
+        const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
+          .map(r => r.dataset.label).filter(Boolean);
         WizardCore.sel.device_labels = allLabels;
         WizardCore.sel.device_label = allLabels.length === 1 ? allLabels[0] : `${allLabels.length} devices`;
         _updateActSelBar(allLabels);
@@ -189,9 +208,8 @@ function _renderActDevList(query) {
       }
     });
   });
-
-  sel.forEach(id => el.querySelector(`[data-id="${CSS.escape(id)}"]`)?.classList.add('selected'));
 }
+
 
 function _actDevRow(id, label, selected) {
   const { _esc } = WizardCore;

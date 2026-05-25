@@ -390,14 +390,15 @@ function _refreshConditionRows() {
 }
 
 function _renderDevPanelList(query) {
-  const { _esc, _filterDevices, DEMO_DEVICES } = WizardCore;
+  const { _esc, _groupDevices, DEMO_DEVICES } = WizardCore;
   const el = document.getElementById('wiz-dev-panel-list');
   if (!el) return;
   const q = query.toLowerCase();
   const _sel = WizardCore.sel;
 
-  const physical = _filterDevices(WizardCore.deviceData).filter(d =>
-    !q || d.friendly_name.toLowerCase().includes(q) || d.entity_id.toLowerCase().includes(q)
+  const grouped = _groupDevices(WizardCore.deviceData).filter(d =>
+    !q || d.friendly_name.toLowerCase().includes(q) ||
+    d.entity_ids.some(id => id.toLowerCase().includes(q))
   );
   const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
   const localDeviceVars = allLocals.filter(v =>
@@ -410,20 +411,25 @@ function _renderDevPanelList(query) {
     !q || d.friendly_name.toLowerCase().includes(q)
   );
 
+  const selIds = new Set(_sel.devices || (_sel.device_id ? [_sel.device_id] : []));
+
   let html = '';
-  if (physical.length) {
+  if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
-    html += physical.slice(0,150).map(d =>
-      `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''}" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+    html += grouped.slice(0, 150).map(d => {
+      const isSelected = d.entity_ids.some(id => selIds.has(id));
+      return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
+        data-id="${_esc(d.primary_entity_id)}"
+        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}"
+        data-label="${_esc(d.friendly_name)}">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-        <span style="font-size:10px;color:var(--text-muted);margin-left:auto">${_esc(d.entity_id)}</span>
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
   }
   if (localDeviceVars.length) {
     html += `<div class="wiz-device-group-header">Piston variables</div>`;
     html += localDeviceVars.map(v =>
-      `<div class="wiz-device-row ${_sel.device_id===v.name?'selected':''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+      `<div class="wiz-device-row ${selIds.has(v.name) ? 'selected' : ''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
         <span class="wiz-dev-prefix">device</span>
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
@@ -433,7 +439,7 @@ function _renderDevPanelList(query) {
     html += `<div class="wiz-device-group-header">Global variables</div>`;
     html += globalDevVars.map(g => {
       const gid = `@${g.name}`;
-      return `<div class="wiz-device-row ${_sel.device_id===gid?'selected':''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+      return `<div class="wiz-device-row ${selIds.has(gid) ? 'selected' : ''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
         <span class="wiz-dev-prefix">global</span>
         <span class="wiz-dev-label">${_esc(gid)}</span>
       </div>`;
@@ -442,7 +448,7 @@ function _renderDevPanelList(query) {
   html += `<div class="wiz-device-group-header">Demo devices</div>`;
   if (filteredDemos.length) {
     html += filteredDemos.map(d =>
-      `<div class="wiz-device-row ${_sel.device_id===d.entity_id?'selected':''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+      `<div class="wiz-device-row ${selIds.has(d.entity_id) ? 'selected' : ''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
         <span class="wiz-demo-badge">demo</span>
       </div>`
@@ -454,9 +460,14 @@ function _renderDevPanelList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
+      // Parse bundled entity_ids for grouped physical devices
+      let rowEntityIds;
+      try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [row.dataset.id]; }
+      catch { rowEntityIds = [row.dataset.id]; }
+
       WizardCore.sel.device_id    = row.dataset.id;
       WizardCore.sel.device_label = row.dataset.label;
-      WizardCore.sel.devices      = [row.dataset.id];
+      WizardCore.sel.devices      = rowEntityIds;
       WizardCore.sel.attribute    = '';
       WizardCore.sel.attribute_type = '';
       WizardCore.sel._caps = [];

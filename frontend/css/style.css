@@ -2409,13 +2409,13 @@ html.light-mode .doc-line:hover { background: rgba(0,0,0,0.025); }
 /* Globals device picker — WebCoRE row-click-toggles-checkmark */
 .gf-device-picker { display: flex; flex-direction: column; gap: var(--space-2); }
 .gf-device-summary { font-size: 12px; padding: 2px 0; }
-.gf-device-panel { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-raised); overflow: hidden; }
-.gf-device-filter { border: none; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text-primary); font-size: 12px; padding: 5px var(--space-2); outline: none; width: 100%; box-sizing: border-box; }
+.gf-device-panel { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-raised); overflow: hidden; min-height: 0; }
+.gf-device-filter { border: none; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text-primary); font-size: 12px; padding: 5px var(--space-2); outline: none; width: 100%; box-sizing: border-box; flex-shrink: 0; }
 .gf-device-filter:focus { border-color: var(--border-focus); }
-.gf-device-sel-actions { display: flex; gap: var(--space-2); padding: 3px var(--space-2); border-bottom: 1px solid var(--border-subtle); }
+.gf-device-sel-actions { display: flex; gap: var(--space-2); padding: 3px var(--space-2); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
 .gf-sel-all, .gf-sel-none { font-size: 11px; color: var(--teal-dim); background: transparent; border: none; cursor: pointer; padding: 1px 0; }
 .gf-sel-all:hover, .gf-sel-none:hover { color: var(--teal); }
-.gf-device-list { max-height: 220px; overflow-y: auto; }
+.gf-device-list { max-height: 420px; overflow-y: auto; }
 .gf-device-row { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); cursor: pointer; font-size: 12px; color: var(--text-secondary); user-select: none; }
 .gf-device-row:hover { background: var(--bg-hover); color: var(--text-primary); }
 .gf-device-row.selected { background: var(--bg-selected); color: var(--text-primary); }

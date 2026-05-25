@@ -361,7 +361,9 @@ const Wizard = (() => {
     _extra    = extra || {};
     _step     = null;
     _stepStack = [];
-    _sel      = editNode ? { ...editNode } : {};
+    // Deep clone to avoid mutating the piston tree during wizard editing.
+    // Shallow spread loses nested arrays (entity_ids, tasks, parameters, conditions).
+    _sel = editNode ? JSON.parse(JSON.stringify(editNode)) : {};
 
     _injectComboCSS();
     const modal = document.getElementById('wizard-modal');
@@ -402,6 +404,12 @@ const Wizard = (() => {
       // Also catches condition nodes built by _buildConditionNode which have no .type field,
       // and conditions inside if blocks opened via if_condition context.
       if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition' || ctx === 'if_condition') {
+        // Group condition — route to group builder, not condition builder (GAP-S44-1)
+        if (_editNode.is_group || _editNode.type === 'group') {
+          _sel.group_condition_operator = _editNode.group_operator || _editNode.operator || 'and';
+          _goGroupBuilder();
+          return;
+        }
         _sel.statement_class = 'condition';
         if (_editNode.subject) {
           _sel.subject_type   = _editNode.subject.type || 'device';
@@ -424,10 +432,18 @@ const Wizard = (() => {
           } else {
             _sel.subject_type   = 'device';
             _sel.device_label   = role;
-            const deviceMap = Editor.getDeviceMap ? Editor.getDeviceMap() : {};
-            const entityIds = deviceMap[role] || [];
-            _sel.device_id    = entityIds[0] || _editNode.entity_id || role;
-            _sel.devices      = [_sel.device_id];
+            // Prefer entity_ids from the node itself (new format).
+            // Fall back to device_map lookup for legacy nodes.
+            const nodeIds = (_editNode.entity_ids || []).filter(id => id && !id.startsWith('__'));
+            if (nodeIds.length) {
+              _sel.devices   = nodeIds;
+              _sel.device_id = nodeIds[0];
+            } else {
+              const deviceMap = Editor.getDeviceMap ? Editor.getDeviceMap() : {};
+              const entityIds = deviceMap[role] || [];
+              _sel.device_id = entityIds[0] || _editNode.entity_id || role;
+              _sel.devices   = [_sel.device_id];
+            }
             _sel.attribute      = _editNode.attribute || _editNode.capability || '';
             _sel.attribute_type = _editNode.attribute_type || '';
           }
@@ -457,15 +473,20 @@ const Wizard = (() => {
 
       // Action edit
       if (t === 'action') {
-        _sel.devices      = _editNode.devices || [];
+        // New format: entity_ids on the node directly. Legacy: devices array.
+        const nodeIds = (_editNode.entity_ids || []).filter(id => id && !id.startsWith('__'));
+        _sel.devices      = nodeIds.length ? nodeIds : (_editNode.devices || []);
         _sel.device_id    = _sel.devices[0] || '';
-        _sel.device_label = _sel.devices[0] || '';
+        _sel.device_label = _editNode.role || _sel.devices[0] || '';
         if ((_editNode.tasks || []).length) {
           const task = _editNode.tasks[0];
           _sel.command    = task.command || '';
-          _sel.parameters = task.parameters || {};
+          _sel.parameters = task.parameters ? { ...task.parameters } : {};
         }
-        if (_sel.device_id === '__location__' || (_editNode.devices||[]).includes('Location')) {
+        const isLocation = _sel.device_id === '__location__' ||
+          (_editNode.entity_ids || []).includes('__location__') ||
+          (_editNode.devices || []).includes('Location');
+        if (isLocation) {
           const task = (_editNode.tasks||[])[0];
           if (task) _sel.location_cmd = task.command || '';
           _goLocationCmdPicker();

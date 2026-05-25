@@ -336,10 +336,12 @@ const Editor = (() => {
         bOpen(pad);
           ln(`<span class="kw">with</span>`, pad, { id, type: t });
           // node.role is the human label (e.g. "Driveway Light").
-          // node.devices contains entity IDs since Session 54 — don't display raw IDs.
-          // Fall back to displaying devices array if role is absent (legacy nodes).
+          // entity_ids holds real HA IDs — don't display raw. Fall back gracefully.
           if (node.role) {
             ln(`    ${_dr(node.role)}`, pad + 1);
+          } else if (node.entity_ids && node.entity_ids.length) {
+            // New format without role set — show first entity_id as label
+            ln(`    ${_dr(node.entity_ids[0])}${node.entity_ids.length > 1 ? ` <span class="doc-ph">+${node.entity_ids.length - 1}</span>` : ''}`, pad + 1);
           } else {
             (node.devices || []).forEach(d => ln(`    ${_dr(d)}`, pad + 1));
           }
@@ -727,6 +729,8 @@ const Editor = (() => {
         if (found) return found;
       }
       for (const c of (node.cases || [])) {
+        // Case objects are findable by their own id (for insertStatement branch targeting)
+        if (c.id === id) return c;
         found = _findNode(id, c.statements || []);
         if (found) return found;
       }
@@ -1079,6 +1083,20 @@ const Editor = (() => {
       // trigger/condition/restriction section below (not to statement insert).
     }
 
+    // Task insertion: 'task' context — append a new task to an existing action node's tasks array.
+    // Ghost text uses: gh('· add a new task', 'task', pad, { 'block-id': actionNodeId })
+    if (context === 'task' && meta && meta.blockId && !meta.branch) {
+      const actionNode = _findNode(meta.blockId);
+      if (actionNode && actionNode.type === 'action') {
+        if (!statementData.id) statementData.id = _nextStmtId();
+        actionNode.tasks = actionNode.tasks || [];
+        const ti = actionNode.tasks.findIndex(t => t.id === statementData.id);
+        if (ti >= 0) actionNode.tasks[ti] = statementData;
+        else actionNode.tasks.push(statementData);
+        _markUnsaved(true); render(); return;
+      }
+    }
+
     // Branch insertion: meta.blockId + meta.branch — insert into a specific child array
     if (meta && meta.blockId && meta.branch) {
       if (!statementData.id) statementData.id = _nextStmtId();
@@ -1268,16 +1286,6 @@ const Editor = (() => {
     deleteStatement,
     getPistonVariables: () => (_piston?.variables || []),
     getDeviceMap: () => (_piston?.device_map || {}),
-    // Called by wizard on every action/condition commit to keep device_map in sync.
-    // roleName: the friendly label the user assigned (e.g. "Driveway Light")
-    // entityIds: array of HA entity IDs (e.g. ["light.driveway_main"])
-    registerDeviceRole(roleName, entityIds) {
-      if (!roleName || !entityIds || !entityIds.length) return;
-      if (!_piston) return;
-      _piston.device_map = _piston.device_map || {};
-      _piston.device_map[roleName] = entityIds;
-      _markUnsaved(true);
-    },
     updateConditionOperator(blockId, operator) {
       // Find the block (if, while, repeat, on_event, else_if) and update its condition_operator
       const block = _findNode(blockId) || _findElseIf(blockId);

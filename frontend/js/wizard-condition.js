@@ -255,11 +255,21 @@ function _goConditionBuilder() {
       const searchEl = document.getElementById('wiz-dev-panel-search');
       if (searchEl) { searchEl.value = ''; searchEl.focus(); }
       _renderDevPanelList('');
+      const fetches = [];
       if (!WizardCore.deviceData) {
-        API.getDevices().then(data => {
-          WizardCore.deviceData = data;
+        fetches.push(API.getDevices().then(data => { WizardCore.deviceData = data; }).catch(() => {}));
+      }
+      if (!WizardCore.globalsData) {
+        fetches.push(
+          API.getGlobals()
+            .then(result => { WizardCore.globalsData = Object.values(result || {}); })
+            .catch(() => { WizardCore.globalsData = []; })
+        );
+      }
+      if (fetches.length) {
+        Promise.all(fetches).then(() => {
           _renderDevPanelList(document.getElementById('wiz-dev-panel-search')?.value || '');
-        }).catch(() => {});
+        });
       }
       let ft = null;
       searchEl?.addEventListener('input', e => {
@@ -271,6 +281,11 @@ function _goConditionBuilder() {
 
   if (!WizardCore.deviceData) {
     API.getDevices().then(data => { WizardCore.deviceData = data; }).catch(() => {});
+  }
+  if (!WizardCore.globalsData) {
+    API.getGlobals()
+      .then(result => { WizardCore.globalsData = Object.values(result || {}); })
+      .catch(() => { WizardCore.globalsData = []; });
   }
 
   document.getElementById('wiz-attr-select')?.addEventListener('change', e => {
@@ -388,6 +403,9 @@ function _renderDevPanelList(query) {
   const localDeviceVars = allLocals.filter(v =>
     v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
   );
+  const globalDevVars = (WizardCore.globalsData || []).filter(g =>
+    g.var_type === 'device' && (!q || (g.name || '').toLowerCase().includes(q) || (`@${g.name}`).toLowerCase().includes(q))
+  );
   const filteredDemos = DEMO_DEVICES.filter(d =>
     !q || d.friendly_name.toLowerCase().includes(q)
   );
@@ -410,6 +428,16 @@ function _renderDevPanelList(query) {
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
     ).join('');
+  }
+  if (globalDevVars.length) {
+    html += `<div class="wiz-device-group-header">Global variables</div>`;
+    html += globalDevVars.map(g => {
+      const gid = `@${g.name}`;
+      return `<div class="wiz-device-row ${_sel.device_id===gid?'selected':''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+        <span class="wiz-dev-prefix">global</span>
+        <span class="wiz-dev-label">${_esc(gid)}</span>
+      </div>`;
+    }).join('');
   }
   html += `<div class="wiz-device-group-header">Demo devices</div>`;
   if (filteredDemos.length) {
@@ -779,11 +807,8 @@ function _buildConditionNode() {
   }
 
   // ── Register device role in piston device_map ─────────────
-  // This is the only place we know both the role name and the entity IDs together.
-  // Call every time a condition is committed — idempotent, safe to call repeatedly.
-  if (subjType === 'device' && role && entity_ids.length && Editor.registerDeviceRole) {
-    Editor.registerDeviceRole(role, entity_ids);
-  }
+  // REMOVED: entity_ids are now written directly to the node.
+  // The compiler reads entity_ids from each node — no device_map registration needed.
 
   return node;
 }

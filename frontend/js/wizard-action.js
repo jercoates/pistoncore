@@ -58,7 +58,18 @@ function _goActionDevicePicker() {
 async function _loadActDevices() {
   _renderActDevList('');
   try {
-    if (!WizardCore.deviceData) WizardCore.deviceData = await API.getDevices();
+    const fetches = [];
+    if (!WizardCore.deviceData) {
+      fetches.push(API.getDevices().then(d => { WizardCore.deviceData = d; }).catch(() => {}));
+    }
+    if (!WizardCore.globalsData) {
+      fetches.push(
+        API.getGlobals()
+          .then(result => { WizardCore.globalsData = Object.values(result || {}); })
+          .catch(() => { WizardCore.globalsData = []; })
+      );
+    }
+    if (fetches.length) await Promise.all(fetches);
   } catch(e) {}
   // Always re-render after load attempt — picks up any search text already typed
   _renderActDevList(document.getElementById('wiz-act-search')?.value || '');
@@ -76,6 +87,9 @@ function _renderActDevList(query) {
   const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
   const pistonDevVars = allLocals.filter(v =>
     v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
+  );
+  const globalDevVars = (WizardCore.globalsData || []).filter(g =>
+    g.var_type === 'device' && (!q || (g.name || '').toLowerCase().includes(q) || (`@${g.name}`).toLowerCase().includes(q))
   );
   const filteredVirtual = VIRTUAL_DEVICES.filter(v =>
     !q || v.friendly_name.toLowerCase().includes(q)
@@ -110,6 +124,17 @@ function _renderActDevList(query) {
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
     ).join('');
+  }
+
+  if (globalDevVars.length) {
+    html += `<div class="wiz-device-group-header">Global variables</div>`;
+    html += globalDevVars.map(g => {
+      const gid = `@${g.name}`;
+      return `<div class="wiz-device-row ${sel.has(gid)?'selected':''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+        <span class="wiz-dev-prefix">global</span>
+        <span class="wiz-dev-label">${_esc(gid)}</span>
+      </div>`;
+    }).join('');
   }
 
   html += `<div class="wiz-device-group-header">System variables</div>`;
@@ -558,25 +583,31 @@ function _saveDeviceCmd(addMore) {
   const params = {};
   document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
-  // entity_ids: the real HA entity IDs for this action (e.g. ["light.driveway_main"])
-  // These are stored in _sel.devices, set by _renderActDevList row click handler.
+  // entity_ids: real HA entity IDs for this action, captured at commit time.
+  // Virtual/system device IDs (starting with '__') are excluded from entity_ids.
   const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
-  const firstId   = entityIds[0] || _sel.device_id || '';
+  const firstId   = entityIds[0] || '';
   const domain    = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
 
-  // role: human label used as the key in device_map and rendered in the editor.
-  // For a single device use the friendly name. For multiple, use a generated role name.
-  // Stored in device_map so the compiler can resolve entity IDs at compile time.
+  // role: human-readable label stored alongside entity_ids for the editor to display.
+  // Generated from selected device labels per WIZARD_SPEC.md role label generation rules.
   const labels = _sel.device_labels || [];
   let role;
-  if (entityIds.length === 1) {
-    role = labels[0] || _sel.device_label || firstId;
-  } else if (entityIds.length > 1) {
-    // Multi-device role: join friendly names, truncated for readability
-    role = labels.length ? labels.join(' + ') : entityIds.join(' + ');
-  } else {
-    // Virtual/system device — use the label directly, no entity_ids to register
+  if (entityIds.length === 0) {
+    // Virtual/system device — use the label directly
     role = _sel.device_label || _sel.device_id || '';
+  } else if (entityIds.length === 1) {
+    role = labels[0] || _sel.device_label || firstId;
+  } else if (entityIds.length === 2) {
+    role = labels.length >= 2 ? `${labels[0]} and ${labels[1]}` : entityIds.join(' and ');
+  } else if (entityIds.length === 3) {
+    role = labels.length >= 3
+      ? `${labels[0]}, ${labels[1]} and ${labels[2]}`
+      : entityIds.join(', ');
+  } else {
+    role = labels.length
+      ? `${labels[0]} +${entityIds.length - 1}`
+      : `${firstId} +${entityIds.length - 1}`;
   }
 
   const newTask = {
@@ -593,30 +624,31 @@ function _saveDeviceCmd(addMore) {
   const branch  = WizardCore.extra?.['branch'] || 'then';
   const meta    = blockId ? { blockId, branch } : undefined;
 
-  // Store entity IDs in devices array (not labels) — compiler resolves via device_map.
-  // For virtual/system devices that have no entity IDs, store the label as before.
-  const devicesField = entityIds.length ? entityIds : [role];
-
   if (WizardCore.editNode && WizardCore.editNode.type === 'action') {
-    const updatedNode = { ...WizardCore.editNode, devices: devicesField, tasks: [newTask] };
+    // Edit: replace in-place preserving the node id.
+    // Write entity_ids directly — no devices field, no device_map registration.
+    const updatedNode = {
+      ...WizardCore.editNode,
+      role,
+      entity_ids: entityIds.length ? entityIds : (WizardCore.editNode.entity_ids || []),
+      tasks: [newTask],
+    };
+    // Remove stale devices field if present (legacy)
+    delete updatedNode.devices;
     Editor.insertStatement(ctx, updatedNode, meta);
   } else {
     Editor.insertStatement(ctx, {
       type: 'action', id: WizardCore.editNode?.id || _newId(), async: false,
-      devices: devicesField,
       role,
+      entity_ids: entityIds,
       tasks: [newTask],
       description: null, disabled: false,
     }, meta);
   }
 
-  // Register all selected entity IDs under this role in device_map
-  if (entityIds.length && Editor.registerDeviceRole) {
-    Editor.registerDeviceRole(role, entityIds);
-  }
-
   if (addMore) {
-    WizardCore.sel.command = '';
+    // GAP-S52-2: reset command/params but preserve device selection so user can add another task
+    WizardCore.sel.command    = '';
     WizardCore.sel.parameters = {};
     WizardCore.editNode = null;
     _goCommandPicker();

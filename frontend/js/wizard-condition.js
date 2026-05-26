@@ -508,7 +508,9 @@ function _renderDevPanelList(query) {
       }
 
       WizardCore.sel.device_label = deviceLabel;
-      WizardCore.sel.device_id    = WizardCore.sel.tokens[0] || '';
+      // Fix 4: explicitly clear device_id when nothing selected so
+      // _refreshConditionRows sees no subject and disables Add correctly.
+      WizardCore.sel.device_id    = WizardCore.sel.tokens.length ? WizardCore.sel.tokens[0] : '';
       WizardCore.sel.attribute    = '';
       WizardCore.sel.attribute_type = '';
       WizardCore.sel._caps = [];
@@ -572,6 +574,13 @@ async function _loadCapsIntoSelect() {
   const demo = DEMO_DEVICES.find(d => flatIds.length === 1 && d.entity_id === flatIds[0]);
   if (demo) {
     caps = demo.capabilities;
+
+  } else if (!flatIds.length) {
+    // Fix 3: tokens resolved to nothing — variable has no devices assigned yet.
+    WizardCore.sel._caps = [];
+    sel.innerHTML = '<option value="">No devices available — check variable assignments</option>';
+    sel.disabled = true;
+    return;
 
   } else if (flatIds.length) {
     // Fetch capabilities for every resolved entity_id in parallel

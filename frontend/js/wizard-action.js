@@ -598,7 +598,9 @@ async function _goCommandPicker() {
 
   if (!flatIds.length) {
     const el = document.getElementById('wiz-cmd-params');
-    if (el) el.innerHTML = `<div class="wiz-error">No devices selected.</div>`;
+    if (el) el.innerHTML = `<div class="wiz-error">No devices could be resolved. Check that your variables have devices assigned before building an action.</div>`;
+    const cmdSel = document.getElementById('wiz-cmd');
+    if (cmdSel) cmdSel.innerHTML = `<option value="" disabled>No devices available</option>`;
     return;
   }
 
@@ -702,8 +704,16 @@ function _saveDeviceCmd(addMore) {
   // These are ALL entity_ids from the selected defines/devices.
   // The intersection already determined which commands are valid for all of them —
   // so every resolved id belongs on this node. No domain filtering here.
-  const flatIds = _getFlatEntityIds(_sel.tokens || []);
+  const flatIds  = _getFlatEntityIds(_sel.tokens || []);
   const finalIds = flatIds.filter(id => !id.startsWith('__'));
+
+  // Fix 2: if resolution produced no entity_ids, do not write a broken node.
+  // This happens if all selected tokens are variables with no devices assigned yet.
+  if (!finalIds.length) {
+    const el = document.getElementById('wiz-cmd-params');
+    if (el) el.innerHTML = `<div class="wiz-error">No devices could be resolved from the current selection. Check that your variables have devices assigned.</div>`;
+    return;
+  }
 
   const firstId = finalIds[0] || '';
   const domain  = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';

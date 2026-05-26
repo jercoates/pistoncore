@@ -515,8 +515,7 @@ const Wizard = (() => {
           _sel.subject_type   = _editNode.subject.type || 'device';
           _sel.device_id      = _editNode.subject.entity_id || '';
           _sel.device_label   = _editNode.subject.role || _editNode.subject.entity_id || '';
-          _sel.tokens         = [_sel.device_id];
-          _sel.devices        = [_sel.device_id];
+          _sel.tokens         = [_sel.device_id].filter(Boolean);
           _sel.attribute      = _editNode.subject.capability || '';
           _sel.attribute_type = _editNode.subject.attribute_type || '';
         } else if (_editNode.role || _editNode.attribute) {
@@ -535,22 +534,23 @@ const Wizard = (() => {
             _sel.device_label   = role;
             // tokens: what the user originally selected (variable names, globals, entity_ids).
             // Stored on the node as role_tokens if saved that way; fall back to entity_ids.
+            // role_tokens: what user picked (variable names, @globals, entity_ids).
+            // Fix 6: if role_tokens absent (node saved before this session), fall back
+            // to entity_ids as tokens — _getFlatEntityIds passes plain entity_ids through.
+            // Fix 5: sel.tokens is authoritative. sel.devices not set here.
             const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
             const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
             if (nodeTokens.length) {
               _sel.tokens    = nodeTokens;
-              _sel.devices   = nodeIds.length ? nodeIds : nodeTokens;
               _sel.device_id = nodeTokens[0];
             } else if (nodeIds.length) {
+              // No role_tokens — use entity_ids as tokens (defensive hydration)
               _sel.tokens    = nodeIds;
-              _sel.devices   = nodeIds;
               _sel.device_id = nodeIds[0];
             } else {
-              const deviceMap = Editor.getDeviceMap ? Editor.getDeviceMap() : {};
-              const entityIds = deviceMap[role] || [];
-              _sel.device_id = entityIds[0] || _editNode.entity_id || role;
-              _sel.tokens    = [_sel.device_id];
-              _sel.devices   = [_sel.device_id];
+              // Nothing — clear selection
+              _sel.tokens    = [];
+              _sel.device_id = '';
             }
             _sel.attribute      = _editNode.attribute || _editNode.capability || '';
             _sel.attribute_type = _editNode.attribute_type || '';
@@ -584,12 +584,13 @@ const Wizard = (() => {
         // role_tokens: what the user picked (variable names, globals, entity_ids).
         // entity_ids: the resolved flat list at last save time.
         // On edit, restore tokens so the picker highlights the right rows.
+        // role_tokens: what user picked. Absent on old nodes — fall back to entity_ids.
+        // Fix 5: sel.tokens authoritative. Fix 6: entity_ids as token fallback.
         const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
         const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
         _sel.tokens       = nodeTokens.length ? nodeTokens : nodeIds;
-        _sel.devices      = nodeIds.length    ? nodeIds    : (_editNode.devices || []);
-        _sel.device_id    = _sel.devices[0] || '';
-        _sel.device_label = _editNode.role || _sel.devices[0] || '';
+        _sel.device_id    = _sel.tokens[0] || '';
+        _sel.device_label = _editNode.role || _sel.device_id || '';
         if ((_editNode.tasks || []).length) {
           const task = _editNode.tasks[0];
           _sel.command    = task.command || '';

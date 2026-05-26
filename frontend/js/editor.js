@@ -51,6 +51,14 @@ const Editor = (() => {
     try {
       _piston = await API.getPiston(pistonId);
       _normalizePiston(_piston);
+      // Cache globals on _piston so _reResolveVariableUses can resolve @global tokens.
+      // This mirrors what WizardCore.globalsData does for the wizard.
+      try {
+        const globalsResult = await API.getGlobals();
+        _piston._globalsCache = Object.values(globalsResult || {});
+      } catch(e) {
+        _piston._globalsCache = [];
+      }
       _stmtCounter = 0; // _highestStmtId no longer needed; IDs are random hex
       App.state.unsavedChanges = false;
       _selectedId = null;
@@ -1331,14 +1339,14 @@ const Editor = (() => {
           // This is the variable we just edited — use the new entity_ids
           newEntityIds.forEach(add);
         } else if (token.startsWith('@')) {
-          // Global variable — leave entity_ids for that token as they were.
-          // Globals are not auto-updated here (per spec: user must recommit).
-          (node.entity_ids || []).forEach(id => {
-            // Keep any ids that weren't contributed by varName — approximate by
-            // keeping ids not in the old variable's list. Since we don't have the
-            // old list, keep all non-overlapping ids. This is conservative.
-            add(id);
-          });
+          // Global variable — resolve from globalsData (cached at startup and on editor open).
+          // Globals work exactly like local device variables here — live pulled from cache.
+          const gname = token.slice(1);
+          const g = (_piston._globalsCache || []).find(g => g.name === gname);
+          const gval = g?.value || g?.initial_value;
+          const gids = Array.isArray(gval) ? gval
+            : (typeof gval === 'string' && gval ? gval.split(',').map(s=>s.trim()).filter(Boolean) : []);
+          gids.forEach(add);
         } else if (!token.includes('.')) {
           // Another piston variable — resolve from current variables
           const v = vars.find(v => v.var_type === 'device' && v.name === token);

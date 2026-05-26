@@ -272,6 +272,50 @@ const Wizard = (() => {
     return [...seen.values()];
   }
 
+  // ── _getFlatEntityIds ─────────────────────────────────────
+  // Takes sel.tokens — the array of what the user actually selected in the picker.
+  // Each entry is one of:
+  //   - a real HA entity_id (contains a '.')          → use as-is
+  //   - a piston variable name (no '.', no '@')       → look up initial_value in Editor.getPistonVariables()
+  //   - a global variable token ('@name')             → look up value in WizardCore.globalsData
+  // Returns a flat, deduplicated array of real HA entity_ids.
+  // This is the Extraction Layer from the Architecture Guardrail.
+  // Used by both wizard-action.js and wizard-condition.js before any capability/service lookup.
+  function _getFlatEntityIds(tokens) {
+    const result = [];
+    const seen = new Set();
+    const add = id => { if (id && !seen.has(id)) { seen.add(id); result.push(id); } };
+
+    for (const token of (tokens || [])) {
+      if (!token) continue;
+
+      if (token.startsWith('@')) {
+        // Global variable token — resolve from globalsData
+        const gname = token.slice(1);
+        const g = (_deviceData_globals || []).find(g => g.name === gname);
+        const val = g?.value || g?.initial_value;
+        const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? val.split(',').map(s=>s.trim()).filter(Boolean) : []);
+        ids.forEach(add);
+
+      } else if (!token.includes('.')) {
+        // Piston variable name — resolve from Editor.getPistonVariables()
+        const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+        const v = vars.find(v => v.var_type === 'device' && v.name === token);
+        const val = v?.initial_value;
+        const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? val.split(',').map(s=>s.trim()).filter(Boolean) : []);
+        ids.forEach(add);
+
+      } else {
+        // Real HA entity_id — use directly (skip virtual __xxx__ ids)
+        if (!token.startsWith('__')) add(token);
+      }
+    }
+    return result;
+  }
+
+  // Internal reference to globals — kept in sync via WizardCore.globalsData setter
+  let _deviceData_globals = null;
+
   // ── Demo devices (fallback when no HA connection) ─────────
   const DEMO_DEVICES = [
     {
@@ -471,6 +515,7 @@ const Wizard = (() => {
           _sel.subject_type   = _editNode.subject.type || 'device';
           _sel.device_id      = _editNode.subject.entity_id || '';
           _sel.device_label   = _editNode.subject.role || _editNode.subject.entity_id || '';
+          _sel.tokens         = [_sel.device_id];
           _sel.devices        = [_sel.device_id];
           _sel.attribute      = _editNode.subject.capability || '';
           _sel.attribute_type = _editNode.subject.attribute_type || '';
@@ -488,16 +533,23 @@ const Wizard = (() => {
           } else {
             _sel.subject_type   = 'device';
             _sel.device_label   = role;
-            // Prefer entity_ids from the node itself (new format).
-            // Fall back to device_map lookup for legacy nodes.
-            const nodeIds = (_editNode.entity_ids || []).filter(id => id && !id.startsWith('__'));
-            if (nodeIds.length) {
+            // tokens: what the user originally selected (variable names, globals, entity_ids).
+            // Stored on the node as role_tokens if saved that way; fall back to entity_ids.
+            const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
+            const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
+            if (nodeTokens.length) {
+              _sel.tokens    = nodeTokens;
+              _sel.devices   = nodeIds.length ? nodeIds : nodeTokens;
+              _sel.device_id = nodeTokens[0];
+            } else if (nodeIds.length) {
+              _sel.tokens    = nodeIds;
               _sel.devices   = nodeIds;
               _sel.device_id = nodeIds[0];
             } else {
               const deviceMap = Editor.getDeviceMap ? Editor.getDeviceMap() : {};
               const entityIds = deviceMap[role] || [];
               _sel.device_id = entityIds[0] || _editNode.entity_id || role;
+              _sel.tokens    = [_sel.device_id];
               _sel.devices   = [_sel.device_id];
             }
             _sel.attribute      = _editNode.attribute || _editNode.capability || '';
@@ -529,9 +581,13 @@ const Wizard = (() => {
 
       // Action edit
       if (t === 'action') {
-        // New format: entity_ids on the node directly. Legacy: devices array.
-        const nodeIds = (_editNode.entity_ids || []).filter(id => id && !id.startsWith('__'));
-        _sel.devices      = nodeIds.length ? nodeIds : (_editNode.devices || []);
+        // role_tokens: what the user picked (variable names, globals, entity_ids).
+        // entity_ids: the resolved flat list at last save time.
+        // On edit, restore tokens so the picker highlights the right rows.
+        const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
+        const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
+        _sel.tokens       = nodeTokens.length ? nodeTokens : nodeIds;
+        _sel.devices      = nodeIds.length    ? nodeIds    : (_editNode.devices || []);
         _sel.device_id    = _sel.devices[0] || '';
         _sel.device_label = _editNode.role || _sel.devices[0] || '';
         if ((_editNode.tasks || []).length) {
@@ -740,6 +796,9 @@ const Wizard = (() => {
     set stepStack(v) { _stepStack = v; },
     get deviceData() { return _deviceData; },
     set deviceData(v){ _deviceData = v; },
+    // globalsData setter also keeps _deviceData_globals in sync so _getFlatEntityIds can use it
+    get globalsData()  { return _deviceData_globals; },
+    set globalsData(v) { _deviceData_globals = v; },
 
     // Constants (read-only references)
     CONDITIONS, TRIGGERS, NEEDS_VALUE, NEEDS_DURATION_INTHELAST, NEEDS_DURATION_FOR,
@@ -748,7 +807,7 @@ const Wizard = (() => {
 
     // Helper functions
     isTrigger, _durationLabel, _needsDuration,
-    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain,
+    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain, _getFlatEntityIds,
     _esc, _newId, _taskId, _condId,
     _render, _pushStep, _back, close,
     _deleteEditNode,

@@ -26,6 +26,15 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - keep the how to manage claude rules below in mind when coding.
 - Remind Jeremy to review the rules below before coding starts.
 
+## 📌 Architecture Guardrail: The "Lowest Common Denominator" Rule
+
+Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wizard-condition.js`) and selects a device, group of devices, or a Device Variable (e.g., `@MyLights`, `@Fountains`):
+
+1. The Extraction Layer: The wizard must never evaluate capabilities based on the Variable string token itself. It must immediately run a background pass to unpack all selected targets into a single, flat array of raw Home Assistant entity IDs (`light.kitchen_1`, `switch.fountain_main`).
+2. The Capability Matrix Lookup: For every raw entity ID in that flat array, look up its supported commands or attributes from `WizardCore.deviceData`.
+3. The Intersection Filter (The Overlap): Calculate the mathematical intersection of those capability lists. The UI dropdown presented to the user must only display commands/attributes that are present across all resolved entities.
+4. UI/Data Separation: The final saved node retains the user's chosen Friendly Name or Variable Token for the script display block, but the selectable parameters are safely constrained by the backend hardware intersection checked in step 3.
+
 ## How to manage Claude
 
 Managing Claude — Three Rules

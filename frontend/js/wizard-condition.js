@@ -1,6 +1,11 @@
 // pistoncore/frontend/js/wizard-condition.js
 // Condition builder, group builder, condition operator editor, commit logic.
 // Depends on: wizard-core.js (WizardCore must be loaded first)
+//
+// sel.tokens — parallel to wizard-action.js: tracks what the user selected
+// (physical entity_ids, piston variable names, @global tokens).
+// Used to highlight correct rows on re-render and to build role_tokens on the node.
+// _getFlatEntityIds(sel.tokens) gives the real entity_ids for intersection.
 
 function _goConditionOrGroup() {
   const { _esc, _render, _pushStep, close } = WizardCore;
@@ -389,6 +394,8 @@ function _refreshConditionRows() {
   document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
 }
 
+// GAP-S63-3: Condition device panel — accumulates multi-select like the action picker.
+// Also resolves pistonvar/global rows at click time for intersection.
 function _renderDevPanelList(query) {
   const { _esc, _groupDevices, _filterGrouped, DEMO_DEVICES } = WizardCore;
   const el = document.getElementById('wiz-dev-panel-list');
@@ -408,16 +415,18 @@ function _renderDevPanelList(query) {
     !q || d.friendly_name.toLowerCase().includes(q)
   );
 
-  const selIds = new Set(_sel.devices || (_sel.device_id ? [_sel.device_id] : []));
+  // Use sel.tokens to determine which rows are highlighted
+  const selTokens = new Set(_sel.tokens || (_sel.device_id ? [_sel.device_id] : []));
 
   let html = '';
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = selIds.has(d.primary_entity_id);
+      const isSelected = selTokens.has(d.primary_entity_id);
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
         data-id="${_esc(d.primary_entity_id)}"
-        data-label="${_esc(d.friendly_name)}">
+        data-label="${_esc(d.friendly_name)}"
+        data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
       </div>`;
     }).join('');
@@ -425,7 +434,10 @@ function _renderDevPanelList(query) {
   if (localDeviceVars.length) {
     html += `<div class="wiz-device-group-header">Piston variables</div>`;
     html += localDeviceVars.map(v =>
-      `<div class="wiz-device-row ${selIds.has(v.name) ? 'selected' : ''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+      `<div class="wiz-device-row ${selTokens.has(v.name) ? 'selected' : ''}"
+        data-id="${_esc(v.name)}"
+        data-label="${_esc(v.name)}"
+        data-row-type="pistonvar">
         <span class="wiz-dev-prefix">device</span>
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
@@ -434,17 +446,23 @@ function _renderDevPanelList(query) {
   if (globalDevVars.length) {
     html += `<div class="wiz-device-group-header">Global variables</div>`;
     html += globalDevVars.map(g => {
-      const gid = `@${g.name}`;
-      return `<div class="wiz-device-row ${selIds.has(gid) ? 'selected' : ''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+      const gtoken = `@${g.name}`;
+      return `<div class="wiz-device-row ${selTokens.has(gtoken) ? 'selected' : ''}"
+        data-id="${_esc(gtoken)}"
+        data-label="${_esc(gtoken)}"
+        data-row-type="global">
         <span class="wiz-dev-prefix">global</span>
-        <span class="wiz-dev-label">${_esc(gid)}</span>
+        <span class="wiz-dev-label">${_esc(gtoken)}</span>
       </div>`;
     }).join('');
   }
   html += `<div class="wiz-device-group-header">Demo devices</div>`;
   if (filteredDemos.length) {
     html += filteredDemos.map(d =>
-      `<div class="wiz-device-row ${selIds.has(d.entity_id) ? 'selected' : ''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+      `<div class="wiz-device-row ${selTokens.has(d.entity_id) ? 'selected' : ''} wiz-demo-row"
+        data-id="${_esc(d.entity_id)}"
+        data-label="${_esc(d.friendly_name)}"
+        data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
         <span class="wiz-demo-badge">demo</span>
       </div>`
@@ -456,108 +474,136 @@ function _renderDevPanelList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
-      // Store only the primary_entity_id (row.dataset.id) per physical device.
-      // One id per device — HA accepts arrays of primary entity_ids natively.
-      WizardCore.sel.device_id    = row.dataset.id;
-      WizardCore.sel.device_label = row.dataset.label;
-      WizardCore.sel.devices      = [row.dataset.id];
+      const token   = row.dataset.id;
+      const label   = row.dataset.label;
+
+      // GAP-S63-3: toggle-accumulate, not replace.
+      row.classList.toggle('selected');
+      const newTokens = new Set(WizardCore.sel.tokens || []);
+
+      if (row.classList.contains('selected')) {
+        newTokens.add(token);
+      } else {
+        newTokens.delete(token);
+      }
+
+      WizardCore.sel.tokens = [...newTokens];
+
+      // Collect labels from all selected rows
+      const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
+        .map(r => r.dataset.label).filter(Boolean);
+
+      // device_label: friendly role string built from token labels (not entity count)
+      let deviceLabel;
+      if (allLabels.length === 0) {
+        deviceLabel = '';
+      } else if (allLabels.length === 1) {
+        deviceLabel = allLabels[0];
+      } else if (allLabels.length === 2) {
+        deviceLabel = `${allLabels[0]} and ${allLabels[1]}`;
+      } else if (allLabels.length === 3) {
+        deviceLabel = `${allLabels[0]}, ${allLabels[1]} and ${allLabels[2]}`;
+      } else {
+        deviceLabel = `${allLabels[0]} +${allLabels.length - 1}`;
+      }
+
+      WizardCore.sel.device_label = deviceLabel;
+      WizardCore.sel.device_id    = WizardCore.sel.tokens[0] || '';
       WizardCore.sel.attribute    = '';
       WizardCore.sel.attribute_type = '';
       WizardCore.sel._caps = [];
 
-      document.getElementById('wiz-dev-panel').style.display = 'none';
-
+      // Update the picker button label
       const btn = document.getElementById('wiz-open-devpicker');
       if (btn) {
-        btn.innerHTML = `<span class="wiz-device-tag">device</span> ${_esc(WizardCore.sel.device_label)}`;
-        btn.classList.add('has-value');
+        if (WizardCore.sel.tokens.length) {
+          btn.innerHTML = `<span class="wiz-device-tag">device</span> ${_esc(deviceLabel)}`;
+          btn.classList.add('has-value');
+        } else {
+          btn.innerHTML = 'Nothing selected';
+          btn.classList.remove('has-value');
+        }
       }
 
       const aggBar = document.getElementById('wiz-agg-bar');
-      if (aggBar) aggBar.style.display = '';
+      if (aggBar) aggBar.style.display = WizardCore.sel.tokens.length ? '' : 'none';
 
       const intRow = document.getElementById('wiz-int-row');
-      if (intRow && (WizardCore.sel.subject_type || 'device') === 'device') intRow.style.display = '';
+      if (intRow && (WizardCore.sel.subject_type || 'device') === 'device') {
+        intRow.style.display = WizardCore.sel.tokens.length ? '' : 'none';
+      }
 
       const attrSel = document.getElementById('wiz-attr-select');
       if (attrSel) {
-        attrSel.disabled = false;
-        attrSel.innerHTML = `<option value="">loading...</option>`;
+        if (WizardCore.sel.tokens.length) {
+          attrSel.disabled = false;
+          attrSel.innerHTML = `<option value="">loading...</option>`;
+          _loadCapsIntoSelect();
+        } else {
+          attrSel.disabled = true;
+          attrSel.innerHTML = `<option value="">attribute...</option>`;
+        }
       }
-      _loadCapsIntoSelect();
-
-      document.querySelectorAll('#wiz-dev-panel-list .wiz-device-row').forEach(r => r.classList.remove('selected'));
-      row.classList.add('selected');
 
       _refreshConditionRows();
     });
   });
 }
 
+// GAP-S63-7: Capability intersection for condition picker.
+// Resolves sel.tokens → flat entity_ids, fetches caps for all, intersects.
+// Only attributes present across ALL selected entities are shown.
 async function _loadCapsIntoSelect() {
-  const { _esc, DEMO_DEVICES, _getCapsForDomain } = WizardCore;
+  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getFlatEntityIds } = WizardCore;
   const _sel = WizardCore.sel;
   const sel = document.getElementById('wiz-attr-select');
   if (!sel) return;
 
-  // Show loading state while fetching
   sel.innerHTML = '<option value="">loading...</option>';
   sel.disabled = true;
 
   let caps = [];
 
-  // 1. Demo device — use hardcoded capabilities
-  const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
+  // Resolve tokens → flat real entity_ids (Extraction Layer)
+  const tokens  = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
+  const flatIds = _getFlatEntityIds(tokens);
+
+  // Demo device shortcut
+  const demo = DEMO_DEVICES.find(d => flatIds.length === 1 && d.entity_id === flatIds[0]);
   if (demo) {
     caps = demo.capabilities;
 
-  } else {
-    // 2. Collect the real entity IDs we need capabilities for.
-    //    _sel.devices is the authoritative list (may be multiple entity IDs).
-    //    Fall back to _sel.device_id if devices array is absent or empty.
-    const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
-    const idsToFetch = entityIds.length ? entityIds : (
-      _sel.device_id && !_sel.device_id.startsWith('__') ? [_sel.device_id] : []
-    );
-
-    // 3. Piston variable (device type) — resolve entity IDs from initial_value
-    const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    const localVar = idsToFetch.length === 1
-      ? allLocals.find(v => v.var_type === 'device' && v.name === idsToFetch[0])
-      : null;
-    if (localVar) {
-      const rawVal = String(localVar.initial_value || '');
-      const resolvedIds = rawVal.split(',').map(s => s.trim()).filter(Boolean);
-      const hasEntityIds = resolvedIds.some(id => id.includes('.'));
-      caps = hasEntityIds ? _getCapsForDomain(resolvedIds) : _getCapsForDomain(idsToFetch[0]);
-
-    } else if (idsToFetch.length) {
-      // 4. Real HA devices — call API.getCapabilities for each and merge.
-      //    Use a seen map keyed by capability name so we get the union of all
-      //    attributes across every selected device (common pattern for multi-device conditions).
-      const seen = new Map();
-      await Promise.all(idsToFetch.map(async id => {
-        try {
-          const data = await API.getCapabilities(id);
-          const caps = data.capabilities || [];
-          for (const cap of caps) {
-            if (!seen.has(cap.name)) seen.set(cap.name, cap);
-          }
-        } catch(e) {
-          // HA unreachable or entity has no capabilities endpoint —
-          // fall back to domain-based static map for this id
-          const fallback = _getCapsForDomain(id);
-          for (const cap of fallback) {
-            if (!seen.has(cap.name)) seen.set(cap.name, cap);
-          }
-        }
-      }));
-      caps = [...seen.values()];
-
-      // If we got nothing from HA (e.g. no capabilities registered), fall back to domain map
-      if (!caps.length) {
-        caps = _getCapsForDomain(idsToFetch);
+  } else if (flatIds.length) {
+    // Fetch capabilities for every resolved entity_id in parallel
+    const allResults = await Promise.all(flatIds.map(async id => {
+      try {
+        const data = await API.getCapabilities(id);
+        return data.capabilities || [];
+      } catch(e) {
+        // Fall back to domain-based static map for this id
+        return _getCapsForDomain(id);
       }
+    }));
+
+    // GAP-S63-7 intersection: only keep caps present across ALL entity_ids.
+    // Start with first result's cap names, filter down through each subsequent result.
+    if (allResults.length === 1) {
+      caps = allResults[0];
+    } else {
+      let intersectedNames = new Set(allResults[0].map(c => c.name));
+      for (let i = 1; i < allResults.length; i++) {
+        const thisSet = new Set(allResults[i].map(c => c.name));
+        for (const name of intersectedNames) {
+          if (!thisSet.has(name)) intersectedNames.delete(name);
+        }
+      }
+      // Preserve full cap objects (attribute_type, values, etc.) from first result
+      caps = allResults[0].filter(c => intersectedNames.has(c.name));
+    }
+
+    // If intersection produced nothing, fall back to domain map for the first id
+    if (!caps.length) {
+      caps = _getCapsForDomain(flatIds);
     }
   }
 
@@ -566,7 +612,7 @@ async function _loadCapsIntoSelect() {
     caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" data-class="${_esc(c.device_class||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
   sel.disabled = false;
 
-  // If a prior attribute selection is still valid, restore device_class from it
+  // Restore device_class from prior attribute selection if still valid
   if (_sel.attribute) {
     const opt = sel.querySelector(`option[value="${CSS.escape(_sel.attribute)}"]`);
     if (opt) WizardCore.sel.device_class = opt.dataset.class || null;
@@ -650,14 +696,11 @@ function _commitCondition() {
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
 
-  // if_condition context, OR trigger_or_condition with a blockId (scoped flow after
-  // inserting an if/while/on_event block) — push the condition into the existing block.
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
     const meta = blockId ? { blockId } : {};
     close();
     Editor.insertStatement(ctx, node, meta);
   } else {
-    // Bare trigger_or_condition (top-level "only when" section) — wrap in a new if node.
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
@@ -678,14 +721,11 @@ function _commitConditionAndMore() {
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
 
-  // Scoped flow (if_condition, or trigger_or_condition with a target blockId):
-  // push condition into the existing block and stay in the condition builder.
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
     const meta = blockId ? { blockId } : {};
     Editor.insertStatement(ctx, node, meta);
     WizardCore.sel = { statement_class: 'condition', group_operator: 'and' };
   } else {
-    // Bare trigger_or_condition — wrap in a new if node, then scope into it.
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
@@ -703,25 +743,26 @@ function _commitConditionAndMore() {
   _goConditionBuilder();
 }
 
+// _buildConditionNode — writes the condition node to piston JSON.
+//
+// role:        friendly label derived from token labels (not entity count).
+// role_tokens: the raw tokens the user selected — preserved for edit round-trip.
+// entity_ids:  resolved flat entity_ids at commit time via _getFlatEntityIds.
 function _buildConditionNode() {
-  const { _condId, isTrigger, _needsDuration, NEEDS_TWO_VALUES } = WizardCore;
+  const { _condId, isTrigger, _needsDuration, NEEDS_TWO_VALUES, _getFlatEntityIds } = WizardCore;
   const _sel = WizardCore.sel;
   const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
   const subjType = _sel.subject_type || 'device';
 
-  // ── Build role and entity_ids list ───────────────────────
-  // role: the human label used throughout the piston (e.g. "Driveway Light")
-  // entity_ids: the real HA entity IDs (e.g. ["light.driveway_main"])
-  // For time/date/mode/variable these are symbolic, not real HA IDs.
   let role = '';
   let entity_ids = [];
+  let role_tokens = [];
 
   if (subjType === 'device') {
-    role = _sel.device_label || _sel.device_id || '';
-    // _sel.devices holds the primary_entity_id per selected physical device —
-    // one id per device, chosen by domain priority at picker click time.
-    // The compiler writes these directly to entity_id arrays; HA handles natively.
-    entity_ids = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
+    role        = _sel.device_label || _sel.device_id || '';
+    role_tokens = (_sel.tokens || []).filter(Boolean);
+    // Resolve tokens → flat real entity_ids at commit time
+    entity_ids  = _getFlatEntityIds(role_tokens);
     if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
       entity_ids = [_sel.device_id];
     }
@@ -741,7 +782,6 @@ function _buildConditionNode() {
 
   if (!role || !op) return null;
 
-  // ── Attribute / capability ────────────────────────────────
   const attrSel  = document.getElementById('wiz-attr-select');
   const attrVal  = attrSel ? attrSel.value : (_sel.attribute || '');
   const attrType = attrSel
@@ -751,12 +791,9 @@ function _buildConditionNode() {
     ? (attrSel.selectedOptions[0]?.dataset.class || _sel.device_class || null)
     : (_sel.device_class || null);
 
-  // ── Values ────────────────────────────────────────────────
   const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
   const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
   const isBinary = attrType === 'binary';
-  // Binary value translation: map display label → HA state string.
-  // HA uses 'on'/'off' for most binary sensors regardless of device_class display label.
   const BINARY_COMPILED = {
     open:'on', closed:'off', detected:'on', clear:'off',
     active:'on', inactive:'off', wet:'on', dry:'off',
@@ -767,16 +804,13 @@ function _buildConditionNode() {
     ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
     : rawVal1;
 
-  // ── Duration ──────────────────────────────────────────────
   const needsDur  = _needsDuration(op);
   const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
   const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
 
-  // ── Group operator ────────────────────────────────────────
   const groupOpEl = document.getElementById('wiz-group-op-selector');
   const groupOp   = groupOpEl ? groupOpEl.value : 'and';
 
-  // ── Time-only day/month filters ───────────────────────────
   const odw = subjType === 'time'
     ? [...document.querySelectorAll('.wiz-dow-cb:checked')].map(cb => parseInt(cb.value))
     : (_sel.time_only_on_days || []);
@@ -784,16 +818,13 @@ function _buildConditionNode() {
     ? [...document.querySelectorAll('.wiz-moy-cb:checked')].map(cb => parseInt(cb.value))
     : (_sel.time_only_on_months || []);
 
-  // ── Build flat condition node per PISTON_FORMAT.md ────────
-  // Spec says: role, attribute, attribute_type, device_class at top level.
-  // No nested subject object. The editor renderer normalizes both formats,
-  // but the compiler reads only the flat format. Always write flat.
   const node = {
     id:             WizardCore.editNode?.id || _condId(),
     is_trigger:     isTrigger(op),
     role,
-    entity_ids,                        // list of HA entity IDs for this role
-    attribute:      attrVal,           // was: subject.capability — now flat per spec
+    role_tokens,                       // preserved for edit round-trip
+    entity_ids,                        // resolved flat HA entity_ids
+    attribute:      attrVal,
     attribute_type: attrType,
     device_class:   deviceClass,
     aggregation:    document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
@@ -811,10 +842,6 @@ function _buildConditionNode() {
     node.only_on_days   = odw;
     node.only_on_months = omy;
   }
-
-  // ── Register device role in piston device_map ─────────────
-  // REMOVED: entity_ids are now written directly to the node.
-  // The compiler reads entity_ids from each node — no device_map registration needed.
 
   return node;
 }

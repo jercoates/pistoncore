@@ -1,6 +1,14 @@
 // pistoncore/frontend/js/wizard-action.js
 // Action device picker, location command picker, physical device command picker.
 // Depends on: wizard-core.js (WizardCore must be loaded first)
+//
+// sel.tokens — what the user actually selected in the picker:
+//   physical device row  → primary_entity_id  (e.g. "light.kitchen_1")
+//   piston variable row  → variable name      (e.g. "MyLights")
+//   global variable row  → @token             (e.g. "@Fountains")
+// sel.tokens is preserved so rows stay highlighted on re-render and role is
+// derived correctly. WizardCore._getFlatEntityIds(sel.tokens) gives the flat
+// real entity_ids used for intersection and written to the node.
 
 function _goActionDevicePicker() {
   const { _render, _pushStep, close } = WizardCore;
@@ -9,13 +17,13 @@ function _goActionDevicePicker() {
   // Reset command/params when arriving at device picker — device may change
   WizardCore.sel.command = '';
   WizardCore.sel.parameters = {};
-  // Reset device selection state only when starting a fresh action (not editing).
-  // On edit, _route() pre-populates devices/device_id/device_label before opening.
+  // Reset selection state only when starting a fresh action (not editing).
+  // On edit, _route() pre-populates tokens/devices/device_id/device_label.
   if (!WizardCore.editNode) {
-    WizardCore.sel.devices       = [];
-    WizardCore.sel.device_id     = '';
-    WizardCore.sel.device_label  = '';
-    WizardCore.sel.device_labels = [];
+    WizardCore.sel.tokens       = [];
+    WizardCore.sel.devices      = [];
+    WizardCore.sel.device_id    = '';
+    WizardCore.sel.device_label = '';
   }
   _render(
     'Add a new action',
@@ -38,7 +46,7 @@ function _goActionDevicePicker() {
 
   document.getElementById('wiz-act-cancel')?.addEventListener('click', close);
   document.getElementById('wiz-act-next')?.addEventListener('click', () => {
-    if (!WizardCore.sel.devices?.length) return;
+    if (!WizardCore.sel.tokens?.length) return;
     if (WizardCore.sel.device_id === '__location__') _goLocationCmdPicker();
     else _goCommandPicker();
   });
@@ -48,13 +56,13 @@ function _goActionDevicePicker() {
   let _ft = null;
   document.getElementById('wiz-act-search')?.addEventListener('input', e => {
     clearTimeout(_ft);
-    // Only filter once deviceData has loaded — avoids "None match" during API call
     if (!WizardCore.deviceData) return;
     _ft = setTimeout(() => _renderActDevList(e.target.value.trim()), 200);
   });
 
   _loadActDevices();
 }
+
 async function _loadActDevices() {
   _renderActDevList('');
   try {
@@ -71,7 +79,6 @@ async function _loadActDevices() {
     }
     if (fetches.length) await Promise.all(fetches);
   } catch(e) {}
-  // Always re-render after load attempt — picks up any search text already typed
   _renderActDevList(document.getElementById('wiz-act-search')?.value || '');
 }
 
@@ -99,12 +106,13 @@ function _renderActDevList(query) {
     !q || d.friendly_name.toLowerCase().includes(q)
   );
 
-  const sel = new Set(WizardCore.sel.devices || []);
+  // sel.tokens tracks what the user selected — use it to highlight rows
+  const selTokens = new Set(WizardCore.sel.tokens || []);
   let html = '';
 
   html += `<div class="wiz-device-group-header">Virtual devices</div>`;
   if (filteredVirtual.length) {
-    html += filteredVirtual.map(v => _actDevRow(v.entity_id, v.friendly_name, sel.has(v.entity_id))).join('');
+    html += filteredVirtual.map(v => _actDevRow(v.entity_id, v.friendly_name, selTokens.has(v.entity_id))).join('');
   } else {
     html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
   }
@@ -112,10 +120,11 @@ function _renderActDevList(query) {
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = sel.has(d.primary_entity_id);
+      const isSelected = selTokens.has(d.primary_entity_id);
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
         data-id="${_esc(d.primary_entity_id)}"
-        data-label="${_esc(d.friendly_name)}">
+        data-label="${_esc(d.friendly_name)}"
+        data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
       </div>`;
     }).join('');
@@ -124,7 +133,7 @@ function _renderActDevList(query) {
   if (pistonDevVars.length) {
     html += `<div class="wiz-device-group-header">Piston variables</div>`;
     html += pistonDevVars.map(v =>
-      `<div class="wiz-device-row ${sel.has(v.name) ? 'selected' : ''}"
+      `<div class="wiz-device-row ${selTokens.has(v.name) ? 'selected' : ''}"
         data-id="${_esc(v.name)}"
         data-label="${_esc(v.name)}"
         data-row-type="pistonvar">
@@ -137,20 +146,20 @@ function _renderActDevList(query) {
   if (globalDevVars.length) {
     html += `<div class="wiz-device-group-header">Global variables</div>`;
     html += globalDevVars.map(g => {
-      const gid = `@${g.name}`;
-      return `<div class="wiz-device-row ${sel.has(gid) ? 'selected' : ''}"
-        data-id="${_esc(gid)}"
-        data-label="${_esc(gid)}"
+      const gtoken = `@${g.name}`;
+      return `<div class="wiz-device-row ${selTokens.has(gtoken) ? 'selected' : ''}"
+        data-id="${_esc(gtoken)}"
+        data-label="${_esc(gtoken)}"
         data-row-type="global">
         <span class="wiz-dev-prefix">global</span>
-        <span class="wiz-dev-label">${_esc(gid)}</span>
+        <span class="wiz-dev-label">${_esc(gtoken)}</span>
       </div>`;
     }).join('');
   }
 
   html += `<div class="wiz-device-group-header">System variables</div>`;
   if (filteredSystem.length) {
-    html += filteredSystem.map(sv => _actDevRow(sv, sv, sel.has(sv))).join('');
+    html += filteredSystem.map(sv => _actDevRow(sv, sv, selTokens.has(sv))).join('');
   } else {
     html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">None match.</div>`;
   }
@@ -158,7 +167,10 @@ function _renderActDevList(query) {
   html += `<div class="wiz-device-group-header">Demo devices</div>`;
   if (filteredDemo.length) {
     html += filteredDemo.map(d =>
-      `<div class="wiz-device-row ${sel.has(d.entity_id) ? 'selected' : ''} wiz-demo-row" data-id="${_esc(d.entity_id)}" data-label="${_esc(d.friendly_name)}">
+      `<div class="wiz-device-row ${selTokens.has(d.entity_id) ? 'selected' : ''} wiz-demo-row"
+        data-id="${_esc(d.entity_id)}"
+        data-label="${_esc(d.friendly_name)}"
+        data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
         <span class="wiz-demo-badge">demo</span>
       </div>`
@@ -171,82 +183,71 @@ function _renderActDevList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
-      const id = row.dataset.id;
-      const isVirtual = id.startsWith('__');
+      const token    = row.dataset.id;
+      const label    = row.dataset.label;
+      const rowType  = row.dataset.rowType;
+      const isVirtual = token.startsWith('__');
 
       if (isVirtual) {
+        // Virtual devices: single-select, advance immediately
         el.querySelectorAll('.wiz-device-row').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
-        WizardCore.sel.devices = [id];
-        WizardCore.sel.device_id = id;
-        WizardCore.sel.device_label = row.dataset.label;
-        WizardCore.sel.device_labels = [row.dataset.label];
-        _updateActSelBar([row.dataset.label]);
+        WizardCore.sel.tokens      = [token];
+        WizardCore.sel.devices     = [token];
+        WizardCore.sel.device_id   = token;
+        WizardCore.sel.device_label = label;
+        _updateActSelBar([label]);
         document.getElementById('wiz-act-next')?.removeAttribute('disabled');
         setTimeout(() => {
-          if (id === '__location__') _goLocationCmdPicker();
+          if (token === '__location__') _goLocationCmdPicker();
           else _goCommandPicker();
         }, 150);
-      } else {
-        row.classList.toggle('selected');
-        const newSel    = new Set(WizardCore.sel.devices || []);
-        const primaryId = row.dataset.id;
-        const rowType   = row.dataset.rowType;
-
-        if (row.classList.contains('selected')) {
-          if (rowType === 'pistonvar') {
-            // Resolve full entity_ids list from piston variable initial_value
-            const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-            const v = vars.find(v => v.name === primaryId && v.var_type === 'device');
-            const val = v?.initial_value;
-            const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? [val] : [primaryId]);
-            ids.forEach(id => newSel.add(id));
-          } else if (rowType === 'global') {
-            // Resolve full entity_ids list from globalsData
-            const gname = primaryId.startsWith('@') ? primaryId.slice(1) : primaryId;
-            const g = (WizardCore.globalsData || []).find(g => g.name === gname);
-            const val = g?.value || g?.initial_value;
-            const ids = Array.isArray(val) && val.length ? val : [primaryId];
-            ids.forEach(id => newSel.add(id));
-          } else {
-            newSel.add(primaryId);
-          }
-        } else {
-          // On deselect — remove all ids that came from this row
-          if (rowType === 'pistonvar') {
-            const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-            const v = vars.find(v => v.name === primaryId && v.var_type === 'device');
-            const val = v?.initial_value;
-            const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? [val] : [primaryId]);
-            ids.forEach(id => newSel.delete(id));
-          } else if (rowType === 'global') {
-            const gname = primaryId.startsWith('@') ? primaryId.slice(1) : primaryId;
-            const g = (WizardCore.globalsData || []).find(g => g.name === gname);
-            const val = g?.value || g?.initial_value;
-            const ids = Array.isArray(val) && val.length ? val : [primaryId];
-            ids.forEach(id => newSel.delete(id));
-          } else {
-            newSel.delete(primaryId);
-          }
-        }
-
-        WizardCore.sel.devices = [...newSel];
-        WizardCore.sel.device_id = WizardCore.sel.devices[0] || '';
-        const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
-          .map(r => r.dataset.label).filter(Boolean);
-        WizardCore.sel.device_labels = allLabels;
-        WizardCore.sel.device_label = allLabels.length === 1 ? allLabels[0] : `${allLabels.length} devices`;
-        _updateActSelBar(allLabels);
-        document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !WizardCore.sel.devices.length);
+        return;
       }
+
+      // Non-virtual: toggle selection, accumulate tokens
+      row.classList.toggle('selected');
+      const newTokens = new Set(WizardCore.sel.tokens || []);
+
+      if (row.classList.contains('selected')) {
+        newTokens.add(token);
+      } else {
+        newTokens.delete(token);
+      }
+
+      WizardCore.sel.tokens = [...newTokens];
+
+      // Collect labels from all currently selected rows for the sel bar
+      const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
+        .map(r => r.dataset.label).filter(Boolean);
+
+      // device_label: the friendly role string shown in the editor and command picker header.
+      // Derived from token count (what the user selected), not resolved entity count.
+      // GAP-S63-6 fix: use token/label count, not resolved entity_ids count.
+      let deviceLabel;
+      if (allLabels.length === 0) {
+        deviceLabel = '';
+      } else if (allLabels.length === 1) {
+        deviceLabel = allLabels[0];
+      } else if (allLabels.length === 2) {
+        deviceLabel = `${allLabels[0]} and ${allLabels[1]}`;
+      } else if (allLabels.length === 3) {
+        deviceLabel = `${allLabels[0]}, ${allLabels[1]} and ${allLabels[2]}`;
+      } else {
+        deviceLabel = `${allLabels[0]} +${allLabels.length - 1}`;
+      }
+
+      WizardCore.sel.device_label = deviceLabel;
+      WizardCore.sel.device_id    = WizardCore.sel.tokens[0] || '';
+      _updateActSelBar(allLabels);
+      document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !WizardCore.sel.tokens.length);
     });
   });
 }
 
-
 function _actDevRow(id, label, selected) {
   const { _esc } = WizardCore;
-  return `<div class="wiz-device-row ${selected?'selected':''}" data-id="${_esc(id)}" data-label="${_esc(label)}">
+  return `<div class="wiz-device-row ${selected?'selected':''}" data-id="${_esc(id)}" data-label="${_esc(label)}" data-row-type="physical">
     <span class="wiz-dev-label">${_esc(label)}</span>
   </div>`;
 }
@@ -259,17 +260,41 @@ function _updateActSelBar(labels) {
   lbl.textContent = labels.join(', ');
 }
 
+// GAP-S63-2: Select All — resolves pistonvar and global rows to entity_ids,
+// same as the individual click handler. Uses sel.tokens to track selection.
 function _actDevSelectAll(on) {
   const rows = document.querySelectorAll('#wiz-act-devlist .wiz-device-row');
-  const ids=[]; const labels=[];
-  rows.forEach(r => {
-    on ? r.classList.add('selected') : r.classList.remove('selected');
-    if (on) { ids.push(r.dataset.id); labels.push(r.dataset.label); }
-  });
-  WizardCore.sel.devices = on ? ids : [];
-  WizardCore.sel.device_id = ids[0]||'';
+  const tokens = [];
+  const labels = [];
+
+  if (on) {
+    rows.forEach(r => {
+      r.classList.add('selected');
+      tokens.push(r.dataset.id);
+      labels.push(r.dataset.label);
+    });
+  } else {
+    rows.forEach(r => r.classList.remove('selected'));
+  }
+
+  WizardCore.sel.tokens      = on ? tokens : [];
+  WizardCore.sel.device_id   = tokens[0] || '';
+
+  // Build label same way the click handler does — based on token count
+  let deviceLabel = '';
+  if (labels.length === 1) {
+    deviceLabel = labels[0];
+  } else if (labels.length === 2) {
+    deviceLabel = `${labels[0]} and ${labels[1]}`;
+  } else if (labels.length === 3) {
+    deviceLabel = `${labels[0]}, ${labels[1]} and ${labels[2]}`;
+  } else if (labels.length > 3) {
+    deviceLabel = `${labels[0]} +${labels.length - 1}`;
+  }
+  WizardCore.sel.device_label = deviceLabel;
+
   _updateActSelBar(on ? labels : []);
-  document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !on || !ids.length);
+  document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !on || !tokens.length);
 }
 
 function _goLocationCmdPicker() {
@@ -317,6 +342,7 @@ function _goLocationCmd(cmd) {
   WizardCore.sel.location_cmd  = cmd;
   WizardCore.sel.device_id     = '__location__';
   WizardCore.sel.device_label  = 'Location';
+  WizardCore.sel.tokens        = ['__location__'];
   WizardCore.sel.devices       = ['__location__'];
   const _editNode = WizardCore.editNode;
   if (_editNode) {
@@ -504,8 +530,10 @@ function _saveLocationCmd(addMore) {
   }
 }
 
+// GAP-S63-7: Command picker — fetches services for ALL resolved entity_ids
+// and intersects results so only commands every selected device supports are shown.
 async function _goCommandPicker() {
-  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES } = WizardCore;
+  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getFlatEntityIds } = WizardCore;
   WizardCore.step = 'cmd';
   _pushStep(_goCommandPicker);
   const _sel  = WizardCore.sel;
@@ -536,20 +564,21 @@ async function _goCommandPicker() {
   document.getElementById('wiz-cmd-save')?.addEventListener('click', () => _saveDeviceCmd(false));
   document.getElementById('wiz-cmd-addmore')?.addEventListener('click', () => _saveDeviceCmd(true));
 
-  const demo = DEMO_DEVICES.find(d => d.entity_id === _sel.device_id);
+  // Resolve tokens → flat real entity_ids (Extraction Layer)
+  const flatIds = _getFlatEntityIds(_sel.tokens || [_sel.device_id].filter(Boolean));
+
+  // Demo device shortcut — single demo device, use its hardcoded services
+  const demo = DEMO_DEVICES.find(d => flatIds.length === 1 && d.entity_id === flatIds[0]);
   if (demo) {
     const sel = document.getElementById('wiz-cmd');
     if (sel) {
       sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
         demo.services.map(s => `<option value="${_esc(s)}" ${_sel.command===s?'selected':''}>${_esc(s.replace(/_/g,' '))}</option>`).join('');
-      // Auto-select first option if no prior command — browser shows first item visually
-      // but .value stays '' until an option has selected attribute or is set programmatically
       if (!_sel.command && demo.services.length) {
         sel.value = demo.services[0];
         WizardCore.sel.command = demo.services[0];
       }
       if (WizardCore.sel.command) {
-        // Build minimal services array so _renderCmdParams has something to look up
         const demoServices = demo.services.map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
         _renderCmdParams(WizardCore.sel.command, demoServices);
         document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
@@ -567,21 +596,48 @@ async function _goCommandPicker() {
     return;
   }
 
+  if (!flatIds.length) {
+    const el = document.getElementById('wiz-cmd-params');
+    if (el) el.innerHTML = `<div class="wiz-error">No devices selected.</div>`;
+    return;
+  }
+
   try {
-    const data = await API.getServices(_sel.device_id);
-    const services = data.services || [];
+    // Fetch services for every resolved entity_id in parallel
+    const allResults = await Promise.all(flatIds.map(async id => {
+      try {
+        const data = await API.getServices(id);
+        return data.services || [];
+      } catch(e) {
+        // If HA can't return services for this id, fall back to domain defaults
+        const domain = id.split('.')[0];
+        return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+      }
+    }));
+
+    // GAP-S63-7 intersection: only keep services present across ALL entity_ids.
+    // Start with the first result's service names as the candidate set,
+    // then filter down to only those that appear in every subsequent result.
+    let intersectedNames = new Set(allResults[0].map(s => s.service));
+    for (let i = 1; i < allResults.length; i++) {
+      const thisSet = new Set(allResults[i].map(s => s.service));
+      for (const name of intersectedNames) {
+        if (!thisSet.has(name)) intersectedNames.delete(name);
+      }
+    }
+    // Preserve the full service objects (fields, labels) from the first result
+    const services = allResults[0].filter(s => intersectedNames.has(s.service));
+
     const sel = document.getElementById('wiz-cmd');
     if (sel) {
       if (services.length) {
         sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
           services.map(s=>`<option value="${_esc(s.service)}" ${_sel.command===s.service?'selected':''}>${_esc(s.label||s.service)}</option>`).join('');
       } else {
-        sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +
-          ['turn_on','turn_off','toggle'].map(c=>`<option value="${_esc(c)}" ${_sel.command===c?'selected':''}>${c.replace(/_/g,' ')}</option>`).join('');
+        sel.innerHTML = `<option value="" style="display:none" disabled>No shared commands found</option>`;
       }
-      // Auto-select first real option if no prior command
-      if (!WizardCore.sel.command) {
-        const firstOpt = sel.options[1]; // index 0 is the hidden disabled placeholder
+      if (!WizardCore.sel.command && services.length) {
+        const firstOpt = sel.options[1];
         if (firstOpt) {
           sel.value = firstOpt.value;
           WizardCore.sel.command = firstOpt.value;
@@ -626,38 +682,38 @@ function _renderCmdParams(service, services) {
     </div>`).join('');
 }
 
+// _saveDeviceCmd — writes the action node to the piston JSON.
+//
+// role:        friendly label derived from what the user selected (token labels),
+//              not from the count of resolved entity_ids. GAP-S63-6.
+// role_tokens: the raw tokens the user selected — preserved so edit re-highlights
+//              the correct rows in the picker.
+// entity_ids:  the resolved flat entity_ids that actually support the chosen command.
+//              Only ids whose domain can perform this service are included.
 function _saveDeviceCmd(addMore) {
-  const { _newId, _taskId, close } = WizardCore;
+  const { _newId, _taskId, close, _getFlatEntityIds } = WizardCore;
   const _sel = WizardCore.sel;
   const command = document.getElementById('wiz-cmd')?.value || _sel.command;
   if (!command) return;
   const params = {};
   document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
-  // entity_ids: full resolved list from sel.devices — physical devices contribute
-  // their primary_entity_id, piston variables and globals contribute their full
-  // entity_ids list (resolved at picker click time). Virtual ids excluded.
-  const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
-  const firstId   = entityIds[0] || '';
-  const domain    = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
+  // Resolve tokens → flat real entity_ids.
+  // These are ALL entity_ids from the selected defines/devices.
+  // The intersection already determined which commands are valid for all of them —
+  // so every resolved id belongs on this node. No domain filtering here.
+  const flatIds = _getFlatEntityIds(_sel.tokens || []);
+  const finalIds = flatIds.filter(id => !id.startsWith('__'));
 
-  const labels = _sel.device_labels || [];
-  let role;
-  if (entityIds.length === 0) {
-    role = _sel.device_label || _sel.device_id || '';
-  } else if (entityIds.length === 1) {
-    role = labels[0] || _sel.device_label || firstId;
-  } else if (entityIds.length === 2) {
-    role = labels.length >= 2 ? `${labels[0]} and ${labels[1]}` : entityIds.join(' and ');
-  } else if (entityIds.length === 3) {
-    role = labels.length >= 3
-      ? `${labels[0]}, ${labels[1]} and ${labels[2]}`
-      : entityIds.join(', ');
-  } else {
-    role = labels.length
-      ? `${labels[0]} +${entityIds.length - 1}`
-      : `${firstId} +${entityIds.length - 1}`;
-  }
+  const firstId = finalIds[0] || '';
+  const domain  = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
+
+  // role label — derived from token labels (what the user selected), not entity count.
+  // GAP-S63-6: use _sel.device_label which was built from label count in the click handler.
+  const role = _sel.device_label || _sel.device_id || '';
+
+  // role_tokens — preserve for edit round-trip
+  const roleTokens = (_sel.tokens || []).filter(Boolean);
 
   const newTask = {
     id:          _taskId(),
@@ -677,7 +733,8 @@ function _saveDeviceCmd(addMore) {
     const updatedNode = {
       ...WizardCore.editNode,
       role,
-      entity_ids: entityIds.length ? entityIds : (WizardCore.editNode.entity_ids || []),
+      role_tokens: roleTokens,
+      entity_ids: finalIds.length ? finalIds : (WizardCore.editNode.entity_ids || []),
       tasks: [newTask],
     };
     delete updatedNode.devices;
@@ -686,7 +743,8 @@ function _saveDeviceCmd(addMore) {
     Editor.insertStatement(ctx, {
       type: 'action', id: WizardCore.editNode?.id || _newId(), async: false,
       role,
-      entity_ids: entityIds,
+      role_tokens: roleTokens,
+      entity_ids: finalIds,
       tasks: [newTask],
       description: null, disabled: false,
     }, meta);

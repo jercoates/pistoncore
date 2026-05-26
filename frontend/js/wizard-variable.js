@@ -164,11 +164,28 @@ function _varInitSubHtml(type) {
   const _sel = WizardCore.sel;
   if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
   if (type === 'device') {
-    const ids = Array.isArray(_sel.initial_device_ids) ? _sel.initial_device_ids : [];
-    const label = ids.length
-      ? `${ids.length} device${ids.length !== 1 ? 's' : ''} selected`
-      : 'Select devices...';
+    const ids   = Array.isArray(_sel.initial_device_ids)   ? _sel.initial_device_ids   : [];
+    const names = Array.isArray(_sel.initial_device_names) ? _sel.initial_device_names : [];
     const hasVal = ids.length > 0;
+    // Show friendly names so the user can see at a glance what's in the define.
+    // names is built by the picker from grouped deviceData at confirm time.
+    // Fall back to entity count only when names haven't been stored yet.
+    let label;
+    if (!hasVal) {
+      label = 'Select devices...';
+    } else if (names.length) {
+      if (names.length === 1) {
+        label = names[0];
+      } else if (names.length === 2) {
+        label = `${names[0]} and ${names[1]}`;
+      } else if (names.length === 3) {
+        label = `${names[0]}, ${names[1]} and ${names[2]}`;
+      } else {
+        label = `${names[0]} +${names.length - 1}`;
+      }
+    } else {
+      label = `${ids.length} device${ids.length !== 1 ? 's' : ''} selected`;
+    }
     return `<button class="wiz-device-pick-btn ${hasVal ? 'has-value' : ''}" id="wiz-vinit-devbtn">
       ${hasVal ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : label}
     </button>`;

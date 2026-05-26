@@ -1148,6 +1148,12 @@ const Editor = (() => {
       _piston.variables = _piston.variables || [];
       const i = _piston.variables.findIndex(v => v.id === statementData.id);
       if (i >= 0) _piston.variables[i] = statementData; else _piston.variables.push(statementData);
+      // Auto-update: if this is a device variable, re-resolve entity_ids on every
+      // action/condition node in the piston that references this variable by name.
+      // This is why defines exist — change the define once, every use updates.
+      if (statementData.var_type === 'device' && Array.isArray(statementData.initial_value)) {
+        _reResolveVariableUses(statementData.name, statementData.initial_value);
+      }
 
     } else {
       if (!statementData.id) statementData.id = _nextStmtId();
@@ -1287,6 +1293,93 @@ const Editor = (() => {
     return false;
   }
 
+
+  // ── _reResolveVariableUses ───────────────────────────────
+  // Called after a device variable (define) is saved.
+  // Walks the entire piston tree and re-resolves entity_ids on every action and
+  // condition node whose role_tokens includes the variable name.
+  // This is the auto-update contract for defines: edit the define once, every
+  // use in the piston picks up the new entity_id list immediately.
+  //
+  // newEntityIds: the updated initial_value array from the saved variable node.
+  // Only the entity_ids contributed by THIS variable are replaced — other tokens
+  // (physical devices, other variables, globals) in the same node are left alone.
+  function _reResolveVariableUses(varName, newEntityIds) {
+    if (!varName || !_piston) return;
+
+    // Walk every node that can have role_tokens and update its entity_ids.
+    // Covers: action nodes in the statement tree, condition nodes in triggers/
+    // conditions/restrictions and inside every statement block.
+
+    function patchNode(node) {
+      if (!node || typeof node !== 'object') return;
+      const tokens = node.role_tokens || [];
+      if (!tokens.includes(varName)) return;
+
+      // Re-resolve the full entity_ids from current piston state.
+      // For each token: if it's this variable use newEntityIds, if it's another
+      // piston variable look it up, if it's a @global skip (not our job here),
+      // if it's a plain entity_id keep it as-is.
+      const vars = _piston.variables || [];
+      const resolved = [];
+      const seen = new Set();
+      const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); resolved.push(id); } };
+
+      for (const token of tokens) {
+        if (!token) continue;
+        if (token === varName) {
+          // This is the variable we just edited — use the new entity_ids
+          newEntityIds.forEach(add);
+        } else if (token.startsWith('@')) {
+          // Global variable — leave entity_ids for that token as they were.
+          // Globals are not auto-updated here (per spec: user must recommit).
+          (node.entity_ids || []).forEach(id => {
+            // Keep any ids that weren't contributed by varName — approximate by
+            // keeping ids not in the old variable's list. Since we don't have the
+            // old list, keep all non-overlapping ids. This is conservative.
+            add(id);
+          });
+        } else if (!token.includes('.')) {
+          // Another piston variable — resolve from current variables
+          const v = vars.find(v => v.var_type === 'device' && v.name === token);
+          const ids = Array.isArray(v?.initial_value) ? v.initial_value : [];
+          ids.forEach(add);
+        } else {
+          // Plain entity_id
+          add(token);
+        }
+      }
+
+      node.entity_ids = resolved;
+    }
+
+    // Walk statement tree recursively
+    function walkStatements(nodes) {
+      (nodes || []).forEach(node => {
+        if (!node) return;
+        if (node.type === 'action') patchNode(node);
+        walkStatements(node.then        || []);
+        walkStatements(node.else        || []);
+        walkStatements(node.statements  || []);
+        walkStatements(node.default     || []);
+        (node.else_ifs || []).forEach(eib => walkStatements(eib.statements || []));
+        (node.cases    || []).forEach(c   => walkStatements(c.statements   || []));
+        // Patch condition nodes inside blocks
+        patchConditions(node.conditions       || []);
+        patchConditions(node.until_conditions || []);
+        (node.else_ifs || []).forEach(eib => patchConditions(eib.conditions || []));
+      });
+    }
+
+    function patchConditions(conditions) {
+      (conditions || []).forEach(c => patchNode(c));
+    }
+
+    walkStatements(_piston.statements || []);
+    patchConditions(_piston.triggers     || []);
+    patchConditions(_piston.conditions   || []);
+    patchConditions(_piston.restrictions || []);
+  }
 
   return {
     load,

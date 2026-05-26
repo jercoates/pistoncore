@@ -252,8 +252,7 @@ const Wizard = (() => {
     if (!query) return grouped;
     const lq = query.toLowerCase();
     return grouped.filter(d =>
-      d.friendly_name.toLowerCase().includes(lq) ||
-      d.primary_entity_id.toLowerCase().includes(lq)
+      d.friendly_name.toLowerCase().includes(lq)
     );
   }
 
@@ -282,38 +281,65 @@ const Wizard = (() => {
   // Takes sel.tokens — the array of what the user actually selected in the picker.
   // Each entry is one of:
   //   - a real HA entity_id (contains a '.')          → use as-is
-  //   - a piston variable name (no '.', no '@')       → look up initial_value in Editor.getPistonVariables()
-  //   - a global variable token ('@name')             → look up value in WizardCore.globalsData
+  //   - a piston variable name (no '.', no '@')       → look up initial_value (friendly names)
+  //                                                     in Editor.getPistonVariables(), then resolve
+  //                                                     each friendly name to ALL entity_ids via deviceData
+  //   - a global variable token ('@name')             → look up value (friendly names) in globalsData,
+  //                                                     then resolve each friendly name to ALL entity_ids
+  //                                                     via deviceData
   // Returns a flat, deduplicated array of real HA entity_ids.
   // This is the Extraction Layer from the Architecture Guardrail.
   // Used by both wizard-action.js and wizard-condition.js before any capability/service lookup.
   function _getFlatEntityIds(tokens) {
     const result = [];
     const seen = new Set();
-    const add = id => { if (id && !seen.has(id)) { seen.add(id); result.push(id); } };
+    const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); result.push(id); } };
+
+    // Build a friendly_name → entity_ids map from live deviceData once per call.
+    // This is how we resolve friendly names stored in variable initial_value to all real entity_ids.
+    function _friendlyNameToEntityIds(friendlyName) {
+      const grouped = _groupDevices(_deviceData || []);
+      const group = grouped.find(g => g.friendly_name === friendlyName);
+      return group ? group.entity_ids : [];
+    }
+
+    // Resolve an array of friendly names to flat entity_ids.
+    function _resolveNames(names) {
+      const ids = Array.isArray(names) ? names
+        : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
+      for (const name of ids) {
+        if (!name) continue;
+        // If it looks like a real entity_id (contains '.'), use directly.
+        // Otherwise treat as a friendly name and look up all entity_ids for that device group.
+        if (name.includes('.')) {
+          add(name);
+        } else {
+          _friendlyNameToEntityIds(name).forEach(add);
+        }
+      }
+    }
 
     for (const token of (tokens || [])) {
       if (!token) continue;
 
       if (token.startsWith('@')) {
-        // Global variable token — resolve from globalsData
+        // Global variable token — resolve from globalsData.
+        // initial_value on a global device variable is an array of friendly names.
         const gname = token.slice(1);
         const g = (_deviceData_globals || []).find(g => g.name === gname);
         const val = g?.value || g?.initial_value;
-        const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? val.split(',').map(s=>s.trim()).filter(Boolean) : []);
-        ids.forEach(add);
+        _resolveNames(val);
 
       } else if (!token.includes('.')) {
-        // Piston variable name — resolve from Editor.getPistonVariables()
+        // Piston variable name — resolve from Editor.getPistonVariables().
+        // initial_value on a piston device variable is an array of friendly names.
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        const val = v?.initial_value;
-        const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? val.split(',').map(s=>s.trim()).filter(Boolean) : []);
-        ids.forEach(add);
+        _resolveNames(v?.initial_value);
 
       } else {
         // Real HA entity_id — use directly (skip virtual __xxx__ ids)
-        if (!token.startsWith('__')) add(token);
+        add(token);
       }
     }
     return result;

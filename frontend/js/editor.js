@@ -236,11 +236,8 @@ const Editor = (() => {
       const varName = _esc(v.name || '');
       let valueStr = '';
       if (v.var_type === 'device') {
-        // Show friendly names if stored, otherwise fall back to entity_ids.
-        // initial_device_names is written by the wizard at save time — display only.
-        const names = Array.isArray(v.initial_device_names) && v.initial_device_names.length
-          ? v.initial_device_names
-          : (Array.isArray(v.initial_value) ? v.initial_value : []);
+        // initial_value IS the friendly names array for device variables.
+        const names = Array.isArray(v.initial_value) ? v.initial_value : [];
         if (names.length) {
           valueStr = ` = <span class="doc-dev-inline">${_esc(names.join(', '))}</span>`;
         }
@@ -1324,41 +1321,10 @@ const Editor = (() => {
       const tokens = node.role_tokens || [];
       if (!tokens.includes(varName)) return;
 
-      // Re-resolve the full entity_ids from current piston state.
-      // For each token: if it's this variable use newEntityIds, if it's another
-      // piston variable look it up, if it's a @global skip (not our job here),
-      // if it's a plain entity_id keep it as-is.
-      const vars = _piston.variables || [];
-      const resolved = [];
-      const seen = new Set();
-      const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); resolved.push(id); } };
-
-      for (const token of tokens) {
-        if (!token) continue;
-        if (token === varName) {
-          // This is the variable we just edited — use the new entity_ids
-          newEntityIds.forEach(add);
-        } else if (token.startsWith('@')) {
-          // Global variable — resolve from globalsData (cached at startup and on editor open).
-          // Globals work exactly like local device variables here — live pulled from cache.
-          const gname = token.slice(1);
-          const g = (_piston._globalsCache || []).find(g => g.name === gname);
-          const gval = g?.value || g?.initial_value;
-          const gids = Array.isArray(gval) ? gval
-            : (typeof gval === 'string' && gval ? gval.split(',').map(s=>s.trim()).filter(Boolean) : []);
-          gids.forEach(add);
-        } else if (!token.includes('.')) {
-          // Another piston variable — resolve from current variables
-          const v = vars.find(v => v.var_type === 'device' && v.name === token);
-          const ids = Array.isArray(v?.initial_value) ? v.initial_value : [];
-          ids.forEach(add);
-        } else {
-          // Plain entity_id
-          add(token);
-        }
-      }
-
-      node.entity_ids = resolved;
+      // Delegate entirely to WizardCore._getFlatEntityIds which resolves friendly names
+      // → all entity_ids via live deviceData. WizardCore is a global accessible here.
+      // This is the single resolution path — no duplication of logic.
+      node.entity_ids = WizardCore._getFlatEntityIds(tokens);
     }
 
     // Walk statement tree recursively

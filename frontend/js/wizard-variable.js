@@ -30,22 +30,16 @@ function _goVariablePicker() {
   if (_sel.var_type && VAR_TYPE_DISPLAY[_sel.var_type]) {
     _sel.var_type = VAR_TYPE_DISPLAY[_sel.var_type];
   }
-  // in initial_value instead of an array in initial_device_ids.
+  // initial_device_ids is an array of friendly names — that is all that is stored.
+  // initial_value on a device variable IS the friendly names array.
   if (initType === 'device' && !Array.isArray(_sel.initial_device_ids)) {
     if (Array.isArray(_sel.initial_value)) {
       _sel.initial_device_ids = _sel.initial_value;
     } else if (_sel.initial_value && typeof _sel.initial_value === 'string') {
       _sel.initial_device_ids = [_sel.initial_value];
-    } else if (_sel.initial_device_id) {
-      _sel.initial_device_ids = [_sel.initial_device_id];
     } else {
       _sel.initial_device_ids = [];
     }
-  }
-  // Pre-populate friendly names from editNode if present
-  if (initType === 'device' && !Array.isArray(_sel.initial_device_names)) {
-    _sel.initial_device_names = Array.isArray(_editNode?.initial_device_names)
-      ? _editNode.initial_device_names : [];
   }
 
   const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
@@ -122,7 +116,8 @@ function _goVariablePicker() {
     if (ivType === 'nothing') {
       initial_value = undefined;
     } else if (ivType === 'device') {
-      // Store as array of entity_id strings — matches globals.js device value schema
+      // Store as array of friendly names. _getFlatEntityIds resolves these to
+      // all real entity_ids at picker time via live deviceData. No entity_ids stored here.
       initial_value = Array.isArray(WizardCore.sel.initial_device_ids)
         ? WizardCore.sel.initial_device_ids
         : [];
@@ -136,13 +131,8 @@ function _goVariablePicker() {
       var_type: VAR_TYPE_MAP[rawType] || rawType.toLowerCase(),
       initial_value_type: ivType === 'nothing' ? undefined : ivType,
       initial_value };
-    // For device variables, also store friendly names for editor display.
-    // The compiler ignores this field — it reads initial_value (entity_ids) only.
-    if (ivType === 'device') {
-      node.initial_device_names = Array.isArray(WizardCore.sel.initial_device_names)
-        ? WizardCore.sel.initial_device_names
-        : [];
-    }
+    // initial_value IS the friendly names array for device variables.
+    // No separate initial_device_names needed — display and data are the same thing.
     return node;
   };
 
@@ -164,12 +154,10 @@ function _varInitSubHtml(type) {
   const _sel = WizardCore.sel;
   if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
   if (type === 'device') {
-    const ids   = Array.isArray(_sel.initial_device_ids)   ? _sel.initial_device_ids   : [];
-    const names = Array.isArray(_sel.initial_device_names) ? _sel.initial_device_names : [];
+    // initial_device_ids is now friendly names — display them directly.
+    const ids   = Array.isArray(_sel.initial_device_ids) ? _sel.initial_device_ids : [];
+    const names = ids; // friendly names ARE the ids now
     const hasVal = ids.length > 0;
-    // Show friendly names so the user can see at a glance what's in the define.
-    // names is built by the picker from grouped deviceData at confirm time.
-    // Fall back to entity count only when names haven't been stored yet.
     let label;
     if (!hasVal) {
       label = 'Select devices...';
@@ -251,14 +239,10 @@ function _goVarInitDevicePicker() {
      </div>`
   );
 
-  // Confirm — commit selection and return to variable picker
+  // Confirm — commit selection and return to variable picker.
+  // selected already holds friendly names — that is all we store.
   document.getElementById('wiz-varinit-confirm')?.addEventListener('click', () => {
     WizardCore.sel.initial_device_ids = Array.from(selected);
-    // Build parallel friendly name list from selected rows for editor display.
-    // Look up friendly_name from grouped devices by matching primary_entity_id.
-    const grouped = WizardCore._groupDevices ? WizardCore._groupDevices(WizardCore.deviceData) : [];
-    const nameMap = new Map(grouped.map(d => [d.primary_entity_id, d.friendly_name]));
-    WizardCore.sel.initial_device_names = Array.from(selected).map(id => nameMap.get(id) || id);
     WizardCore.sel.initial_value_type = 'device';
     _goVariablePicker();
   });
@@ -271,14 +255,14 @@ function _goVarInitDevicePicker() {
   // SelectAll / DeselectAll — physical devices only (not variables/globals)
   document.getElementById('wiz-varinit-sel-all')?.addEventListener('click', () => {
     const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => selected.add(d.primary_entity_id));
+    _physicalDevices(q).forEach(d => selected.add(d.friendly_name));
     _renderRows(selected, q);
     _updateSummary(selected);
   });
 
   document.getElementById('wiz-varinit-sel-none')?.addEventListener('click', () => {
     const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => selected.delete(d.primary_entity_id));
+    _physicalDevices(q).forEach(d => selected.delete(d.friendly_name));
     _renderRows(selected, q);
     _updateSummary(selected);
   });
@@ -338,9 +322,11 @@ function _goVarInitDevicePicker() {
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0, 150).map(d => {
-        const isSelected = selected.has(d.primary_entity_id);
+        // Track by friendly_name — that is what gets stored in initial_value.
+        // _getFlatEntityIds resolves friendly_name → all entity_ids via live deviceData at picker time.
+        const isSelected = selected.has(d.friendly_name);
         return `<div class="wiz-varinit-dev-row ${isSelected ? 'selected' : ''}"
-          data-id="${_esc(d.primary_entity_id)}">
+          data-id="${_esc(d.friendly_name)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-dev-check">${isSelected ? '✓' : ''}</span>
         </div>`;

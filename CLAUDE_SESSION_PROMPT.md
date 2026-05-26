@@ -89,63 +89,78 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S10
+## Current Priority — W-S10 continued (Session 65 work)
 
-### Upload for W-S10:
+### Upload for next session:
 wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
-wizard-loops.js, wizard-statement.js, editor.js, globals.js,
+wizard-loops.js, wizard-statement.js, editor.js, globals.js, ha_client.py,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What was done in Session 64 (W-S9):
+### What was done in Session 65 (W-S10 partial):
 
-**Core architectural change — sel.tokens model:**
-- `sel.tokens` introduced as authoritative selection tracker throughout all wizard pickers
-- Tracks what the user actually selected: variable names, `@global` tokens, plain entity_ids
-- `role_tokens` written to every action and condition node at commit time
-- `_getFlatEntityIds(tokens)` in wizard-core.js is the Extraction Layer
-- Capability intersection implemented in `_loadCapsIntoSelect` (conditions) and
-  `_goCommandPicker` (actions) — only shared commands/attributes shown
-- `_reResolveVariableUses` in editor.js: edit a device variable → all nodes
-  referencing it re-resolve `entity_ids` immediately
-- wizard-variable.js: device picker button shows friendly names not entity count
-- Empty resolution guards: bail with error instead of writing broken nodes
-- Migration compat: old-format nodes fall back to `role`/`devices` as tokens
-- `display_value` takes priority over `compiled_value` on condition edit
+**Root cause found and fixed — capability picker was broken at every level:**
+- `ha_client.py` `_fetch_capabilities`: was only returning `state` plus hardcoded
+  numeric attrs. Now walks ALL real HA attributes and builds caps from them.
+  Binary sensors use `device_class` as primary cap name (e.g. `motion` not `state`).
+  UniFi cameras and combo devices now return all their real attributes.
+- `wizard-core.js` `_getCapsForDomain`: was losing caps after first unique name match.
+  Now returns full domain caps array for a single entity correctly.
+- `wizard-condition.js` `_loadCapsIntoSelect`: API empty response now falls back to
+  domain map. Final fallback uses single id not full array.
+- `wizard-condition.js` `_renderDevPanelList`: physical device rows now carry ALL
+  entity_ids for that device (comma-separated in data-id). Click handler adds/removes
+  all of them to sel.tokens so capability intersection runs across all entities.
+- `wizard-action.js` `_renderActDevList`: same fix. Virtual device check updated.
+  `_actDevSelectAll` updated to split comma-separated ids.
+- `globals.js`: same fix throughout — rows, click handler, SelectAll, DeselectAll,
+  name map.
+- `WIZARD_SPEC.md` v2.3: Device Variables section added with hard rules.
 
-**Gaps fixed:** GAP-S63-2, GAP-S63-3, GAP-S63-6, GAP-S63-7
+**Critical rule added to WIZARD_SPEC.md — read before every session:**
+The user ALWAYS sees friendly names. PistonCore ALWAYS stores entity_ids.
+These must NEVER mix. Device defines are lists — they store ALL entity_ids for
+all selected devices. The capability intersection happens at picker time, not
+at define time. The compiler reads entity_ids from nodes directly.
 
-### W-S10 — Fix First (Before Anything Else)
+**Files changed this session:**
+- `ha_client.py` — deploy
+- `wizard-core.js` — deploy
+- `wizard-condition.js` — deploy
+- `wizard-action.js` — deploy
+- `globals.js` — deploy
+- `WIZARD_SPEC.md` — commit
+- `wizard-variable.js` — NO CHANGE, original restored
 
-**BROKEN: Picker not loading correct state for old-format imported pistons.**
+### What still needs testing after deploy:
 
-Old-format nodes have no `entity_ids` and no `role_tokens` — only `role: "Motion_sensor"`
-on conditions and `devices: ["Lights"]` on actions.
+1. Open Kitchen Motion 1, edit the Motion_sensor condition — attribute picker should
+   now show `motion`, `illuminance`, `temperature`, `battery`, `state` etc.
+2. Edit the Light_Sensor define — reassign to `sensor.outdoor_motion_illuminance`
+3. Edit the Light_Sensor condition — should now show illuminance attributes
+4. Edit the Lights action — command picker should show light commands
+5. Save the piston — check JSON has entity_ids on all condition and action nodes
+6. If round-trip works → attempt compile
 
-The migration compat fix in `_route()` sets `sel.tokens = ["Motion_sensor"]` from `role`.
-But when the condition builder opens, the attribute/caps picker shows wrong attributes
-(e.g. `state` instead of `motion`) and the value shows `on` instead of `Active`.
+### Remaining W-S10 gaps (after testing confirms picker works):
 
-**Suspected cause — investigate before writing any fix:**
-The condition builder calls `_loadCapsIntoSelect()` which calls
-`_getFlatEntityIds(sel.tokens)`. This should resolve `"Motion_sensor"` through
-`Editor.getPistonVariables()` to `["binary_sensor.outdoor_motion_motion"]` and
-then fetch capabilities for that entity. Something in this chain is failing silently.
+1. **GAP-S64-2** — Old-format node edit: picker may still not restore state correctly
+   for nodes with no role_tokens and no entity_ids. Test after deploy.
+2. **GAP-S63-5** — for_each device picker (wizard-loops.js still uses text input)
+3. **GAP-S46-5** — Import modal has no file picker — paste-only
+4. **GAP-S58-2** — Copy/paste/duplicate statements in editor
+5. **D-S5** — Spec update for role_tokens, sel.tokens etc. — must happen before B-1
 
-**Debug steps before writing code:**
-1. Add temporary `console.log` in `_getFlatEntityIds` — what tokens arrive, what resolves
-2. Check what `Editor.getPistonVariables()` returns at caps-load time
-3. Check whether `_loadCapsIntoSelect` is reading `_sel.tokens` or falling back to `_sel.device_id`
-4. Check whether the caps fetch returns anything for `binary_sensor.outdoor_motion_motion`
+### Next session priority:
+Test the deploy first. If picker works → fix remaining gaps above in order.
+If picker still broken → debug before writing any more code.
 
-Do NOT write any fix until the exact failure point is confirmed by console output.
-
-### W-S10 Remaining Steps (After Picker Fix)
-
-1. **GAP-S63-5** — Replace for_each text input with grouped device picker (wizard-loops.js)
-2. **GAP-S46-5** — Import modal has no file picker — paste-only
-3. **GAP-S58-2** — Copy/paste/duplicate statements in editor
-4. Review globals.js rendering of device globals (friendly names correct?)
-5. Any other editor/wizard gaps discovered during testing
+### HARD RULE — Added this session, must stay in every prompt:
+Before changing ANY entity_id resolution, capability fetch, or picker logic:
+1. State in plain English exactly what you are changing and why
+2. Wait for Jeremy to confirm before writing a single line
+3. Never write entity_ids into nodes manually — always resolve through _getFlatEntityIds
+4. Never show entity_ids to the user anywhere in the editor or wizard
+5. The user sees friendly names. The JSON stores entity_ids. These never mix.
 
 ---
 

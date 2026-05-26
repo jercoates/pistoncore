@@ -227,7 +227,13 @@ const Editor = (() => {
       const typeKw = _kw(_typeLabel(v.var_type));
       const varName = _esc(v.name || '');
       let valueStr = '';
-      if (v.var_type !== 'device' && v.initial_value !== undefined && v.initial_value !== '') {
+      if (v.var_type === 'device') {
+        // initial_value is an array of entity_id strings — render as device role display
+        const ids = Array.isArray(v.initial_value) ? v.initial_value : [];
+        if (ids.length) {
+          valueStr = ` = <span class="doc-dev-inline">${_esc(ids.join(', '))}</span>`;
+        }
+      } else if (v.var_type !== 'device' && v.initial_value !== undefined && v.initial_value !== '') {
         valueStr = ` = <span class="doc-dev-inline">${_esc(String(v.initial_value))}</span>`;
       }
       ln(`${typeKw} ${varName}${valueStr} ;`, 1, { id: v.id, type: 'variable' });

@@ -327,9 +327,10 @@ const GlobalsDrawer = (() => {
         d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
         entities[0].friendly_name
       );
-      // Filter by query against label or any entity_id
+      // Filter by query against display label or primary_entity_id only —
+      // not all entity_ids, to avoid leaking power sensors into "light" searches.
       if (lq && !label.toLowerCase().includes(lq) &&
-          !entities.some(d => d.entity_id.toLowerCase().includes(lq))) continue;
+          !primary.toLowerCase().includes(lq)) continue;
       let primary = entities[0].entity_id;
       for (const domain of _DOMAIN_PRIORITY) {
         const match = entities.find(d => d.entity_id.startsWith(domain + '.'));

@@ -390,16 +390,13 @@ function _refreshConditionRows() {
 }
 
 function _renderDevPanelList(query) {
-  const { _esc, _groupDevices, DEMO_DEVICES } = WizardCore;
+  const { _esc, _groupDevices, _filterGrouped, DEMO_DEVICES } = WizardCore;
   const el = document.getElementById('wiz-dev-panel-list');
   if (!el) return;
   const q = query.toLowerCase();
   const _sel = WizardCore.sel;
 
-  const grouped = _groupDevices(WizardCore.deviceData).filter(d =>
-    !q || d.friendly_name.toLowerCase().includes(q) ||
-    d.entity_ids.some(id => id.toLowerCase().includes(q))
-  );
+  const grouped = _filterGrouped(_groupDevices(WizardCore.deviceData), query);
   const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
   const localDeviceVars = allLocals.filter(v =>
     v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))

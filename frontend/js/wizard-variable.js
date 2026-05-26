@@ -16,7 +16,20 @@ function _goVariablePicker() {
   const _editNode = WizardCore.editNode;
   const initType = _sel.initial_value_type || 'nothing';
 
-  // Normalize device selection — old format may have stored a single string
+  // Reverse map: internal var_type → display string for the type select
+  const VAR_TYPE_DISPLAY = {
+    'dynamic':'Dynamic','string':'String (text)','boolean':'Boolean (true/false)',
+    'integer':'Number (integer)','decimal':'Number (decimal)','long':'Large number (long)',
+    'datetime':'Date and Time','date':'Date (date only)','time':'Time (time only)','device':'Device',
+    'dynamic_list':'Dynamic list','string_list':'String list (text)','boolean_list':'Boolean list (true/false)',
+    'integer_list':'Number list (integer)','decimal_list':'Number list (decimal)',
+    'long_list':'Large number list (long)','datetime_list':'Date and Time list',
+    'date_list':'Date list (date only)','time_list':'Time list (time only)',
+  };
+  // Normalize _sel.var_type to display string so the select pre-selects correctly on edit
+  if (_sel.var_type && VAR_TYPE_DISPLAY[_sel.var_type]) {
+    _sel.var_type = VAR_TYPE_DISPLAY[_sel.var_type];
+  }
   // in initial_value instead of an array in initial_device_ids.
   if (initType === 'device' && !Array.isArray(_sel.initial_device_ids)) {
     if (Array.isArray(_sel.initial_value)) {
@@ -248,13 +261,8 @@ function _goVarInitDevicePicker() {
   // ── Helpers scoped to this picker ─────────────────────────
 
   function _physicalDevices(query) {
-    const { _groupDevices } = WizardCore;
-    return _groupDevices(WizardCore.deviceData).filter(d => {
-      if (!query) return true;
-      const lq = query.toLowerCase();
-      return d.friendly_name.toLowerCase().includes(lq) ||
-             d.entity_ids.some(id => id.toLowerCase().includes(lq));
-    });
+    const { _groupDevices, _filterGrouped } = WizardCore;
+    return _filterGrouped(_groupDevices(WizardCore.deviceData), query);
   }
 
   function _localDeviceVars(query) {

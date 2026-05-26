@@ -215,7 +215,7 @@ const Wizard = (() => {
   ];
   function _groupDevices(raw) {
     const allowed = _filterDevices(raw);
-    // Group by device_id; fall back to entity_id as key for entities with no device_id
+    // Group by device_id, fall back to entity_id
     const byDevice = new Map();
     for (const d of allowed) {
       const key = d.device_id || d.entity_id;
@@ -224,7 +224,7 @@ const Wizard = (() => {
     }
     const result = [];
     for (const [, entities] of byDevice) {
-      // Pick the display name: shortest friendly_name in the group
+      // Display label: shortest friendly_name in the group
       const label = entities.reduce((shortest, d) =>
         d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
         entities[0].friendly_name
@@ -241,9 +241,20 @@ const Wizard = (() => {
         primary_entity_id: primary,
       });
     }
-    // Sort by friendly_name (already sorted by area+name from backend, but re-sort after grouping)
     result.sort((a, b) => a.friendly_name.toLowerCase().localeCompare(b.friendly_name.toLowerCase()));
     return result;
+  }
+
+  // Filter grouped devices by query — match against display label or primary entity_id only.
+  // Do NOT match against all entity_ids — that leaks power sensors and other sub-entities
+  // into results when user searches "light" and a device has sensor.xxx_light_power.
+  function _filterGrouped(grouped, query) {
+    if (!query) return grouped;
+    const lq = query.toLowerCase();
+    return grouped.filter(d =>
+      d.friendly_name.toLowerCase().includes(lq) ||
+      d.primary_entity_id.toLowerCase().includes(lq)
+    );
   }
 
   function _getCapsForDomain(entityIdOrList) {
@@ -737,7 +748,7 @@ const Wizard = (() => {
 
     // Helper functions
     isTrigger, _durationLabel, _needsDuration,
-    _filterDevices, _groupDevices, _getCapsForDomain,
+    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain,
     _esc, _newId, _taskId, _condId,
     _render, _pushStep, _back, close,
     _deleteEditNode,

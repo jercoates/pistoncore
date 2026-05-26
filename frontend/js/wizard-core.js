@@ -541,12 +541,19 @@ const Wizard = (() => {
             const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
             const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
             if (nodeTokens.length) {
+              // New format: role_tokens present
               _sel.tokens    = nodeTokens;
               _sel.device_id = nodeTokens[0];
             } else if (nodeIds.length) {
-              // No role_tokens — use entity_ids as tokens (defensive hydration)
+              // No role_tokens — use entity_ids as tokens (nodes saved mid-session)
               _sel.tokens    = nodeIds;
               _sel.device_id = nodeIds[0];
+            } else if (role && !['time','date','mode'].includes(role)) {
+              // Old imported format: no entity_ids, no role_tokens.
+              // role is a variable name (e.g. "Motion_sensor") — use it as token.
+              // _getFlatEntityIds will resolve it through piston variables at cap-load time.
+              _sel.tokens    = [role];
+              _sel.device_id = role;
             } else {
               // Nothing — clear selection
               _sel.tokens    = [];
@@ -558,7 +565,10 @@ const Wizard = (() => {
         }
         _sel.operator        = _editNode.operator || '';
         _sel.aggregation     = _editNode.aggregation || 'any';
-        _sel.value           = _editNode.compiled_value || (_editNode.display_value || _editNode.value || '').toLowerCase() || '';
+        // display_value is what the user typed/selected (e.g. "Active").
+        // compiled_value is the HA state string (e.g. "on").
+        // Always show display_value in the wizard — compiled_value is for the compiler only.
+        _sel.value           = _editNode.display_value || _editNode.value || _editNode.compiled_value || '';
         _sel.value2          = _editNode.value_to || '';
         _sel.duration_amount = _editNode.duration || 1;
         _sel.duration_unit   = _editNode.duration_unit || 'minutes';
@@ -588,7 +598,18 @@ const Wizard = (() => {
         // Fix 5: sel.tokens authoritative. Fix 6: entity_ids as token fallback.
         const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
         const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
-        _sel.tokens       = nodeTokens.length ? nodeTokens : nodeIds;
+        // Old imported format: no role_tokens, no entity_ids — devices array holds role names.
+        // Treat them as tokens so _getFlatEntityIds resolves through piston variables.
+        const oldDevices = (_editNode.devices || []).filter(d => d && d !== 'Location');
+        if (nodeTokens.length) {
+          _sel.tokens = nodeTokens;
+        } else if (nodeIds.length) {
+          _sel.tokens = nodeIds;
+        } else if (oldDevices.length) {
+          _sel.tokens = oldDevices;
+        } else {
+          _sel.tokens = [];
+        }
         _sel.device_id    = _sel.tokens[0] || '';
         _sel.device_label = _editNode.role || _sel.device_id || '';
         if ((_editNode.tasks || []).length) {

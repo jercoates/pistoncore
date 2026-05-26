@@ -223,14 +223,14 @@ function _goVarInitDevicePicker() {
   // SelectAll / DeselectAll — physical devices only (not variables/globals)
   document.getElementById('wiz-varinit-sel-all')?.addEventListener('click', () => {
     const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => d.entity_ids.forEach(id => selected.add(id)));
+    _physicalDevices(q).forEach(d => selected.add(d.primary_entity_id));
     _renderRows(selected, q);
     _updateSummary(selected);
   });
 
   document.getElementById('wiz-varinit-sel-none')?.addEventListener('click', () => {
     const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => d.entity_ids.forEach(id => selected.delete(id)));
+    _physicalDevices(q).forEach(d => selected.delete(d.primary_entity_id));
     _renderRows(selected, q);
     _updateSummary(selected);
   });
@@ -295,10 +295,9 @@ function _goVarInitDevicePicker() {
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0, 150).map(d => {
-        const isSelected = d.entity_ids.some(id => selected.has(id));
+        const isSelected = selected.has(d.primary_entity_id);
         return `<div class="wiz-varinit-dev-row ${isSelected ? 'selected' : ''}"
-          data-id="${_esc(d.primary_entity_id)}"
-          data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}">
+          data-id="${_esc(d.primary_entity_id)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-dev-check">${isSelected ? '✓' : ''}</span>
         </div>`;
@@ -335,18 +334,15 @@ function _goVarInitDevicePicker() {
 
     list.querySelectorAll('.wiz-varinit-dev-row').forEach(row => {
       row.addEventListener('click', () => {
-        let rowEntityIds;
-        try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [row.dataset.id]; }
-        catch { rowEntityIds = [row.dataset.id]; }
-
-        const isSelected = rowEntityIds.some(id => selected.has(id)) || selected.has(row.dataset.id);
+        // Store only primary_entity_id per device (row.dataset.id).
+        const primaryId = row.dataset.id;
+        const isSelected = selected.has(primaryId);
         if (isSelected) {
-          rowEntityIds.forEach(id => selected.delete(id));
-          selected.delete(row.dataset.id);
+          selected.delete(primaryId);
           row.classList.remove('selected');
           row.querySelector('.wiz-dev-check').textContent = '';
         } else {
-          rowEntityIds.forEach(id => selected.add(id));
+          selected.add(primaryId);
           row.classList.add('selected');
           row.querySelector('.wiz-dev-check').textContent = '✓';
         }

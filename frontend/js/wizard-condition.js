@@ -417,10 +417,9 @@ function _renderDevPanelList(query) {
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = d.entity_ids.some(id => selIds.has(id));
+      const isSelected = selIds.has(d.primary_entity_id);
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
         data-id="${_esc(d.primary_entity_id)}"
-        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}"
         data-label="${_esc(d.friendly_name)}">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
       </div>`;
@@ -460,14 +459,11 @@ function _renderDevPanelList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
-      // Parse bundled entity_ids for grouped physical devices
-      let rowEntityIds;
-      try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [row.dataset.id]; }
-      catch { rowEntityIds = [row.dataset.id]; }
-
+      // Store only the primary_entity_id (row.dataset.id) per physical device.
+      // One id per device — HA accepts arrays of primary entity_ids natively.
       WizardCore.sel.device_id    = row.dataset.id;
       WizardCore.sel.device_label = row.dataset.label;
-      WizardCore.sel.devices      = rowEntityIds;
+      WizardCore.sel.devices      = [row.dataset.id];
       WizardCore.sel.attribute    = '';
       WizardCore.sel.attribute_type = '';
       WizardCore.sel._caps = [];
@@ -725,7 +721,9 @@ function _buildConditionNode() {
 
   if (subjType === 'device') {
     role = _sel.device_label || _sel.device_id || '';
-    // _sel.devices is the authoritative list of selected entity IDs
+    // _sel.devices holds the primary_entity_id per selected physical device —
+    // one id per device, chosen by domain priority at picker click time.
+    // The compiler writes these directly to entity_id arrays; HA handles natively.
     entity_ids = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
     if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
       entity_ids = [_sel.device_id];

@@ -115,10 +115,9 @@ function _renderActDevList(query) {
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = d.entity_ids.some(id => sel.has(id));
+      const isSelected = sel.has(d.primary_entity_id);
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
         data-id="${_esc(d.primary_entity_id)}"
-        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}"
         data-label="${_esc(d.friendly_name)}">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
       </div>`;
@@ -171,10 +170,6 @@ function _renderActDevList(query) {
     row.addEventListener('click', () => {
       const id = row.dataset.id;
       const isVirtual = id.startsWith('__');
-      // Parse all entity_ids bundled with this grouped device row
-      let rowEntityIds;
-      try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [id]; }
-      catch { rowEntityIds = [id]; }
 
       if (isVirtual) {
         el.querySelectorAll('.wiz-device-row').forEach(r => r.classList.remove('selected'));
@@ -192,10 +187,14 @@ function _renderActDevList(query) {
       } else {
         row.classList.toggle('selected');
         const newSel = new Set(WizardCore.sel.devices || []);
+        // For grouped physical devices, store only the primary_entity_id —
+        // one id per physical device. The compiler writes it directly to
+        // target.entity_id; HA handles multi-device arrays natively.
+        const primaryId = row.dataset.id;
         if (row.classList.contains('selected')) {
-          rowEntityIds.forEach(eid => newSel.add(eid));
+          newSel.add(primaryId);
         } else {
-          rowEntityIds.forEach(eid => newSel.delete(eid));
+          newSel.delete(primaryId);
         }
         WizardCore.sel.devices = [...newSel];
         WizardCore.sel.device_id = WizardCore.sel.devices[0] || '';
@@ -601,18 +600,17 @@ function _saveDeviceCmd(addMore) {
   const params = {};
   document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
-  // entity_ids: real HA entity IDs for this action, captured at commit time.
-  // Virtual/system device IDs (starting with '__') are excluded from entity_ids.
+  // entity_ids: primary entity_id per selected physical device, captured at commit time.
+  // Virtual/system device IDs (starting with '__') are excluded.
+  // One primary_entity_id per grouped device was stored at picker click time —
+  // no filtering needed here. HA accepts the array directly as target.entity_id.
   const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
   const firstId   = entityIds[0] || '';
   const domain    = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
 
-  // role: human-readable label stored alongside entity_ids for the editor to display.
-  // Generated from selected device labels per WIZARD_SPEC.md role label generation rules.
   const labels = _sel.device_labels || [];
   let role;
   if (entityIds.length === 0) {
-    // Virtual/system device — use the label directly
     role = _sel.device_label || _sel.device_id || '';
   } else if (entityIds.length === 1) {
     role = labels[0] || _sel.device_label || firstId;
@@ -643,15 +641,12 @@ function _saveDeviceCmd(addMore) {
   const meta    = blockId ? { blockId, branch } : undefined;
 
   if (WizardCore.editNode && WizardCore.editNode.type === 'action') {
-    // Edit: replace in-place preserving the node id.
-    // Write entity_ids directly — no devices field, no device_map registration.
     const updatedNode = {
       ...WizardCore.editNode,
       role,
       entity_ids: entityIds.length ? entityIds : (WizardCore.editNode.entity_ids || []),
       tasks: [newTask],
     };
-    // Remove stale devices field if present (legacy)
     delete updatedNode.devices;
     Editor.insertStatement(ctx, updatedNode, meta);
   } else {

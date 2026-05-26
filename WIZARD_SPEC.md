@@ -1,10 +1,11 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.2
+**Version:** 2.3
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 58 / D-S3 — multi-device spec complete: role label
-  generation, mixed selection commit logic, edit pre-fill hydration, aggregation commit,
-  zero devices validation. GAP-S57-10 through S57-14 resolved.)
+**Last Updated:** May 2026 (Session 65 / W-S10 — Device Variables section added: defines
+  as friendly-name groups resolved to full entity ID lists, intersection capability model,
+  hard rules against writing variable names into entity_ids or resolving outside
+  _getFlatEntityIds. GAP-S57-10 through S57-14 from Session 58 / D-S3 also resolved.)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
@@ -246,7 +247,9 @@ When the user selects a mix of physical devices and global Device/Devices variab
 4. The final `entity_ids` array written to the node is `[...selected_entity_ids]` — order: physical devices first, then global-resolved entities
 5. Role label generated from the merged selection per rules above
 
-**This is a compile-time bake.** If the global's device list changes later, the node still has the entity_ids that were selected at commit time. The user must reopen the wizard and recommit to pick up changes. This is intentional and documented in DESIGN.md Section 7.1.
+**When a local device variable's device list changes**, every condition and action node in the piston that references that variable has its `entity_ids` updated automatically via `_reResolveVariableUses` in editor.js. This runs immediately after the variable is saved. The user does not need to reopen and recommit every statement.
+
+**When a global device variable's device list changes**, the user is shown a prompt immediately after saving the global: "This global is used in X pistons. Update them now?" If the user clicks yes, all affected pistons have their entity_ids updated automatically and are marked for redeploy. If the user clicks no, the affected pistons remain unchanged and are flagged as stale until the user manually updates them.
 
 ### Edit Pre-fill for Multi-Device Nodes — GAP-S57-13
 
@@ -303,6 +306,41 @@ This table is the authoritative mapping. The compiler reads `aggregation` from t
 ### Search
 
 Search filters all sections by name/entity_id. Empty query shows all sections.
+
+---
+
+## Device Variables (Defines) — How the Wizard Handles Them
+
+**This section is non-negotiable. Read it before touching any picker, capability, or entity_id code.**
+
+A device variable (define) is a named group of devices the user wants to treat as one unit. From the user's perspective it is a list of friendly device names — "Kitchen Light", "Outdoor Motion Sensor". From PistonCore's perspective it is a complete flat list of ALL entity IDs that belong to every device in that group. Both the friendly names and the entity IDs are stored on the variable node.
+
+### In the Picker
+
+When the user picks a device variable row (local or global) in a condition or action picker, the wizard immediately resolves that variable name to its full flat list of entity IDs via `_getFlatEntityIds`. It then fetches capabilities for ALL of those entity IDs and computes the intersection — only capabilities that every entity in the group shares are shown in the attribute dropdown. This is how the wizard knows what attributes and operators to offer.
+
+- If all entities share `motion` and `battery` → show both
+- If only some share `motion` → do not show `motion`
+- The user sees only what every device in the group can actually do
+
+### On Commit (Add / Add More)
+
+When the user clicks Add or Add More, the wizard resolves the selected tokens to entity IDs via `_getFlatEntityIds` and writes them to `entity_ids` on the node. The variable name becomes the `role` label for display in the editor. `role_tokens` stores the original token (e.g. `["Motion_sensor"]`) for edit round-trip.
+
+The entity IDs written are the ones relevant to the capability and domain the user selected — resolved from the variable's current `initial_value` at commit time.
+
+### Hard Rules — Never Violate These
+
+- **Never write a variable name into `entity_ids`.** Entity IDs are always real HA entity IDs like `binary_sensor.outdoor_motion_motion`. Never `Motion_sensor`.
+- **Never show capabilities that not all selected entities share.** Intersection only.
+- **Never touch the variable's `initial_value` from a condition or action wizard flow.** The variable wizard owns that. The condition and action wizard only reads it.
+- **Never manually copy entity IDs from the JSON into a node.** Always resolve through `_getFlatEntityIds` at commit time.
+- **Never add entity_id resolution logic outside of `_getFlatEntityIds`.** That function is the single resolution path. If it is broken, fix it there — nowhere else.
+- **Before changing any entity_id, capability, or token resolution code:** state out loud in plain English exactly what you are changing and why, and wait for confirmation before writing any code.
+
+### What the Compiler Sees
+
+The compiler reads `entity_ids` directly from each condition and action node. It never looks up a role name. It never reads the variable definition. The entity IDs on the node are the complete truth for that statement.
 
 ---
 

@@ -609,10 +609,14 @@ async function _goCommandPicker() {
     const allResults = await Promise.all(flatIds.map(async id => {
       try {
         const data = await API.getServices(id);
-        return data.services || [];
+        const services = data.services || [];
+        // If API returned empty, fall back to domain defaults
+        if (!services.length) {
+          return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+        }
+        return services;
       } catch(e) {
         // If HA can't return services for this id, fall back to domain defaults
-        const domain = id.split('.')[0];
         return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
       }
     }));

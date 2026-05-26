@@ -587,7 +587,9 @@ async function _loadCapsIntoSelect() {
     const allResults = await Promise.all(flatIds.map(async id => {
       try {
         const data = await API.getCapabilities(id);
-        return data.capabilities || [];
+        const caps = data.capabilities || [];
+        // If API returned empty, fall back to static domain map
+        return caps.length ? caps : _getCapsForDomain(id);
       } catch(e) {
         // Fall back to domain-based static map for this id
         return _getCapsForDomain(id);
@@ -612,7 +614,7 @@ async function _loadCapsIntoSelect() {
 
     // If intersection produced nothing, fall back to domain map for the first id
     if (!caps.length) {
-      caps = _getCapsForDomain(flatIds);
+      caps = _getCapsForDomain(flatIds[0]);
     }
   }
 

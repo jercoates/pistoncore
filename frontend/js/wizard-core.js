@@ -261,6 +261,12 @@ const Wizard = (() => {
     const ids = Array.isArray(entityIdOrList)
       ? entityIdOrList
       : String(entityIdOrList||'').split(',').map(s=>s.trim()).filter(Boolean);
+    // For a single entity, return the full domain caps array directly.
+    // For multiple entities, return caps whose names appear in all domains.
+    if (ids.length === 1) {
+      const domain = ids[0].split('.')[0];
+      return DOMAIN_CAPS[domain] || [];
+    }
     const seen = new Map();
     for (const id of ids) {
       const domain = id.split('.')[0];

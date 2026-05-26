@@ -452,8 +452,12 @@ class HAClient:
 
         capabilities = []
 
+        # Always add the primary state capability first.
+        # For binary sensors the device_class IS the meaningful capability name
+        # (motion, door, smoke, etc.) — use that as the cap name, not "state".
+        primary_cap_name = device_class if (domain == "binary_sensor" and device_class) else "state"
         state_cap = {
-            "name": "state",
+            "name": primary_cap_name,
             "attribute_type": _detect_attribute_type(domain, device_class, attrs),
             "device_class": device_class,
             "unit": attrs.get("unit_of_measurement"),
@@ -461,22 +465,70 @@ class HAClient:
         }
         capabilities.append(state_cap)
 
-        _NUMERIC_ATTRS = {
-            "brightness": ("numeric_position", None),
-            "current_position": ("numeric_position", None),
-            "battery_level": ("numeric", None),
-            "color_temp": ("numeric", None),
-            "volume_level": ("numeric", None),
+        # Also add "state" as a generic fallback if we used device_class as the name
+        if primary_cap_name != "state":
+            capabilities.append({
+                "name": "state",
+                "attribute_type": _detect_attribute_type(domain, device_class, attrs),
+                "device_class": device_class,
+                "unit": None,
+                "options": None,
+            })
+
+        # Walk ALL actual HA attributes and add caps for anything meaningful.
+        # This covers: UniFi camera detection states (car, person, animal, motion),
+        # light brightness/color_temp, cover position, sensor readings, etc.
+        # Skip internal HA attributes that are not useful to the user.
+        _SKIP_ATTRS = {
+            "friendly_name", "icon", "entity_picture", "supported_features",
+            "supported_color_modes", "attribution", "restored", "device_class",
+            "unit_of_measurement", "state_class", "last_reset", "options",
+            "assumed_state", "editable", "min", "max", "step", "mode",
         }
-        for attr_name, (atype, unit) in _NUMERIC_ATTRS.items():
-            if attr_name in attrs:
-                capabilities.append({
-                    "name": attr_name,
-                    "attribute_type": atype,
-                    "device_class": None,
-                    "unit": unit,
-                    "options": None,
-                })
+        _NUMERIC_ATTR_TYPES = {
+            "brightness": "numeric",
+            "current_position": "numeric",
+            "current_tilt_position": "numeric",
+            "battery_level": "numeric",
+            "color_temp": "numeric",
+            "volume_level": "numeric",
+            "temperature": "numeric",
+            "current_temperature": "numeric",
+            "humidity": "numeric",
+            "illuminance": "numeric",
+            "percentage": "numeric",
+        }
+        already_added = {primary_cap_name, "state"}
+        for attr_name, attr_value in attrs.items():
+            if attr_name in _SKIP_ATTRS:
+                continue
+            if attr_name in already_added:
+                continue
+            already_added.add(attr_name)
+
+            # Determine attribute type from value or known list
+            if attr_name in _NUMERIC_ATTR_TYPES:
+                atype = _NUMERIC_ATTR_TYPES[attr_name]
+            elif isinstance(attr_value, bool):
+                atype = "binary"
+            elif isinstance(attr_value, (int, float)):
+                atype = "numeric"
+            elif isinstance(attr_value, list):
+                # Lists are not useful as condition values — skip
+                continue
+            elif isinstance(attr_value, dict):
+                # Dicts are not useful as condition values — skip
+                continue
+            else:
+                atype = "enum"
+
+            capabilities.append({
+                "name": attr_name,
+                "attribute_type": atype,
+                "device_class": None,
+                "unit": None,
+                "options": None,
+            })
 
         return {
             "entity_id": entity_id,

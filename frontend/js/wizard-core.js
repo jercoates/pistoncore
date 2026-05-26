@@ -202,10 +202,12 @@ const Wizard = (() => {
   }
 
   // _groupDevices: what the device picker UI uses.
-  // Returns one entry per unique friendly_name, with all entity_ids for that name bundled.
-  // Implements the design spec: user picks a physical device by friendly name —
-  // the capability/command picker resolves the correct entity_id downstream.
-  // Each entry: { friendly_name, entity_ids: [...], primary_entity_id }
+  // Groups by HA device_id (physical device registry ID) — the correct key.
+  // Entities sharing a device_id are the same physical device (e.g. light.cave_light
+  // and sensor.cave_light_power both belong to device_id "abc123").
+  // Falls back to entity_id as group key when device_id is absent.
+  // Display label: shortest friendly_name in the group (usually the main entity).
+  // primary_entity_id: chosen by domain priority.
   const _DOMAIN_PRIORITY = [
     'light','switch','cover','fan','climate','lock','media_player',
     'input_boolean','input_number','input_select','automation',
@@ -213,21 +215,34 @@ const Wizard = (() => {
   ];
   function _groupDevices(raw) {
     const allowed = _filterDevices(raw);
-    const byName = new Map();
+    // Group by device_id; fall back to entity_id as key for entities with no device_id
+    const byDevice = new Map();
     for (const d of allowed) {
-      const name = d.friendly_name || d.entity_id;
-      if (!byName.has(name)) byName.set(name, []);
-      byName.get(name).push(d.entity_id);
+      const key = d.device_id || d.entity_id;
+      if (!byDevice.has(key)) byDevice.set(key, []);
+      byDevice.get(key).push(d);
     }
     const result = [];
-    for (const [friendly_name, entity_ids] of byName) {
-      let primary = entity_ids[0];
+    for (const [, entities] of byDevice) {
+      // Pick the display name: shortest friendly_name in the group
+      const label = entities.reduce((shortest, d) =>
+        d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
+        entities[0].friendly_name
+      );
+      // Pick primary_entity_id by domain priority
+      let primary = entities[0].entity_id;
       for (const domain of _DOMAIN_PRIORITY) {
-        const match = entity_ids.find(id => id.startsWith(domain + '.'));
-        if (match) { primary = match; break; }
+        const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
+        if (match) { primary = match.entity_id; break; }
       }
-      result.push({ friendly_name, entity_ids, primary_entity_id: primary });
+      result.push({
+        friendly_name: label,
+        entity_ids: entities.map(d => d.entity_id),
+        primary_entity_id: primary,
+      });
     }
+    // Sort by friendly_name (already sorted by area+name from backend, but re-sort after grouping)
+    result.sort((a, b) => a.friendly_name.toLowerCase().localeCompare(b.friendly_name.toLowerCase()));
     return result;
   }
 

@@ -295,15 +295,15 @@ const GlobalsDrawer = (() => {
     'person','device_tracker','alarm_control_panel',
   ]);
 
-  // Domain priority for picking the primary entity_id when a device has multiple.
+  // Domain priority for picking the primary entity_id.
   const _DOMAIN_PRIORITY = [
     'light','switch','cover','fan','climate','lock','media_player',
     'input_boolean','input_number','input_select','automation',
     'binary_sensor','sensor','person','device_tracker','alarm_control_panel',
   ];
 
-  // Returns one entry per unique friendly_name with all entity_ids bundled.
-  // User sees one row per physical device — no duplicate rows per entity.
+  // Group by HA device_id (physical device registry ID) — same logic as wizard-core.js.
+  // "Cave Light" and "Cave Light Power" share a device_id → one row, label = shortest name.
   function _filteredDevices(query) {
     const lq = (query || '').toLowerCase();
     const seen = new Set();
@@ -314,23 +314,30 @@ const GlobalsDrawer = (() => {
       seen.add(d.entity_id);
       return true;
     });
-    const byName = new Map();
+    // Group by device_id, fall back to entity_id
+    const byDevice = new Map();
     for (const d of allowed) {
-      const name = d.friendly_name || d.entity_id;
-      if (!byName.has(name)) byName.set(name, []);
-      byName.get(name).push(d.entity_id);
+      const key = d.device_id || d.entity_id;
+      if (!byDevice.has(key)) byDevice.set(key, []);
+      byDevice.get(key).push(d);
     }
     const result = [];
-    for (const [friendly_name, entity_ids] of byName) {
-      if (lq && !friendly_name.toLowerCase().includes(lq) &&
-          !entity_ids.some(id => id.toLowerCase().includes(lq))) continue;
-      let primary = entity_ids[0];
+    for (const [, entities] of byDevice) {
+      const label = entities.reduce((shortest, d) =>
+        d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
+        entities[0].friendly_name
+      );
+      // Filter by query against label or any entity_id
+      if (lq && !label.toLowerCase().includes(lq) &&
+          !entities.some(d => d.entity_id.toLowerCase().includes(lq))) continue;
+      let primary = entities[0].entity_id;
       for (const domain of _DOMAIN_PRIORITY) {
-        const match = entity_ids.find(id => id.startsWith(domain + '.'));
-        if (match) { primary = match; break; }
+        const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
+        if (match) { primary = match.entity_id; break; }
       }
-      result.push({ friendly_name, entity_ids, primary_entity_id: primary });
+      result.push({ friendly_name: label, entity_ids: entities.map(d => d.entity_id), primary_entity_id: primary });
     }
+    result.sort((a, b) => a.friendly_name.toLowerCase().localeCompare(b.friendly_name.toLowerCase()));
     return result;
   }
 

@@ -23,7 +23,7 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - **Always upload DESIGN.md for wizard/editor/picker sessions. Device model,
   entity model, and compilation decisions all live there. Do not assume.**
 - **Coding discipline — fix what the user can see first.**
-- keep the how to manage claude rules below in mind when coding.
+- Keep the how to manage claude rules below in mind when coding.
 - Remind Jeremy to review the rules below before coding starts.
 
 ## 📌 Architecture Guardrail: The "Lowest Common Denominator" Rule
@@ -35,13 +35,45 @@ Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wi
 3. The Intersection Filter (The Overlap): Calculate the mathematical intersection of those capability lists. The UI dropdown presented to the user must only display commands/attributes that are present across all resolved entities.
 4. UI/Data Separation: The final saved node retains the user's chosen Friendly Name or Variable Token for the script display block, but the selectable parameters are safely constrained by the backend hardware intersection checked in step 3.
 
-## How to manage Claude
+## 📌 UI/Data Separation Rule 
+- The user always sees friendly names (variable names, global @tokens, device friendly names).
+- The JSON always stores entity_ids on nodes for the compiler.
+- `role` and `device_label` are always friendly names or variable names. Never entity_ids.
+- `entity_ids` on nodes are always real HA entity_ids. Never role names.
+- `role_tokens` stores what the user selected (variable names, @globals, entity_ids) for edit round-trip. Compiler ignores it.
+- These must never mix. If they are mixing anywhere that is a bug.
 
-Managing Claude — Three Rules
+## 📌 sel.tokens Model — 
+
+- `sel.tokens` is the authoritative selection tracker in all wizard pickers.
+- It tracks exactly what the user clicked: variable names (e.g. `"MyLights"`), `@global` tokens (e.g. `"@Fountains"`), or plain entity_ids for physical devices.
+- `_getFlatEntityIds(sel.tokens)` is the ONLY place that resolves tokens to real HA entity_ids. Never resolve inline anywhere else.
+- `role_tokens` is written to every action and condition node at commit time. It is a required field. The compiler ignores it. The editor preserves it on save.
+- On edit, `_route()` restores `sel.tokens` from `role_tokens`. If `role_tokens` absent (old-format node), fall back to `entity_ids` as tokens, then `devices` array, then `role` name.
+- `sel.devices` is NOT the authoritative list. Do not use it as the picker source of truth.
+
+## 📌 Device Define / Variable Model
+
+- A device define (piston variable of type `device`) holds a list of entity_ids as `initial_value`.
+- When selected in the wizard, the variable name becomes the `role` token.
+- `_getFlatEntityIds` resolves the variable name to its entity_ids via `Editor.getPistonVariables()`.
+- The intersection of capabilities across all resolved entity_ids drives the command/attribute picker.
+- Only the entity_ids that support the chosen command are written to the node's `entity_ids`.
+- The role on the node is always the variable name — never the entity_ids.
+- When a define is edited (entity_ids change), `_reResolveVariableUses` in editor.js
+  immediately re-resolves `entity_ids` on every node in the piston that references
+  that variable name in `role_tokens`. This is the entire point of defines.
+- Global device variables work exactly like local device variables in this model.
+  They resolve from `_piston._globalsCache` (loaded at editor open time).
+- Local variable entity_ids are re-resolved by the backend on every piston save.
+- Global variable entity_ids are resolved at wizard commit time and stored. User must
+  re-open and re-save affected nodes to pick up global changes (per WIZARD_SPEC.md).
+
+## How to Manage Claude — Three Rules
 
 - Keep the UI label separate from the data payload. The user sees friendly names. The JSON stores entity_ids. Always tell Claude explicitly which one a piece of code is responsible for. Never let them mix.
-- Demand helper functions, not monolithic code. When solving a multi-step problem, require Claude to isolate each step into its own small function before writing anything. Example: _getFlatEntityIds() is one job — resolve to entity_ids. The capability intersection is a separate job. Never combine them.
-- Make Claude explain before it codes. If you are unsure Claude understands the problem, say: "Do not write any code yet. Explain in plain English the step-by-step logic and which files you will modify." If the explanation is wrong, correct it before a single line is written. This session's biggest mistakes happened when code was written before the architecture was fully understood.
+- Demand helper functions, not monolithic code. When solving a multi-step problem, require Claude to isolate each step into its own small function before writing anything. Example: `_getFlatEntityIds()` is one job — resolve to entity_ids. The capability intersection is a separate job. Never combine them.
+- Make Claude explain before it codes. If you are unsure Claude understands the problem, say: "Do not write any code yet. Explain in plain English the step-by-step logic and which files you will modify." If the explanation is wrong, correct it before a single line is written.
 
 ## Deploy Command (Unraid)
 ```
@@ -57,49 +89,63 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S9 (Remaining Picker Gaps)
+## Current Priority — W-S10
 
-### Upload for W-S9:
+### Upload for W-S10:
 wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
 wizard-loops.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What was done in Session 63 (W-S8 + device picker work):
+### What was done in Session 64 (W-S9):
 
-**W-S8 gaps closed:**
-- `_saveDeviceCmd` rewritten: entity_ids + role on action node, no device_map
-- `registerDeviceRole` removed from editor.js
-- `_buildConditionNode` verified — writes role + entity_ids correctly
-- Globals wired into all device pickers (action, condition, variable)
-- GAP-S52-2/3/4, GAP-S53-3/4/5, GAP-S44-1 all fixed
+**Core architectural change — sel.tokens model:**
+- `sel.tokens` introduced as authoritative selection tracker throughout all wizard pickers
+- Tracks what the user actually selected: variable names, `@global` tokens, plain entity_ids
+- `role_tokens` written to every action and condition node at commit time
+- `_getFlatEntityIds(tokens)` in wizard-core.js is the Extraction Layer
+- Capability intersection implemented in `_loadCapsIntoSelect` (conditions) and
+  `_goCommandPicker` (actions) — only shared commands/attributes shown
+- `_reResolveVariableUses` in editor.js: edit a device variable → all nodes
+  referencing it re-resolve `entity_ids` immediately
+- wizard-variable.js: device picker button shows friendly names not entity count
+- Empty resolution guards: bail with error instead of writing broken nodes
+- Migration compat: old-format nodes fall back to `role`/`devices` as tokens
+- `display_value` takes priority over `compiled_value` on condition edit
 
-**Device picker rebuild:**
-- Group entities by HA device_id (from config/entity_registry/list) — one row per physical device
-- primary_entity_id chosen by domain priority (light > switch > cover > ...)
-- _groupDevices() in wizard-core.js, _filteredDevices() in globals.js
-- _filterGrouped() added — search filters on display label + primary_entity_id only
-  (prevents power sensor sub-entities leaking into "light" searches)
-- Physical device rows: store primary_entity_id in sel.devices
-- Piston variable rows: resolve initial_value → entity_ids at click time
-- Global variable rows: resolve value → entity_ids at click time
-- data-row-type attribute on rows: 'physical' | 'pistonvar' | 'global' | 'demo'
+**Gaps fixed:** GAP-S63-2, GAP-S63-3, GAP-S63-6, GAP-S63-7
 
-**Friendly name display:**
-- wizard-variable.js: stores initial_device_names[] on variable node at save time
-- editor.js: renders initial_device_names in define block (friendly names not entity_ids)
-- globals.js: _renderRow resolves entity_ids → friendly names from cached _devices
+### W-S10 — Fix First (Before Anything Else)
 
-**Other fixes:**
-- Variable type pre-fill fixed on edit (was silently switching to Dynamic)
-- globals.js device list height increased (220px → 420px), scrollable
-- Variable save() preserves initial_device_names through edit cycle
+**BROKEN: Picker not loading correct state for old-format imported pistons.**
 
-### W-S9 steps (in order — see TASKS.md for full detail):
-1. GAP-S63-1: Investigate + fix domain priority / primary_entity_id wrong for some devices
-2. GAP-S63-2: Fix _actDevSelectAll to resolve pistonvars/globals to entity_ids
-3. GAP-S63-3: Fix condition picker to accumulate multi-select like action picker
-4. GAP-S63-4: Write device grouping model rules into WIZARD_SPEC.md and PISTON_FORMAT.md
-5. GAP-S63-5: Replace for_each text input with grouped device picker (wizard-loops.js)
+Old-format nodes have no `entity_ids` and no `role_tokens` — only `role: "Motion_sensor"`
+on conditions and `devices: ["Lights"]` on actions.
+
+The migration compat fix in `_route()` sets `sel.tokens = ["Motion_sensor"]` from `role`.
+But when the condition builder opens, the attribute/caps picker shows wrong attributes
+(e.g. `state` instead of `motion`) and the value shows `on` instead of `Active`.
+
+**Suspected cause — investigate before writing any fix:**
+The condition builder calls `_loadCapsIntoSelect()` which calls
+`_getFlatEntityIds(sel.tokens)`. This should resolve `"Motion_sensor"` through
+`Editor.getPistonVariables()` to `["binary_sensor.outdoor_motion_motion"]` and
+then fetch capabilities for that entity. Something in this chain is failing silently.
+
+**Debug steps before writing code:**
+1. Add temporary `console.log` in `_getFlatEntityIds` — what tokens arrive, what resolves
+2. Check what `Editor.getPistonVariables()` returns at caps-load time
+3. Check whether `_loadCapsIntoSelect` is reading `_sel.tokens` or falling back to `_sel.device_id`
+4. Check whether the caps fetch returns anything for `binary_sensor.outdoor_motion_motion`
+
+Do NOT write any fix until the exact failure point is confirmed by console output.
+
+### W-S10 Remaining Steps (After Picker Fix)
+
+1. **GAP-S63-5** — Replace for_each text input with grouped device picker (wizard-loops.js)
+2. **GAP-S46-5** — Import modal has no file picker — paste-only
+3. **GAP-S58-2** — Copy/paste/duplicate statements in editor
+4. Review globals.js rendering of device globals (friendly names correct?)
+5. Any other editor/wizard gaps discovered during testing
 
 ---
 
@@ -114,20 +160,43 @@ DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 - **device_map ELIMINATED** — entity_ids stored directly on condition, action, for_each nodes
 - **entity_ids validated against live HA on every compile**
 - **entity_ids captured from live HA device picker at wizard commit time — never at runtime**
+- **sel.tokens is the authoritative selection tracker — never sel.devices**
+- **role_tokens is a required field on all action and condition nodes**
+- **_getFlatEntityIds is the only resolution path — never resolve tokens inline**
 
-## Device Data Model — Locked (Session 63 additions)
-- `API.getDevices()` returns flat entity list with `device_id` field (HA physical device registry ID)
+## Device Data Model — Locked
+- `API.getDevices()` returns flat entity list with `device_id` field
 - Frontend groups by `device_id` → one picker row per physical device
-- `primary_entity_id` chosen by domain priority at group time
-- Physical device rows write `primary_entity_id` to `sel.devices`
-- Piston variable rows resolve `initial_value` (entity_ids array) into `sel.devices` at click time
-- Global variable rows resolve `value` (entity_ids array) into `sel.devices` at click time
-- `role` on nodes = human-readable label for editor display (variable name, global @name, or friendly name)
-- `entity_ids` on nodes = real HA entity IDs written at wizard commit — compiler reads these directly
-- `initial_device_names` on variable nodes = display-only friendly names array, compiler ignores
+- `primary_entity_id` chosen by domain priority at group time:
+  light > switch > cover > fan > climate > lock > media_player >
+  input_boolean > input_number > input_select > automation >
+  binary_sensor > sensor > person > device_tracker > alarm_control_panel
+- Physical device rows write `primary_entity_id` to `sel.tokens`
+- Piston variable rows write variable name to `sel.tokens`
+- Global variable rows write `@name` token to `sel.tokens`
+- `_getFlatEntityIds(sel.tokens)` resolves all tokens to flat real entity_ids
+- `role` on nodes = human-readable label (variable name, @global, friendly name) — display only
+- `role_tokens` on nodes = raw tokens user selected — edit round-trip only, compiler ignores
+- `entity_ids` on nodes = real HA entity_ids — compiler reads these directly
+- `initial_device_names` on variable nodes = display-only friendly names, compiler ignores
 - Search in device pickers: filter on display label + primary_entity_id only
 
-## Multi-Entity Compilation — Confirmed HA Native (Session 57)
+## _getFlatEntityIds Resolution Order
+For each token in sel.tokens:
+1. Starts with `@` → global variable → look up in `WizardCore.globalsData`, get `value` array
+2. No `.` → piston variable name → look up in `Editor.getPistonVariables()`, get `initial_value` array
+3. Has `.` → plain entity_id → use as-is (skip `__virtual__` ids)
+Returns flat deduplicated array of real HA entity_ids.
+
+## _reResolveVariableUses Contract
+Called after any device variable (define) is saved.
+Walks the entire piston tree (statements recursively, triggers, conditions, restrictions).
+Finds every node where `role_tokens` contains the variable name.
+Re-resolves `entity_ids` from current variable definitions.
+Other tokens in the same node (other variables, globals, physical devices) are preserved.
+Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`).
+
+## Multi-Entity Compilation — Confirmed HA Native
 - Triggers: pass entity_ids array directly — one trigger block, HA fires on any match
 - Actions: pass entity_ids array directly to target.entity_id — one action block
 - Conditions: Jinja2 any()/all()/none() template
@@ -155,180 +224,65 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - D-S3 COMPLETE (Session 58)
 - D-S4 COMPLETE (Sessions 59–60)
 - W-S8 COMPLETE (Session 63): all wizard coding done, device picker rebuilt
+- W-S9 COMPLETE (Session 64): sel.tokens model, capability intersection, define auto-update
 
 ---
 
-## Open Gaps (after Session 63)
+## Open Gaps — All Assigned
 
-**Coding gaps blocking W-S9:**
-- GAP-S63-1: domain priority / primary_entity_id wrong for some devices
-- GAP-S63-2: _actDevSelectAll doesn't resolve pistonvars/globals
-- GAP-S63-3: condition picker single-select only (pre-existing)
-- GAP-S63-4: device grouping rules not yet in specs
-- GAP-S63-5: for_each picker still uses text input
+### Session 64 gaps (new)
 
-**Other coding gaps:**
-- GAP-S46-4 → G-3, GAP-S57-5 → G-4
-- GAP-S38-1, GAP-S39-1 → S2-2
-- GAP-S43-4, GAP-S58-3 → S2-3
-- GAP-S50-1 → S3-1
-- GAP-S30-3, GAP-S34-1, GAP-S47-1, GAP-S45-1 → S4-16
+- **GAP-S64-1 → D-S5:** role_tokens must be documented as required in PISTON_FORMAT.md
+- **GAP-S64-2 → W-S10:** Picker not loading correct state for old-format imported pistons —
+  attribute picker shows wrong caps, value shows compiled_value not display_value.
+  Exact failure point unknown — debug with console.log before writing fix.
+
+### Session 63 gaps
+
+- **GAP-S63-1 → deferred:** Domain priority investigation — not blocking anything
+- **GAP-S63-2 → W-S9 ✅**
+- **GAP-S63-3 → W-S9 ✅**
+- **GAP-S63-4 → D-S5:** Spec update — sel.tokens, role_tokens, _getFlatEntityIds,
+  device grouping, initial_device_names, _reResolveVariableUses contract,
+  globals cache model, UI/data separation rule, define model
+- **GAP-S63-5 → W-S10:** for_each device picker (wizard-loops.js still uses text input)
+- **GAP-S63-6 → W-S9 ✅**
+- **GAP-S63-7 → W-S9 ✅**
+
+### Pre-session-63 coding gaps still open
+
+- **GAP-S57-5 → G-4:** Global device edit redeploy prompt
+- **GAP-S46-4 → G-3:** Imported globals land in piston variables instead of globals store
+- **GAP-S46-5 → W-S10:** Import modal has no file picker — paste-only
+- **GAP-S58-2 → W-S10:** Copy/paste/duplicate statements
+- **GAP-S58-3 → S2-3:** Piston backup trigger/download/restore
+- **GAP-S50-1 → S3-1:** Compiler does not handle device initial_value disambiguation
+- **GAP-S33-2 → S3-2:** condition_and/or template indentation needs real-world testing
+- **GAP-S34-1 → S4-16:** _compile_single_condition has no warnings param
+- **GAP-S38-1 → S2-2:** /api/logs route missing from api.py
+- **GAP-S39-1 → S2-2:** ha_client import pattern wrong in api.py and compiler.py
+- **GAP-S43-4 → S2-3:** Snapshot export not yet implemented
+- **GAP-S30-3 → S4-16:** Double config load per compile call
+- **GAP-S47-1 → S4-16:** Structure line position needs fine-tuning (cosmetic)
+- **GAP-S45-1 → S4-16:** set_variable wizard doesn't normalize $ prefix (cosmetic)
+
+### Spec gaps still open
+
+- **MISSING_SPECS Item 11 (partial)** → post-S3-2: Production sample pistons
+- **MISSING_SPECS Item 12** → post-S3-1: Write BEST_PRACTICES.md
+- **MISSING_SPECS Item 15** → before S4-10: write-a-piston.md actual prompt content
+- **MISSING_SPECS Item 25** → S4-17: HA entity state subscription vs polling
+- **MISSING_SPECS Item 26** → W-S10: Copy/paste/duplicate statements
+- **MISSING_SPECS Item 27** → S2-3: Piston backup trigger/download/restore
 
 ---
 
-## Spec File Versions (after Session 63)
+## Spec File Versions (after Session 64)
 - DESIGN.md v1.6
-- PISTON_FORMAT.md v2.1 (needs update for initial_device_names — GAP-S63-4)
+- PISTON_FORMAT.md v2.1 (needs update — GAP-S63-4, GAP-S64-1)
 - COMPILER_SPEC.md v1.5
-- WIZARD_SPEC.md v2.2 (needs update for device grouping model — GAP-S63-4)
+- WIZARD_SPEC.md v2.2 (needs update — GAP-S63-4)
 - STATEMENT_TYPES.md v2.1
 - FRONTEND_SPEC.md v1.4
 - SAMPLE_PISTONS.md v1.0
 - AI_PROMPT_SPEC.md v2.0
-
-
-**Spec updates needed in W-S9 Step 4 (GAP-S63-4) — full list:**
-- PISTON_FORMAT.md: initial_device_names field (display only, compiler ignores)
-- PISTON_FORMAT.md: device var initial_value is always array of entity_ids
-- PISTON_FORMAT.md: VAR_TYPE_DISPLAY round-trip (internal ↔ display string)
-- PISTON_FORMAT.md: globals device value field is array of entity_ids
-- WIZARD_SPEC.md: device grouping by device_id rule
-- WIZARD_SPEC.md: primary_entity_id selection by domain priority
-- WIZARD_SPEC.md: pistonvar/global resolution to entity_ids at click time
-- WIZARD_SPEC.md: _filterGrouped search rule (label + primary_entity_id only)
-- DESIGN.md: friendly name storage model for variables and globals
-
-note from you 
-i still dont know if you are understanding what needs to happen you basically told me that nothing works behind the scenes that we did today and i have not checked the new version yet to see if the user side works yet7:57 PMClaude responded: You're right, I don't fully know if it works yet.You're right, I don't fully know if it works yet. You haven't tested the new version and I've been finding problems as I review the code.
-Let me be honest about what I'm confident in and what I'm not:
-Confident it works:
-
-One row per physical device in all pickers — the grouping logic is straightforward
-Search filtering — label + primary_entity_id only
-Friendly names in editor define block — reads initial_device_names if present
-Globals drawer showing friendly names — looks up from cached _devices
-Variable type pre-fill on edit — VAR_TYPE_DISPLAY reverse map is simple
-
-Not confident:
-
-Physical device action picker — when user selects multiple devices and clicks Next then Add, do the right entity_ids end up in the node? The device_labels for role generation comes from selected DOM rows but after pistonvar/global resolution sel.devices may contain more ids than there are visible rows, which could break the label count logic in _saveDeviceCmd
-Condition picker — still single-select, which means multi-device conditions don't work
-_actDevSelectAll broken for variables/globals as noted
-for_each picker unchanged — still text input
-The switch.kitchen_motion problem — unknown root cause
-
-Push what you have, test the user-visible parts first. Tell me what breaks and we go from there. Don't guess at what's wrong — find out.You said: that is a major fuck upthat is a major fuck up7:57 PMClaude responded: You're right.You're right. I should have caught this before producing files.
-The role label generation in _saveDeviceCmd uses device_labels built from selected DOM rows. But when a pistonvar or global row is selected, its resolved entity_ids get added to sel.devices — so sel.devices might have 5 entity_ids but only 1 selected row in the DOM. The label count logic then generates "Kitchen Light +4" from a single label when it should just say "Lights" (the variable name).
-The fix: device_labels should be built at click time and stored in sel.device_labels, not reconstructed from the DOM at save time. The click handler already does this for physical devices. For pistonvar and global rows it needs to store the variable/global name as the single label entry regardless of how many entity_ids resolved from it.
-Looking at the click handler — it does set allLabels from selected DOM rows after the newSel update, which is correct for the label. The problem is sel.devices now contains all resolved entity_ids, so when _saveDeviceCmd counts entityIds.length it gets 5 (all the resolved ids) but labels only has 1 entry (the variable name). So it generates "Lights +4" instead of "Lights".
-The fix in _saveDeviceCmd is to use labels.length for the role logic, not entityIds.length. The role represents what the user selected (devices/variables/globals), not how many entity_ids resolved from them.
-
-** use the above for reference but the next section was made after with more information
-
-CRITICAL GAP — GAP-S63-7 — Must be first in W-S9 before any picker code is touched
-The Problem: Capability intersection across multi-device selections
-When a user selects multiple devices, a piston variable, or a global variable in the wizard, the capability/attribute picker (conditions) and command picker (actions) must show ONLY what ALL selected devices can do — not a union of everything any one of them can do.
-Current broken behavior:
-
-_loadCapsIntoSelect in wizard-condition.js merges (union) capabilities across all entity_ids — shows everything any device can do
-_goCommandPicker in wizard-action.js fetches services for only the first entity_id — ignores the rest entirely
-
-The correct flow — must be implemented in this order:
-
-Flatten to raw entity_ids first. Before showing capabilities or commands, resolve all selected items to a flat array of real HA entity_ids. Physical device rows already have entity_ids. Piston variable rows must look up initial_value from Editor.getPistonVariables(). Global variable rows must look up value from WizardCore.globalsData.
-Fetch capabilities/services for every entity_id in the flat list. Not just the first one.
-Intersect — not union. Only keep capabilities/commands that appear in ALL fetched results. If light.kitchen can do turn_on, turn_off, set_brightness and switch.fountain can do turn_on, turn_off, the picker shows only turn_on, turn_off.
-Store the friendly label for display, the intersection drives the picker. The role on the node is still the friendly name the user saw. The entity_ids on the node are the resolved flat list. The intersection only affects what the user is allowed to pick in the wizard — it is not stored anywhere.
-
-Files to change:
-
-wizard-condition.js — _loadCapsIntoSelect: change from union to intersection
-wizard-action.js — _goCommandPicker / _loadActCommands: fetch services for all entity_ids, intersect results
-
-Helper function needed — _getFlatEntityIds(devices):
-Takes sel.devices array (may contain entity_ids, variable names, @global names).
-For each entry:
-  - If starts with '@': look up in WizardCore.globalsData, get value array
-  - If no '.' (not an entity_id): look up in Editor.getPistonVariables(), get initial_value array  
-  - Otherwise: it is already an entity_id, use as-is
-Returns single flat deduplicated array of real HA entity_ids.
-This helper should live in wizard-core.js and be exposed on WizardCore so both wizard-action.js and wizard-condition.js can use it.
-Also fix in W-S9 before this:
-
-GAP-S63-6: _saveDeviceCmd role label uses entityIds.length not labels.length — generates "Lights +4" instead of "Lights"
-GAP-S63-2: _actDevSelectAll doesn't resolve pistonvars/globals to entity_ids
-
-Feed Gemini's second response to Claude at the start of W-S9 — it describes this intersection pattern correctly.
-
-** my conversation with gemini referenced above
-
-ME:  i dont think either of you are getting the multi device and variable correct in context for this project.  when i select a define when making a statement or action the wizard needs to look at all the options of the selected devices and provide a list of what ALL of them are capable of and only listing things they all can do.  what i dont know is how to make this work acros the define using friendly names and resolving the list when added it seems logical to me but i dont code
-
-Gemini
-Oh, damn. You are completely right, and I see exactly where Claude and I both missed the mark on the true architectural problem you're staring at.
-
-We were obsessing over how the data gets saved into the array, while completely ignoring the intersection logic required during the actual creation wizard.
-
-Let me break down what you mean in plain English, why it's tricky, and exactly how the code needs to process this behind the scenes so it feels seamless to you as a user.
-
-The Problem: The "Lowest Common Denominator" Rule
-When you build a statement (like an Action or a Condition), the wizard asks you: "What devices do you want to control?"
-
-If you select:
-
-light.kitchen_1 (Can: turn_on, turn_off, set_level, set_color)
-
-switch.fountain (Can: turn_on, turn_off)
-
-The wizard should only show you turn_on and turn_off because the fountain can't change color or dim. If it let you pick set_level, the fountain would crash when the piston ran. It has to find the intersection—things all selected targets can do.
-
-The Twist: Variables & Friendly Names
-This gets hard when you aren't just clicking physical devices, but instead clicking a Piston Variable (like @MyLights) or a Global Variable (like @AllDownstairsDevices).
-
-At the moment you click that variable in the wizard:
-
-The wizard doesn't natively know what physical devices are hiding inside that variable name.
-
-It just sees a string token (@MyLights).
-
-Because it doesn't know what's inside, it doesn't know what capabilities (commands/attributes) to show you next.
-
-How to Make This Work Plainly (The Logic)
-Since you don't code, think of it like this 3-step assembly line that the JavaScript needs to execute the moment you select your targets:
-
-Step 1: Flatten Everything into Raw Entity IDs First
-Before looking up capabilities, the UI needs to translate your friendly names and variables into a plain list of physical Home Assistant IDs.
-
-If you select light.kitchen_1 and the variable @Fountains (which holds switch.fountain_1 and switch.fountain_2), the code immediately unpacks them in the background into a hidden list: ['light.kitchen_1', 'switch.fountain_1', 'switch.fountain_2'].
-
-Step 2: Look up Capabilities for Each Raw ID
-The system goes to its database (WizardCore.deviceData) for each of those three raw IDs and grabs their individual list of commands.
-
-Step 3: Find the Overlap (Intersection)
-The code runs a filter. It says: "Is 'turn_on' available in the light? Yes. Is it in fountain 1? Yes. Is it in fountain 2? Yes. Keep it." "Is 'set_color' available in all three? No (fountains can't do it). Drop it."
-
-The resulting filtered list is what gets displayed on your screen. When you finally hit "Save", the block remembers the Friendly Variable Name you picked for the UI display, but the capabilities it allowed you to choose were safely restricted by the actual hardware capabilities of the underlying devices.
-
-What We Need to Tell Claude to Fix This
-To fix this in your files (wizard-action.js and wizard-condition.js), the wizard's "Next" step needs to dynamically compute this overlap.
-
-Here is the exact structural specification to give Claude so it implements this correctly:
-
-Markdown
-Claude, we have a gap in how the command/attribute picker generates options for multi-device selections, particularly when Piston Variables or Globals are selected. 
-
-Currently, the wizard doesn't properly aggregate capabilities across multiple targets or resolve the physical entities hidden inside variables *before* showing the capability list. We need to implement a strict "Lowest Common Denominator" intersection rule.
-
-Please modify the step transitions where we move from Device Selection to Capability/Command Selection:
-
-1. RESOLVE TO RAW IDS FIRST:
-   Create a helper function `_getFlatEntityIds(selectedArray)` that takes the current selections (which may contain raw entity IDs, local variable names, or global variable names). It must look up any variables via `Editor.getPistonVariables()` or `WizardCore.globalsData` and return a single, flat array of physical Home Assistant entity IDs.
-
-2. INTERSECT CAPABILITIES:
-   When rendering the commands (in wizard-action) or attributes (in wizard-condition), loop through EVERY entity ID from that flat array. Look up its capabilities in `WizardCore.deviceData`. The final list of commands/attributes displayed to the user must ONLY include options that are present across ALL selected entities.
-
-3. PRESERVE THE DEFINE LABEL:
-   The structural node should still point to the Variable or Global name chosen by the user for the role/UI execution, but the allowed options must be safely constrained by this background check.
-
-Show me the updated capability rendering loop using this intersection logic.
-Does this layout match the exact flow you are trying to achieve when building a statement?

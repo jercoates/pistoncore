@@ -267,7 +267,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-all').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.add(d.entity_id));
+      visible.forEach(d => selected.add(d.primary_entity_id));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -275,7 +275,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-none').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.delete(d.entity_id));
+      visible.forEach(d => selected.delete(d.primary_entity_id));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -351,13 +351,10 @@ const GlobalsDrawer = (() => {
     }
 
     list.innerHTML = matches.slice(0, 300).map(d => {
-      // A grouped device is selected if any of its entity_ids are in the selection set
-      const sel = d.entity_ids.some(id => selected.has(id));
-      const eid = _esc(d.primary_entity_id);
+      const sel = selected.has(d.primary_entity_id);
       const label = _esc(d.friendly_name);
       return `<div class="gf-device-row ${sel ? 'selected' : ''}"
-        data-id="${eid}"
-        data-entity-ids="${_esc(JSON.stringify(d.entity_ids))}">
+        data-id="${_esc(d.primary_entity_id)}">
         <span class="gf-device-name">${label}</span>
         <span class="gf-device-check">${sel ? '✓' : ''}</span>
       </div>`;
@@ -365,17 +362,13 @@ const GlobalsDrawer = (() => {
 
     list.querySelectorAll('.gf-device-row').forEach(row => {
       row.addEventListener('click', () => {
-        let rowEntityIds;
-        try { rowEntityIds = row.dataset.entityIds ? JSON.parse(row.dataset.entityIds) : [row.dataset.id]; }
-        catch { rowEntityIds = [row.dataset.id]; }
-
-        const isSelected = rowEntityIds.some(id => selected.has(id));
-        if (isSelected) {
-          rowEntityIds.forEach(id => selected.delete(id));
+        const id = row.dataset.id;
+        if (selected.has(id)) {
+          selected.delete(id);
           row.classList.remove('selected');
           row.querySelector('.gf-device-check').textContent = '';
         } else {
-          rowEntityIds.forEach(id => selected.add(id));
+          selected.add(id);
           row.classList.add('selected');
           row.querySelector('.gf-device-check').textContent = '✓';
         }

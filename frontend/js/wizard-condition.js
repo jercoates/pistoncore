@@ -422,9 +422,10 @@ function _renderDevPanelList(query) {
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = selTokens.has(d.primary_entity_id);
+      const ids = d.entity_ids || [d.primary_entity_id];
+      const isSelected = ids.some(id => selTokens.has(id));
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
-        data-id="${_esc(d.primary_entity_id)}"
+        data-id="${_esc(ids.join(','))}"
         data-label="${_esc(d.friendly_name)}"
         data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
@@ -474,17 +475,19 @@ function _renderDevPanelList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
-      const token   = row.dataset.id;
       const label   = row.dataset.label;
+      // Physical rows carry all entity_ids for the device comma-separated.
+      // Variable and global rows carry a single token (name or @name).
+      const rowIds = row.dataset.id.split(',').filter(Boolean);
 
       // GAP-S63-3: toggle-accumulate, not replace.
       row.classList.toggle('selected');
       const newTokens = new Set(WizardCore.sel.tokens || []);
 
       if (row.classList.contains('selected')) {
-        newTokens.add(token);
+        rowIds.forEach(id => newTokens.add(id));
       } else {
-        newTokens.delete(token);
+        rowIds.forEach(id => newTokens.delete(id));
       }
 
       WizardCore.sel.tokens = [...newTokens];
@@ -587,9 +590,7 @@ async function _loadCapsIntoSelect() {
     const allResults = await Promise.all(flatIds.map(async id => {
       try {
         const data = await API.getCapabilities(id);
-        const caps = data.capabilities || [];
-        // If API returned empty, fall back to static domain map
-        return caps.length ? caps : _getCapsForDomain(id);
+        return data.capabilities || [];
       } catch(e) {
         // Fall back to domain-based static map for this id
         return _getCapsForDomain(id);
@@ -614,7 +615,7 @@ async function _loadCapsIntoSelect() {
 
     // If intersection produced nothing, fall back to domain map for the first id
     if (!caps.length) {
-      caps = _getCapsForDomain(flatIds[0]);
+      caps = _getCapsForDomain(flatIds);
     }
   }
 

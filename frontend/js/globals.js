@@ -96,7 +96,8 @@ const GlobalsDrawer = (() => {
       if (ids.length) {
         // Look up friendly names from cached device list (available after prefetch).
         const grouped = _devicesLoaded ? _filteredDevices('') : [];
-        const nameMap = new Map(grouped.map(d => [d.primary_entity_id, d.friendly_name]));
+        const nameMap = new Map();
+        grouped.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => nameMap.set(id, d.friendly_name)));
         grouped.forEach(d => d.entity_ids.forEach(eid => {
           if (!nameMap.has(eid)) nameMap.set(eid, d.friendly_name);
         }));
@@ -276,7 +277,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-all').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.add(d.primary_entity_id));
+      visible.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => selected.add(id)));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -284,7 +285,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-none').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.delete(d.primary_entity_id));
+      visible.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => selected.delete(id)));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -379,13 +380,14 @@ const GlobalsDrawer = (() => {
 
     list.querySelectorAll('.gf-device-row').forEach(row => {
       row.addEventListener('click', () => {
-        const id = row.dataset.id;
-        if (selected.has(id)) {
-          selected.delete(id);
+        const ids = row.dataset.id.split(',').filter(Boolean);
+        const isSelected = ids.some(id => selected.has(id));
+        if (isSelected) {
+          ids.forEach(id => selected.delete(id));
           row.classList.remove('selected');
           row.querySelector('.gf-device-check').textContent = '';
         } else {
-          selected.add(id);
+          ids.forEach(id => selected.add(id));
           row.classList.add('selected');
           row.querySelector('.gf-device-check').textContent = '✓';
         }

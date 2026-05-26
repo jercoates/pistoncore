@@ -120,9 +120,10 @@ function _renderActDevList(query) {
   if (grouped.length) {
     html += `<div class="wiz-device-group-header">Physical devices</div>`;
     html += grouped.slice(0, 150).map(d => {
-      const isSelected = selTokens.has(d.primary_entity_id);
+      const ids = d.entity_ids || [d.primary_entity_id];
+      const isSelected = ids.some(id => selTokens.has(id));
       return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
-        data-id="${_esc(d.primary_entity_id)}"
+        data-id="${_esc(ids.join(','))}"
         data-label="${_esc(d.friendly_name)}"
         data-row-type="physical">
         <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
@@ -183,36 +184,38 @@ function _renderActDevList(query) {
 
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
-      const token    = row.dataset.id;
       const label    = row.dataset.label;
       const rowType  = row.dataset.rowType;
-      const isVirtual = token.startsWith('__');
+      // Physical rows carry all entity_ids comma-separated.
+      // Virtual, variable, and global rows carry a single token.
+      const rowIds = row.dataset.id.split(',').filter(Boolean);
+      const isVirtual = rowIds[0].startsWith('__');
 
       if (isVirtual) {
         // Virtual devices: single-select, advance immediately
         el.querySelectorAll('.wiz-device-row').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
-        WizardCore.sel.tokens      = [token];
-        WizardCore.sel.devices     = [token];
-        WizardCore.sel.device_id   = token;
+        WizardCore.sel.tokens      = [rowIds[0]];
+        WizardCore.sel.devices     = [rowIds[0]];
+        WizardCore.sel.device_id   = rowIds[0];
         WizardCore.sel.device_label = label;
         _updateActSelBar([label]);
         document.getElementById('wiz-act-next')?.removeAttribute('disabled');
         setTimeout(() => {
-          if (token === '__location__') _goLocationCmdPicker();
+          if (rowIds[0] === '__location__') _goLocationCmdPicker();
           else _goCommandPicker();
         }, 150);
         return;
       }
 
-      // Non-virtual: toggle selection, accumulate tokens
+      // Non-virtual: toggle selection, accumulate all entity_ids as tokens
       row.classList.toggle('selected');
       const newTokens = new Set(WizardCore.sel.tokens || []);
 
       if (row.classList.contains('selected')) {
-        newTokens.add(token);
+        rowIds.forEach(id => newTokens.add(id));
       } else {
-        newTokens.delete(token);
+        rowIds.forEach(id => newTokens.delete(id));
       }
 
       WizardCore.sel.tokens = [...newTokens];
@@ -270,7 +273,7 @@ function _actDevSelectAll(on) {
   if (on) {
     rows.forEach(r => {
       r.classList.add('selected');
-      tokens.push(r.dataset.id);
+      r.dataset.id.split(',').filter(Boolean).forEach(id => tokens.push(id));
       labels.push(r.dataset.label);
     });
   } else {
@@ -609,14 +612,10 @@ async function _goCommandPicker() {
     const allResults = await Promise.all(flatIds.map(async id => {
       try {
         const data = await API.getServices(id);
-        const services = data.services || [];
-        // If API returned empty, fall back to domain defaults
-        if (!services.length) {
-          return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
-        }
-        return services;
+        return data.services || [];
       } catch(e) {
         // If HA can't return services for this id, fall back to domain defaults
+        const domain = id.split('.')[0];
         return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
       }
     }));

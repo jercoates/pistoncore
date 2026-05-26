@@ -23,6 +23,16 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - **Always upload DESIGN.md for wizard/editor/picker sessions. Device model,
   entity model, and compilation decisions all live there. Do not assume.**
 - **Coding discipline — fix what the user can see first.**
+- keep the how to manage claude rules below in mind when coding.
+- Remind Jeremy to review the rules below before coding starts.
+
+## How to manage Claude
+
+Managing Claude — Three Rules
+
+- Keep the UI label separate from the data payload. The user sees friendly names. The JSON stores entity_ids. Always tell Claude explicitly which one a piece of code is responsible for. Never let them mix.
+- Demand helper functions, not monolithic code. When solving a multi-step problem, require Claude to isolate each step into its own small function before writing anything. Example: _getFlatEntityIds() is one job — resolve to entity_ids. The capability intersection is a separate job. Never combine them.
+- Make Claude explain before it codes. If you are unsure Claude understands the problem, say: "Do not write any code yet. Explain in plain English the step-by-step logic and which files you will modify." If the explanation is wrong, correct it before a single line is written. This session's biggest mistakes happened when code was written before the architecture was fully understood.
 
 ## Deploy Command (Unraid)
 ```

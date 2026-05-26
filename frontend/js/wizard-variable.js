@@ -42,6 +42,11 @@ function _goVariablePicker() {
       _sel.initial_device_ids = [];
     }
   }
+  // Pre-populate friendly names from editNode if present
+  if (initType === 'device' && !Array.isArray(_sel.initial_device_names)) {
+    _sel.initial_device_names = Array.isArray(_editNode?.initial_device_names)
+      ? _editNode.initial_device_names : [];
+  }
 
   const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
   const ADV_TYPES   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
@@ -127,10 +132,18 @@ function _goVariablePicker() {
       initial_value = document.getElementById('wiz-vinit-val')?.value || '';
     }
     const rawType = document.getElementById('wiz-vt')?.value || 'Dynamic';
-    return { type:'variable', id:WizardCore.editNode?.id||_newId(), name,
+    const node = { type:'variable', id:WizardCore.editNode?.id||_newId(), name,
       var_type: VAR_TYPE_MAP[rawType] || rawType.toLowerCase(),
       initial_value_type: ivType === 'nothing' ? undefined : ivType,
       initial_value };
+    // For device variables, also store friendly names for editor display.
+    // The compiler ignores this field — it reads initial_value (entity_ids) only.
+    if (ivType === 'device') {
+      node.initial_device_names = Array.isArray(WizardCore.sel.initial_device_names)
+        ? WizardCore.sel.initial_device_names
+        : [];
+    }
+    return node;
   };
 
   document.getElementById('wiz-var-done')?.addEventListener('click', () => {
@@ -224,6 +237,11 @@ function _goVarInitDevicePicker() {
   // Confirm — commit selection and return to variable picker
   document.getElementById('wiz-varinit-confirm')?.addEventListener('click', () => {
     WizardCore.sel.initial_device_ids = Array.from(selected);
+    // Build parallel friendly name list from selected rows for editor display.
+    // Look up friendly_name from grouped devices by matching primary_entity_id.
+    const grouped = WizardCore._groupDevices ? WizardCore._groupDevices(WizardCore.deviceData) : [];
+    const nameMap = new Map(grouped.map(d => [d.primary_entity_id, d.friendly_name]));
+    WizardCore.sel.initial_device_names = Array.from(selected).map(id => nameMap.get(id) || id);
     WizardCore.sel.initial_value_type = 'device';
     _goVariablePicker();
   });

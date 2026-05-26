@@ -124,7 +124,10 @@ function _renderActDevList(query) {
   if (pistonDevVars.length) {
     html += `<div class="wiz-device-group-header">Piston variables</div>`;
     html += pistonDevVars.map(v =>
-      `<div class="wiz-device-row ${sel.has(v.name) ? 'selected' : ''}" data-id="${_esc(v.name)}" data-label="${_esc(v.name)}">
+      `<div class="wiz-device-row ${sel.has(v.name) ? 'selected' : ''}"
+        data-id="${_esc(v.name)}"
+        data-label="${_esc(v.name)}"
+        data-row-type="pistonvar">
         <span class="wiz-dev-prefix">device</span>
         <span class="wiz-dev-label">${_esc(v.name)}</span>
       </div>`
@@ -135,7 +138,10 @@ function _renderActDevList(query) {
     html += `<div class="wiz-device-group-header">Global variables</div>`;
     html += globalDevVars.map(g => {
       const gid = `@${g.name}`;
-      return `<div class="wiz-device-row ${sel.has(gid) ? 'selected' : ''}" data-id="${_esc(gid)}" data-label="${_esc(gid)}">
+      return `<div class="wiz-device-row ${sel.has(gid) ? 'selected' : ''}"
+        data-id="${_esc(gid)}"
+        data-label="${_esc(gid)}"
+        data-row-type="global">
         <span class="wiz-dev-prefix">global</span>
         <span class="wiz-dev-label">${_esc(gid)}</span>
       </div>`;
@@ -183,16 +189,47 @@ function _renderActDevList(query) {
         }, 150);
       } else {
         row.classList.toggle('selected');
-        const newSel = new Set(WizardCore.sel.devices || []);
-        // For grouped physical devices, store only the primary_entity_id —
-        // one id per physical device. The compiler writes it directly to
-        // target.entity_id; HA handles multi-device arrays natively.
+        const newSel    = new Set(WizardCore.sel.devices || []);
         const primaryId = row.dataset.id;
+        const rowType   = row.dataset.rowType;
+
         if (row.classList.contains('selected')) {
-          newSel.add(primaryId);
+          if (rowType === 'pistonvar') {
+            // Resolve full entity_ids list from piston variable initial_value
+            const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+            const v = vars.find(v => v.name === primaryId && v.var_type === 'device');
+            const val = v?.initial_value;
+            const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? [val] : [primaryId]);
+            ids.forEach(id => newSel.add(id));
+          } else if (rowType === 'global') {
+            // Resolve full entity_ids list from globalsData
+            const gname = primaryId.startsWith('@') ? primaryId.slice(1) : primaryId;
+            const g = (WizardCore.globalsData || []).find(g => g.name === gname);
+            const val = g?.value || g?.initial_value;
+            const ids = Array.isArray(val) && val.length ? val : [primaryId];
+            ids.forEach(id => newSel.add(id));
+          } else {
+            newSel.add(primaryId);
+          }
         } else {
-          newSel.delete(primaryId);
+          // On deselect — remove all ids that came from this row
+          if (rowType === 'pistonvar') {
+            const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+            const v = vars.find(v => v.name === primaryId && v.var_type === 'device');
+            const val = v?.initial_value;
+            const ids = Array.isArray(val) ? val : (typeof val === 'string' && val ? [val] : [primaryId]);
+            ids.forEach(id => newSel.delete(id));
+          } else if (rowType === 'global') {
+            const gname = primaryId.startsWith('@') ? primaryId.slice(1) : primaryId;
+            const g = (WizardCore.globalsData || []).find(g => g.name === gname);
+            const val = g?.value || g?.initial_value;
+            const ids = Array.isArray(val) && val.length ? val : [primaryId];
+            ids.forEach(id => newSel.delete(id));
+          } else {
+            newSel.delete(primaryId);
+          }
         }
+
         WizardCore.sel.devices = [...newSel];
         WizardCore.sel.device_id = WizardCore.sel.devices[0] || '';
         const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
@@ -597,10 +634,9 @@ function _saveDeviceCmd(addMore) {
   const params = {};
   document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
 
-  // entity_ids: primary entity_id per selected physical device, captured at commit time.
-  // Virtual/system device IDs (starting with '__') are excluded.
-  // One primary_entity_id per grouped device was stored at picker click time —
-  // no filtering needed here. HA accepts the array directly as target.entity_id.
+  // entity_ids: full resolved list from sel.devices — physical devices contribute
+  // their primary_entity_id, piston variables and globals contribute their full
+  // entity_ids list (resolved at picker click time). Virtual ids excluded.
   const entityIds = (_sel.devices || []).filter(id => id && !id.startsWith('__'));
   const firstId   = entityIds[0] || '';
   const domain    = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
@@ -657,7 +693,6 @@ function _saveDeviceCmd(addMore) {
   }
 
   if (addMore) {
-    // GAP-S52-2: reset command/params but preserve device selection so user can add another task
     WizardCore.sel.command    = '';
     WizardCore.sel.parameters = {};
     WizardCore.editNode = null;

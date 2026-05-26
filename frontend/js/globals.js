@@ -93,9 +93,18 @@ const GlobalsDrawer = (() => {
     let valueDisplay;
     if (g.var_type === 'device') {
       const ids = Array.isArray(g.value) ? g.value : (g.value ? [g.value] : []);
-      valueDisplay = ids.length
-        ? `<span class="globals-value-entity">${ids.length} device${ids.length !== 1 ? 's' : ''}</span>`
-        : `<span class="globals-value-none">not set</span>`;
+      if (ids.length) {
+        // Look up friendly names from cached device list (available after prefetch).
+        const grouped = _devicesLoaded ? _filteredDevices('') : [];
+        const nameMap = new Map(grouped.map(d => [d.primary_entity_id, d.friendly_name]));
+        grouped.forEach(d => d.entity_ids.forEach(eid => {
+          if (!nameMap.has(eid)) nameMap.set(eid, d.friendly_name);
+        }));
+        const names = ids.map(id => nameMap.get(id) || id);
+        valueDisplay = `<span class="globals-value-entity">${_esc(names.join(', '))}</span>`;
+      } else {
+        valueDisplay = `<span class="globals-value-none">not set</span>`;
+      }
     } else {
       valueDisplay = (g.value !== undefined && g.value !== '' && g.value !== null)
         ? `<span class="globals-value">${_esc(String(g.value))}</span>`

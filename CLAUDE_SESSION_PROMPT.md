@@ -310,3 +310,6 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - FRONTEND_SPEC.md v1.4
 - SAMPLE_PISTONS.md v1.0
 - AI_PROMPT_SPEC.md v2.0
+
+
+After B-1 and S3-1, do a pass to audit all raw HTML insertions in editor.js and the wizard files to confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for offline HA compatibility.

@@ -92,17 +92,11 @@ const GlobalsDrawer = (() => {
 
     let valueDisplay;
     if (g.var_type === 'device') {
-      const ids = Array.isArray(g.value) ? g.value : (g.value ? [g.value] : []);
-      if (ids.length) {
-        // Look up friendly names from cached device list (available after prefetch).
-        const grouped = _devicesLoaded ? _filteredDevices('') : [];
-        const nameMap = new Map();
-        grouped.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => nameMap.set(id, d.friendly_name)));
-        grouped.forEach(d => d.entity_ids.forEach(eid => {
-          if (!nameMap.has(eid)) nameMap.set(eid, d.friendly_name);
-        }));
-        const names = ids.map(id => nameMap.get(id) || id);
-        valueDisplay = `<span class="globals-value-entity">${_esc(names.join(', '))}</span>`;
+      const vals = Array.isArray(g.value) ? g.value : (g.value ? [g.value] : []);
+      if (vals.length) {
+        // value stores friendly names — display them directly.
+        // Old nodes stored entity_ids — fall back to showing the raw value.
+        valueDisplay = `<span class="globals-value-entity">${_esc(vals.join(', '))}</span>`;
       } else {
         valueDisplay = `<span class="globals-value-none">not set</span>`;
       }
@@ -239,13 +233,26 @@ const GlobalsDrawer = (() => {
   // value is stored as an array of entity_id strings.
 
   function _renderDevicePicker(container, currentValue) {
-    // Normalise current selection into the module-level _selectedDevices Set
-    if (Array.isArray(currentValue)) {
-      _selectedDevices = new Set(currentValue);
-    } else if (currentValue && typeof currentValue === 'string') {
-      _selectedDevices = new Set([currentValue]);
-    } else {
+    // selected tracks friendly names — same as local variable picker.
+    // Old nodes stored entity_ids — detect and convert to friendly names via device lookup.
+    const vals = Array.isArray(currentValue) ? currentValue
+      : (currentValue ? [currentValue] : []);
+    // If values look like entity_ids (have dots), convert to friendly names via lookup.
+    // If values are already friendly names (no dots), use directly.
+    if (vals.length && vals.every(v => typeof v === 'string' && v.includes('.'))) {
+      // Old format — convert entity_ids to friendly names after devices load
       _selectedDevices = new Set();
+      const convertAfterLoad = () => {
+        const grouped = _filteredDevices('');
+        vals.forEach(eid => {
+          const group = grouped.find(g => g.entity_ids.includes(eid));
+          if (group) _selectedDevices.add(group.friendly_name);
+        });
+      };
+      if (_devicesLoaded) convertAfterLoad();
+      else _prefetchDevices().then(convertAfterLoad);
+    } else {
+      _selectedDevices = new Set(vals.filter(Boolean));
     }
     const selected = _selectedDevices;
 
@@ -277,7 +284,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-all').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.add(d.primary_entity_id));
+      visible.forEach(d => selected.add(d.friendly_name));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -285,7 +292,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-none').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => selected.delete(d.primary_entity_id));
+      visible.forEach(d => selected.delete(d.friendly_name));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -367,10 +374,10 @@ const GlobalsDrawer = (() => {
     }
 
     list.innerHTML = matches.slice(0, 300).map(d => {
-      const sel = selected.has(d.primary_entity_id);
+      const sel = selected.has(d.friendly_name);
       const label = _esc(d.friendly_name);
       return `<div class="gf-device-row ${sel ? 'selected' : ''}"
-        data-id="${_esc(d.primary_entity_id)}">
+        data-id="${_esc(d.friendly_name)}">
         <span class="gf-device-name">${label}</span>
         <span class="gf-device-check">${sel ? '✓' : ''}</span>
       </div>`;
@@ -378,14 +385,15 @@ const GlobalsDrawer = (() => {
 
     list.querySelectorAll('.gf-device-row').forEach(row => {
       row.addEventListener('click', () => {
-        const ids = row.dataset.id.split(',').filter(Boolean);
-        const isSelected = ids.some(id => selected.has(id));
+        // data-id is friendly_name — single value, same as local variable picker
+        const friendlyName = row.dataset.id;
+        const isSelected = selected.has(friendlyName);
         if (isSelected) {
-          ids.forEach(id => selected.delete(id));
+          selected.delete(friendlyName);
           row.classList.remove('selected');
           row.querySelector('.gf-device-check').textContent = '';
         } else {
-          ids.forEach(id => selected.add(id));
+          selected.add(friendlyName);
           row.classList.add('selected');
           row.querySelector('.gf-device-check').textContent = '✓';
         }

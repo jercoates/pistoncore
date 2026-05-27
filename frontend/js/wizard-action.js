@@ -535,7 +535,7 @@ function _saveLocationCmd(addMore) {
 
 // Command picker — fetches services for each selected device and intersects
 // so only commands every selected device supports are shown.
-// Uses _getGroupedEntityIdsForTokens (not _getFlatEntityIds) so device variables resolve
+// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
 // to one service lookup per physical device, not per sub-entity.
 async function _goCommandPicker() {
   const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getGroupedEntityIdsForTokens, _getFlatEntityIds } = WizardCore;
@@ -574,11 +574,8 @@ async function _goCommandPicker() {
     try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
   }
 
-  // Resolve tokens → one array of entity_ids per physical device group.
-  // friendly name → group → ALL entity_ids (not just primary).
   const deviceGroups = _getGroupedEntityIdsForTokens(_sel.tokens || [_sel.device_id].filter(Boolean));
 
-  // Demo device shortcut
   const demo = DEMO_DEVICES.find(d =>
     deviceGroups.length === 1 && deviceGroups[0].includes(d.entity_id)
   );
@@ -629,7 +626,6 @@ async function _goCommandPicker() {
           return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
         }
       }));
-      // Union services across all sub-entities in this device group
       const seen = new Map();
       for (const svcList of allResults) {
         for (const svc of svcList) {
@@ -639,7 +635,6 @@ async function _goCommandPicker() {
       return [...seen.values()];
     }));
 
-    // Intersect across physical devices
     let intersectedNames = new Set(groupServiceSets[0].map(s => s.service));
     for (let i = 1; i < groupServiceSets.length; i++) {
       const thisSet = new Set(groupServiceSets[i].map(s => s.service));
@@ -676,7 +671,6 @@ async function _goCommandPicker() {
     }
   } catch(e) {
     const el = document.getElementById('wiz-cmd-params');
-    const { _esc } = WizardCore;
     if (el) el.innerHTML = `<div class="wiz-error">Could not load device commands.<br><small>${_esc(e.message)}</small></div>`;
   }
 }

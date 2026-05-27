@@ -555,6 +555,13 @@ function _renderDevPanelList(query) {
   });
 }
 
+// Capability lookup for condition picker.
+// Resolves sel.tokens → one array of entity_ids per physical device group.
+// For each group: fetches caps for ALL entity_ids, unions them.
+// When unioning, caps named "state" with a device_class get renamed to their
+// device_class so "illuminance", "temperature", "battery" appear as distinct
+// attributes instead of all collapsing into one "state" entry.
+// Then intersects the unioned cap sets across all selected physical devices.
 async function _loadCapsIntoSelect() {
   const { _esc, DEMO_DEVICES, _getCapsForDomain, _getGroupedEntityIdsForTokens } = WizardCore;
   const _sel = WizardCore.sel;
@@ -570,12 +577,9 @@ async function _loadCapsIntoSelect() {
     try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
   }
 
-  // Resolve tokens → one array of entity_ids per physical device group.
-  // friendly name → group → ALL entity_ids in group (not just primary).
   const tokens = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
   const deviceGroups = _getGroupedEntityIdsForTokens(tokens);
 
-  // Demo device shortcut
   const demo = DEMO_DEVICES.find(d =>
     deviceGroups.length === 1 && deviceGroups[0].includes(d.entity_id)
   );
@@ -589,9 +593,9 @@ async function _loadCapsIntoSelect() {
     return;
 
   } else {
-    // For each physical device group: fetch caps for ALL entity_ids in the group,
-    // union them into one cap set for that device.
-    // Then intersect across all selected physical devices.
+    // For each physical device group: fetch caps for ALL entity_ids, union them.
+    // Caps named "state" with a device_class are stored under device_class key
+    // so illuminance/temperature/battery appear as distinct picker entries.
     const groupCapSets = await Promise.all(deviceGroups.map(async entityIds => {
       const allCaps = await Promise.all(entityIds.map(async id => {
         try {
@@ -601,11 +605,20 @@ async function _loadCapsIntoSelect() {
           return _getCapsForDomain(id);
         }
       }));
-      // Union caps across all sub-entities in this device group
+      // Union: key by device_class when name is "state" and device_class exists,
+      // otherwise key by name. This keeps illuminance/temperature/battery distinct.
       const seen = new Map();
       for (const capList of allCaps) {
         for (const cap of capList) {
-          if (!seen.has(cap.name)) seen.set(cap.name, cap);
+          const key = (cap.name === 'state' && cap.device_class) ? cap.device_class : cap.name;
+          if (!seen.has(key)) {
+            // Store with display name = device_class when available, else cap.name
+            seen.set(key, {
+              ...cap,
+              name: key,
+              display_name: key,
+            });
+          }
         }
       }
       return [...seen.values()];

@@ -714,8 +714,8 @@ const Editor = (() => {
     } else if (t === 'set_variable' || t === 'wait' || t === 'log_message' || t === 'action' || t === 'call_piston') {
       Wizard.open('task', node, {});
     } else if (t === 'if') {
-      // Clicking the 'if' keyword opens the condition/group picker to add a condition.
-      Wizard.open('if_condition', null, { 'block-id': node.id });
+      // Clicking the 'if' keyword opens the Edit if screen (WebCoRE style).
+      Wizard.open('if', node, { 'block-id': node.id });
     } else {
       Wizard.open(t, node, {});
     }

@@ -662,12 +662,9 @@ const Wizard = (() => {
         return;
       }
 
-      // If block edit
+      // If block edit — opens WebCoRE-style Edit if screen with Delete button.
       if (t === 'if') {
-        _context = 'if_condition';
-        _extra = { 'block-id': _editNode.id };
-        _sel.statement_class = 'condition';
-        _goConditionOrGroup();
+        _goIfBlockEdit();
         return;
       }
 

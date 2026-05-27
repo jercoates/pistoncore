@@ -172,3 +172,56 @@ function _goBlockConfirm({ title, desc, warning, btnLabel, node, ctx, meta, bran
     }
   });
 }
+
+// ── Edit if block screen ─────────────────────────────────────────────────────
+// WebCoRE style: shows description, Condition/Group cards, and Delete button.
+// Clicking Condition or Group scopes the wizard into the block to add to it.
+// Clicking Delete removes the entire if block.
+
+function _goIfBlockEdit() {
+  const { _esc, _render, _pushStep, _deleteEditNode, close } = WizardCore;
+  WizardCore.step = 'if_edit';
+  _pushStep(_goIfBlockEdit);
+  const node = WizardCore.editNode;
+
+  _render('Edit if',
+    `<div class="wiz-desc">An IF block is the simplest decisional block available. It allows you to execute different actions depending on conditions you set.</div>
+     <div class="wiz-two-cards">
+       <div class="wiz-card-option" id="wiz-if-add-cond">
+         <div class="wiz-card-option-title" style="color:var(--teal)">Condition</div>
+         <div class="wiz-card-option-desc">A condition is a single comparison between two or more operands, the basic building block of a decisional statement</div>
+         <button class="btn btn-primary btn-sm wiz-card-btn">Add a condition</button>
+       </div>
+       <div class="wiz-card-option" id="wiz-if-add-group">
+         <div class="wiz-card-option-title" style="color:var(--orange)">Group</div>
+         <div class="wiz-card-option-desc">A group is a collection of conditions, with a logical operator between them, allowing for complex decisional statements</div>
+         <button class="btn btn-orange btn-sm wiz-card-btn">Add a group</button>
+       </div>
+     </div>`,
+    `<div class="wiz-footer-left">
+       <button class="btn btn-ghost btn-sm" id="wiz-if-cancel">Cancel</button>
+       <button class="btn btn-danger btn-sm" id="wiz-if-delete">Delete</button>
+     </div>`
+  );
+
+  document.getElementById('wiz-if-cancel')?.addEventListener('click', close);
+  document.getElementById('wiz-if-delete')?.addEventListener('click', _deleteEditNode);
+
+  document.getElementById('wiz-if-add-cond')?.addEventListener('click', () => {
+    WizardCore.context      = 'if_condition';
+    WizardCore.extra        = { 'block-id': node.id };
+    WizardCore.editNode     = null;
+    WizardCore.sel          = { statement_class: 'condition' };
+    WizardCore.stepStack    = [];
+    _goConditionBuilder();
+  });
+
+  document.getElementById('wiz-if-add-group')?.addEventListener('click', () => {
+    WizardCore.context      = 'if_condition';
+    WizardCore.extra        = { 'block-id': node.id };
+    WizardCore.editNode     = null;
+    WizardCore.sel          = { statement_class: 'group' };
+    WizardCore.stepStack    = [];
+    _goGroupBuilder();
+  });
+}

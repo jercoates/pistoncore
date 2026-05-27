@@ -533,10 +533,12 @@ function _saveLocationCmd(addMore) {
   }
 }
 
-// GAP-S63-7: Command picker — fetches services for ALL resolved entity_ids
-// and intersects results so only commands every selected device supports are shown.
+// Command picker — fetches services for each selected device and intersects
+// so only commands every selected device supports are shown.
+// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
+// to one service lookup per physical device, not per sub-entity.
 async function _goCommandPicker() {
-  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getFlatEntityIds } = WizardCore;
+  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getPrimaryIdsForTokens, _getFlatEntityIds } = WizardCore;
   WizardCore.step = 'cmd';
   _pushStep(_goCommandPicker);
   const _sel  = WizardCore.sel;
@@ -567,8 +569,8 @@ async function _goCommandPicker() {
   document.getElementById('wiz-cmd-save')?.addEventListener('click', () => _saveDeviceCmd(false));
   document.getElementById('wiz-cmd-addmore')?.addEventListener('click', () => _saveDeviceCmd(true));
 
-  // Ensure deviceData is loaded before resolving tokens — _getFlatEntityIds needs it
-  // to look up friendly names → all entity_ids for device groups.
+  // Ensure deviceData is loaded — _getPrimaryIdsForTokens needs it to resolve
+  // friendly names → device groups → primary_entity_id.
   if (!WizardCore.deviceData) {
     try {
       const data = await API.getDevices();
@@ -576,11 +578,14 @@ async function _goCommandPicker() {
     } catch(e) {}
   }
 
-  // Resolve tokens → flat real entity_ids (Extraction Layer)
-  const flatIds = _getFlatEntityIds(_sel.tokens || [_sel.device_id].filter(Boolean));
+  // Resolve tokens → one primary_entity_id per physical device for service lookup.
+  // _getFlatEntityIds is used at commit time to write all entity_ids to the node.
+  // _getPrimaryIdsForTokens is used here so device variables give one service
+  // lookup per device, not one per sub-entity.
+  const primaryIds = _getPrimaryIdsForTokens(_sel.tokens || [_sel.device_id].filter(Boolean));
 
   // Demo device shortcut — single demo device, use its hardcoded services
-  const demo = DEMO_DEVICES.find(d => flatIds.length === 1 && d.entity_id === flatIds[0]);
+  const demo = DEMO_DEVICES.find(d => primaryIds.length === 1 && d.entity_id === primaryIds[0]);
   if (demo) {
     const sel = document.getElementById('wiz-cmd');
     if (sel) {
@@ -608,7 +613,7 @@ async function _goCommandPicker() {
     return;
   }
 
-  if (!flatIds.length) {
+  if (!primaryIds.length) {
     const el = document.getElementById('wiz-cmd-params');
     if (el) el.innerHTML = `<div class="wiz-error">No devices could be resolved. Check that your variables have devices assigned before building an action.</div>`;
     const cmdSel = document.getElementById('wiz-cmd');
@@ -617,8 +622,9 @@ async function _goCommandPicker() {
   }
 
   try {
-    // Fetch services for every resolved entity_id in parallel
-    const allResults = await Promise.all(flatIds.map(async id => {
+    // Fetch services for every resolved primary entity in parallel.
+    // One fetch per physical device — not per sub-entity.
+    const allResults = await Promise.all(primaryIds.map(async id => {
       try {
         const data = await API.getServices(id);
         return data.services || [];

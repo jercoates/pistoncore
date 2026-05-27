@@ -555,11 +555,13 @@ function _renderDevPanelList(query) {
   });
 }
 
-// GAP-S63-7: Capability intersection for condition picker.
-// Resolves sel.tokens → flat entity_ids, fetches caps for all, intersects.
-// Only attributes present across ALL selected entities are shown.
+// Capability intersection for condition picker.
+// Resolves sel.tokens → one primary_entity_id per physical device, fetches caps
+// for each device, intersects. Only attributes shared across ALL selected devices shown.
+// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
+// to one cap lookup per device, not one per sub-entity.
 async function _loadCapsIntoSelect() {
-  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getFlatEntityIds } = WizardCore;
+  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getPrimaryIdsForTokens } = WizardCore;
   const _sel = WizardCore.sel;
   const sel = document.getElementById('wiz-attr-select');
   if (!sel) return;
@@ -569,8 +571,8 @@ async function _loadCapsIntoSelect() {
 
   let caps = [];
 
-  // Ensure deviceData is loaded before resolving tokens — _getFlatEntityIds needs it
-  // to look up friendly names → all entity_ids for device groups.
+  // Ensure deviceData is loaded — _getPrimaryIdsForTokens needs it to resolve
+  // friendly names → device groups → primary_entity_id.
   if (!WizardCore.deviceData) {
     try {
       const data = await API.getDevices();
@@ -578,36 +580,35 @@ async function _loadCapsIntoSelect() {
     } catch(e) {}
   }
 
-  // Resolve tokens → flat real entity_ids (Extraction Layer)
-  const tokens  = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
-  const flatIds = _getFlatEntityIds(tokens);
+  // Resolve tokens → one primary_entity_id per physical device.
+  // This is the correct input for capability intersection: one device = one cap set.
+  const tokens     = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
+  const primaryIds = _getPrimaryIdsForTokens(tokens);
 
   // Demo device shortcut
-  const demo = DEMO_DEVICES.find(d => flatIds.length === 1 && d.entity_id === flatIds[0]);
+  const demo = DEMO_DEVICES.find(d => primaryIds.length === 1 && d.entity_id === primaryIds[0]);
   if (demo) {
     caps = demo.capabilities;
 
-  } else if (!flatIds.length) {
-    // Fix 3: tokens resolved to nothing — variable has no devices assigned yet.
+  } else if (!primaryIds.length) {
     WizardCore.sel._caps = [];
     sel.innerHTML = '<option value="">No devices available — check variable assignments</option>';
     sel.disabled = true;
     return;
 
-  } else if (flatIds.length) {
-    // Fetch capabilities for every resolved entity_id in parallel
-    const allResults = await Promise.all(flatIds.map(async id => {
+  } else {
+    // Fetch capabilities for each device's primary entity in parallel.
+    // One fetch per physical device — not per sub-entity.
+    const allResults = await Promise.all(primaryIds.map(async id => {
       try {
         const data = await API.getCapabilities(id);
         return data.capabilities || [];
       } catch(e) {
-        // Fall back to domain-based static map for this id
         return _getCapsForDomain(id);
       }
     }));
 
-    // GAP-S63-7 intersection: only keep caps present across ALL entity_ids.
-    // Start with first result's cap names, filter down through each subsequent result.
+    // Intersection: only keep caps present across ALL devices.
     if (allResults.length === 1) {
       caps = allResults[0];
     } else {
@@ -618,13 +619,12 @@ async function _loadCapsIntoSelect() {
           if (!thisSet.has(name)) intersectedNames.delete(name);
         }
       }
-      // Preserve full cap objects (attribute_type, values, etc.) from first result
       caps = allResults[0].filter(c => intersectedNames.has(c.name));
     }
 
-    // If intersection produced nothing, fall back to domain map for the first id
+    // If intersection produced nothing, fall back to domain map for the first primary
     if (!caps.length) {
-      caps = _getCapsForDomain(flatIds);
+      caps = _getCapsForDomain(primaryIds[0]);
     }
   }
 

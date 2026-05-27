@@ -9,7 +9,7 @@
 //   wizard-action.js
 //   wizard-variable.js
 //
-// All wizard files share state through the WizardState object defined here.
+// All wizard files share state through the WizardCore object defined here.
 // All helper functions (_esc, _newId, _render, _pushStep, _back, close, etc.)
 // are defined here and called directly by the other files — no imports needed
 // since all files load into the same global scope (vanilla JS, no modules).
@@ -19,19 +19,6 @@
 //   Wizard.close()
 
 const Wizard = (() => {
-
-  // ── Shared state (read/write from all wizard-*.js files) ──
-  // These are declared as plain vars here and referenced directly by name
-  // in all other wizard files. They are intentionally NOT on WizardState —
-  // the other files just use the same closure-level names via the global scope.
-  // IMPORTANT: all wizard-*.js files must be wrapped in the same IIFE pattern
-  // OR left as plain function declarations at module level so they can access
-  // these vars. See architecture note at bottom of this file.
-  //
-  // Architecture chosen: all wizard-*.js files declare their functions at the
-  // top level (no wrapping IIFE). This file defines the state vars as globals
-  // prefixed with _wiz_ to avoid collisions. The Wizard object is returned
-  // from this file's IIFE and exposed as window.Wizard.
 
   // ── State ─────────────────────────────────────────────────
   let _context   = null;
@@ -201,12 +188,10 @@ const Wizard = (() => {
     });
   }
 
-  // _groupDevices: what the device picker UI uses.
-  // Groups by HA device_id (physical device registry ID) — the correct key.
-  // Entities sharing a device_id are the same physical device (e.g. light.cave_light
-  // and sensor.cave_light_power both belong to device_id "abc123").
+  // _groupDevices: groups raw entity list into physical devices.
+  // Groups by HA device_id — entities sharing a device_id are the same physical device.
   // Falls back to entity_id as group key when device_id is absent.
-  // Display label: shortest friendly_name in the group (usually the main entity).
+  // Display label: shortest friendly_name in the group.
   // primary_entity_id: chosen by domain priority.
   const _DOMAIN_PRIORITY = [
     'light','switch','cover','fan','climate','lock','media_player',
@@ -215,7 +200,6 @@ const Wizard = (() => {
   ];
   function _groupDevices(raw) {
     const allowed = _filterDevices(raw);
-    // Group by device_id, fall back to entity_id
     const byDevice = new Map();
     for (const d of allowed) {
       const key = d.device_id || d.entity_id;
@@ -224,12 +208,10 @@ const Wizard = (() => {
     }
     const result = [];
     for (const [, entities] of byDevice) {
-      // Display label: shortest friendly_name in the group
       const label = entities.reduce((shortest, d) =>
         d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
         entities[0].friendly_name
       );
-      // Pick primary_entity_id by domain priority
       let primary = entities[0].entity_id;
       for (const domain of _DOMAIN_PRIORITY) {
         const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
@@ -245,9 +227,7 @@ const Wizard = (() => {
     return result;
   }
 
-  // Filter grouped devices by query — match against display label or primary entity_id only.
-  // Do NOT match against all entity_ids — that leaks power sensors and other sub-entities
-  // into results when user searches "light" and a device has sensor.xxx_light_power.
+  // Filter grouped devices by query — match against display label only.
   function _filterGrouped(grouped, query) {
     if (!query) return grouped;
     const lq = query.toLowerCase();
@@ -260,8 +240,6 @@ const Wizard = (() => {
     const ids = Array.isArray(entityIdOrList)
       ? entityIdOrList
       : String(entityIdOrList||'').split(',').map(s=>s.trim()).filter(Boolean);
-    // For a single entity, return the full domain caps array directly.
-    // For multiple entities, return caps whose names appear in all domains.
     if (ids.length === 1) {
       const domain = ids[0].split('.')[0];
       return DOMAIN_CAPS[domain] || [];
@@ -278,39 +256,30 @@ const Wizard = (() => {
   }
 
   // ── _getFlatEntityIds ─────────────────────────────────────
-  // Takes sel.tokens — the array of what the user actually selected in the picker.
-  // Each entry is one of:
-  //   - a real HA entity_id (contains a '.')          → use as-is
-  //   - a piston variable name (no '.', no '@')       → look up initial_value (friendly names)
-  //                                                     in Editor.getPistonVariables(), then resolve
-  //                                                     each friendly name to ALL entity_ids via deviceData
-  //   - a global variable token ('@name')             → look up value (friendly names) in globalsData,
-  //                                                     then resolve each friendly name to ALL entity_ids
-  //                                                     via deviceData
-  // Returns a flat, deduplicated array of real HA entity_ids.
-  // This is the Extraction Layer from the Architecture Guardrail.
-  // Used by both wizard-action.js and wizard-condition.js before any capability/service lookup.
+  // Used at NODE COMMIT TIME ONLY — writes entity_ids to action/condition nodes.
+  // Returns ALL entity_ids for ALL sub-entities of every selected device/variable.
+  // Do NOT use this for capability lookups — use _getPrimaryIdsForTokens instead.
+  //
+  // Tokens:
+  //   real HA entity_id (has '.')   → use as-is
+  //   piston variable name (no '.') → resolve initial_value (friendly names) → all entity_ids
+  //   @global token                 → resolve value (friendly names) → all entity_ids
   function _getFlatEntityIds(tokens) {
     const result = [];
     const seen = new Set();
     const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); result.push(id); } };
 
-    // Build a friendly_name → entity_ids map from live deviceData once per call.
-    // This is how we resolve friendly names stored in variable initial_value to all real entity_ids.
     function _friendlyNameToEntityIds(friendlyName) {
       const grouped = _groupDevices(_deviceData || []);
       const group = grouped.find(g => g.friendly_name === friendlyName);
       return group ? group.entity_ids : [];
     }
 
-    // Resolve an array of friendly names to flat entity_ids.
     function _resolveNames(names) {
       const ids = Array.isArray(names) ? names
         : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
       for (const name of ids) {
         if (!name) continue;
-        // If it looks like a real entity_id (contains '.'), use directly.
-        // Otherwise treat as a friendly name and look up all entity_ids for that device group.
         if (name.includes('.')) {
           add(name);
         } else {
@@ -321,31 +290,103 @@ const Wizard = (() => {
 
     for (const token of (tokens || [])) {
       if (!token) continue;
-
       if (token.startsWith('@')) {
-        // Global variable token — resolve from globalsData.
-        // initial_value on a global device variable is an array of friendly names.
         const gname = token.slice(1);
         const g = (_deviceData_globals || []).find(g => g.name === gname);
         const val = g?.value || g?.initial_value;
         _resolveNames(val);
-
       } else if (!token.includes('.')) {
-        // Piston variable name — resolve from Editor.getPistonVariables().
-        // initial_value on a piston device variable is an array of friendly names.
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
         _resolveNames(v?.initial_value);
-
       } else {
-        // Real HA entity_id — use directly (skip virtual __xxx__ ids)
         add(token);
       }
     }
     return result;
   }
 
-  // Internal reference to globals — kept in sync via WizardCore.globalsData setter
+  // ── _getPrimaryIdsForTokens ───────────────────────────────
+  // Used for CAPABILITY AND SERVICE INTERSECTION ONLY — never for writing nodes.
+  //
+  // Returns ONE primary_entity_id per physical device group.
+  // This is the correct input for the caps/services intersection because:
+  //   - A device variable stores friendly names — each friendly name is one physical device
+  //   - Each physical device gets ONE cap lookup via its primary_entity_id
+  //   - Intersection runs across devices, not across sub-entities
+  //
+  // Example: variable "MyLights" = ["Kitchen Light", "Living Room Light"]
+  //   _getFlatEntityIds     → ["light.kitchen_1", "sensor.kitchen_1_power", "light.living_room"]  (all sub-entities)
+  //   _getPrimaryIdsForTokens → ["light.kitchen_1", "light.living_room"]  (one primary per device)
+  //   Cap intersection runs across 2 devices → correct shared caps shown
+  //
+  // For plain entity_id tokens (user picked a physical row — row carries all entity_ids
+  // for that device comma-separated): finds the group containing that entity_id
+  // and returns its primary_entity_id.
+  //
+  // Read-only. Never modifies variables, deviceData, or any stored state.
+  function _getPrimaryIdsForTokens(tokens) {
+    const result = [];
+    const seen = new Set();
+    const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); result.push(id); } };
+
+    const grouped = _groupDevices(_deviceData || []);
+
+    // Find the group that contains this entity_id and return its primary_entity_id.
+    function _primaryForEntityId(entityId) {
+      const group = grouped.find(g => g.entity_ids.includes(entityId));
+      return group ? group.primary_entity_id : entityId;
+    }
+
+    // Resolve a friendly name to its group's primary_entity_id.
+    function _primaryForFriendlyName(friendlyName) {
+      const group = grouped.find(g => g.friendly_name === friendlyName);
+      return group ? group.primary_entity_id : null;
+    }
+
+    // Resolve an array of friendly names to one primary_entity_id per device.
+    function _resolveNamesToPrimaries(names) {
+      const ids = Array.isArray(names) ? names
+        : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
+      for (const name of ids) {
+        if (!name) continue;
+        if (name.includes('.')) {
+          add(_primaryForEntityId(name));
+        } else {
+          const primary = _primaryForFriendlyName(name);
+          if (primary) add(primary);
+        }
+      }
+    }
+
+    for (const token of (tokens || [])) {
+      if (!token) continue;
+
+      if (token.startsWith('@')) {
+        // Global variable — initial_value is an array of friendly names.
+        // Each friendly name = one physical device = one primary id.
+        const gname = token.slice(1);
+        const g = (_deviceData_globals || []).find(g => g.name === gname);
+        const val = g?.value || g?.initial_value;
+        _resolveNamesToPrimaries(val);
+
+      } else if (!token.includes('.')) {
+        // Piston variable — initial_value is an array of friendly names.
+        // Each friendly name = one physical device = one primary id.
+        const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
+        const v = vars.find(v => v.var_type === 'device' && v.name === token);
+        _resolveNamesToPrimaries(v?.initial_value);
+
+      } else {
+        // Real HA entity_id — find its group's primary_entity_id.
+        // All entity_ids on a physical row belong to the same group.
+        add(_primaryForEntityId(token));
+      }
+    }
+    return result;
+  }
+
+  // Internal reference to globals
   let _deviceData_globals = null;
 
   // ── Demo devices (fallback when no HA connection) ─────────
@@ -412,7 +453,7 @@ const Wizard = (() => {
     },
   ];
 
-  // ── Virtual / system devices (for action device picker) ───
+  // ── Virtual / system devices ───────────────────────────────
   const VIRTUAL_DEVICES = [
     { entity_id:'__location__', friendly_name:'Location'     },
     { entity_id:'__time__',     friendly_name:'Time'         },
@@ -425,7 +466,7 @@ const Wizard = (() => {
     '$currentEventDevice','$previousEventDevice','$device','$devices','$location',
   ];
 
-  // ── Location (virtual) commands — matches WebCoRE exactly ─
+  // ── Location (virtual) commands ────────────────────────────
   const LOCATION_COMMANDS = [
     { id:'set_variable',      label:'Set variable...'           },
     { id:'execute_piston',    label:'Execute piston...'         },
@@ -437,7 +478,7 @@ const Wizard = (() => {
     { id:'raise_event',       label:'Raise an event...'         },
   ];
 
-  // ── Statement type cards — matches WebCoRE designer.items ─
+  // ── Statement type cards ───────────────────────────────────
   const STATEMENT_TYPES = {
     basic: [
       { type:'if_block',   label:'If Block',  desc:'Execute different actions depending on conditions you set',  btn:'Add an if block', cls:'btn-primary' },
@@ -457,11 +498,9 @@ const Wizard = (() => {
     ],
   };
 
-  // ── Weekday helpers ────────────────────────────────────────
   const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-  // ── Inject combo CSS once ─────────────────────────────────
   function _injectComboCSS() {
     if (document.getElementById('wiz-combo-css')) return;
     const s = document.createElement('style');
@@ -493,8 +532,6 @@ const Wizard = (() => {
     _extra    = extra || {};
     _step     = null;
     _stepStack = [];
-    // Deep clone to avoid mutating the piston tree during wizard editing.
-    // Shallow spread loses nested arrays (entity_ids, tasks, parameters, conditions).
     _sel = editNode ? JSON.parse(JSON.stringify(editNode)) : {};
 
     _injectComboCSS();
@@ -532,11 +569,7 @@ const Wizard = (() => {
     if (_editNode) {
       const t = _editNode.type;
 
-      // Condition / trigger / restriction edit
-      // Also catches condition nodes built by _buildConditionNode which have no .type field,
-      // and conditions inside if blocks opened via if_condition context.
       if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition' || ctx === 'if_condition') {
-        // Group condition — route to group builder, not condition builder (GAP-S44-1)
         if (_editNode.is_group || _editNode.type === 'group') {
           _sel.group_condition_operator = _editNode.group_operator || _editNode.operator || 'and';
           _goGroupBuilder();
@@ -564,30 +597,18 @@ const Wizard = (() => {
           } else {
             _sel.subject_type   = 'device';
             _sel.device_label   = role;
-            // tokens: what the user originally selected (variable names, globals, entity_ids).
-            // Stored on the node as role_tokens if saved that way; fall back to entity_ids.
-            // role_tokens: what user picked (variable names, @globals, entity_ids).
-            // Fix 6: if role_tokens absent (node saved before this session), fall back
-            // to entity_ids as tokens — _getFlatEntityIds passes plain entity_ids through.
-            // Fix 5: sel.tokens is authoritative. sel.devices not set here.
             const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
             const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
             if (nodeTokens.length) {
-              // New format: role_tokens present
               _sel.tokens    = nodeTokens;
               _sel.device_id = nodeTokens[0];
             } else if (nodeIds.length) {
-              // No role_tokens — use entity_ids as tokens (nodes saved mid-session)
               _sel.tokens    = nodeIds;
               _sel.device_id = nodeIds[0];
             } else if (role && !['time','date','mode'].includes(role)) {
-              // Old imported format: no entity_ids, no role_tokens.
-              // role is a variable name (e.g. "Motion_sensor") — use it as token.
-              // _getFlatEntityIds will resolve it through piston variables at cap-load time.
               _sel.tokens    = [role];
               _sel.device_id = role;
             } else {
-              // Nothing — clear selection
               _sel.tokens    = [];
               _sel.device_id = '';
             }
@@ -597,9 +618,6 @@ const Wizard = (() => {
         }
         _sel.operator        = _editNode.operator || '';
         _sel.aggregation     = _editNode.aggregation || 'any';
-        // display_value is what the user typed/selected (e.g. "Active").
-        // compiled_value is the HA state string (e.g. "on").
-        // Always show display_value in the wizard — compiled_value is for the compiler only.
         _sel.value           = _editNode.display_value || _editNode.value || _editNode.compiled_value || '';
         _sel.value2          = _editNode.value_to || '';
         _sel.duration_amount = _editNode.duration || 1;
@@ -612,26 +630,16 @@ const Wizard = (() => {
         return;
       }
 
-      // Variable edit
       if (t === 'variable') { _goVariablePicker(); return; }
 
-      // Location command edits
       if (t === 'set_variable') { _goLocationCmd('set_variable'); return; }
       if (t === 'wait')         { _goLocationCmd('wait');         return; }
       if (t === 'log_message')  { _goLocationCmd('log');          return; }
       if (t === 'call_piston')  { _goLocationCmd('execute_piston'); return; }
 
-      // Action edit
       if (t === 'action') {
-        // role_tokens: what the user picked (variable names, globals, entity_ids).
-        // entity_ids: the resolved flat list at last save time.
-        // On edit, restore tokens so the picker highlights the right rows.
-        // role_tokens: what user picked. Absent on old nodes — fall back to entity_ids.
-        // Fix 5: sel.tokens authoritative. Fix 6: entity_ids as token fallback.
         const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
         const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
-        // Old imported format: no role_tokens, no entity_ids — devices array holds role names.
-        // Treat them as tokens so _getFlatEntityIds resolves through piston variables.
         const oldDevices = (_editNode.devices || []).filter(d => d && d !== 'Location');
         if (nodeTokens.length) {
           _sel.tokens = nodeTokens;
@@ -662,13 +670,8 @@ const Wizard = (() => {
         return;
       }
 
-      // If block edit — opens WebCoRE-style Edit if screen with Delete button.
-      if (t === 'if') {
-        _goIfBlockEdit();
-        return;
-      }
+      if (t === 'if') { _goIfBlockEdit(); return; }
 
-      // Every / timer edit
       if (t === 'every') {
         _sel.interval           = _editNode.interval || 5;
         _sel.interval_unit      = _editNode.interval_unit || 'minutes';
@@ -681,7 +684,6 @@ const Wizard = (() => {
         return;
       }
 
-      // For each edit
       if (t === 'for_each') {
         _sel.variable  = _editNode.variable || '$device';
         _sel.list_role = _editNode.list_role || '';
@@ -689,7 +691,6 @@ const Wizard = (() => {
         return;
       }
 
-      // For loop edit
       if (t === 'for') {
         _sel.for_start   = _editNode.start ?? 1;
         _sel.for_end     = _editNode.end ?? 10;
@@ -699,7 +700,6 @@ const Wizard = (() => {
         return;
       }
 
-      // Switch edit
       if (t === 'switch') {
         _sel.switch_expression = _editNode.expression || null;
         _sel.switch_ctp        = _editNode.case_traversal_policy || 'safe';
@@ -707,7 +707,6 @@ const Wizard = (() => {
         return;
       }
 
-      // While edit
       if (t === 'while') {
         _sel.statement_class = 'condition';
         _context = 'if_condition';
@@ -716,13 +715,8 @@ const Wizard = (() => {
         return;
       }
 
-      // Exit edit
-      if (t === 'exit') {
-        _goExitPicker();
-        return;
-      }
+      if (t === 'exit') { _goExitPicker(); return; }
 
-      // Repeat, do, on_event, break — no configurable fields, show simple edit screen with delete
       if (t === 'repeat' || t === 'do' || t === 'on_event' || t === 'break') {
         const labels = { repeat:'Repeat Loop', do:'Do Block', on_event:'On Event', break:'Break' };
         const descs  = {
@@ -745,7 +739,7 @@ const Wizard = (() => {
       }
     }
 
-    // ── New statement routing by context ─────────────────────
+    // ── New statement routing by context ──────────────────────
     if (ctx === 'condition_operator') {
       _goConditionOperatorEditor();
     } else if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
@@ -780,9 +774,6 @@ const Wizard = (() => {
     };
   }
 
-  // ── DELETE ────────────────────────────────────────────────
-  // Close the wizard FIRST so the confirm dialog isn't behind the wizard backdrop.
-  // Capture the id before closing since close() clears _editNode.
   function _deleteEditNode() {
     if (!_editNode?.id) return;
     const id = _editNode.id;
@@ -796,7 +787,6 @@ const Wizard = (() => {
     });
   }
 
-  // ── Helpers ───────────────────────────────────────────────
   function _newId() {
     return 'stmt_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
       .map(b => b.toString(16).padStart(2,'0')).join('');
@@ -816,23 +806,8 @@ const Wizard = (() => {
     return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Architecture note ─────────────────────────────────────
-  // The functions called from _route() above (_goConditionBuilder, _goVariablePicker,
-  // _goStatementTypePicker, etc.) are defined in the other wizard-*.js files as
-  // plain `function` declarations at the top level of those files (NOT inside any IIFE).
-  // This means they are hoisted into the global (window) scope and accessible here.
-  //
-  // The state vars (_context, _editNode, _extra, _step, _sel, _stepStack, _deviceData)
-  // and helpers (_esc, _newId, _render, _pushStep, _back, close, _deleteEditNode, etc.)
-  // are defined in THIS file's IIFE closure, but they are NOT accessible to the
-  // top-level functions in the other files by default.
-  //
-  // SOLUTION: expose them on a WizardCore namespace object so the other files
-  // can access shared state and helpers without being inside this closure.
-
   // Public interface used by ALL other wizard-*.js files:
   const WizardCore = {
-    // State accessors
     get context()    { return _context; },
     set context(v)   { _context = v; },
     get editNode()   { return _editNode; },
@@ -847,18 +822,16 @@ const Wizard = (() => {
     set stepStack(v) { _stepStack = v; },
     get deviceData() { return _deviceData; },
     set deviceData(v){ _deviceData = v; },
-    // globalsData setter also keeps _deviceData_globals in sync so _getFlatEntityIds can use it
     get globalsData()  { return _deviceData_globals; },
     set globalsData(v) { _deviceData_globals = v; },
 
-    // Constants (read-only references)
     CONDITIONS, TRIGGERS, NEEDS_VALUE, NEEDS_DURATION_INTHELAST, NEEDS_DURATION_FOR,
     NEEDS_TWO_VALUES, DOMAIN_CAPS, ALLOWED_DOMAINS, DEMO_DEVICES, VIRTUAL_DEVICES,
     SYSTEM_VARS, LOCATION_COMMANDS, STATEMENT_TYPES, WEEKDAYS, MONTHS,
 
-    // Helper functions
     isTrigger, _durationLabel, _needsDuration,
-    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain, _getFlatEntityIds,
+    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain,
+    _getFlatEntityIds, _getPrimaryIdsForTokens,
     _esc, _newId, _taskId, _condId,
     _render, _pushStep, _back, close,
     _deleteEditNode,

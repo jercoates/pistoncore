@@ -569,6 +569,15 @@ async function _loadCapsIntoSelect() {
 
   let caps = [];
 
+  // Ensure deviceData is loaded before resolving tokens — _getFlatEntityIds needs it
+  // to look up friendly names → all entity_ids for device groups.
+  if (!WizardCore.deviceData) {
+    try {
+      const data = await API.getDevices();
+      WizardCore.deviceData = data;
+    } catch(e) {}
+  }
+
   // Resolve tokens → flat real entity_ids (Extraction Layer)
   const tokens  = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
   const flatIds = _getFlatEntityIds(tokens);

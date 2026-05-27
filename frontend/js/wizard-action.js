@@ -567,6 +567,15 @@ async function _goCommandPicker() {
   document.getElementById('wiz-cmd-save')?.addEventListener('click', () => _saveDeviceCmd(false));
   document.getElementById('wiz-cmd-addmore')?.addEventListener('click', () => _saveDeviceCmd(true));
 
+  // Ensure deviceData is loaded before resolving tokens — _getFlatEntityIds needs it
+  // to look up friendly names → all entity_ids for device groups.
+  if (!WizardCore.deviceData) {
+    try {
+      const data = await API.getDevices();
+      WizardCore.deviceData = data;
+    } catch(e) {}
+  }
+
   // Resolve tokens → flat real entity_ids (Extraction Layer)
   const flatIds = _getFlatEntityIds(_sel.tokens || [_sel.device_id].filter(Boolean));
 

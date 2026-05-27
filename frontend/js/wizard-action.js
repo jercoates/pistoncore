@@ -621,7 +621,8 @@ async function _goCommandPicker() {
       const allResults = await Promise.all(entityIds.map(async id => {
         try {
           const data = await API.getServices(id);
-          return data.services || [];
+          // Backend may return array directly or wrapped in {services:[]}
+          return Array.isArray(data) ? data : (data.services || []);
         } catch(e) {
           return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
         }

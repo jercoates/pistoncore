@@ -535,7 +535,7 @@ function _saveLocationCmd(addMore) {
 
 // Command picker — fetches services for each selected device and intersects
 // so only commands every selected device supports are shown.
-// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
+// Uses _getGroupedEntityIdsForTokens (not _getFlatEntityIds) so device variables resolve
 // to one service lookup per physical device, not per sub-entity.
 async function _goCommandPicker() {
   const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getGroupedEntityIdsForTokens, _getFlatEntityIds } = WizardCore;

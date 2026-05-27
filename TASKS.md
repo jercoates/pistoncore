@@ -1,11 +1,11 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 66 — Device variable capability intersection fixed.
-_getPrimaryIdsForTokens added to wizard-core.js. _loadCapsIntoSelect and _goCommandPicker
-now use primary_entity_id per physical device for intersection, not all sub-entity ids flat.
-Two new gaps found: GAP-S66-1 (logic_version blocker in editor.js), GAP-S66-2
-(_reResolveVariableUses deviceData guard). Next: D-S5 then W-S10 continued.
+**Last Updated:** Session 67 — Cap/service intersection rewritten with _getGroupedEntityIdsForTokens.
+Globals aligned to store friendly names. API.getServices array response fixed.
+Four new gaps found: GAP-S67-1 (interaction row on conditions), GAP-S67-2 (Next button dead
+for variables + physical rows write all entity_ids to sel.tokens), GAP-S67-3 (command picker
+shows all params immediately), GAP-S67-4 (variable prefix missing in condition button).
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions:** See TASKS_HISTORY.md
 
@@ -123,11 +123,15 @@ Session 66 also completed: editor.js logic_version fix (GAP-S66-1), deviceData n
 guard in _reResolveVariableUses (GAP-S66-2), for_each grouped device picker (GAP-S63-5).
 
 Still open for W-S10:
+- GAP-S67-1: Interaction row shows on conditions — only show when isTrigger(op)
+- GAP-S67-2: Next button dead when piston variable selected; physical rows write all entity_ids to sel.tokens instead of primary_entity_id only
+- GAP-S67-3: Command picker shows all params immediately — should wait for command selection
+- GAP-S67-4: Variable/global names missing prefix in condition device button
 - GAP-S64-2: Old-format piston picker state wrong — debug first, then fix
 - GAP-S46-5: Import modal has no file picker
 - GAP-S58-2: Copy/paste/duplicate statements
 
-**Upload for W-S10 continued:**
+**Upload for W-S10 continued (Session 68):**
 wizard-loops.js, wizard-core.js, wizard-action.js, wizard-condition.js,
 wizard-variable.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
@@ -217,6 +221,21 @@ Only attempt once W-S9, B-1, and G-3 are complete.
 ---
 
 ## Open Gaps — All Assigned
+
+### Session 67 gaps (new)
+
+- **GAP-S67-1 → W-S10:** Interaction row shows on conditions — should only show when
+  isTrigger(op) is true. Fix `showInteraction` in `_goConditionBuilder` and
+  `_refreshConditionRows` in wizard-condition.js.
+- **GAP-S67-2 → W-S10:** Next button dead when piston variable selected in action picker.
+  Also: physical device rows write all entity_ids (comma-separated) to sel.tokens —
+  should write only primary_entity_id. Fix `_renderActDevList` (wizard-action.js) and
+  `_renderDevPanelList` (wizard-condition.js).
+- **GAP-S67-3 → W-S10:** Action command picker shows all parameter fields immediately.
+  Should show no fields until command selected, then only relevant fields.
+  Fix `_goCommandPicker` and `_renderCmdParams` in wizard-action.js.
+- **GAP-S67-4 → W-S10:** Variable/global names missing prefix in condition device button.
+  Check WIZARD_SPEC.md for correct display format, fix button label in wizard-condition.js.
 
 ### Session 63 gaps
 

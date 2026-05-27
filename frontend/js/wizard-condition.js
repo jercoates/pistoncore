@@ -555,13 +555,8 @@ function _renderDevPanelList(query) {
   });
 }
 
-// Capability intersection for condition picker.
-// Resolves sel.tokens → one primary_entity_id per physical device, fetches caps
-// for each device, intersects. Only attributes shared across ALL selected devices shown.
-// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
-// to one cap lookup per device, not one per sub-entity.
 async function _loadCapsIntoSelect() {
-  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getPrimaryIdsForTokens } = WizardCore;
+  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getGroupedEntityIdsForTokens } = WizardCore;
   const _sel = WizardCore.sel;
   const sel = document.getElementById('wiz-attr-select');
   if (!sel) return;
@@ -571,61 +566,66 @@ async function _loadCapsIntoSelect() {
 
   let caps = [];
 
-  // Ensure deviceData is loaded — _getPrimaryIdsForTokens needs it to resolve
-  // friendly names → device groups → primary_entity_id.
   if (!WizardCore.deviceData) {
-    try {
-      const data = await API.getDevices();
-      WizardCore.deviceData = data;
-    } catch(e) {}
+    try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
   }
 
-  // Resolve tokens → one primary_entity_id per physical device.
-  // This is the correct input for capability intersection: one device = one cap set.
-  const tokens     = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
-  const primaryIds = _getPrimaryIdsForTokens(tokens);
+  // Resolve tokens → one array of entity_ids per physical device group.
+  // friendly name → group → ALL entity_ids in group (not just primary).
+  const tokens = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
+  const deviceGroups = _getGroupedEntityIdsForTokens(tokens);
 
   // Demo device shortcut
-  const demo = DEMO_DEVICES.find(d => primaryIds.length === 1 && d.entity_id === primaryIds[0]);
+  const demo = DEMO_DEVICES.find(d =>
+    deviceGroups.length === 1 && deviceGroups[0].includes(d.entity_id)
+  );
   if (demo) {
     caps = demo.capabilities;
 
-  } else if (!primaryIds.length) {
+  } else if (!deviceGroups.length) {
     WizardCore.sel._caps = [];
     sel.innerHTML = '<option value="">No devices available — check variable assignments</option>';
     sel.disabled = true;
     return;
 
   } else {
-    // Fetch capabilities for each device's primary entity in parallel.
-    // One fetch per physical device — not per sub-entity.
-    const allResults = await Promise.all(primaryIds.map(async id => {
-      try {
-        const data = await API.getCapabilities(id);
-        return data.capabilities || [];
-      } catch(e) {
-        return _getCapsForDomain(id);
+    // For each physical device group: fetch caps for ALL entity_ids in the group,
+    // union them into one cap set for that device.
+    // Then intersect across all selected physical devices.
+    const groupCapSets = await Promise.all(deviceGroups.map(async entityIds => {
+      const allCaps = await Promise.all(entityIds.map(async id => {
+        try {
+          const data = await API.getCapabilities(id);
+          return data.capabilities || [];
+        } catch(e) {
+          return _getCapsForDomain(id);
+        }
+      }));
+      // Union caps across all sub-entities in this device group
+      const seen = new Map();
+      for (const capList of allCaps) {
+        for (const cap of capList) {
+          if (!seen.has(cap.name)) seen.set(cap.name, cap);
+        }
       }
+      return [...seen.values()];
     }));
 
-    // Intersection: only keep caps present across ALL devices.
-    if (allResults.length === 1) {
-      caps = allResults[0];
+    // Intersect across physical devices — only caps shared by ALL selected devices
+    if (groupCapSets.length === 1) {
+      caps = groupCapSets[0];
     } else {
-      let intersectedNames = new Set(allResults[0].map(c => c.name));
-      for (let i = 1; i < allResults.length; i++) {
-        const thisSet = new Set(allResults[i].map(c => c.name));
+      let intersectedNames = new Set(groupCapSets[0].map(c => c.name));
+      for (let i = 1; i < groupCapSets.length; i++) {
+        const thisSet = new Set(groupCapSets[i].map(c => c.name));
         for (const name of intersectedNames) {
           if (!thisSet.has(name)) intersectedNames.delete(name);
         }
       }
-      caps = allResults[0].filter(c => intersectedNames.has(c.name));
+      caps = groupCapSets[0].filter(c => intersectedNames.has(c.name));
     }
 
-    // If intersection produced nothing, fall back to domain map for the first primary
-    if (!caps.length) {
-      caps = _getCapsForDomain(primaryIds[0]);
-    }
+    if (!caps.length) caps = _getCapsForDomain(deviceGroups[0][0]);
   }
 
   WizardCore.sel._caps = caps;
@@ -633,7 +633,6 @@ async function _loadCapsIntoSelect() {
     caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" data-class="${_esc(c.device_class||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
   sel.disabled = false;
 
-  // Restore device_class from prior attribute selection if still valid
   if (_sel.attribute) {
     const opt = sel.querySelector(`option[value="${CSS.escape(_sel.attribute)}"]`);
     if (opt) WizardCore.sel.device_class = opt.dataset.class || null;

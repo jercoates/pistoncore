@@ -277,7 +277,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-all').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => selected.add(id)));
+      visible.forEach(d => selected.add(d.primary_entity_id));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -285,7 +285,7 @@ const GlobalsDrawer = (() => {
     document.getElementById('gf-sel-none').addEventListener('click', () => {
       const q = document.getElementById('gf-device-filter')?.value || '';
       const visible = _filteredDevices(q);
-      visible.forEach(d => (d.entity_ids || [d.primary_entity_id]).forEach(id => selected.delete(id)));
+      visible.forEach(d => selected.delete(d.primary_entity_id));
       _renderDeviceRows(selected, q);
       _updateSummary(selected);
     });
@@ -333,6 +333,11 @@ const GlobalsDrawer = (() => {
     }
     const result = [];
     for (const [, entities] of byDevice) {
+      let primary = entities[0].entity_id;
+      for (const domain of _DOMAIN_PRIORITY) {
+        const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
+        if (match) { primary = match.entity_id; break; }
+      }
       const label = entities.reduce((shortest, d) =>
         d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
         entities[0].friendly_name
@@ -341,11 +346,6 @@ const GlobalsDrawer = (() => {
       // not all entity_ids, to avoid leaking power sensors into "light" searches.
       if (lq && !label.toLowerCase().includes(lq) &&
           !primary.toLowerCase().includes(lq)) continue;
-      let primary = entities[0].entity_id;
-      for (const domain of _DOMAIN_PRIORITY) {
-        const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
-        if (match) { primary = match.entity_id; break; }
-      }
       result.push({ friendly_name: label, entity_ids: entities.map(d => d.entity_id), primary_entity_id: primary });
     }
     result.sort((a, b) => a.friendly_name.toLowerCase().localeCompare(b.friendly_name.toLowerCase()));

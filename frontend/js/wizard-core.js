@@ -258,7 +258,7 @@ const Wizard = (() => {
   // ── _getFlatEntityIds ─────────────────────────────────────
   // Used at NODE COMMIT TIME ONLY — writes entity_ids to action/condition nodes.
   // Returns ALL entity_ids for ALL sub-entities of every selected device/variable.
-  // Do NOT use this for capability lookups — use _getPrimaryIdsForTokens instead.
+  // Do NOT use this for capability lookups — use _getGroupedEntityIdsForTokens instead.
   //
   // Tokens:
   //   real HA entity_id (has '.')   → use as-is
@@ -298,20 +298,7 @@ const Wizard = (() => {
       } else if (!token.includes('.')) {
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        const vals = Array.isArray(v?.initial_value) ? v.initial_value : [];
-        for (const val of vals) {
-          if (!val) continue;
-          if (val.includes('.')) {
-            // New format: primary_entity_id — expand to all entity_ids in its group
-            const grouped = _groupDevices(_deviceData || []);
-            const group = grouped.find(g => g.entity_ids.includes(val));
-            if (group) group.entity_ids.forEach(add);
-            else add(val);
-          } else {
-            // Old format: friendly name — resolve to all entity_ids via group label
-            _friendlyNameToEntityIds(val).forEach(add);
-          }
-        }
+        _resolveNames(v?.initial_value);
       } else {
         add(token);
       }
@@ -319,98 +306,67 @@ const Wizard = (() => {
     return result;
   }
 
-  // ── _getPrimaryIdsForTokens ───────────────────────────────
-  // Used for CAPABILITY AND SERVICE INTERSECTION ONLY — never for writing nodes.
+  // ── _getGroupedEntityIdsForTokens ────────────────────────
+  // Used for CAPABILITY AND SERVICE LOOKUP ONLY — never for writing nodes.
   //
-  // Returns ONE primary_entity_id per physical device group.
-  // This is the correct input for the caps/services intersection because:
-  //   - A device variable stores friendly names — each friendly name is one physical device
-  //   - Each physical device gets ONE cap lookup via its primary_entity_id
-  //   - Intersection runs across devices, not across sub-entities
+  // Returns an array of entity_id arrays — one inner array per physical device group.
+  // Each inner array contains ALL entity_ids for that physical device.
+  // Friendly name → group → ALL entity_ids in group → fetch caps for all → union.
+  // Intersect the unioned cap sets across all selected physical devices.
   //
-  // Example: variable "MyLights" = ["Kitchen Light", "Living Room Light"]
-  //   _getFlatEntityIds     → ["light.kitchen_1", "sensor.kitchen_1_power", "light.living_room"]  (all sub-entities)
-  //   _getPrimaryIdsForTokens → ["light.kitchen_1", "light.living_room"]  (one primary per device)
-  //   Cap intersection runs across 2 devices → correct shared caps shown
+  // This means "Outdoor Motion" exposes motion + battery + illuminance + temperature,
+  // not just the dominant-domain entity's caps.
   //
-  // For plain entity_id tokens (user picked a physical row — row carries all entity_ids
-  // for that device comma-separated): finds the group containing that entity_id
-  // and returns its primary_entity_id.
+  // Tokens:
+  //   real HA entity_id  → find its group → return all entity_ids in that group
+  //   piston variable    → friendly names in initial_value → groups → all entity_ids
+  //   @global token      → friendly names in value → groups → all entity_ids
   //
-  // Read-only. Never modifies variables, deviceData, or any stored state.
-  function _getPrimaryIdsForTokens(tokens) {
-    const result = [];
-    const seen = new Set();
-    const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); result.push(id); } };
-
+  // Read-only. Never modifies stored state.
+  function _getGroupedEntityIdsForTokens(tokens) {
     const grouped = _groupDevices(_deviceData || []);
+    const seenGroups = new Set();
+    const result = [];
 
-    // Find the group that contains this entity_id and return its primary_entity_id.
-    function _primaryForEntityId(entityId) {
-      const group = grouped.find(g => g.entity_ids.includes(entityId));
-      return group ? group.primary_entity_id : entityId;
+    function _addGroup(group) {
+      if (!group || seenGroups.has(group.primary_entity_id)) return;
+      seenGroups.add(group.primary_entity_id);
+      const ids = (group.entity_ids || []).filter(id => id && !id.startsWith('__'));
+      if (ids.length) result.push(ids);
     }
 
-    // Resolve a friendly name to its group's primary_entity_id.
-    function _primaryForFriendlyName(friendlyName) {
-      const group = grouped.find(g => g.friendly_name === friendlyName);
-      return group ? group.primary_entity_id : null;
-    }
-
-    // Resolve an array of friendly names to one primary_entity_id per device.
-    function _resolveNamesToPrimaries(names) {
-      const ids = Array.isArray(names) ? names
+    function _resolveNames(names) {
+      const vals = Array.isArray(names) ? names
         : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
-      for (const name of ids) {
-        if (!name) continue;
-        if (name.includes('.')) {
-          add(_primaryForEntityId(name));
+      for (const val of vals) {
+        if (!val) continue;
+        if (val.includes('.')) {
+          _addGroup(grouped.find(g => g.entity_ids.includes(val)) || null);
         } else {
-          const primary = _primaryForFriendlyName(name);
-          if (primary) add(primary);
+          _addGroup(grouped.find(g => g.friendly_name === val) || null);
         }
       }
     }
 
     for (const token of (tokens || [])) {
       if (!token) continue;
-
       if (token.startsWith('@')) {
-        // Global variable — initial_value is an array of friendly names.
-        // Each friendly name = one physical device = one primary id.
         const gname = token.slice(1);
         const g = (_deviceData_globals || []).find(g => g.name === gname);
-        const val = g?.value || g?.initial_value;
-        _resolveNamesToPrimaries(val);
-
+        _resolveNames(g?.value || g?.initial_value);
       } else if (!token.includes('.')) {
-        // Piston variable — initial_value now holds primary_entity_ids for new nodes.
-        // Old nodes stored friendly names — _primaryForFriendlyName handles those.
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        const vals = Array.isArray(v?.initial_value) ? v.initial_value : [];
-        for (const val of vals) {
-          if (!val) continue;
-          if (val.includes('.')) {
-            // New format: real entity_id → find its group's primary
-            add(_primaryForEntityId(val));
-          } else {
-            // Old format: friendly name → match against group label
-            const primary = _primaryForFriendlyName(val);
-            if (primary) add(primary);
-          }
-        }
-
+        _resolveNames(v?.initial_value);
       } else {
-        // Real HA entity_id — find its group's primary_entity_id.
-        // All entity_ids on a physical row belong to the same group.
-        add(_primaryForEntityId(token));
+        _addGroup(grouped.find(g => g.entity_ids.includes(token)) || null);
       }
     }
     return result;
   }
 
-  // Internal reference to globals
+
+    // Internal reference to globals
   let _deviceData_globals = null;
 
   // ── Demo devices (fallback when no HA connection) ─────────
@@ -855,7 +811,7 @@ const Wizard = (() => {
 
     isTrigger, _durationLabel, _needsDuration,
     _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain,
-    _getFlatEntityIds, _getPrimaryIdsForTokens,
+    _getFlatEntityIds, _getGroupedEntityIdsForTokens,
     _esc, _newId, _taskId, _condId,
     _render, _pushStep, _back, close,
     _deleteEditNode,

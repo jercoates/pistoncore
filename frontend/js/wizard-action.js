@@ -535,10 +535,10 @@ function _saveLocationCmd(addMore) {
 
 // Command picker — fetches services for each selected device and intersects
 // so only commands every selected device supports are shown.
-// Uses _getPrimaryIdsForTokens (not _getFlatEntityIds) so device variables resolve
+// Uses _getGroupedEntityIdsForTokens (not _getFlatEntityIds) so device variables resolve
 // to one service lookup per physical device, not per sub-entity.
 async function _goCommandPicker() {
-  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getPrimaryIdsForTokens, _getFlatEntityIds } = WizardCore;
+  const { _esc, _render, _pushStep, _deleteEditNode, close, DEMO_DEVICES, _getGroupedEntityIdsForTokens, _getFlatEntityIds } = WizardCore;
   WizardCore.step = 'cmd';
   _pushStep(_goCommandPicker);
   const _sel  = WizardCore.sel;
@@ -569,23 +569,19 @@ async function _goCommandPicker() {
   document.getElementById('wiz-cmd-save')?.addEventListener('click', () => _saveDeviceCmd(false));
   document.getElementById('wiz-cmd-addmore')?.addEventListener('click', () => _saveDeviceCmd(true));
 
-  // Ensure deviceData is loaded — _getPrimaryIdsForTokens needs it to resolve
-  // friendly names → device groups → primary_entity_id.
+  // Ensure deviceData is loaded
   if (!WizardCore.deviceData) {
-    try {
-      const data = await API.getDevices();
-      WizardCore.deviceData = data;
-    } catch(e) {}
+    try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
   }
 
-  // Resolve tokens → one primary_entity_id per physical device for service lookup.
-  // _getFlatEntityIds is used at commit time to write all entity_ids to the node.
-  // _getPrimaryIdsForTokens is used here so device variables give one service
-  // lookup per device, not one per sub-entity.
-  const primaryIds = _getPrimaryIdsForTokens(_sel.tokens || [_sel.device_id].filter(Boolean));
+  // Resolve tokens → one array of entity_ids per physical device group.
+  // friendly name → group → ALL entity_ids (not just primary).
+  const deviceGroups = _getGroupedEntityIdsForTokens(_sel.tokens || [_sel.device_id].filter(Boolean));
 
-  // Demo device shortcut — single demo device, use its hardcoded services
-  const demo = DEMO_DEVICES.find(d => primaryIds.length === 1 && d.entity_id === primaryIds[0]);
+  // Demo device shortcut
+  const demo = DEMO_DEVICES.find(d =>
+    deviceGroups.length === 1 && deviceGroups[0].includes(d.entity_id)
+  );
   if (demo) {
     const sel = document.getElementById('wiz-cmd');
     if (sel) {
@@ -613,7 +609,7 @@ async function _goCommandPicker() {
     return;
   }
 
-  if (!primaryIds.length) {
+  if (!deviceGroups.length) {
     const el = document.getElementById('wiz-cmd-params');
     if (el) el.innerHTML = `<div class="wiz-error">No devices could be resolved. Check that your variables have devices assigned before building an action.</div>`;
     const cmdSel = document.getElementById('wiz-cmd');
@@ -622,31 +618,36 @@ async function _goCommandPicker() {
   }
 
   try {
-    // Fetch services for every resolved primary entity in parallel.
-    // One fetch per physical device — not per sub-entity.
-    const allResults = await Promise.all(primaryIds.map(async id => {
-      try {
-        const data = await API.getServices(id);
-        return data.services || [];
-      } catch(e) {
-        // If HA can't return services for this id, fall back to domain defaults
-        const domain = id.split('.')[0];
-        return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+    // For each physical device group: fetch services for ALL entity_ids, union them.
+    // Then intersect across all selected physical devices.
+    const groupServiceSets = await Promise.all(deviceGroups.map(async entityIds => {
+      const allResults = await Promise.all(entityIds.map(async id => {
+        try {
+          const data = await API.getServices(id);
+          return data.services || [];
+        } catch(e) {
+          return ['turn_on','turn_off','toggle'].map(s => ({ service: s, label: s.replace(/_/g,' '), fields: {} }));
+        }
+      }));
+      // Union services across all sub-entities in this device group
+      const seen = new Map();
+      for (const svcList of allResults) {
+        for (const svc of svcList) {
+          if (!seen.has(svc.service)) seen.set(svc.service, svc);
+        }
       }
+      return [...seen.values()];
     }));
 
-    // GAP-S63-7 intersection: only keep services present across ALL entity_ids.
-    // Start with the first result's service names as the candidate set,
-    // then filter down to only those that appear in every subsequent result.
-    let intersectedNames = new Set(allResults[0].map(s => s.service));
-    for (let i = 1; i < allResults.length; i++) {
-      const thisSet = new Set(allResults[i].map(s => s.service));
+    // Intersect across physical devices
+    let intersectedNames = new Set(groupServiceSets[0].map(s => s.service));
+    for (let i = 1; i < groupServiceSets.length; i++) {
+      const thisSet = new Set(groupServiceSets[i].map(s => s.service));
       for (const name of intersectedNames) {
         if (!thisSet.has(name)) intersectedNames.delete(name);
       }
     }
-    // Preserve the full service objects (fields, labels) from the first result
-    const services = allResults[0].filter(s => intersectedNames.has(s.service));
+    const services = groupServiceSets[0].filter(s => intersectedNames.has(s.service));
 
     const sel = document.getElementById('wiz-cmd');
     if (sel) {
@@ -658,10 +659,7 @@ async function _goCommandPicker() {
       }
       if (!WizardCore.sel.command && services.length) {
         const firstOpt = sel.options[1];
-        if (firstOpt) {
-          sel.value = firstOpt.value;
-          WizardCore.sel.command = firstOpt.value;
-        }
+        if (firstOpt) { sel.value = firstOpt.value; WizardCore.sel.command = firstOpt.value; }
       }
       if (WizardCore.sel.command) {
         _renderCmdParams(WizardCore.sel.command, services);

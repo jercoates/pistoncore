@@ -30,30 +30,16 @@ function _goVariablePicker() {
   if (_sel.var_type && VAR_TYPE_DISPLAY[_sel.var_type]) {
     _sel.var_type = VAR_TYPE_DISPLAY[_sel.var_type];
   }
-  // initial_value on a device variable holds primary_entity_ids (for resolution).
-  // initial_device_names holds friendly names (for display).
-  // Old nodes have friendly names in initial_value — treat them as display names,
-  // initial_device_ids will be empty until user re-picks.
+  // initial_device_ids is an array of friendly names — that is all that is stored.
+  // initial_value on a device variable IS the friendly names array.
   if (initType === 'device' && !Array.isArray(_sel.initial_device_ids)) {
     if (Array.isArray(_sel.initial_value)) {
-      // Detect old format: values with no dot are friendly names, not entity ids.
-      const looksLikeEntityIds = _sel.initial_value.every(v => typeof v === 'string' && v.includes('.'));
-      if (looksLikeEntityIds) {
-        _sel.initial_device_ids = _sel.initial_value;
-      } else {
-        // Old format — friendly names stored in initial_value. Show them as display
-        // names but clear initial_device_ids so resolution uses live data.
-        _sel.initial_device_ids = [];
-        if (!Array.isArray(_sel.initial_device_names)) {
-          _sel.initial_device_names = _sel.initial_value;
-        }
-      }
+      _sel.initial_device_ids = _sel.initial_value;
+    } else if (_sel.initial_value && typeof _sel.initial_value === 'string') {
+      _sel.initial_device_ids = [_sel.initial_value];
     } else {
       _sel.initial_device_ids = [];
     }
-  }
-  if (initType === 'device' && !Array.isArray(_sel.initial_device_names)) {
-    _sel.initial_device_names = [];
   }
 
   const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
@@ -130,8 +116,8 @@ function _goVariablePicker() {
     if (ivType === 'nothing') {
       initial_value = undefined;
     } else if (ivType === 'device') {
-      // initial_value = array of primary_entity_ids — stable, used for resolution.
-      // initial_device_names = array of friendly names — display only, compiler ignores.
+      // Store as array of friendly names. _getFlatEntityIds resolves these to
+      // all real entity_ids at picker time via live deviceData. No entity_ids stored here.
       initial_value = Array.isArray(WizardCore.sel.initial_device_ids)
         ? WizardCore.sel.initial_device_ids
         : [];
@@ -145,12 +131,8 @@ function _goVariablePicker() {
       var_type: VAR_TYPE_MAP[rawType] || rawType.toLowerCase(),
       initial_value_type: ivType === 'nothing' ? undefined : ivType,
       initial_value };
-    // For device variables: also store friendly names for display in the editor.
-    // initial_value holds primary_entity_ids (resolution). initial_device_names
-    // holds friendly names (display only — compiler ignores this field).
-    if (ivType === 'device' && Array.isArray(WizardCore.sel.initial_device_names)) {
-      node.initial_device_names = WizardCore.sel.initial_device_names;
-    }
+    // initial_value IS the friendly names array for device variables.
+    // No separate initial_device_names needed — display and data are the same thing.
     return node;
   };
 
@@ -172,10 +154,9 @@ function _varInitSubHtml(type) {
   const _sel = WizardCore.sel;
   if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
   if (type === 'device') {
-    // Display uses initial_device_names (friendly names).
-    // initial_device_ids holds primary_entity_ids for resolution — never shown directly.
-    const ids   = Array.isArray(_sel.initial_device_ids)   ? _sel.initial_device_ids   : [];
-    const names = Array.isArray(_sel.initial_device_names) ? _sel.initial_device_names : ids;
+    // initial_device_ids is now friendly names — display them directly.
+    const ids   = Array.isArray(_sel.initial_device_ids) ? _sel.initial_device_ids : [];
+    const names = ids; // friendly names ARE the ids now
     const hasVal = ids.length > 0;
     let label;
     if (!hasVal) {
@@ -259,18 +240,9 @@ function _goVarInitDevicePicker() {
   );
 
   // Confirm — commit selection and return to variable picker.
-  // selected holds primary_entity_ids for stable resolution.
-  // Friendly names are read from data-friendly on selected rows for display.
+  // selected already holds friendly names — that is all we store.
   document.getElementById('wiz-varinit-confirm')?.addEventListener('click', () => {
-    const selectedIds = Array.from(selected);
-    // Collect friendly names from currently selected rows in the same order
-    const friendlyNames = [];
-    document.querySelectorAll('.wiz-varinit-dev-row.selected').forEach(row => {
-      const f = row.dataset.friendly || row.dataset.id;
-      friendlyNames.push(f);
-    });
-    WizardCore.sel.initial_device_ids   = selectedIds;    // primary_entity_ids → initial_value
-    WizardCore.sel.initial_device_names = friendlyNames;  // friendly names → display only
+    WizardCore.sel.initial_device_ids = Array.from(selected);
     WizardCore.sel.initial_value_type = 'device';
     _goVariablePicker();
   });
@@ -350,13 +322,11 @@ function _goVarInitDevicePicker() {
     if (physical.length) {
       html += `<div class="wiz-device-group-header">Physical devices</div>`;
       html += physical.slice(0, 150).map(d => {
-        // data-id = primary_entity_id — stored in initial_value for stable resolution.
-        // data-friendly = friendly_name — stored in initial_device_names for display only.
-        // selected set tracks primary_entity_ids, never friendly names.
-        const isSelected = selected.has(d.primary_entity_id);
+        // Track by friendly_name — that is what gets stored in initial_value.
+        // _getFlatEntityIds resolves friendly_name → all entity_ids via live deviceData at picker time.
+        const isSelected = selected.has(d.friendly_name);
         return `<div class="wiz-varinit-dev-row ${isSelected ? 'selected' : ''}"
-          data-id="${_esc(d.primary_entity_id)}"
-          data-friendly="${_esc(d.friendly_name)}">
+          data-id="${_esc(d.friendly_name)}">
           <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
           <span class="wiz-dev-check">${isSelected ? '✓' : ''}</span>
         </div>`;
@@ -393,8 +363,7 @@ function _goVarInitDevicePicker() {
 
     list.querySelectorAll('.wiz-varinit-dev-row').forEach(row => {
       row.addEventListener('click', () => {
-        // primary_entity_id is in data-id — used for resolution (initial_value).
-        // friendly name is in data-friendly — used for display (initial_device_names).
+        // Store only primary_entity_id per device (row.dataset.id).
         const primaryId = row.dataset.id;
         const isSelected = selected.has(primaryId);
         if (isSelected) {

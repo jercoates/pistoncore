@@ -236,8 +236,11 @@ const Editor = (() => {
       const varName = _esc(v.name || '');
       let valueStr = '';
       if (v.var_type === 'device') {
-        // initial_value IS the friendly names array for device variables.
-        const names = Array.isArray(v.initial_value) ? v.initial_value : [];
+        // Display uses initial_device_names (friendly names — display only).
+        // Fall back to initial_value for old nodes that stored friendly names there.
+        const names = Array.isArray(v.initial_device_names) && v.initial_device_names.length
+          ? v.initial_device_names
+          : (Array.isArray(v.initial_value) ? v.initial_value : []);
         if (names.length) {
           valueStr = ` = <span class="doc-dev-inline">${_esc(names.join(', '))}</span>`;
         }

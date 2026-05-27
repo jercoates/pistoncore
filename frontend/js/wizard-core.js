@@ -208,32 +208,10 @@ const Wizard = (() => {
     }
     const result = [];
     for (const [, entities] of byDevice) {
-      // Compute the display label as the longest common prefix of all entity
-      // friendly names in the group, trimmed of trailing whitespace and separators.
-      // This produces "Kitchen Motion" from ["Kitchen Motion Motion",
-      // "Kitchen Motion Battery", "Kitchen Motion Tamper"] rather than the
-      // shortest bare name ("Battery") which is meaningless out of context.
-      // Single-entity groups use the entity's friendly_name directly.
-      let label;
-      if (entities.length === 1) {
-        label = entities[0].friendly_name;
-      } else {
-        const names = entities.map(e => e.friendly_name);
-        let prefix = names[0];
-        for (let i = 1; i < names.length; i++) {
-          while (!names[i].startsWith(prefix)) {
-            prefix = prefix.slice(0, -1);
-            if (!prefix) break;
-          }
-          if (!prefix) break;
-        }
-        // Trim trailing spaces, dashes, underscores left by the prefix cut
-        label = prefix.replace(/[\s\-_]+$/, '').trim();
-        // If prefix collapsed to nothing, fall back to shortest friendly name
-        if (!label) {
-          label = names.reduce((s, n) => n.length < s.length ? n : s, names[0]);
-        }
-      }
+      const label = entities.reduce((shortest, d) =>
+        d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
+        entities[0].friendly_name
+      );
       let primary = entities[0].entity_id;
       for (const domain of _DOMAIN_PRIORITY) {
         const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
@@ -320,7 +298,20 @@ const Wizard = (() => {
       } else if (!token.includes('.')) {
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        _resolveNames(v?.initial_value);
+        const vals = Array.isArray(v?.initial_value) ? v.initial_value : [];
+        for (const val of vals) {
+          if (!val) continue;
+          if (val.includes('.')) {
+            // New format: primary_entity_id — expand to all entity_ids in its group
+            const grouped = _groupDevices(_deviceData || []);
+            const group = grouped.find(g => g.entity_ids.includes(val));
+            if (group) group.entity_ids.forEach(add);
+            else add(val);
+          } else {
+            // Old format: friendly name — resolve to all entity_ids via group label
+            _friendlyNameToEntityIds(val).forEach(add);
+          }
+        }
       } else {
         add(token);
       }
@@ -361,22 +352,9 @@ const Wizard = (() => {
     }
 
     // Resolve a friendly name to its group's primary_entity_id.
-    // First tries matching against the group's computed label (common prefix).
-    // Falls back to searching all entity friendly_names across all groups —
-    // handles variables saved before the common-prefix label change, or when
-    // the user stored a full entity name ("Kitchen Motion Motion") that no
-    // longer matches the group label ("Kitchen Motion").
     function _primaryForFriendlyName(friendlyName) {
       const group = grouped.find(g => g.friendly_name === friendlyName);
-      if (group) return group.primary_entity_id;
-      // Fallback: find any group that contains an entity with this exact friendly_name
-      for (const g of grouped) {
-        const rawEntities = (_deviceData || []).filter(e => g.entity_ids.includes(e.entity_id));
-        if (rawEntities.some(e => e.friendly_name === friendlyName)) {
-          return g.primary_entity_id;
-        }
-      }
-      return null;
+      return group ? group.primary_entity_id : null;
     }
 
     // Resolve an array of friendly names to one primary_entity_id per device.
@@ -406,11 +384,22 @@ const Wizard = (() => {
         _resolveNamesToPrimaries(val);
 
       } else if (!token.includes('.')) {
-        // Piston variable — initial_value is an array of friendly names.
-        // Each friendly name = one physical device = one primary id.
+        // Piston variable — initial_value now holds primary_entity_ids for new nodes.
+        // Old nodes stored friendly names — _primaryForFriendlyName handles those.
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
         const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        _resolveNamesToPrimaries(v?.initial_value);
+        const vals = Array.isArray(v?.initial_value) ? v.initial_value : [];
+        for (const val of vals) {
+          if (!val) continue;
+          if (val.includes('.')) {
+            // New format: real entity_id → find its group's primary
+            add(_primaryForEntityId(val));
+          } else {
+            // Old format: friendly name → match against group label
+            const primary = _primaryForFriendlyName(val);
+            if (primary) add(primary);
+          }
+        }
 
       } else {
         // Real HA entity_id — find its group's primary_entity_id.

@@ -77,7 +77,7 @@ const Editor = (() => {
   function _normalizePiston(p) {
     if (!p) return;
 
-    const SUPPORTED_LOGIC_VERSION = 1;
+    const SUPPORTED_LOGIC_VERSION = 2;
     const SUPPORTED_UI_VERSION    = 1;
 
     if (p.logic_version !== undefined && p.logic_version > SUPPORTED_LOGIC_VERSION) {
@@ -1320,6 +1320,12 @@ const Editor = (() => {
       if (!node || typeof node !== 'object') return;
       const tokens = node.role_tokens || [];
       if (!tokens.includes(varName)) return;
+
+      // Guard: _getFlatEntityIds needs WizardCore.deviceData to resolve friendly names.
+      // If the wizard has not been opened yet this session, deviceData is null.
+      // Skip silently — entity_ids will be correctly resolved the next time the user
+      // opens the wizard and commits the node. GAP-S66-2.
+      if (!WizardCore.deviceData) return;
 
       // Delegate entirely to WizardCore._getFlatEntityIds which resolves friendly names
       // → all entity_ids via live deviceData. WizardCore is a global accessible here.

@@ -1,10 +1,11 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — update at the end of every session
-**Last Updated:** Session 64 — W-S9 complete. sel.tokens model, role_tokens on nodes,
-_getFlatEntityIds + capability intersection, define auto-update (_reResolveVariableUses),
-friendly name display in variable picker, repeated-edit safety fixes. Next: D-S5 (spec
-update) then W-S10 (for_each picker + editor gaps).
+**Last Updated:** Session 66 — Device variable capability intersection fixed.
+_getPrimaryIdsForTokens added to wizard-core.js. _loadCapsIntoSelect and _goCommandPicker
+now use primary_entity_id per physical device for intersection, not all sub-entity ids flat.
+Two new gaps found: GAP-S66-1 (logic_version blocker in editor.js), GAP-S66-2
+(_reResolveVariableUses deviceData guard). Next: D-S5 then W-S10 continued.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions:** See TASKS_HISTORY.md
 
@@ -103,19 +104,33 @@ Still open from W-S9:
     * _reResolveVariableUses contract: edit define → all uses update immediately
     * Globals in the editor resolve from _piston._globalsCache (loaded at editor open)
     * UI/data separation: role/device_label always friendly name, entity_ids always data
-- GAP-S63-5 → W-S10: for_each loop device picker (wizard-loops.js still uses text input)
+- GAP-S63-5 → W-S10 ✅: for_each grouped device picker implemented
 
 ---
 
-### W-S10: for_each Device Picker + Editor Gaps
+### W-S10: for_each Device Picker + Editor Gaps (partially complete — Session 66)
 
-**Upload for W-S10:**
-wizard-loops.js, wizard-core.js, editor.js,
+Session 65 completed: ha_client.py caps fix, wizard-core.js _getCapsForDomain fix,
+wizard-condition.js fallback chain fix, wizard-action.js physical row entity_ids fix,
+globals.js same fix, WIZARD_SPEC.md v2.3 Device Variables section added.
+
+Session 66 completed: _getPrimaryIdsForTokens added to wizard-core.js. Cap and service
+intersection now uses one primary_entity_id per physical device (not all sub-entity ids).
+Fixes capability picker showing only shared sub-entity caps instead of shared device caps
+for device variables.
+
+Session 66 also completed: editor.js logic_version fix (GAP-S66-1), deviceData null
+guard in _reResolveVariableUses (GAP-S66-2), for_each grouped device picker (GAP-S63-5).
+
+Still open for W-S10:
+- GAP-S64-2: Old-format piston picker state wrong — debug first, then fix
+- GAP-S46-5: Import modal has no file picker
+- GAP-S58-2: Copy/paste/duplicate statements
+
+**Upload for W-S10 continued:**
+wizard-loops.js, wizard-core.js, wizard-action.js, wizard-condition.js,
+wizard-variable.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
-**Steps:**
-1. GAP-S63-5: Replace for_each text input with grouped device picker (wizard-loops.js)
-2. Review editor.js for any remaining rendering or interaction gaps
 
 ---
 
@@ -211,9 +226,14 @@ Only attempt once W-S9, B-1, and G-3 are complete.
 - **GAP-S63-4 → D-S5:** Spec update — role_tokens, sel.tokens, _getFlatEntityIds,
   device grouping, initial_device_names, _reResolveVariableUses contract,
   globals cache model, UI/data separation rule
-- **GAP-S63-5 → W-S10:** for_each device picker
+- **GAP-S63-5 → W-S10 ✅:** for_each grouped device picker implemented
 - **GAP-S63-6 → W-S9 ✅**
 - **GAP-S63-7 → W-S9 ✅**
+
+### Session 66 gaps (new)
+
+- **GAP-S66-1 → W-S10 ✅:** editor.js SUPPORTED_LOGIC_VERSION fixed to 2
+- **GAP-S66-2 → W-S10 ✅:** _reResolveVariableUses null deviceData guard added
 
 ### Session 64 gaps (new)
 

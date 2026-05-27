@@ -89,47 +89,56 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S10 continued (Session 65 work)
+## Current Priority — W-S10 continued (Session 67 work)
 
 ### Upload for next session:
-wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
-wizard-loops.js, wizard-statement.js, editor.js, globals.js, ha_client.py,
+wizard-loops.js, wizard-core.js, wizard-action.js, wizard-condition.js,
+wizard-variable.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What was done in Session 65 (W-S10 partial):
+### What was done in Session 66 (W-S10 partial):
 
-**Root cause found and fixed — capability picker was broken at every level:**
-- `ha_client.py` `_fetch_capabilities`: was only returning `state` plus hardcoded
-  numeric attrs. Now walks ALL real HA attributes and builds caps from them.
-  Binary sensors use `device_class` as primary cap name (e.g. `motion` not `state`).
-  UniFi cameras and combo devices now return all their real attributes.
-- `wizard-core.js` `_getCapsForDomain`: was losing caps after first unique name match.
-  Now returns full domain caps array for a single entity correctly.
-- `wizard-condition.js` `_loadCapsIntoSelect`: API empty response now falls back to
-  domain map. Final fallback uses single id not full array.
-- `wizard-condition.js` `_renderDevPanelList`: physical device rows now carry ALL
-  entity_ids for that device (comma-separated in data-id). Click handler adds/removes
-  all of them to sel.tokens so capability intersection runs across all entities.
-- `wizard-action.js` `_renderActDevList`: same fix. Virtual device check updated.
-  `_actDevSelectAll` updated to split comma-separated ids.
-- `globals.js`: same fix throughout — rows, click handler, SelectAll, DeselectAll,
-  name map.
-- `WIZARD_SPEC.md` v2.3: Device Variables section added with hard rules.
+**Device variable capability intersection fixed — root cause and fix:**
+- The capability and service pickers were running intersection across ALL sub-entity ids
+  returned by _getFlatEntityIds. A device variable containing "Kitchen Motion" resolves
+  to sensor.kitchen_motion_battery, binary_sensor.kitchen_motion_motion,
+  binary_sensor.kitchen_motion_tamper — three separate entities. The intersection of
+  those three produced only "state" as the shared cap, which is wrong.
+- Correct behavior: each friendly name in a variable's initial_value is ONE physical
+  device. Intersection must run across physical devices (one cap lookup each), not
+  across sub-entities.
+- Fix: _getPrimaryIdsForTokens added to wizard-core.js. For each token it resolves
+  to one primary_entity_id per physical device group. _loadCapsIntoSelect
+  (wizard-condition.js) and _goCommandPicker (wizard-action.js) now call
+  _getPrimaryIdsForTokens instead of _getFlatEntityIds for the cap/service lookup.
+- _getFlatEntityIds unchanged — still used at commit time to write all entity_ids
+  to action/condition nodes.
+- Device variables, globals, and physical device selections all go through the
+  same path. Nothing writes back to stored variables.
 
-**Critical rule added to WIZARD_SPEC.md — read before every session:**
-The user ALWAYS sees friendly names. PistonCore ALWAYS stores entity_ids.
-These must NEVER mix. Device defines are lists — they store ALL entity_ids for
-all selected devices. The capability intersection happens at picker time, not
-at define time. The compiler reads entity_ids from nodes directly.
+**Two new gaps found in editor.js:**
+- GAP-S66-1: SUPPORTED_LOGIC_VERSION = 1 must be 2 — blocks all pistons from loading
+- GAP-S66-2: _reResolveVariableUses calls WizardCore._getFlatEntityIds when deviceData
+  may be null — needs null guard
+
+**Additional fixes also completed in Session 66 (same context):**
+- GAP-S66-1: editor.js SUPPORTED_LOGIC_VERSION = 1 → 2 (was blocking all pistons from loading)
+- GAP-S66-2: _reResolveVariableUses null guard added for WizardCore.deviceData
+- GAP-S63-5: for_each picker rebuilt with full grouped device picker (wizard-loops.js)
+  Same model as action/condition pickers: physical devices, piston vars, globals.
+  sel.fe_tokens tracks selection. list_role and role_tokens written to node on save.
 
 **Files changed this session:**
-- `ha_client.py` — deploy
-- `wizard-core.js` — deploy
-- `wizard-condition.js` — deploy
-- `wizard-action.js` — deploy
-- `globals.js` — deploy
-- `WIZARD_SPEC.md` — commit
-- `wizard-variable.js` — NO CHANGE, original restored
+- wizard-core.js — _getPrimaryIdsForTokens added, exposed on WizardCore
+- wizard-condition.js — _loadCapsIntoSelect uses _getPrimaryIdsForTokens
+- wizard-action.js — _goCommandPicker uses _getPrimaryIdsForTokens
+- editor.js — logic_version fix, _reResolveVariableUses null guard
+- wizard-loops.js — _goForEachPicker rebuilt with grouped device picker
+
+### Still open for W-S10:
+- GAP-S64-2: Old-format piston edit picker state wrong — debug with console.log first
+- GAP-S46-5: Import modal file picker
+- GAP-S58-2: Copy/paste/duplicate statements
 
 ### What still needs testing after deploy:
 

@@ -49,16 +49,21 @@ function _goForPicker() {
 }
 
 function _goForEachPicker() {
-  const { _esc, _render, _pushStep, _newId, close } = WizardCore;
+  const { _esc, _render, _pushStep, _newId, close, _groupDevices, _filterGrouped } = WizardCore;
   WizardCore.step = 'for_each';
   _pushStep(_goForEachPicker);
   const _sel = WizardCore.sel;
   const pistonDevVars = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
     .filter(v => v.var_type === 'device');
-  const varOptions = pistonDevVars.map(v =>
-    `<option value="${_esc(v.name)}" ${(_sel.variable||'$device')===v.name?'selected':''}>${_esc(v.name)}</option>`
-  ).join('');
   const isNew = !WizardCore.editNode;
+
+  // sel.fe_tokens tracks what the user selected for the device list.
+  // Same model as action/condition pickers: variable name, @global, or primary_entity_id.
+  if (!_sel.fe_tokens) {
+    // On edit, restore from list_role if it was a variable name or token.
+    // On new, start empty.
+    _sel.fe_tokens = _sel.list_role ? [_sel.list_role] : [];
+  }
 
   _render('Add a for each loop',
     `<div class="wiz-desc">A FOR EACH loop is an iteration block that allows you to repeat the same action for each device in a device list</div>
@@ -66,38 +71,187 @@ function _goForEachPicker() {
      <div class="wiz-value-inputs">
        <select id="wiz-fe-var" class="wiz-select-blue" style="flex:1">
          <option value="$device" ${(_sel.variable||'$device')==='$device'?'selected':''}>$device (system default)</option>
-         ${varOptions}
+         ${pistonDevVars.map(v=>`<option value="${_esc(v.name)}" ${_sel.variable===v.name?'selected':''}>${_esc(v.name)} (${_esc(v.var_type)})</option>`).join('')}
          <option value="__custom__">Type a name...</option>
        </select>
        <input type="text" id="wiz-fe-var-custom" class="wiz-value-input" placeholder="Variable name..." style="display:none;flex:1" value="${_esc(_sel.variable||'')}" />
      </div>
      <div class="wiz-row-label" style="margin-top:10px">List of devices</div>
-     <input type="text" id="wiz-fe-list" class="wiz-value-input" placeholder="Device list role or variable name..." value="${_esc(_sel.list_role||'')}" />`,
+     <div class="wiz-selected-bar" id="wiz-fe-sel-bar" style="${_sel.fe_tokens.length ? '' : 'display:none'}">
+       <span id="wiz-fe-sel-label">${_esc(_sel.fe_tokens.join(', '))}</span>
+     </div>
+     <div style="display:flex;gap:8px;margin:4px 0">
+       <button class="btn btn-ghost btn-xs" id="wiz-fe-sel-all">Select All</button>
+       <button class="btn btn-ghost btn-xs" id="wiz-fe-desel-all">Deselect All</button>
+     </div>
+     <input type="text" id="wiz-fe-search" placeholder="Search devices..." autocomplete="off"
+       style="width:100%;background:var(--bg-input,var(--bg-raised));border:1px solid var(--border-subtle);border-radius:3px;color:var(--text-primary);font-size:13px;outline:none;padding:4px 6px;margin-bottom:4px;box-sizing:border-box" />
+     <div class="wiz-device-list" id="wiz-fe-devlist">
+       <div class="wiz-loading"><div class="spinner"></div></div>
+     </div>`,
     `<button class="btn btn-ghost btn-sm" id="wiz-fe-back">← Back</button>
      <div class="wiz-footer-right"><button class="btn btn-primary btn-sm" id="wiz-fe-save">${isNew ? 'Add a statement' : 'Save'}</button></div>`
   );
 
   document.getElementById('wiz-fe-back')?.addEventListener('click', isNew ? _goStatementTypePicker : close);
+
   document.getElementById('wiz-fe-var')?.addEventListener('change', e => {
     const custom = document.getElementById('wiz-fe-var-custom');
     if (custom) custom.style.display = e.target.value === '__custom__' ? '' : 'none';
   });
+
+  let _ft = null;
+  document.getElementById('wiz-fe-search')?.addEventListener('input', e => {
+    clearTimeout(_ft);
+    _ft = setTimeout(() => _renderFeDevList(e.target.value.trim()), 200);
+  });
+
+  document.getElementById('wiz-fe-sel-all')?.addEventListener('click', () => {
+    const rows = document.querySelectorAll('#wiz-fe-devlist .wiz-device-row');
+    rows.forEach(r => {
+      r.classList.add('selected');
+      r.dataset.id.split(',').filter(Boolean).forEach(id => {
+        if (!WizardCore.sel.fe_tokens.includes(id)) WizardCore.sel.fe_tokens.push(id);
+      });
+    });
+    _updateFeSelBar();
+  });
+
+  document.getElementById('wiz-fe-desel-all')?.addEventListener('click', () => {
+    document.querySelectorAll('#wiz-fe-devlist .wiz-device-row').forEach(r => r.classList.remove('selected'));
+    WizardCore.sel.fe_tokens = [];
+    _updateFeSelBar();
+  });
+
   document.getElementById('wiz-fe-save')?.addEventListener('click', () => {
     const varSel    = document.getElementById('wiz-fe-var')?.value || '$device';
     const varCustom = document.getElementById('wiz-fe-var-custom')?.value || '';
     const variable  = varSel === '__custom__' ? varCustom : varSel;
+
+    // list_role: store the first token (variable name or @global) as a friendly label.
+    // entity_ids will be resolved at compile time by the compiler via the variable.
+    const tokens = WizardCore.sel.fe_tokens || [];
+    const list_role = tokens.length === 1 ? tokens[0] : tokens.join(', ');
+
     const blockId = WizardCore.extra?.['block-id'];
     const branch  = WizardCore.extra?.['branch'] || 'then';
     const meta = blockId ? { blockId, branch } : undefined;
     const node = {
       type:'for_each', id:WizardCore.editNode?.id || _newId(), async:false,
       variable: variable || '$device',
-      list_role: document.getElementById('wiz-fe-list')?.value||'',
+      list_role,
+      role_tokens: tokens,
       statements:[], description:null, disabled:false,
     };
     close();
     Editor.insertStatement(WizardCore.context, node, meta);
   });
+
+  // Load devices then render
+  _loadFeDevices();
+
+  function _loadFeDevices() {
+    const fetches = [];
+    if (!WizardCore.deviceData) {
+      fetches.push(API.getDevices().then(d => { WizardCore.deviceData = d; }).catch(() => {}));
+    }
+    if (!WizardCore.globalsData) {
+      fetches.push(
+        API.getGlobals()
+          .then(result => { WizardCore.globalsData = Object.values(result || {}); })
+          .catch(() => { WizardCore.globalsData = []; })
+      );
+    }
+    if (fetches.length) {
+      Promise.all(fetches).then(() => _renderFeDevList(''));
+    } else {
+      _renderFeDevList('');
+    }
+  }
+
+  function _renderFeDevList(query) {
+    const el = document.getElementById('wiz-fe-devlist');
+    if (!el) return;
+    const selTokens = new Set(WizardCore.sel.fe_tokens || []);
+    const grouped = _filterGrouped(_groupDevices(WizardCore.deviceData), query);
+    const q = query.toLowerCase();
+    const allLocals = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
+      .filter(v => v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q)));
+    const globalDevVars = (WizardCore.globalsData || [])
+      .filter(g => g.var_type === 'device' && (!q || (g.name||'').toLowerCase().includes(q)));
+
+    let html = '';
+
+    if (grouped.length) {
+      html += `<div class="wiz-device-group-header">Physical devices</div>`;
+      html += grouped.slice(0,150).map(d => {
+        const ids = d.entity_ids || [d.primary_entity_id];
+        const isSel = ids.some(id => selTokens.has(id));
+        return `<div class="wiz-device-row ${isSel?'selected':''}"
+          data-id="${_esc(ids.join(','))}"
+          data-label="${_esc(d.friendly_name)}"
+          data-row-type="physical">
+          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    if (allLocals.length) {
+      html += `<div class="wiz-device-group-header">Piston variables</div>`;
+      html += allLocals.map(v =>
+        `<div class="wiz-device-row ${selTokens.has(v.name)?'selected':''}"
+          data-id="${_esc(v.name)}"
+          data-label="${_esc(v.name)}"
+          data-row-type="pistonvar">
+          <span class="wiz-dev-prefix">device</span>
+          <span class="wiz-dev-label">${_esc(v.name)}</span>
+        </div>`
+      ).join('');
+    }
+
+    if (globalDevVars.length) {
+      html += `<div class="wiz-device-group-header">Global variables</div>`;
+      html += globalDevVars.map(g => {
+        const gtoken = `@${g.name}`;
+        return `<div class="wiz-device-row ${selTokens.has(gtoken)?'selected':''}"
+          data-id="${_esc(gtoken)}"
+          data-label="${_esc(gtoken)}"
+          data-row-type="global">
+          <span class="wiz-dev-prefix">global</span>
+          <span class="wiz-dev-label">${_esc(gtoken)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    if (!html) {
+      html = `<div class="wiz-empty" style="padding:8px 12px">No devices found.</div>`;
+    }
+
+    el.innerHTML = html;
+
+    el.querySelectorAll('.wiz-device-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const rowIds = row.dataset.id.split(',').filter(Boolean);
+        row.classList.toggle('selected');
+        const newTokens = new Set(WizardCore.sel.fe_tokens || []);
+        if (row.classList.contains('selected')) {
+          rowIds.forEach(id => newTokens.add(id));
+        } else {
+          rowIds.forEach(id => newTokens.delete(id));
+        }
+        WizardCore.sel.fe_tokens = [...newTokens];
+        _updateFeSelBar();
+      });
+    });
+  }
+
+  function _updateFeSelBar() {
+    const tokens = WizardCore.sel.fe_tokens || [];
+    const bar = document.getElementById('wiz-fe-sel-bar');
+    const lbl = document.getElementById('wiz-fe-sel-label');
+    if (bar) bar.style.display = tokens.length ? '' : 'none';
+    if (lbl) lbl.textContent = tokens.join(', ');
+  }
 }
 
 function _goSwitchPicker() {

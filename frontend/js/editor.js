@@ -203,7 +203,13 @@ const Editor = (() => {
         sel ? 'doc-selected' : '',
         cut ? 'doc-cut' : '',
       ].filter(Boolean).join(' ');
-      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
+      // Write id and type as standard attrs, then write any extra opts keys as data- attrs.
+      // This is required so 'parent-block' reaches the DOM for condition edit routing.
+      const extraAttrs = Object.entries(opts)
+        .filter(([k]) => k !== 'id' && k !== 'type')
+        .map(([k, v]) => `data-${k}="${_esc(String(v))}"`)
+        .join(' ');
+      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}" ${extraAttrs}` : '';
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
       lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };
@@ -311,7 +317,13 @@ const Editor = (() => {
       const sel = id && id === _selectedId;
       const cut = id && id === _cutId;
       const cls = ['doc-line', id ? 'doc-stmt' : '', sel ? 'doc-selected' : '', cut ? 'doc-cut' : ''].filter(Boolean).join(' ');
-      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}"` : '';
+      // Write id and type as standard attrs, then write any extra opts keys as data- attrs.
+      // This is required so 'parent-block' reaches the DOM for condition edit routing.
+      const extraAttrs = Object.entries(opts)
+        .filter(([k]) => k !== 'id' && k !== 'type')
+        .map(([k, v]) => `data-${k}="${_esc(String(v))}"`)
+        .join(' ');
+      const attrs = id ? `data-id="${_esc(id)}" data-type="${_esc(type||'')}" ${extraAttrs}` : '';
       const ind = indent > 0 ? `style="padding-left:calc(var(--doc-indent)*${indent})"` : '';
       lines.push(`<div class="${cls}" ${attrs}><span class="doc-ln">${num.n++}</span><span class="doc-lc" ${ind}>${html}</span></div>`);
     };

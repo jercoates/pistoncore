@@ -18,7 +18,27 @@ GAP-S68-3 (action params save as indexed keys).
 **Get to a clean round-trip on a simple piston:**
 wizard writes JSON → backend saves it → compiler reads it → frontend renders it correctly
 
-Blocking the round-trip: W-S9 picker gaps, B-1 backend compiler update, G-3 globals import.
+Blocking the round-trip: W-S10 remainder (picker gaps + import fixes), D-S5 + D-S5b
+(spec hardening), B-1 backend compiler update, G-3 globals import.
+
+### What "S3-1 passes" actually means — concrete checklist
+
+S3-1 is not done until every item below is verifiable with the first piston in
+SAMPLE_PISTONS.md:
+
+1. Wizard builds the piston from scratch with no manual JSON edits.
+2. Save round-trips cleanly: close editor, reopen, every node renders identically
+   to what was committed. No "Unknown statement" placeholders. No missing nodes.
+3. Edit one node (e.g., change an entity). Save. Round-trip again. Result is
+   identical except the changed field.
+4. Compile target detected correctly as `native_script`.
+5. Test Compile output matches the hand-verified YAML in COMPILER_SPEC.md Section 18,
+   byte-for-byte after normalizing whitespace.
+6. Deploy succeeds with no HA reload errors.
+7. Manual trigger fires the piston in HA. PISTONCORE_RUN_COMPLETE event is received
+   by the backend and surfaced in the editor/status page.
+
+Until all seven pass, S3-1 is not done. Partial passes are gaps, not victories.
 
 ---
 
@@ -162,6 +182,106 @@ Must be done before B-1.
 
 ---
 
+### D-S5b: Spec Hardening from Audit (Session 29 May 2026 Audit)
+
+**Why this session exists:** A May 2026 audit (`SPEC_AUDIT.md`) found that several
+spec rules were written with overconfident "locked / permanent / do not re-open"
+language against decisions that were Claude-authored guesses, not validated
+research. Some of those guesses are wrong or incomplete, and the language was
+preventing pivots. CLAUDE_SESSION_PROMPT.md was updated to introduce three
+confidence levels (Guardrail / Researched / Assumption). This session applies the
+same hardening to the remaining specs.
+
+**Must be done before B-1.** The compiler rewrite must not be written against
+specs that the audit flagged as overconfident.
+
+**Steps — apply audit findings to the specs:**
+
+1. **PISTON_FORMAT.md — add "Field Lifecycle Rules" section.** For each field on
+   condition, action, for_each, and variable nodes (role, role_tokens, entity_ids,
+   device_label, compiled_value, display_value, aggregation, default_value, etc.),
+   state exactly: when it is written, when it is read, when it is stripped on
+   Snapshot export, who owns it (wizard / editor / compiler / import / `_reResolveVariableUses`).
+   This surfaces the contradictions in audit findings #6, #13, and #14.
+
+2. **PISTON_FORMAT.md — add role_tokens to the field reference table.** Currently
+   GAP-S64-1 is open against this. role_tokens is required on action and condition
+   nodes, ignored by compiler, preserved by editor, stripped (or zeroed) on Snapshot
+   export. Decide and document the Snapshot rule explicitly — community-shared
+   pistons must not leak the original user's variable/global names.
+
+3. **PISTON_FORMAT.md — clarify `compile_target` field.** Document explicitly that
+   the stored value is a cache of the last compiler decision, not a user preference.
+   Snapshot export should set it from rescanning the imported statements, not from
+   the source. Optional: add `compile_target_lock: null | "native_script" | "pyscript"`
+   for users who need to pin a target (per audit finding #4) — but defer
+   implementation until a real user case appears.
+
+4. **PISTON_FORMAT.md — document the four legitimate write points for `entity_ids`
+   on a node.** Replace any "captured at wizard commit time, never elsewhere"
+   language with the actual rule: wizard commit, `_reResolveVariableUses`, Snapshot
+   import role mapping, Redeploy All for global device variable changes. No other
+   code may write to `entity_ids`.
+
+5. **HA_LIMITATIONS.md + COMPILER_SPEC.md — fix variable scope warning contradiction.**
+   Update COMPILER_SPEC.md Section 13 `VARIABLE_SCOPE_WARNING` to note it applies
+   only when piston targets HA <2025.3. Cross-reference `loop_string_accumulation`
+   in PYSCRIPT_COMPILER_SPEC.md 1.1 as the only currently-relevant case. Make a
+   real decision on raising minimum HA to 2025.3 — current "consider raising before
+   v1" language has been in the spec for sessions.
+
+6. **DESIGN.md — soften "do not re-open" markers to include criteria for reopening.**
+   AppDaemon, hybrid output model, multi-entity compilation, device globals
+   compile-time-only — each one keeps its lock but gains a "re-open if X" criterion
+   per audit finding #7. The decisions don't change; the language stops being
+   hostile to future learning.
+
+7. **DESIGN.md — explain why device_map was eliminated AND the path back if
+   bookkeeping fails.** Audit finding #3. The escape path is `variable_refs` on
+   nodes, NOT reintroducing the map. State this so a future session has a real
+   option if `_reResolveVariableUses` + `globals_index.json` proves slow at scale.
+
+8. **DESIGN.md — add bulk-orphan recovery dialog.** Audit finding #10. Default
+   "never auto-delete" stays. Exception: orphan scan finding more than 5 orphaned
+   files surfaces a one-time recovery dialog (import as backup / mark as
+   user-managed / delete all).
+
+9. **DESIGN.md — capability data being wrong (not just missing).** Audit finding
+   #16. Add a manual capability override path alongside the Unknown Device Fallback,
+   reachable from any device's wizard.
+
+10. **COMPILER_SPEC.md — add Section 21 "Compiler Reality Discrepancies" stub.**
+    Audit finding #18. A single place to log "HA actually does X instead of Y, the
+    compiler must Z" as real testing reveals divergences. Pre-fill with the
+    trigger:/platform: distinction (Section 9 line 916) as the example entry.
+
+11. **FRONTEND_SPEC.md + STATEMENT_TYPES.md + PISTON_FORMAT.md — replace "100% of
+    the time, every time, without fail" with "never silently drops, duplicates, or
+    corrupts nodes" language.** Audit finding #1. CLAUDE_SESSION_PROMPT.md already
+    has the corrected version — propagate to the other three files.
+
+12. **All specs — sweep for "Locked / permanent / do not re-open / never be changed"
+    phrasings.** For each one found: confirm it's a guardrail (scar tissue) or
+    researched decision. If researched, attach the rationale. If guess, soften to
+    "current decision based on [X]" and mark as a working assumption to validate
+    in S3-1.
+
+**Upload for D-S5b:**
+ALL spec files (PISTON_FORMAT.md, COMPILER_SPEC.md, DESIGN.md, FRONTEND_SPEC.md,
+HA_LIMITATIONS.md, PYSCRIPT_COMPILER_SPEC.md, STATEMENT_TYPES.md, WIZARD_SPEC.md),
+plus CLAUDE_SESSION_PROMPT.md, SPEC_AUDIT.md, TASKS.md.
+
+This is a large upload. If context budget is tight, split into two sessions:
+- D-S5b-1: PISTON_FORMAT.md + COMPILER_SPEC.md + PYSCRIPT_COMPILER_SPEC.md + HA_LIMITATIONS.md (items 1-5, 10)
+- D-S5b-2: DESIGN.md + FRONTEND_SPEC.md + STATEMENT_TYPES.md + WIZARD_SPEC.md (items 6-9, 11-12)
+
+**Acceptance criteria:**
+- All audit findings either applied or explicitly noted as "won't fix — Jeremy's call."
+- Spec versions bumped where content changed.
+- TASKS.md updated to reflect any new GAP entries surfaced during the hardening.
+
+---
+
 ## STAGE G — Globals System
 
 ### G-1, G-2, G-2b ✅ (Sessions 48–50) — See TASKS_HISTORY.md
@@ -212,7 +332,11 @@ STATEMENT_TYPES.md, SAMPLE_PISTONS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 ## STAGE 3 — Round-Trip Verification
 
 ### S3-1: Smoke Test — Full Round-Trip on One Simple Piston
-Only attempt once W-S9, B-1, and G-3 are complete.
+
+Prerequisites: W-S10 complete, D-S5 + D-S5b complete, B-1 complete, G-3 complete.
+
+Success criteria: see "What 'S3-1 passes' actually means" checklist near top of this
+file. All seven items must pass, not just the obvious ones.
 
 ### S3-2: Deferred Validation Testing (After S3-1 Passes)
 

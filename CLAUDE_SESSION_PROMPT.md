@@ -28,6 +28,114 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - **Always check for stale comments and dead code before delivering files.**
 - **Do not code without permission — explain what you plan to change first.**
 
+## 📌 How to Handle Spec Rules — Read This Before Anything Else
+
+Spec rules are decisions made at a point in time. They are not infallible. They were
+written against a specific level of evidence — some against real bugs, some against
+documented research, some against best-effort guesses. Treat each rule according to
+its evidence level (see Decision Confidence Levels below).
+
+**Jeremy will break any rule that gets in the way of making PistonCore work.** If a
+spec rule appears to contradict the obvious fix for a real problem, do NOT contort
+the code to honor the rule. Instead:
+
+1. State what the spec says, in plain English.
+2. State what reality is showing, in plain English.
+3. Propose updating the spec, not working around it.
+4. Wait for Jeremy's decision before writing any code.
+
+The one exception is **hard guardrails** (see below). Those are scar tissue from real
+bugs that took multiple sessions to fix. Do not unwind them without explicit
+conversation — even if a "better" approach seems obvious. The reason they're hard is
+that the "better" approach has already been tried and broke things.
+
+## 📌 Decision Confidence Levels
+
+Every spec rule falls into one of three buckets. The bucket determines how to handle
+the rule when reality pushes back.
+
+### 1. Hard Guardrails — Scar Tissue From Real Bugs
+
+These came from sessions of regressions and real testing. Do NOT unwind without
+explicit conversation, even if you think you see a cleaner approach. The cleaner
+approach has likely already been tried.
+
+Current hard guardrails:
+- **sel.tokens model** — physical rows store ALL entity_ids (WIZARD_SPEC.md v2.4
+  guardrail section). Took 6 sessions to get right. See lines 200-272 of WIZARD_SPEC.md.
+- **Union-then-intersect capability lookup** — `_getGroupedEntityIdsForTokens` returns
+  arrays per group, union within group, intersect across groups. Replaces the earlier
+  `_getPrimaryIdsForTokens` which was wrong. Documented in WIZARD_SPEC.md and below.
+- **Nested tree model** — children embedded directly on parent nodes, no ID references.
+  Established Session 35 after the flat-with-stmt_map model caused orphan bugs.
+- **Editor never reads display text** — rendering is a pure projection from JSON.
+  Display text is generated on every render, never stored or parsed. AST/Pure
+  Projection invariant in FRONTEND_SPEC.md.
+- **UI/Data separation** — role/device_label always friendly names, entity_ids always
+  real HA entity_ids. Mixing them is always a bug. See UI/Data Separation Rule below.
+
+If a hard guardrail seems wrong, you (Claude) are most likely wrong. Ask before
+changing anything.
+
+### 2. Researched Decisions — Validated Against Multiple Sources
+
+These came from real investigation: multi-AI review, WebCoRE source code reading,
+verified HA documentation, or hand-verified compiler output. Lock-strength is
+appropriate but each one carries the rationale that justified it.
+
+Re-open only with new evidence that contradicts the research — not with argument.
+
+Examples:
+- **AppDaemon ruled out** — evaluated through multi-AI review (multiple models
+  consulted, findings synthesized, final review against Claude). Three blockers:
+  programming model mismatch (static classes vs dynamic JSON pistons), impossible
+  observability layered on top of another runtime, three-layer debugging unacceptable
+  for non-technical users. Re-open only if a working prototype demonstrates all three
+  blockers are solvable.
+- **Hybrid output model — simple pistons compile to native HA YAML permanently** —
+  decision against routing simple pistons through PistonCore's runtime. Reasoning:
+  native YAML pistons are owned by HA, survive PistonCore uninstall, traces work
+  natively, and routing them through PistonCore would violate the independence
+  guarantee. Re-open only if v1 user testing shows the simple/complex boundary
+  causes real confusion or breakage.
+- **HACS companion eliminated** — direct HA REST/WebSocket API used instead.
+  Decision made Session 16 after evaluating the companion's actual contribution.
+- **Multi-entity compilation HA-native** — verified against HA documentation May
+  2026. `entity_id:` accepts arrays in triggers and action targets. No expansion
+  needed. Conditions still require Jinja2 templates for any/all/none.
+- **device_map eliminated** — entity_ids stored directly on condition, action, and
+  for_each nodes. The map was rejected because it allowed orphaned references (node
+  referencing a role not in the map). If `_reResolveVariableUses` + `globals_index.json`
+  bookkeeping turns out to be slow at scale, the path back is to add a `variable_refs`
+  field alongside `entity_ids` on nodes — NOT to reintroduce the map.
+- **Device globals are compile-time only** — entity_ids baked inline into compiled
+  YAML at deploy time, no runtime group lookup. Non-device globals use HA input
+  helpers. This eliminates runtime race conditions entirely.
+
+### 3. Working Assumptions — Best-Effort Guesses Awaiting Validation
+
+These were written against documentation or rationale, NOT against real HA testing.
+They may be wrong. The fact that they're in a spec does not make them true.
+
+If real testing contradicts a working assumption, update the spec — do not contort
+the code. Open a discussion with Jeremy before changing anything.
+
+Current working assumptions (incomplete list — anything not in the above two buckets):
+- Compiler output details for statement types that haven't been deployed to real HA
+  yet (most of COMPILER_SPEC.md Section 10)
+- The 30-minute entity validation interval — chosen as a reasonable default, not
+  measured against real load
+- Jinja2 template patterns for conditions — verified against docs, not against
+  running pistons
+- PyScript handlers (PYSCRIPT_COMPILER_SPEC.md) — written from documentation, no
+  end-to-end verification yet
+- Anything marked "needs explicit testing" or "not yet tested" in HA_LIMITATIONS.md
+
+**Treat working assumptions as hypotheses, not laws.** The smoke test (S3-1) is when
+many of them will be validated or invalidated.
+
+---
+
 ## 📌 Architecture Guardrail: The "Lowest Common Denominator" Rule
 
 Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wizard-condition.js`) and selects a device, group of devices, or a Device Variable (e.g., `@MyLights`, `@Fountains`):
@@ -166,23 +274,63 @@ wizard-loops.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 ---
 
-## Architecture — Locked Decisions
-- Nested tree model: children embedded directly, no ID references
-- All HA YAML through Jinja2 templates only
-- HACS companion eliminated — direct HA REST/WebSocket API
-- Native HA Script as primary compile target (~95%), PyScript fallback
-- Context_builder.py for fat compiler context assembly
-- Piston identity via UUID throughout
-- Editor must render from JSON correctly 100% of the time
-- **device_map ELIMINATED** — entity_ids stored directly on condition, action, for_each nodes
-- **entity_ids validated against live HA on every compile**
-- **entity_ids captured from live HA device picker at wizard commit time — never at runtime**
-- **sel.tokens is the authoritative selection tracker — never sel.devices**
-- **role_tokens is a required field on all action and condition nodes**
-- **_getFlatEntityIds is the only resolution path for commit — never resolve tokens inline**
-- **_getGroupedEntityIdsForTokens is the only resolution path for cap/service lookup**
+## Architecture — Decisions With Rationale
 
-## Device Data Model — Locked
+Each decision below carries its confidence level (Guardrail / Researched / Assumption)
+per the Decision Confidence Levels section above. Treat each accordingly.
+
+- **Nested tree model** (Guardrail) — children embedded directly on parent nodes, no
+  ID references. Established Session 35 after flat-with-stmt_map caused orphan bugs.
+- **All HA YAML through Jinja2 templates only** (Researched) — no inline YAML in
+  Python. Lets PistonCore absorb HA YAML syntax changes by updating templates, no
+  code release needed. See DESIGN.md Section 14.
+- **HACS companion eliminated** (Researched) — direct HA REST/WebSocket API used
+  instead. Decision Session 16 after evaluating actual companion contribution.
+- **Native HA Script as primary compile target (~95%), PyScript fallback** (Researched)
+  — see DESIGN.md Section 3.1 Hybrid Output Model for full rationale. Native YAML
+  pistons are owned by HA, survive PistonCore uninstall, traces work natively. This
+  is permanent for simple pistons.
+- **context_builder.py for fat compiler context assembly** (Assumption) — compiler
+  is pure (no HA calls), backend pre-fetches everything. Pattern not yet exercised
+  end-to-end. Will be validated by B-1 and S3-1.
+- **Piston identity via UUID throughout** (Researched) — all HA artifact names derive
+  from UUID, never piston name. Renaming a piston never breaks HA references.
+- **Editor renders correctly from valid JSON, never silently drops or corrupts nodes**
+  (Guardrail) — replaces earlier "100% of the time" wording. Malformed nodes (missing
+  type, unknown type, future logic_version, missing required fields) render as a
+  clearly-flagged placeholder row that preserves the node and lets the user repair
+  or delete it. The editor must never silently lose data.
+- **device_map ELIMINATED** (Researched) — entity_ids stored directly on condition,
+  action, and for_each nodes. Map was rejected because it allowed orphaned references.
+  If the new bookkeeping (`_reResolveVariableUses` + `globals_index.json`) turns out
+  to be slow or unreliable, the path forward is a `variable_refs` field alongside
+  `entity_ids` on nodes — NOT reintroducing the map.
+- **entity_ids validated against live HA on every compile** (Researched) — Section 8
+  of COMPILER_SPEC.md. `resolve_entities()` is the gate. MISSING_ENTITY error stops
+  the deploy. Old deployed version stays running in HA.
+- **entity_ids on nodes are real HA entity_ids, captured at the wizard commit time**
+  (Guardrail) — but they may also be rewritten at three other specific times: when
+  `_reResolveVariableUses` runs after a local variable save, when Snapshot import
+  role mapping completes, and when a global device variable's Redeploy All flow
+  propagates. No other code may write to a node's `entity_ids`. (Replaces the earlier
+  "never at runtime" wording — that hid the three legitimate non-wizard write points.)
+- **sel.tokens is the authoritative selection tracker — never sel.devices** (Guardrail)
+- **role_tokens is a required field on all action and condition nodes** (Guardrail)
+  — see WIZARD_SPEC.md v2.4 and the sel.tokens model section below.
+- **_getFlatEntityIds is the only place tokens are resolved to entity_ids at commit
+  time** (Guardrail) — note: read-side walks of already-committed nodes do NOT
+  re-resolve. They trust the entity_ids on the node. If a read-side walk seems to
+  need resolution, that's a sign a previous commit didn't fully resolve — fix the
+  commit, not the walk.
+- **_getGroupedEntityIdsForTokens is the only path for capability/service lookup**
+  (Guardrail) — returns array of arrays (one per physical device group). Union
+  within group, intersect across groups.
+
+## Device Data Model — Guardrails
+
+Same as the Architecture section — items below are guardrails (scar tissue from real
+bugs) unless marked otherwise.
+
 - `API.getDevices()` returns flat entity list with `device_id` field
 - Frontend groups by `device_id` → one picker row per physical device
 - `primary_entity_id` chosen by domain priority at group time:
@@ -190,7 +338,11 @@ DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
   input_boolean > input_number > input_select > automation >
   binary_sensor > sensor > person > device_tracker > alarm_control_panel
 - **Physical device rows write ALL entity_ids to sel.tokens — NOT just primary_entity_id.**
-  This is correct and must never be changed. See WIZARD_SPEC.md v2.4 guardrail section.
+  This is a hard guardrail. Storing only primary_entity_id was tried and broke the
+  capability intersection for multi-entity devices (intersection collapsed to only
+  `state` when a multi-entity device was selected alongside another device). See
+  WIZARD_SPEC.md v2.4 guardrail section for full rationale. Do not change without
+  explicit conversation.
 - Piston variable rows write variable name to `sel.tokens`
 - Global variable rows write `@name` token to `sel.tokens`
 - `_getFlatEntityIds(sel.tokens)` resolves all tokens to flat real entity_ids (commit time)

@@ -65,7 +65,7 @@ function _goConditionBuilder() {
   const backFn = (_sel.statement_class === 'condition' && WizardCore.context !== 'if_condition')
     ? _goConditionOrGroup : null;
 
-  const showInteraction = subjType === 'device' && hasDevice;
+  const showInteraction = subjType === 'device' && hasDevice && isTrigger(op);
 
   const odw = _sel.time_only_on_days || [];
   const omy = _sel.time_only_on_months || [];
@@ -387,6 +387,13 @@ function _refreshConditionRows() {
 
   document.getElementById('wiz-operator')?.classList.toggle('is-trigger', isTrigger(op));
 
+  // GAP-S67-1: interaction row only visible when a trigger operator is selected
+  const intRow = document.getElementById('wiz-int-row');
+  if (intRow) {
+    const subjType2 = WizardCore.sel.subject_type || 'device';
+    intRow.style.display = (subjType2 === 'device' && !!WizardCore.sel.device_id && isTrigger(op)) ? '' : 'none';
+  }
+
   if (needsVal) _renderValueWidget();
 
   const ok = hasSubject && !!op;
@@ -519,10 +526,17 @@ function _renderDevPanelList(query) {
       WizardCore.sel._caps = [];
 
       // Update the picker button label
+      // GAP-S67-4: show correct prefix tag based on what type of row is selected.
+      // Derive tag from the first selected row's data-row-type.
       const btn = document.getElementById('wiz-open-devpicker');
       if (btn) {
         if (WizardCore.sel.tokens.length) {
-          btn.innerHTML = `<span class="wiz-device-tag">device</span> ${_esc(deviceLabel)}`;
+          const firstSelectedRow = el.querySelector('.wiz-device-row.selected');
+          const firstRowType = firstSelectedRow?.dataset.rowType || 'physical';
+          const tag = firstRowType === 'pistonvar' ? 'variable'
+                    : firstRowType === 'global'    ? 'global'
+                    : 'device';
+          btn.innerHTML = `<span class="wiz-device-tag">${tag}</span> ${_esc(deviceLabel)}`;
           btn.classList.add('has-value');
         } else {
           btn.innerHTML = 'Nothing selected';
@@ -533,9 +547,11 @@ function _renderDevPanelList(query) {
       const aggBar = document.getElementById('wiz-agg-bar');
       if (aggBar) aggBar.style.display = WizardCore.sel.tokens.length ? '' : 'none';
 
+      // GAP-S67-1: interaction row only visible when a trigger operator is selected
       const intRow = document.getElementById('wiz-int-row');
       if (intRow && (WizardCore.sel.subject_type || 'device') === 'device') {
-        intRow.style.display = WizardCore.sel.tokens.length ? '' : 'none';
+        const currentOp = document.getElementById('wiz-operator')?.value || WizardCore.sel.operator || '';
+        intRow.style.display = (WizardCore.sel.tokens.length && WizardCore.isTrigger(currentOp)) ? '' : 'none';
       }
 
       const attrSel = document.getElementById('wiz-attr-select');

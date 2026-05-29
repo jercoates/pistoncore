@@ -182,6 +182,10 @@ function _renderActDevList(query) {
 
   el.innerHTML = html;
 
+  // Sync Next button state after every re-render — sel.tokens may already be populated
+  // if the user clicked a row before deviceData finished loading.
+  document.getElementById('wiz-act-next')?.toggleAttribute('disabled', !WizardCore.sel.tokens.length);
+
   el.querySelectorAll('.wiz-device-row').forEach(row => {
     row.addEventListener('click', () => {
       const label    = row.dataset.label;
@@ -654,10 +658,12 @@ async function _goCommandPicker() {
         sel.innerHTML = `<option value="" style="display:none" disabled>No shared commands found</option>`;
       }
       if (!WizardCore.sel.command && services.length) {
-        const firstOpt = sel.options[1];
-        if (firstOpt) { sel.value = firstOpt.value; WizardCore.sel.command = firstOpt.value; }
+        // GAP-S67-3: do not auto-select first command — wait for user to pick.
+        // Reset select to placeholder so params don't render before user chooses.
+        sel.value = '';
       }
       if (WizardCore.sel.command) {
+        // Editing an existing node — command already set by _route, pre-select and show params.
         _renderCmdParams(WizardCore.sel.command, services);
         document.getElementById('wiz-cmd-save')?.removeAttribute('disabled');
         document.getElementById('wiz-cmd-addmore')?.removeAttribute('disabled');

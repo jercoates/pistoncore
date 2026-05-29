@@ -1,11 +1,13 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.3
+**Version:** 2.4
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 65 / W-S10 — Device Variables section added: defines
-  as friendly-name groups resolved to full entity ID lists, intersection capability model,
-  hard rules against writing variable names into entity_ids or resolving outside
-  _getFlatEntityIds. GAP-S57-10 through S57-14 from Session 58 / D-S3 also resolved.)
+**Last Updated:** May 2026 (Session 68 / W-S10 — sel.tokens model corrected to match working
+  code: physical rows store ALL entity_ids in sel.tokens (not just primary_entity_id).
+  Union-then-intersect cap model documented. Hard guardrail added — DO NOT CHANGE.
+  selected_entity_ids references removed — that field does not exist, use sel.tokens.
+  Edit pre-fill hydration corrected to use role_tokens → sel.tokens. GAP-S57-10 through
+  S57-14 from Session 58 / D-S3 also reflected.)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
@@ -191,12 +193,89 @@ Demo devices shown when no HA connection or as fallback.
 - Global variables (Device/Devices type): single-select per global, but multiple globals can be selected together or mixed with physical devices. All selected entity_ids are merged into one flat array at commit time.
 - System variables: single-select
 
-**The aggregation bar** appears whenever more than one entity_id will be written to the node — whether from multiple physical devices, multiple globals, or a mix. The user picks any/all/none before committing.
+**The aggregation bar** appears whenever more than one physical device group or variable is selected. The user picks any/all/none before committing.
+
+---
+
+### ⚠ sel.tokens — How Physical Device Selection Actually Works
+
+**DO NOT CHANGE THIS BEHAVIOR. It took 6 sessions to get right. Read this entire section before touching any picker, token, capability, or intersection code. If you think it is wrong, you are wrong. Ask before changing anything.**
+
+#### What sel.tokens contains
+
+`sel.tokens` is the authoritative selection tracker. It contains different things depending on row type:
+
+- **Physical device row clicked** → ALL entity_ids for that device group are added to `sel.tokens` (e.g. clicking "Outdoor Motion" adds `binary_sensor.outdoor_motion`, `sensor.outdoor_motion_illuminance`, `sensor.outdoor_motion_temperature`, `sensor.outdoor_motion_battery` — all four)
+- **Piston variable row clicked** → the variable name (no dot, e.g. `"MyLights"`)
+- **Global variable row clicked** → the `@name` token (e.g. `"@Fountains"`)
+
+Deselecting a physical row removes all its entity_ids from `sel.tokens`.
+
+#### Why ALL entity_ids must be stored for physical rows — never just primary_entity_id
+
+`_getGroupedEntityIdsForTokens` finds a device's group by doing `grouped.find(g => g.entity_ids.includes(token))`. It needs at least one real entity_id from the group to find it.
+
+**If only `primary_entity_id` were stored:** when a multi-entity device like "Outdoor Motion" is selected alongside another device, `_getGroupedEntityIdsForTokens` would only find the group via the one stored primary. The remaining sub-entity ids would come from the other device's tokens, causing the intersection to treat sub-entities as separate physical devices. The intersection collapses to only `state`. This was the bug. Storing all entity_ids fixes it permanently.
+
+#### How the row renders and highlights
+
+```javascript
+// Row render — data-id carries ALL entity_ids comma-joined
+const ids = d.entity_ids || [d.primary_entity_id];
+const isSelected = ids.some(id => selTokens.has(id));
+// data-id="${ids.join(',')}"
+
+// Click handler — adds/removes ALL entity_ids
+const rowIds = row.dataset.id.split(',').filter(Boolean);
+if (row.classList.contains('selected')) {
+  rowIds.forEach(id => newTokens.add(id));
+} else {
+  rowIds.forEach(id => newTokens.delete(id));
+}
+WizardCore.sel.tokens = [...newTokens];
+```
+
+The `isSelected` highlight check uses `ids.some(id => selTokens.has(id))` — a row re-highlights correctly as long as any one of its entity_ids is in `sel.tokens`.
+
+#### Capability intersection — union within group, then intersect across groups
+
+A physical device in HA is ONE device that can have MULTIPLE entities. These are NOT separate devices. "Outdoor Motion" with four sensor entities is one physical device.
+
+**Step 1 — Union within a group:**
+For each selected physical device group, fetch caps for ALL its entities and union them into one cap set. When two entities in the same group both return a cap named `state` but with different `device_class` values (e.g. `illuminance`, `temperature`, `battery`), key the union map by `device_class || name` — not just `name` — so they appear as distinct entries (`illuminance`, `temperature`, `battery`) instead of all collapsing into one `state` entry.
+
+**Step 2 — Intersect across groups:**
+Only when more than one physical device group is selected, intersect the unioned cap sets across groups. If only one group is selected, use its union directly — no intersection.
+
+#### _getFlatEntityIds — commit time only
+
+At commit time, `_getFlatEntityIds(sel.tokens)` resolves the full flat array of real HA entity_ids to write to the node:
+- Token has `.` → plain entity_id, pass through as-is
+- Token has no `.` → piston variable name → resolve `initial_value` (friendly names) → all entity_ids in each group
+- Token starts with `@` → global variable → resolve `value` (friendly names) → all entity_ids in each group
+
+Returns flat deduplicated array. This is what gets written to `entity_ids` on the node.
+
+#### _getGroupedEntityIdsForTokens — cap/service lookup only
+
+Used by `_loadCapsIntoSelect` and `_goCommandPicker`. Returns array of arrays — one inner array per physical device group — for the union-then-intersect cap lookup. Never used for writing nodes.
+
+#### Hard rules — never violate
+
+- **Never change** the physical row `data-id` construction (`ids.join(',')`)
+- **Never change** the click handler that adds all entity_ids to `sel.tokens`
+- **Never change** the `isSelected` highlight check (`ids.some(id => selTokens.has(id))`)
+- **Never change** the union-then-intersect logic in `_loadCapsIntoSelect` or `_goCommandPicker`
+- **Never change** `_getGroupedEntityIdsForTokens`
+- **Never use** `selected_entity_ids` — that field does not exist. The field is `sel.tokens`
+- **Before touching any of this:** state in plain English exactly what you are changing and why, and wait for confirmation
+
+---
 
 ### Zero Devices Selected — GAP-S57-14
 
 If the user clicks Next or Done with zero devices selected:
-- **Next button is disabled** while `WizardCore.sel.selected_entity_ids.size === 0`
+- **Next button is disabled** while `WizardCore.sel.tokens.length === 0`
 - Show inline error below the device list: *"You must select at least one device or variable to continue."*
 - Error appears only after the user has interacted with the picker (not on first open)
 - Error clears as soon as any device is selected
@@ -205,7 +284,7 @@ This applies to: W-5 (action device picker), W-4 (condition device picker), W-2-
 
 ### Role Label Generation — GAP-S57-10
 
-When the user commits a device selection, the `role` string is generated at commit time from the selections. Rules in priority order:
+When the user commits a device selection, the `role` string is generated at commit time from the row labels (what the user selected — not from resolved entity_id count). Rules in priority order:
 
 **Single physical device selected:**
 Use the device's friendly name exactly.
@@ -220,7 +299,7 @@ Join first two with ", " and last with " and ".
 `role: "Front Door, Back Door and Garage Door"`
 
 **Four or more physical devices selected:**
-First friendly name + count of remaining.
+First friendly name + count of remaining selected rows.
 `role: "Front Door +3"`
 
 **Single global variable selected (no physical devices):**
@@ -232,20 +311,20 @@ First global name with @ prefix + count of remaining.
 `role: "@Door_Contacts_Exterior +1"`
 
 **Mixed selection (physical devices AND globals):**
-Resolve all entity_ids from globals at commit time, merge flat with physical device entity_ids. Role label uses first physical device name + total count of remaining entities across all sources.
+First selected row label + count of remaining selected rows.
 `role: "Front Door +4"`
 
-**Important:** The role label is generated once at commit time and stored. It is never regenerated from entity_ids at render time. The role is a display convenience — the entity_ids array is the source of truth.
+**Important:** The role label is derived from what the user selected (row labels and count), not from the number of resolved entity_ids. It is generated once at commit time and stored. It is never regenerated from entity_ids at render time. The role is a display convenience — the entity_ids array is the source of truth.
 
 ### Mixed Physical + Global Commit Logic — GAP-S57-11
 
 When the user selects a mix of physical devices and global Device/Devices variables:
 
-1. For each selected physical device: add its `entity_id` to `selected_entity_ids` Set
-2. For each selected global: fetch the global's current `entity_ids` from `globals.json` at commit time, add each to `selected_entity_ids` Set
-3. Deduplicate — if a physical device and a global both contain the same entity_id, it appears only once
-4. The final `entity_ids` array written to the node is `[...selected_entity_ids]` — order: physical devices first, then global-resolved entities
-5. Role label generated from the merged selection per rules above
+1. Physical device rows: all their entity_ids are already in `sel.tokens` from click time
+2. Global rows: `@name` token is in `sel.tokens`; `_getFlatEntityIds` resolves it to entity_ids at commit time
+3. `_getFlatEntityIds(sel.tokens)` produces the final flat deduplicated entity_ids array
+4. Deduplicate — if a physical device and a global both contain the same entity_id, it appears only once
+5. Role label generated from selected row labels per rules above
 
 **When a local device variable's device list changes**, every condition and action node in the piston that references that variable has its `entity_ids` updated automatically via `_reResolveVariableUses` in editor.js. This runs immediately after the variable is saved. The user does not need to reopen and recommit every statement.
 
@@ -257,33 +336,23 @@ When the user opens an existing condition, action, or for_each node for editing,
 
 **Hydration rule:**
 
+On wizard open for edit, `_route()` reads `role_tokens` from the node (preferred) or falls back to `entity_ids`, then falls back to `devices` array, then falls back to `role` name. These are loaded into `WizardCore.sel.tokens`. During device list render, a row highlights as selected if any of its entity_ids (or its variable name / @token) is in `sel.tokens`:
+
 ```javascript
-// On wizard open for edit:
-// 1. Read entity_ids from the node being edited
-const existingIds = editNode.entity_ids || [];
-
-// 2. Load into WizardCore selection state as a Set
-WizardCore.sel.selected_entity_ids = new Set(existingIds);
-
-// 3. During device list render, flag each row's checked state:
-rowElement.querySelector('input[type=checkbox]').checked =
-    WizardCore.sel.selected_entity_ids.has(device.entity_id);
+// Physical row highlight on re-render:
+const ids = d.entity_ids || [d.primary_entity_id];
+const isSelected = ids.some(id => selTokens.has(id));
 ```
 
 **Identifying globals vs physical devices in an existing entity_ids list:**
 
-When pre-filling, PistonCore cannot always tell which entity_ids came from a global and which were individually picked — all entity_ids look the same in the stored JSON. The hydration rule is:
+`role_tokens` stores what the user originally selected (variable names, @globals, entity_ids). On edit, restore `sel.tokens` from `role_tokens` — this reliably re-highlights the correct rows. If `role_tokens` is absent (old-format node), fall back to `entity_ids` as tokens.
 
-- Check each entity_id against the Global Variables section of the picker
-- If a global's full `entity_ids` array is a subset of the node's `entity_ids`, pre-check that global row
-- Otherwise, check the individual physical device rows for each entity_id
-- Any entity_id not found in the current HA device list: show as `⚠ [entity_id] — not found` in the picker, pre-checked but visually flagged
-
-The role label shown in the wizard sentence builder on open is read from `editNode.role` — not regenerated.
+The role label shown on open is read from `editNode.role` — not regenerated.
 
 ### Aggregation Commit — GAP-S57-12
 
-The aggregation bar (Any / All / None) is always shown when `selected_entity_ids.size > 1`. The value defaults to `"any"`.
+The aggregation bar (Any / All / None) is shown when more than one physical device group or variable is selected. The value defaults to `"any"`.
 
 On commit, the selected aggregation value is written to the node:
 

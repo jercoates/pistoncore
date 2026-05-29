@@ -25,6 +25,8 @@ architecture and code. Never does targeted/line-level edits — only full file r
 - **Coding discipline — fix what the user can see first.**
 - Keep the how to manage claude rules below in mind when coding.
 - Remind Jeremy to review the rules below before coding starts.
+- **Always check for stale comments and dead code before delivering files.**
+- **Do not code without permission — explain what you plan to change first.**
 
 ## 📌 Architecture Guardrail: The "Lowest Common Denominator" Rule
 
@@ -35,7 +37,7 @@ Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wi
 3. The Intersection Filter (The Overlap): Calculate the mathematical intersection of those capability lists. The UI dropdown presented to the user must only display commands/attributes that are present across all resolved entities.
 4. UI/Data Separation: The final saved node retains the user's chosen Friendly Name or Variable Token for the script display block, but the selectable parameters are safely constrained by the backend hardware intersection checked in step 3.
 
-## 📌 UI/Data Separation Rule 
+## 📌 UI/Data Separation Rule
 - The user always sees friendly names (variable names, global @tokens, device friendly names).
 - The JSON always stores entity_ids on nodes for the compiler.
 - `role` and `device_label` are always friendly names or variable names. Never entity_ids.
@@ -43,36 +45,40 @@ Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wi
 - `role_tokens` stores what the user selected (variable names, @globals, entity_ids) for edit round-trip. Compiler ignores it.
 - These must never mix. If they are mixing anywhere that is a bug.
 
-## 📌 sel.tokens Model — 
+## 📌 sel.tokens Model
 
 - `sel.tokens` is the authoritative selection tracker in all wizard pickers.
 - It tracks exactly what the user clicked: variable names (e.g. `"MyLights"`), `@global` tokens (e.g. `"@Fountains"`), or plain entity_ids for physical devices.
-- `_getFlatEntityIds(sel.tokens)` is the ONLY place that resolves tokens to real HA entity_ids. Never resolve inline anywhere else.
+- `_getFlatEntityIds(sel.tokens)` is the ONLY place that resolves tokens to real HA entity_ids at commit time. Never resolve inline anywhere else.
+- `_getGroupedEntityIdsForTokens(sel.tokens)` is used for capability/service lookup ONLY — returns one array of entity_ids per physical device group.
 - `role_tokens` is written to every action and condition node at commit time. It is a required field. The compiler ignores it. The editor preserves it on save.
 - On edit, `_route()` restores `sel.tokens` from `role_tokens`. If `role_tokens` absent (old-format node), fall back to `entity_ids` as tokens, then `devices` array, then `role` name.
 - `sel.devices` is NOT the authoritative list. Do not use it as the picker source of truth.
 
 ## 📌 Device Define / Variable Model
 
-- A device define (piston variable of type `device`) holds a list of entity_ids as `initial_value`.
+- A device define (piston variable of type `device`) holds a list of friendly names as `initial_value`.
+- Friendly names resolve to device groups via `_groupDevices()`. Each group contains ALL entity_ids for that physical device.
 - When selected in the wizard, the variable name becomes the `role` token.
-- `_getFlatEntityIds` resolves the variable name to its entity_ids via `Editor.getPistonVariables()`.
-- The intersection of capabilities across all resolved entity_ids drives the command/attribute picker.
-- Only the entity_ids that support the chosen command are written to the node's `entity_ids`.
-- The role on the node is always the variable name — never the entity_ids.
-- When a define is edited (entity_ids change), `_reResolveVariableUses` in editor.js
-  immediately re-resolves `entity_ids` on every node in the piston that references
-  that variable name in `role_tokens`. This is the entire point of defines.
-- Global device variables work exactly like local device variables in this model.
-  They resolve from `_piston._globalsCache` (loaded at editor open time).
-- Local variable entity_ids are re-resolved by the backend on every piston save.
-- Global variable entity_ids are resolved at wizard commit time and stored. User must
-  re-open and re-save affected nodes to pick up global changes (per WIZARD_SPEC.md).
+- `_getFlatEntityIds` resolves the variable name → friendly names → all entity_ids (for commit).
+- `_getGroupedEntityIdsForTokens` resolves the variable name → friendly names → groups → all entity_ids per group (for cap/service lookup).
+- For capability lookup: fetch caps for ALL entity_ids in each group, union per group, intersect across groups. Caps named "state" with a device_class are keyed by device_class so illuminance/temperature/battery appear as distinct picker entries.
+- Global device variables work exactly like local device variables. Both store friendly names.
+- Globals store friendly names in `value` field (not entity_ids).
+- Local variables store friendly names in `initial_value` field.
+
+## 📌 Cap/Service Lookup — _getGroupedEntityIdsForTokens
+
+- Replaces `_getPrimaryIdsForTokens` which was wrong — it returned only one entity per device.
+- Returns array of arrays: one inner array = all entity_ids for one physical device group.
+- For each group: fetch caps/services for ALL entity_ids → union → one cap set per device.
+- Intersect cap sets across physical devices — only shared caps shown.
+- This means a multi-sensor (motion + illuminance + temperature + battery) exposes ALL its attributes, not just the dominant domain's caps.
 
 ## How to Manage Claude — Three Rules
 
 - Keep the UI label separate from the data payload. The user sees friendly names. The JSON stores entity_ids. Always tell Claude explicitly which one a piece of code is responsible for. Never let them mix.
-- Demand helper functions, not monolithic code. When solving a multi-step problem, require Claude to isolate each step into its own small function before writing anything. Example: `_getFlatEntityIds()` is one job — resolve to entity_ids. The capability intersection is a separate job. Never combine them.
+- Demand helper functions, not monolithic code. When solving a multi-step problem, require Claude to isolate each step into its own small function before writing anything.
 - Make Claude explain before it codes. If you are unsure Claude understands the problem, say: "Do not write any code yet. Explain in plain English the step-by-step logic and which files you will modify." If the explanation is wrong, correct it before a single line is written.
 
 ## Deploy Command (Unraid)
@@ -89,87 +95,75 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S10 continued (Session 67 work)
+## Current Priority — W-S10 continued (Session 68 work)
 
 ### Upload for next session:
 wizard-loops.js, wizard-core.js, wizard-action.js, wizard-condition.js,
 wizard-variable.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### What was done in Session 66 (W-S10 partial):
+### What was done in Session 67 (W-S10 partial):
 
-**Device variable capability intersection fixed — root cause and fix:**
-- The capability and service pickers were running intersection across ALL sub-entity ids
-  returned by _getFlatEntityIds. A device variable containing "Kitchen Motion" resolves
-  to sensor.kitchen_motion_battery, binary_sensor.kitchen_motion_motion,
-  binary_sensor.kitchen_motion_tamper — three separate entities. The intersection of
-  those three produced only "state" as the shared cap, which is wrong.
-- Correct behavior: each friendly name in a variable's initial_value is ONE physical
-  device. Intersection must run across physical devices (one cap lookup each), not
-  across sub-entities.
-- Fix: _getPrimaryIdsForTokens added to wizard-core.js. For each token it resolves
-  to one primary_entity_id per physical device group. _loadCapsIntoSelect
-  (wizard-condition.js) and _goCommandPicker (wizard-action.js) now call
-  _getPrimaryIdsForTokens instead of _getFlatEntityIds for the cap/service lookup.
-- _getFlatEntityIds unchanged — still used at commit time to write all entity_ids
-  to action/condition nodes.
-- Device variables, globals, and physical device selections all go through the
-  same path. Nothing writes back to stored variables.
-
-**Two new gaps found in editor.js:**
-- GAP-S66-1: SUPPORTED_LOGIC_VERSION = 1 must be 2 — blocks all pistons from loading
-- GAP-S66-2: _reResolveVariableUses calls WizardCore._getFlatEntityIds when deviceData
-  may be null — needs null guard
-
-**Additional fixes also completed in Session 66 (same context):**
-- GAP-S66-1: editor.js SUPPORTED_LOGIC_VERSION = 1 → 2 (was blocking all pistons from loading)
-- GAP-S66-2: _reResolveVariableUses null guard added for WizardCore.deviceData
-- GAP-S63-5: for_each picker rebuilt with full grouped device picker (wizard-loops.js)
-  Same model as action/condition pickers: physical devices, piston vars, globals.
-  sel.fe_tokens tracks selection. list_role and role_tokens written to node on save.
+**Cap/service intersection completely rewritten:**
+- Root cause: `_getPrimaryIdsForTokens` returned ONE primary entity per device group.
+  A multi-sensor (motion + illuminance + temperature + battery) got caps fetched only
+  for its primary entity (binary_sensor.motion) → only motion/state shown.
+- Fix: replaced with `_getGroupedEntityIdsForTokens` which returns ALL entity_ids per
+  physical device group. Caps fetched for ALL entities in group, unioned per group,
+  then intersected across selected physical devices.
+- Additional fix: caps named "state" with a device_class are keyed by device_class
+  in the union map, so illuminance/temperature/battery appear as distinct picker entries
+  instead of all collapsing into one "state" entry.
+- Globals now store friendly names in `value` (same as locals store in `initial_value`).
+  Both resolve through `_getGroupedEntityIdsForTokens` identically.
+- `API.getServices()` returns array directly — fixed `data.services || []` to
+  `Array.isArray(data) ? data : (data.services || [])`.
 
 **Files changed this session:**
-- wizard-core.js — _getPrimaryIdsForTokens added, exposed on WizardCore
-- wizard-condition.js — _loadCapsIntoSelect uses _getPrimaryIdsForTokens
-- wizard-action.js — _goCommandPicker uses _getPrimaryIdsForTokens
-- editor.js — logic_version fix, _reResolveVariableUses null guard
-- wizard-loops.js — _goForEachPicker rebuilt with grouped device picker
+- wizard-core.js — `_getPrimaryIdsForTokens` replaced with `_getGroupedEntityIdsForTokens`
+- wizard-condition.js — `_loadCapsIntoSelect` rewritten with new function + device_class dedup
+- wizard-action.js — `_goCommandPicker` rewritten with new function + services array fix
+- globals.js — picker stores friendly names (not entity_ids), SelectAll/DeselectAll fixed,
+  `_filteredDevices` primary-before-use bug fixed
 
-### Still open for W-S10:
-- GAP-S64-2: Old-format piston edit picker state wrong — debug with console.log first
-- GAP-S46-5: Import modal file picker
+### New gaps found in Session 67 — all assigned to W-S10:
+
+- **GAP-S67-1 → W-S10:** Interaction row ("Which interaction / Any interaction") shows
+  on conditions. Should only show when the selected operator IS a trigger (isTrigger(op)).
+  Fix: change `showInteraction` in `_goConditionBuilder` from `subjType === 'device' && hasDevice`
+  to `subjType === 'device' && hasDevice && isTrigger(op)`. Also update `_refreshConditionRows`
+  to toggle the row correctly when operator changes.
+
+- **GAP-S67-2 → W-S10:** Next button in action device picker does nothing when a piston
+  variable row is selected. Root cause: `_goCommandPicker` destructures
+  `_getGroupedEntityIdsForTokens` from WizardCore but deployed wizard-core.js had the
+  old function name, causing silent undefined error. Fixed by ensuring wizard-core.js
+  output is always deployed together with wizard-action.js.
+  Additional issue: physical device rows still write all entity_ids into sel.tokens
+  (comma-separated data-id). For non-virtual physical rows, only `primary_entity_id`
+  should be written to sel.tokens — `_getGroupedEntityIdsForTokens` handles expansion
+  from there. Fix both `_renderActDevList` (wizard-action.js) and `_renderDevPanelList`
+  (wizard-condition.js) physical row data-id and click handler.
+
+- **GAP-S67-3 → W-S10:** Action command picker shows all parameter fields immediately
+  on load. WebCoRE shows no fields until a command is selected, then shows only
+  relevant fields for that command. Fix `_renderCmdParams` and `_goCommandPicker` to
+  not auto-render params until user selects a command.
+
+- **GAP-S67-4 → W-S10:** Variable/global names in condition device button missing
+  prefix — shows `Light_Sensor` instead of `{Light_Sensor}` or similar. Check spec
+  for correct display format and fix the button label in `_goConditionBuilder` and
+  the action sel bar in `_goActionDevicePicker`.
+
+### Still open from before Session 67:
+- GAP-S64-2: Old-format piston picker state wrong — debug first, then fix
+- GAP-S46-5: Import modal has no file picker
 - GAP-S58-2: Copy/paste/duplicate statements
 
-### What still needs testing after deploy:
-
-1. Open Kitchen Motion 1, edit the Motion_sensor condition — attribute picker should
-   now show `motion`, `illuminance`, `temperature`, `battery`, `state` etc.
-2. Edit the Light_Sensor define — reassign to `sensor.outdoor_motion_illuminance`
-3. Edit the Light_Sensor condition — should now show illuminance attributes
-4. Edit the Lights action — command picker should show light commands
-5. Save the piston — check JSON has entity_ids on all condition and action nodes
-6. If round-trip works → attempt compile
-
-### Remaining W-S10 gaps (after testing confirms picker works):
-
-1. **GAP-S64-2** — Old-format node edit: picker may still not restore state correctly
-   for nodes with no role_tokens and no entity_ids. Test after deploy.
-2. **GAP-S63-5** — for_each device picker (wizard-loops.js still uses text input)
-3. **GAP-S46-5** — Import modal has no file picker — paste-only
-4. **GAP-S58-2** — Copy/paste/duplicate statements in editor
-5. **D-S5** — Spec update for role_tokens, sel.tokens etc. — must happen before B-1
-
-### Next session priority:
-Test the deploy first. If picker works → fix remaining gaps above in order.
-If picker still broken → debug before writing any more code.
-
-### HARD RULE — Added this session, must stay in every prompt:
-Before changing ANY entity_id resolution, capability fetch, or picker logic:
-1. State in plain English exactly what you are changing and why
-2. Wait for Jeremy to confirm before writing a single line
-3. Never write entity_ids into nodes manually — always resolve through _getFlatEntityIds
-4. Never show entity_ids to the user anywhere in the editor or wizard
-5. The user sees friendly names. The JSON stores entity_ids. These never mix.
+**Upload for W-S10 continued (Session 68):**
+wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
+wizard-loops.js, wizard-statement.js, editor.js, globals.js,
+DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -186,7 +180,8 @@ Before changing ANY entity_id resolution, capability fetch, or picker logic:
 - **entity_ids captured from live HA device picker at wizard commit time — never at runtime**
 - **sel.tokens is the authoritative selection tracker — never sel.devices**
 - **role_tokens is a required field on all action and condition nodes**
-- **_getFlatEntityIds is the only resolution path — never resolve tokens inline**
+- **_getFlatEntityIds is the only resolution path for commit — never resolve tokens inline**
+- **_getGroupedEntityIdsForTokens is the only resolution path for cap/service lookup**
 
 ## Device Data Model — Locked
 - `API.getDevices()` returns flat entity list with `device_id` field
@@ -195,22 +190,30 @@ Before changing ANY entity_id resolution, capability fetch, or picker logic:
   light > switch > cover > fan > climate > lock > media_player >
   input_boolean > input_number > input_select > automation >
   binary_sensor > sensor > person > device_tracker > alarm_control_panel
-- Physical device rows write `primary_entity_id` to `sel.tokens`
+- Physical device rows write `primary_entity_id` to `sel.tokens` (NOT all entity_ids)
 - Piston variable rows write variable name to `sel.tokens`
 - Global variable rows write `@name` token to `sel.tokens`
-- `_getFlatEntityIds(sel.tokens)` resolves all tokens to flat real entity_ids
+- `_getFlatEntityIds(sel.tokens)` resolves all tokens to flat real entity_ids (commit time)
+- `_getGroupedEntityIdsForTokens(sel.tokens)` resolves to grouped entity_ids (cap lookup)
 - `role` on nodes = human-readable label (variable name, @global, friendly name) — display only
 - `role_tokens` on nodes = raw tokens user selected — edit round-trip only, compiler ignores
 - `entity_ids` on nodes = real HA entity_ids — compiler reads these directly
-- `initial_device_names` on variable nodes = display-only friendly names, compiler ignores
+- Device variables: `initial_value` = array of friendly names (local) or `value` (globals)
 - Search in device pickers: filter on display label + primary_entity_id only
 
 ## _getFlatEntityIds Resolution Order
 For each token in sel.tokens:
-1. Starts with `@` → global variable → look up in `WizardCore.globalsData`, get `value` array
-2. No `.` → piston variable name → look up in `Editor.getPistonVariables()`, get `initial_value` array
-3. Has `.` → plain entity_id → use as-is (skip `__virtual__` ids)
+1. Starts with `@` → global variable → look up in `WizardCore.globalsData`, get `value` array (friendly names) → resolve each to all entity_ids in group
+2. No `.` → piston variable name → look up in `Editor.getPistonVariables()`, get `initial_value` array (friendly names) → resolve each to all entity_ids in group
+3. Has `.` → plain entity_id → expand to all entity_ids in its group
 Returns flat deduplicated array of real HA entity_ids.
+
+## _getGroupedEntityIdsForTokens Resolution Order
+For each token in sel.tokens:
+1. Starts with `@` → global variable → friendly names in `value` → groups → all entity_ids per group
+2. No `.` → piston variable name → friendly names in `initial_value` → groups → all entity_ids per group
+3. Has `.` → plain entity_id → find its group → all entity_ids in group
+Returns array of arrays — one inner array per physical device group.
 
 ## _reResolveVariableUses Contract
 Called after any device variable (define) is saved.
@@ -249,29 +252,31 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - D-S4 COMPLETE (Sessions 59–60)
 - W-S8 COMPLETE (Session 63): all wizard coding done, device picker rebuilt
 - W-S9 COMPLETE (Session 64): sel.tokens model, capability intersection, define auto-update
+- W-S10 PARTIAL (Sessions 65–67): cap/service intersection rewritten, globals aligned
 
 ---
 
 ## Open Gaps — All Assigned
 
-### Session 64 gaps (new)
+### Session 67 gaps (new)
+
+- **GAP-S67-1 → W-S10:** Interaction row shows on conditions — should only show when operator is a trigger
+- **GAP-S67-2 → W-S10:** Next button dead when piston variable selected in action picker; also physical rows write all entity_ids to sel.tokens instead of primary_entity_id only
+- **GAP-S67-3 → W-S10:** Action command picker shows all params immediately — should wait for command selection
+- **GAP-S67-4 → W-S10:** Variable/global names missing prefix in condition device button display
+
+### Session 64 gaps
 
 - **GAP-S64-1 → D-S5:** role_tokens must be documented as required in PISTON_FORMAT.md
-- **GAP-S64-2 → W-S10:** Picker not loading correct state for old-format imported pistons —
-  attribute picker shows wrong caps, value shows compiled_value not display_value.
-  Exact failure point unknown — debug with console.log before writing fix.
+- **GAP-S64-2 → W-S10:** Picker not loading correct state for old-format imported pistons
 
 ### Session 63 gaps
 
 - **GAP-S63-1 → deferred:** Domain priority investigation — not blocking anything
-- **GAP-S63-2 → W-S9 ✅**
-- **GAP-S63-3 → W-S9 ✅**
 - **GAP-S63-4 → D-S5:** Spec update — sel.tokens, role_tokens, _getFlatEntityIds,
-  device grouping, initial_device_names, _reResolveVariableUses contract,
-  globals cache model, UI/data separation rule, define model
-- **GAP-S63-5 → W-S10:** for_each device picker (wizard-loops.js still uses text input)
-- **GAP-S63-6 → W-S9 ✅**
-- **GAP-S63-7 → W-S9 ✅**
+  device grouping, _getGroupedEntityIdsForTokens, globals friendly name model,
+  _reResolveVariableUses contract, globals cache model, UI/data separation rule
+- **GAP-S63-5 → W-S10 ✅:** for_each device picker complete (Session 66)
 
 ### Pre-session-63 coding gaps still open
 
@@ -301,7 +306,7 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 ---
 
-## Spec File Versions (after Session 64)
+## Spec File Versions (after Session 67)
 - DESIGN.md v1.6
 - PISTON_FORMAT.md v2.1 (needs update — GAP-S63-4, GAP-S64-1)
 - COMPILER_SPEC.md v1.5

@@ -662,13 +662,6 @@ const Editor = (() => {
 
     document.getElementById('editor-piston-name')?.addEventListener('input', () => _markUnsaved(true));
 
-    document.addEventListener('keydown', e => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        save();
-      }
-    });
-
     const doc = document.getElementById('editor-doc');
     if (doc) {
       doc.addEventListener('click', _handleDocClick);

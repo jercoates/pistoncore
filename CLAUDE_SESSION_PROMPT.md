@@ -95,76 +95,75 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S10 continued (Session 68 work)
+## Current Priority — W-S10 continued (Session 69 work)
 
-### Upload for next session:
-wizard-loops.js, wizard-core.js, wizard-action.js, wizard-condition.js,
-wizard-variable.js, wizard-statement.js, editor.js, globals.js,
-DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+### ⚠ Testing reminder for Session 69
+Before writing any new code, ask Jeremy to test the following from Session 68:
+1. Edit a condition inside an if block — confirm it replaces in place (no new line added)
+2. Edit a numeric condition (e.g. illuminance is less than 800) — confirm value pre-fills correctly
+3. Edit a condition with a trigger operator — confirm interaction row shows. With condition operator — confirm it hides.
+4. Select a piston variable in action picker — confirm Next button enables
+5. Open action command picker — confirm params do NOT show until a command is picked
+6. Select a variable/global in condition device picker — confirm button shows correct prefix tag
 
-### What was done in Session 67 (W-S10 partial):
+### What was done in Session 68 (W-S10 partial):
 
-**Cap/service intersection completely rewritten:**
-- Root cause: `_getPrimaryIdsForTokens` returned ONE primary entity per device group.
-  A multi-sensor (motion + illuminance + temperature + battery) got caps fetched only
-  for its primary entity (binary_sensor.motion) → only motion/state shown.
-- Fix: replaced with `_getGroupedEntityIdsForTokens` which returns ALL entity_ids per
-  physical device group. Caps fetched for ALL entities in group, unioned per group,
-  then intersected across selected physical devices.
-- Additional fix: caps named "state" with a device_class are keyed by device_class
-  in the union map, so illuminance/temperature/battery appear as distinct picker entries
-  instead of all collapsing into one "state" entry.
-- Globals now store friendly names in `value` (same as locals store in `initial_value`).
-  Both resolve through `_getGroupedEntityIdsForTokens` identically.
-- `API.getServices()` returns array directly — fixed `data.services || []` to
-  `Array.isArray(data) ? data : (data.services || [])`.
+**WIZARD_SPEC.md updated to v2.4:**
+- sel.tokens model corrected — physical rows store ALL entity_ids (not just primary_entity_id).
+  This is correct working behavior. Hard guardrail added. DO NOT CHANGE.
+- Union-then-intersect cap model documented with plain English explanation.
+- selected_entity_ids references removed (field does not exist — use sel.tokens).
+- Edit pre-fill hydration corrected to use role_tokens → sel.tokens.
+
+**GAP-S67-1 ✅ — wizard-condition.js:**
+- showInteraction now requires isTrigger(op) — fixed in _goConditionBuilder,
+  _refreshConditionRows, and device panel click handler.
+
+**GAP-S67-2 ✅ — wizard-action.js:**
+- Next button syncs after every _renderActDevList re-render.
+- NOTE: the "primary_entity_id only" part of this gap was WRONG and has been deleted.
+  Physical rows correctly store ALL entity_ids in sel.tokens. See WIZARD_SPEC.md v2.4.
+
+**GAP-S67-3 ✅ — wizard-action.js:**
+- Removed auto-select of first command and auto-render of params on load.
+  Params only render when user picks a command or when editing an existing node.
+
+**GAP-S67-4 ✅ — wizard-condition.js:**
+- Device button tag now shows correct prefix: variable / global / device.
+
+**GAP-S64-2 ✅ — closed as won't fix:**
+- Old-format pistons should be reimported. Not worth fixing.
+
+**editor.js — condition edit insert-vs-replace bug fixed:**
+- Root cause: ln() only wrote data-id and data-type, ignoring all other opts.
+  data-parent-block never reached the DOM so parentBlock was always null.
+  Wizard opened with edit_condition context instead of if_condition.
+  _commitCondition wrapped result in new if block instead of replacing.
+- Fix: both ln() functions now write all extra opts as data- attributes (same as gh()).
+
+**wizard-core.js — condition value pre-fill fixed:**
+- _route() now uses compiled_value for numeric attributes (avoids unit suffix like
+  "800lux" being rejected by type="number" inputs), display_value for all others.
 
 **Files changed this session:**
-- wizard-core.js — `_getPrimaryIdsForTokens` replaced with `_getGroupedEntityIdsForTokens`
-- wizard-condition.js — `_loadCapsIntoSelect` rewritten with new function + device_class dedup
-- wizard-action.js — `_goCommandPicker` rewritten with new function + services array fix
-- globals.js — picker stores friendly names (not entity_ids), SelectAll/DeselectAll fixed,
-  `_filteredDevices` primary-before-use bug fixed
+- WIZARD_SPEC.md → v2.4
+- wizard-action.js (GAP-S67-2, GAP-S67-3)
+- wizard-condition.js (GAP-S67-1, GAP-S67-4)
+- editor.js (condition edit routing fix)
+- wizard-core.js (condition value pre-fill fix)
 
-### New gaps found in Session 67 — all assigned to W-S10:
+### Still open — W-S10:
+- **GAP-S46-5 → W-S10:** Import modal has no file picker — paste-only
+- **GAP-S58-2 → W-S10:** Copy/paste/duplicate statements
+- **GAP-S68-1 → W-S10:** Import mapper shows raw entity_ids instead of friendly names
+- **GAP-S68-2 → W-S10:** Import role mapping does not populate defines initial_value
+- **GAP-S68-3 → W-S10:** Action params save as indexed keys {0:'',1:''} instead of named
+  fields — _saveDeviceCmd querySelectorAll('[data-param]') reading index not data-param value
 
-- **GAP-S67-1 → W-S10:** Interaction row ("Which interaction / Any interaction") shows
-  on conditions. Should only show when the selected operator IS a trigger (isTrigger(op)).
-  Fix: change `showInteraction` in `_goConditionBuilder` from `subjType === 'device' && hasDevice`
-  to `subjType === 'device' && hasDevice && isTrigger(op)`. Also update `_refreshConditionRows`
-  to toggle the row correctly when operator changes.
-
-- **GAP-S67-2 → W-S10:** Next button in action device picker does nothing when a piston
-  variable row is selected. Root cause: `_goCommandPicker` destructures
-  `_getGroupedEntityIdsForTokens` from WizardCore but deployed wizard-core.js had the
-  old function name, causing silent undefined error. Fixed by ensuring wizard-core.js
-  output is always deployed together with wizard-action.js.
-  Additional issue: physical device rows still write all entity_ids into sel.tokens
-  (comma-separated data-id). For non-virtual physical rows, only `primary_entity_id`
-  should be written to sel.tokens — `_getGroupedEntityIdsForTokens` handles expansion
-  from there. Fix both `_renderActDevList` (wizard-action.js) and `_renderDevPanelList`
-  (wizard-condition.js) physical row data-id and click handler.
-
-- **GAP-S67-3 → W-S10:** Action command picker shows all parameter fields immediately
-  on load. WebCoRE shows no fields until a command is selected, then shows only
-  relevant fields for that command. Fix `_renderCmdParams` and `_goCommandPicker` to
-  not auto-render params until user selects a command.
-
-- **GAP-S67-4 → W-S10:** Variable/global names in condition device button missing
-  prefix — shows `Light_Sensor` instead of `{Light_Sensor}` or similar. Check spec
-  for correct display format and fix the button label in `_goConditionBuilder` and
-  the action sel bar in `_goActionDevicePicker`.
-
-### Still open from before Session 67:
-- GAP-S64-2: Old-format piston picker state wrong — debug first, then fix
-- GAP-S46-5: Import modal has no file picker
-- GAP-S58-2: Copy/paste/duplicate statements
-
-**Upload for W-S10 continued (Session 68):**
+**Upload for Session 69:**
 wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
 wizard-loops.js, wizard-statement.js, editor.js, globals.js,
 DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
-
 ---
 
 ## Architecture — Locked Decisions
@@ -190,7 +189,8 @@ DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
   light > switch > cover > fan > climate > lock > media_player >
   input_boolean > input_number > input_select > automation >
   binary_sensor > sensor > person > device_tracker > alarm_control_panel
-- Physical device rows write `primary_entity_id` to `sel.tokens` (NOT all entity_ids)
+- **Physical device rows write ALL entity_ids to sel.tokens — NOT just primary_entity_id.**
+  This is correct and must never be changed. See WIZARD_SPEC.md v2.4 guardrail section.
 - Piston variable rows write variable name to `sel.tokens`
 - Global variable rows write `@name` token to `sel.tokens`
 - `_getFlatEntityIds(sel.tokens)` resolves all tokens to flat real entity_ids (commit time)
@@ -199,7 +199,7 @@ DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 - `role_tokens` on nodes = raw tokens user selected — edit round-trip only, compiler ignores
 - `entity_ids` on nodes = real HA entity_ids — compiler reads these directly
 - Device variables: `initial_value` = array of friendly names (local) or `value` (globals)
-- Search in device pickers: filter on display label + primary_entity_id only
+- Search in device pickers: filter on display label only
 
 ## _getFlatEntityIds Resolution Order
 For each token in sel.tokens:

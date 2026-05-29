@@ -598,7 +598,12 @@ const Wizard = (() => {
         }
         _sel.operator        = _editNode.operator || '';
         _sel.aggregation     = _editNode.aggregation || 'any';
-        _sel.value           = _editNode.display_value || _editNode.value || _editNode.compiled_value || '';
+        // For numeric attributes, prefer compiled_value (clean number, no unit suffix like "800lux").
+        // display_value can contain unit suffixes that type="number" inputs silently reject.
+        // For all other types, prefer display_value (human-readable, e.g. "Active" not "on").
+        _sel.value           = (_editNode.attribute_type === 'numeric')
+          ? (_editNode.compiled_value || _editNode.display_value || _editNode.value || '')
+          : (_editNode.display_value  || _editNode.value || _editNode.compiled_value || '');
         _sel.value2          = _editNode.value_to || '';
         _sel.duration_amount = _editNode.duration || 1;
         _sel.duration_unit   = _editNode.duration_unit || 'minutes';

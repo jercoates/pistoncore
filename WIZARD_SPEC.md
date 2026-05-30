@@ -1,21 +1,21 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.4
+**Version:** 2.5
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 68 / W-S10 — sel.tokens model corrected to match working
-  code: physical rows store ALL entity_ids in sel.tokens (not just primary_entity_id).
-  Union-then-intersect cap model documented. Hard guardrail added — DO NOT CHANGE.
-  selected_entity_ids references removed — that field does not exist, use sel.tokens.
-  Edit pre-fill hydration corrected to use role_tokens → sel.tokens. GAP-S57-10 through
-  S57-14 from Session 58 / D-S3 also reflected.)
+**Last Updated:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
+  output examples (GAP-S63-4, GAP-S64-1); initial_device_names field added to variable
+  nodes; _reResolveVariableUses contract formally documented; globals cache model
+  documented; UI/data separation rule added as named rule; search filter rule clarified;
+  resolution path rule restated to allow read-side walks; Output Invariant "100%"
+  language softened per SPEC_AUDIT.md finding #1.)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
 
-**Source:** WebCoRE piston.module.html, app.js, wizard-*.js files, PISTON_FORMAT.md v2.1,
+**Source:** WebCoRE piston.module.html, app.js, wizard-*.js files, PISTON_FORMAT.md v2.2,
 STATEMENT_TYPES.md v2.1, SESSION_54_FINDINGS.md.
 
-Read DESIGN.md and PISTON_FORMAT.md v2.1 before this document.
+Read DESIGN.md and PISTON_FORMAT.md v2.2 before this document.
 
 ---
 
@@ -39,11 +39,13 @@ The wizard's internal state object (selections, sentence, step) is transient UI 
 It exists only while the wizard is open. It is discarded on Cancel. It is never written
 to the piston JSON on Done — only the final typed output object is written.
 
-This matches DESIGN.md Section 2 and PISTON_FORMAT.md v2.1 exactly.
+This matches DESIGN.md Section 2 and PISTON_FORMAT.md v2.2 exactly.
 
 **The wizard is the ONLY thing that writes piston JSON.**
 **The editor is the ONLY thing that reads and renders it.**
-**Round-trip (wizard → JSON → editor → JSON → editor) must work 100% of the time.**
+**Round-trip (wizard → JSON → editor → JSON → editor) must never silently drop,
+duplicate, or corrupt nodes. Malformed nodes render as clearly-flagged placeholders —
+they are never silently dropped.**
 
 ---
 
@@ -74,15 +76,28 @@ Entity IDs are written directly onto condition and action nodes. There is no dev
 
 **On condition commit:**
 - `role` = human-readable label (e.g. `"Front Door"`) — display only
-- `entity_ids` = array of real HA entity IDs (e.g. `["binary_sensor.front_door"]`)
+- `role_tokens` = raw tokens the user selected (entity_ids for physical devices, variable name for piston var, `@name` for global) — edit round-trip only
+- `entity_ids` = array of real HA entity IDs resolved via `_getFlatEntityIds` — compiler reads this
 - The wizard writes `entity_ids` at commit time, not role names
 
 **On action commit:**
 - `role` = human-readable label (e.g. `"Driveway Light"`) — display only
-- `entity_ids` = array of real HA entity IDs (e.g. `["light.driveway_main"]`)
+- `role_tokens` = raw tokens the user selected — edit round-trip only
+- `entity_ids` = array of real HA entity IDs resolved via `_getFlatEntityIds` — compiler reads this
 
 **The compiler reads `entity_ids` directly from each node. It never looks up a role name.**
 `role` is a display label stored alongside `entity_ids` for the editor to show — nothing more.
+`role_tokens` is stored alongside `entity_ids` for the editor to restore selections on re-open — the compiler must ignore it entirely.
+
+### UI / Data Separation Rule
+
+This rule applies everywhere in the wizard and editor without exception:
+
+- `role` and `device_label` always contain **friendly names** — what the user typed or selected as a display label. Never an entity_id.
+- `entity_ids` always contains **real HA entity IDs** (e.g. `light.driveway_main`). Never a friendly name, never a variable name.
+- `role_tokens` contains the **raw selection tokens** the user picked — which may be entity_ids (for physical rows), variable names (no dot), or `@globals`. This is the only field allowed to contain a mix.
+
+Mixing these is always a bug. If you see a friendly name in `entity_ids` or an entity_id in `role`, that is a commit-time bug — fix `_saveDeviceCmd` or `_buildConditionNode`, not the reader.
 
 ---
 
@@ -158,6 +173,22 @@ const filtered = raw.filter(d => {
 });
 ```
 
+### Device Grouping by device_id
+
+Physical device rows are grouped by HA `device_id`. One row per physical device.
+A device with multiple entities (e.g. a motion sensor with `binary_sensor`, `sensor.illuminance`,
+`sensor.battery`) shows as one row. The row carries all entity_ids for that group.
+
+`primary_entity_id` is chosen from the group by domain priority:
+```
+light > switch > cover > fan > climate > lock > media_player >
+input_boolean > input_number > input_select > automation >
+binary_sensor > sensor > person > device_tracker > alarm_control_panel
+```
+
+The `primary_entity_id` is used for display label and capability lookup. All entity_ids
+in the group are stored in `sel.tokens` when the row is clicked — never just primary.
+
 ### Device Picker Section Order
 
 ```
@@ -181,9 +212,18 @@ const filtered = raw.filter(d => {
   [$location]
 ```
 
-**Global Variables section:** Now implemented (Sessions 48–50). Shows all globals of type `Device` or `Devices` from `globals.json`. When the user selects a global variable from this section, the wizard resolves its `entity_ids` from live HA state at commit time and writes them directly to the node — same as selecting physical devices. The global name becomes the `role` label. This means changes to the global's device list in the future require reopening the wizard and recommitting to pick up the new entities.
+**Global Variables section:** Shows all globals of type `Device` or `Devices` from
+`globals.json`. When the user selects a global variable row, the wizard resolves its
+`entity_ids` from live HA state at commit time and writes them directly to the node.
+The global name (`@name`) is stored in `role_tokens`. The global's friendly name
+becomes the `role` label.
 
 Demo devices shown when no HA connection or as fallback.
+
+### Search
+
+Search filters the device list on display label and `primary_entity_id` only.
+Sub-entity IDs (non-primary entities in a group) are not searched. Empty query shows all sections.
 
 ### Multi-Select Behavior
 
@@ -197,13 +237,12 @@ Demo devices shown when no HA connection or as fallback.
 
 ---
 
-### ⚠ sel.tokens — How Physical Device Selection Actually Works
+### sel.tokens — How Physical Device Selection Works
 
-**DO NOT CHANGE THIS BEHAVIOR. It took 6 sessions to get right. Read this entire section before touching any picker, token, capability, or intersection code. If you think it is wrong, you are wrong. Ask before changing anything.**
+`sel.tokens` is the authoritative selection tracker during a wizard session. It is
+transient — it exists only while the wizard is open and is never written to the piston JSON.
 
 #### What sel.tokens contains
-
-`sel.tokens` is the authoritative selection tracker. It contains different things depending on row type:
 
 - **Physical device row clicked** → ALL entity_ids for that device group are added to `sel.tokens` (e.g. clicking "Outdoor Motion" adds `binary_sensor.outdoor_motion`, `sensor.outdoor_motion_illuminance`, `sensor.outdoor_motion_temperature`, `sensor.outdoor_motion_battery` — all four)
 - **Piston variable row clicked** → the variable name (no dot, e.g. `"MyLights"`)
@@ -211,11 +250,19 @@ Demo devices shown when no HA connection or as fallback.
 
 Deselecting a physical row removes all its entity_ids from `sel.tokens`.
 
-#### Why ALL entity_ids must be stored for physical rows — never just primary_entity_id
+#### Why ALL entity_ids are stored for physical rows
 
-`_getGroupedEntityIdsForTokens` finds a device's group by doing `grouped.find(g => g.entity_ids.includes(token))`. It needs at least one real entity_id from the group to find it.
+`_getGroupedEntityIdsForTokens` finds a device's group by doing
+`grouped.find(g => g.entity_ids.includes(token))`. It needs at least one real entity_id
+from the group to find it.
 
-**If only `primary_entity_id` were stored:** when a multi-entity device like "Outdoor Motion" is selected alongside another device, `_getGroupedEntityIdsForTokens` would only find the group via the one stored primary. The remaining sub-entity ids would come from the other device's tokens, causing the intersection to treat sub-entities as separate physical devices. The intersection collapses to only `state`. This was the bug. Storing all entity_ids fixes it permanently.
+If only `primary_entity_id` were stored and a multi-entity device is selected alongside
+another device, `_getGroupedEntityIdsForTokens` would only find the group via the one
+stored primary. Sub-entity ids would appear to belong to the other device's group,
+causing the intersection to collapse incorrectly. Storing all entity_ids fixes this.
+
+If this behavior ever produces a bug in a new situation, investigate `_getGroupedEntityIdsForTokens`
+and `_getFlatEntityIds` — the resolution functions — not the `data-id` construction on rows.
 
 #### How the row renders and highlights
 
@@ -235,44 +282,59 @@ if (row.classList.contains('selected')) {
 WizardCore.sel.tokens = [...newTokens];
 ```
 
-The `isSelected` highlight check uses `ids.some(id => selTokens.has(id))` — a row re-highlights correctly as long as any one of its entity_ids is in `sel.tokens`.
+The `isSelected` highlight check uses `ids.some(id => selTokens.has(id))` — a row
+re-highlights correctly as long as any one of its entity_ids is in `sel.tokens`.
 
 #### Capability intersection — union within group, then intersect across groups
 
-A physical device in HA is ONE device that can have MULTIPLE entities. These are NOT separate devices. "Outdoor Motion" with four sensor entities is one physical device.
+A physical device in HA is ONE device that can have MULTIPLE entities. These are NOT
+separate devices. "Outdoor Motion" with four sensor entities is one physical device.
 
 **Step 1 — Union within a group:**
-For each selected physical device group, fetch caps for ALL its entities and union them into one cap set. When two entities in the same group both return a cap named `state` but with different `device_class` values (e.g. `illuminance`, `temperature`, `battery`), key the union map by `device_class || name` — not just `name` — so they appear as distinct entries (`illuminance`, `temperature`, `battery`) instead of all collapsing into one `state` entry.
+For each selected physical device group, fetch caps for ALL its entities and union them
+into one cap set. When two entities in the same group both return a cap named `state`
+but with different `device_class` values (e.g. `illuminance`, `temperature`, `battery`),
+key the union map by `device_class || name` — not just `name` — so they appear as
+distinct entries instead of all collapsing into one `state` entry.
 
 **Step 2 — Intersect across groups:**
-Only when more than one physical device group is selected, intersect the unioned cap sets across groups. If only one group is selected, use its union directly — no intersection.
+Only when more than one physical device group is selected, intersect the unioned cap sets
+across groups. If only one group is selected, use its union directly — no intersection.
 
 #### _getFlatEntityIds — commit time only
 
-At commit time, `_getFlatEntityIds(sel.tokens)` resolves the full flat array of real HA entity_ids to write to the node:
+At commit time, `_getFlatEntityIds(sel.tokens)` resolves the full flat array of real
+HA entity_ids to write to the node:
 - Token has `.` → plain entity_id, pass through as-is
 - Token has no `.` → piston variable name → resolve `initial_value` (friendly names) → all entity_ids in each group
 - Token starts with `@` → global variable → resolve `value` (friendly names) → all entity_ids in each group
 
 Returns flat deduplicated array. This is what gets written to `entity_ids` on the node.
 
+**This is the only place token-to-entity-id resolution happens at commit time.**
+Read-side walks of `entity_ids` on already-committed nodes do not re-resolve — they
+trust what is on the node. If a read-side walk seems to need resolution, the bug is
+in the commit path, not the read path.
+
 #### _getGroupedEntityIdsForTokens — cap/service lookup only
 
-Used by `_loadCapsIntoSelect` and `_goCommandPicker`. Returns array of arrays — one inner array per physical device group — for the union-then-intersect cap lookup. Never used for writing nodes.
+Used by `_loadCapsIntoSelect` and `_goCommandPicker`. Returns array of arrays — one
+inner array per physical device group — for the union-then-intersect cap lookup.
+Never used for writing nodes.
 
-#### Hard rules — never violate
+#### Notes on edge cases
 
-- **Never change** the physical row `data-id` construction (`ids.join(',')`)
-- **Never change** the click handler that adds all entity_ids to `sel.tokens`
-- **Never change** the `isSelected` highlight check (`ids.some(id => selTokens.has(id))`)
-- **Never change** the union-then-intersect logic in `_loadCapsIntoSelect` or `_goCommandPicker`
-- **Never change** `_getGroupedEntityIdsForTokens`
-- **Never use** `selected_entity_ids` — that field does not exist. The field is `sel.tokens`
-- **Before touching any of this:** state in plain English exactly what you are changing and why, and wait for confirmation
+- If a device's entity list changes in HA after a node was committed (e.g. a new sensor
+  entity is added to a device via reconfigure), the node's `entity_ids` will not include
+  the new entity until the user re-opens and recommits that node. This is expected behavior.
+  Entity validation at deploy time (DESIGN.md 9.2) will catch removed entities but not
+  added ones — the node was correct when committed.
+- `_reResolveVariableUses` handles the case where the *variable's device list* changes,
+  not where HA's entity list changes. See the _reResolveVariableUses section below.
 
 ---
 
-### Zero Devices Selected — GAP-S57-14
+### Zero Devices Selected
 
 If the user clicks Next or Done with zero devices selected:
 - **Next button is disabled** while `WizardCore.sel.tokens.length === 0`
@@ -282,7 +344,7 @@ If the user clicks Next or Done with zero devices selected:
 
 This applies to: W-5 (action device picker), W-4 (condition device picker), W-2-foreach (for_each list picker), W-7 (variable devices type picker).
 
-### Role Label Generation — GAP-S57-10
+### Role Label Generation
 
 When the user commits a device selection, the `role` string is generated at commit time from the row labels (what the user selected — not from resolved entity_id count). Rules in priority order:
 
@@ -316,7 +378,7 @@ First selected row label + count of remaining selected rows.
 
 **Important:** The role label is derived from what the user selected (row labels and count), not from the number of resolved entity_ids. It is generated once at commit time and stored. It is never regenerated from entity_ids at render time. The role is a display convenience — the entity_ids array is the source of truth.
 
-### Mixed Physical + Global Commit Logic — GAP-S57-11
+### Mixed Physical + Global Commit Logic
 
 When the user selects a mix of physical devices and global Device/Devices variables:
 
@@ -326,17 +388,17 @@ When the user selects a mix of physical devices and global Device/Devices variab
 4. Deduplicate — if a physical device and a global both contain the same entity_id, it appears only once
 5. Role label generated from selected row labels per rules above
 
-**When a local device variable's device list changes**, every condition and action node in the piston that references that variable has its `entity_ids` updated automatically via `_reResolveVariableUses` in editor.js. This runs immediately after the variable is saved. The user does not need to reopen and recommit every statement.
-
-**When a global device variable's device list changes**, the user is shown a prompt immediately after saving the global: "This global is used in X pistons. Update them now?" If the user clicks yes, all affected pistons have their entity_ids updated automatically and are marked for redeploy. If the user clicks no, the affected pistons remain unchanged and are flagged as stale until the user manually updates them.
-
-### Edit Pre-fill for Multi-Device Nodes — GAP-S57-13
+### Edit Pre-fill for Multi-Device Nodes
 
 When the user opens an existing condition, action, or for_each node for editing, the wizard must re-populate the device picker with the node's current selections.
 
 **Hydration rule:**
 
-On wizard open for edit, `_route()` reads `role_tokens` from the node (preferred) or falls back to `entity_ids`, then falls back to `devices` array, then falls back to `role` name. These are loaded into `WizardCore.sel.tokens`. During device list render, a row highlights as selected if any of its entity_ids (or its variable name / @token) is in `sel.tokens`:
+On wizard open for edit, `_route()` reads `role_tokens` from the node (preferred) or
+falls back to `entity_ids`, then falls back to `devices` array, then falls back to
+`role` name. These are loaded into `WizardCore.sel.tokens`. During device list render,
+a row highlights as selected if any of its entity_ids (or its variable name / @token)
+is in `sel.tokens`:
 
 ```javascript
 // Physical row highlight on re-render:
@@ -350,7 +412,7 @@ const isSelected = ids.some(id => selTokens.has(id));
 
 The role label shown on open is read from `editNode.role` — not regenerated.
 
-### Aggregation Commit — GAP-S57-12
+### Aggregation Commit
 
 The aggregation bar (Any / All / None) is shown when more than one physical device group or variable is selected. The value defaults to `"any"`.
 
@@ -372,21 +434,15 @@ On commit, the selected aggregation value is written to the node:
 
 This table is the authoritative mapping. The compiler reads `aggregation` from the node and uses this table. See COMPILER_SPEC.md v1.3 and FRONTEND_SPEC.md Aggregation Display Rules for the full spec.
 
-### Search
-
-Search filters all sections by name/entity_id. Empty query shows all sections.
-
 ---
 
 ## Device Variables (Defines) — How the Wizard Handles Them
-
-**This section is non-negotiable. Read it before touching any picker, capability, or entity_id code.**
 
 A device variable (define) is a named group of devices the user wants to treat as one unit. From the user's perspective it is a list of friendly device names — "Kitchen Light", "Outdoor Motion Sensor". From PistonCore's perspective it is a complete flat list of ALL entity IDs that belong to every device in that group. Both the friendly names and the entity IDs are stored on the variable node.
 
 ### In the Picker
 
-When the user picks a device variable row (local or global) in a condition or action picker, the wizard immediately resolves that variable name to its full flat list of entity IDs via `_getFlatEntityIds`. It then fetches capabilities for ALL of those entity IDs and computes the intersection — only capabilities that every entity in the group shares are shown in the attribute dropdown. This is how the wizard knows what attributes and operators to offer.
+When the user picks a device variable row (local or global) in a condition or action picker, the wizard immediately resolves that variable name to its full flat list of entity IDs via `_getFlatEntityIds`. It then fetches capabilities for ALL of those entity IDs and computes the intersection — only capabilities that every entity in the group shares are shown in the attribute dropdown.
 
 - If all entities share `motion` and `battery` → show both
 - If only some share `motion` → do not show `motion`
@@ -398,14 +454,59 @@ When the user clicks Add or Add More, the wizard resolves the selected tokens to
 
 The entity IDs written are the ones relevant to the capability and domain the user selected — resolved from the variable's current `initial_value` at commit time.
 
-### Hard Rules — Never Violate These
+### _reResolveVariableUses Contract
 
-- **Never write a variable name into `entity_ids`.** Entity IDs are always real HA entity IDs like `binary_sensor.outdoor_motion_motion`. Never `Motion_sensor`.
-- **Never show capabilities that not all selected entities share.** Intersection only.
-- **Never touch the variable's `initial_value` from a condition or action wizard flow.** The variable wizard owns that. The condition and action wizard only reads it.
-- **Never manually copy entity IDs from the JSON into a node.** Always resolve through `_getFlatEntityIds` at commit time.
-- **Never add entity_id resolution logic outside of `_getFlatEntityIds`.** That function is the single resolution path. If it is broken, fix it there — nowhere else.
-- **Before changing any entity_id, capability, or token resolution code:** state out loud in plain English exactly what you are changing and why, and wait for confirmation before writing any code.
+Called in editor.js after any device variable (define) is saved by the user.
+
+**What it does:**
+1. Walks the entire piston tree recursively (statements, triggers, conditions, restrictions)
+2. Finds every node where `role_tokens` contains the variable name (for local vars) or `@name` (for globals)
+3. Re-resolves `entity_ids` on those nodes from the variable's current `initial_value` (local) or `value` (global)
+4. Other tokens in the same node (other variables, globals, physical devices) are preserved — only the changed variable's contribution is updated
+5. Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`)
+
+**What it does NOT do:**
+- It does not update nodes that do not reference the changed variable in `role_tokens`
+- It does not update nodes where `role_tokens` is absent (those nodes used physical devices only and do not need updating)
+- It does not handle HA-side entity list changes (e.g. a new entity added to a device in HA). That requires the user to re-open and recommit the node.
+
+**When `role_tokens` is absent on a node:** Fall back to treating `entity_ids` as tokens for the re-resolution check. If none of the entity_ids in the node match what the variable resolves to, skip the node — it does not reference this variable.
+
+### Globals Cache Model
+
+At editor open time, `API.getGlobals()` is called and the result is stored in
+`_piston._globalsCache`. All globals resolution during the editor session reads from
+this cache — including `_getFlatEntityIds` when it encounters `@` tokens, and
+`_reResolveVariableUses` when it updates global references.
+
+The cache is not refreshed during an editing session. If the user edits a global in
+the globals drawer while the editor is open, the globals drawer updates
+`_piston._globalsCache` directly after saving.
+
+### Capability Intersection — Primary Entity per Group
+
+For capability lookup (`_loadCapsIntoSelect`, `_goCommandPicker`), `_getPrimaryIdsForTokens`
+is used instead of `_getGroupedEntityIdsForTokens` when the goal is to determine what
+the user's *device* can do — one primary_entity_id per physical device group, not all
+sub-entities. This produces shared device-level capabilities rather than the intersection
+of all sub-entity capabilities, which is usually too narrow.
+
+`_getGroupedEntityIdsForTokens` is still used when all entity_ids in a group genuinely
+matter (e.g. multi-sensor aggregation conditions).
+
+### Hard Rules
+
+The following rules exist because violating them produced real bugs. The rationale is
+documented above — if a rule seems wrong for a new situation, read the rationale first,
+then discuss before changing anything.
+
+- Physical row `data-id` construction stores all entity_ids comma-joined. This is required for `_getGroupedEntityIdsForTokens` to find groups correctly.
+- The click handler adds all entity_ids in `data-id` to `sel.tokens`. Storing only primary_entity_id broke group intersection for multi-entity devices.
+- The `isSelected` highlight check uses `ids.some(id => selTokens.has(id))`. Any one matching entity_id is enough to highlight the row correctly.
+- The union-then-intersect logic in `_loadCapsIntoSelect` and `_goCommandPicker` is correct for multi-entity devices — union within group first, then intersect across groups.
+- `_getFlatEntityIds` is the only token-to-entity-id resolution path at commit time. Read-side code that already has `entity_ids` on a committed node does not re-resolve — it trusts the node.
+- `selected_entity_ids` does not exist as a field. The field is `sel.tokens`.
+- Before changing any picker, token, or capability code: state in plain English exactly what you are changing and why, and confirm the rationale above does not apply before proceeding.
 
 ### What the Compiler Sees
 
@@ -498,6 +599,7 @@ JSON output:
   "async": false,
   "variable": "$device",
   "role": "Smoke Detectors",
+  "role_tokens": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "entity_ids": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "statements": [],
   "description": null,
@@ -505,7 +607,7 @@ JSON output:
 }
 ```
 
-`role` is the label the user sees in the editor — either the friendly name(s) of the selected devices, a global variable name, or a mix. `entity_ids` is always the resolved list of real HA entity IDs captured at commit time.
+`role` is the label the user sees in the editor. `role_tokens` stores what the user selected (entity_ids for physical rows, variable name for piston var, @name for global). `entity_ids` is always the resolved list of real HA entity IDs captured at commit time.
 
 ### W-2-exit: Exit Detail
 
@@ -587,7 +689,7 @@ Options: Physical device(s) | Variable | Time | Date | Mode | Location | Express
 **2. Device picker** (when subject = Physical device(s))
 - Button showing selected device (or "Nothing selected")
 - Clicking opens inline panel below
-- Panel: search input + scrollable list per device picker rules
+- Panel: search input + scrollable list per device picker section order above
 - Multi-select allowed (aggregation applies when >1)
 
 **Aggregation bar** (shown when device selected)
@@ -625,7 +727,7 @@ is greater than, is greater than or equal to
 - Label: "In the last..." (was/changed) or "For the next..." (stays)
 - Number input (default: 1) + unit: seconds | minutes | hours | days
 
-**7. Which interaction** (shown when physical device selected)
+**7. Which interaction** (shown when operator is a trigger — isTrigger(op) is true)
 Any interaction | Physical | Programmatic
 
 **8. AND / OR** (shown when adding to existing if block that already has conditions)
@@ -670,6 +772,7 @@ After Path A, subsequent conditions go through Path B.
   "id": "cond_xxxxxxxx",
   "is_trigger": true,
   "role": "Front Door",
+  "role_tokens": ["binary_sensor.front_door"],
   "entity_ids": ["binary_sensor.front_door"],
   "aggregation": "any",
   "attribute": "contact",
@@ -692,8 +795,11 @@ Set by wizard based on which operator group the user picked.
 **`role`** — human-readable label shown in the PistonCore editor. Display only.
 Written at commit time alongside `entity_ids`.
 
+**`role_tokens`** — raw tokens the user selected. Stored for edit round-trip only.
+Compiler ignores this field. Editor must preserve it on every save.
+
 **`entity_ids`** — array of real HA entity IDs. Always an array, even for single device.
-Written at commit time from the wizard's selected device list.
+Written at commit time from the wizard's selected device list via `_getFlatEntityIds`.
 **The compiler reads this directly. The wizard must always write entity_ids, never just a role name.**
 
 **`display_value`** — shown in the PistonCore editor. For binary sensors this is the
@@ -715,6 +821,7 @@ wet→on, dry→off, home→on, away→off, locked→off, unlocked→on, on→on
   "id": "cond_xxxxxxxx",
   "is_trigger": false,
   "role": "time",
+  "role_tokens": [],
   "entity_ids": [],
   "subject": "time",
   "operator": "is between",
@@ -874,6 +981,7 @@ Does NOT create a new action node — accumulates tasks in one action node.
   "type": "action",
   "async": false,
   "role": "Living Room Light",
+  "role_tokens": ["light.living_room"],
   "entity_ids": ["light.living_room"],
   "tasks": [
     {
@@ -892,7 +1000,10 @@ Does NOT create a new action node — accumulates tasks in one action node.
 
 **`role`** — human-readable label shown in the editor. Display only. Never used for compilation.
 
-**`entity_ids`** — array of real HA entity IDs. Written at commit time from wizard's device selection.
+**`role_tokens`** — raw tokens the user selected. Stored for edit round-trip only.
+Compiler ignores this field. Editor must preserve it on every save.
+
+**`entity_ids`** — array of real HA entity IDs. Written at commit time from wizard's device selection via `_getFlatEntityIds`.
 **The compiler reads this directly. Always an array, even for single device.**
 
 **`ha_service` = `domain + "." + command` always. Never just `command`.**
@@ -904,6 +1015,7 @@ Multi-device example:
   "type": "action",
   "async": false,
   "role": "Doors",
+  "role_tokens": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "tasks": [
     {
@@ -911,6 +1023,30 @@ Multi-device example:
       "command": "turn_on",
       "domain": "light",
       "ha_service": "light.turn_on",
+      "parameters": {},
+      "description": null
+    }
+  ],
+  "description": null,
+  "disabled": false
+}
+```
+
+Variable/global example — role_tokens differs from entity_ids:
+```json
+{
+  "id": "stmt_xxxxxxxx",
+  "type": "action",
+  "async": false,
+  "role": "@Exterior_Lights",
+  "role_tokens": ["@Exterior_Lights"],
+  "entity_ids": ["light.driveway_main", "light.porch", "light.garage"],
+  "tasks": [
+    {
+      "id": "task_xxxxxxxx",
+      "command": "turn_off",
+      "domain": "light",
+      "ha_service": "light.turn_off",
       "parameters": {},
       "description": null
     }
@@ -973,7 +1109,9 @@ the variable on every run. If storing data between runs, leave as Nothing Select
   "type": "device",
   "default_value": {
     "role": "Living Room Light",
-    "entity_ids": ["light.living_room"]
+    "role_tokens": ["light.living_room"],
+    "entity_ids": ["light.living_room"],
+    "initial_device_names": ["Living Room Light"]
   }
 }
 ```
@@ -987,14 +1125,19 @@ the variable on every run. If storing data between runs, leave as Nothing Select
   "type": "devices",
   "default_value": {
     "role": "My Lights",
-    "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"]
+    "role_tokens": ["light.living_room", "light.kitchen", "light.hallway"],
+    "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"],
+    "initial_device_names": ["Living Room Light", "Kitchen Light", "Hallway Light"]
   }
 }
 ```
 
+**`initial_device_names`** — array of friendly device names the user selected, in selection order. Stored for display in the variable picker button and globals drawer. Display only — the compiler ignores this field. It is not used for resolution; `entity_ids` is the source of truth.
+
 For `device` and `devices` types, `default_value` is always an object with `role`
-(display label) and `entity_ids` (resolved array of real HA entity IDs). For all
-other types, `default_value` is a scalar value matching the type.
+(display label), `role_tokens` (raw tokens for edit round-trip), `entity_ids` (resolved
+array of real HA entity IDs), and `initial_device_names` (friendly names for display).
+For all other types, `default_value` is a scalar value matching the type.
 
 If the user selects "Nothing selected" for initial value, `default_value` is `null`.
 
@@ -1370,7 +1513,7 @@ File system commands (Write to file, Read from file, etc.) — skip v1, Hubitat-
 
 WIZARD_SPEC.md, wizard-core.js, wizard-condition.js, wizard-action.js,
 wizard-statement.js, wizard-loops.js, wizard-variable.js, editor.js,
-PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+DESIGN.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 

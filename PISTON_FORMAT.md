@@ -1,8 +1,11 @@
 # PistonCore — Canonical Piston JSON Format
 
-**Version:** 2.1
+**Version:** 2.2
 **Status:** Authoritative — Single source of truth for piston data structure
-**Last Updated:** May 2026 (Session 55 — device_map eliminated, entity_ids on nodes)
+**Last Updated:** May 2026 (Session 69 — D-S5/D-S5b: role_tokens added to Condition and
+  Action schemas (GAP-S64-1); Field Lifecycle Rules section added; render invariant
+  language softened per SPEC_AUDIT.md finding #1; single-resolution-path rule clarified
+  per finding #2)
 
 This document defines the canonical internal JSON format for a PistonCore piston.
 This is the format the wizard writes, the editor renders from, the backend stores,
@@ -127,7 +130,7 @@ finishes. They compile to the native HA script `variables:` action.
 | `name` | string | Yes | Internal name used in statements. Lowercase, underscores only. |
 | `display_name` | string | Yes | Shown to user. Can contain spaces and capitals. |
 | `type` | string | Yes | See type table below. |
-| `default_value` | any | No | Initial value when piston starts. Type must match `type` field. |
+| `default_value` | any | No | Initial value when piston starts. Type must match `type` field. For `device`/`devices` types, an object `{ "role": "...", "entity_ids": [...] }`. |
 
 ### Variable Types
 
@@ -159,8 +162,11 @@ statement objects embedded inline — not ID references. The tree structure is e
 and self-contained. This eliminates the entire class of orphaned-reference bugs and
 guarantees that what is stored is exactly what renders in the editor.
 
-The editor must render from this JSON correctly 100% of the time, every time,
-without fail. This is the non-negotiable foundation of the project.
+**Render invariant:** The editor must render every well-formed piston JSON correctly.
+For malformed nodes (missing required fields, unknown type, future logic_version),
+it renders a clearly-flagged placeholder row that preserves the node in the JSON and
+lets the user repair or delete it. The editor must never silently drop, duplicate,
+or corrupt nodes.
 
 ```json
 "statements": [
@@ -174,6 +180,7 @@ without fail. This is the non-negotiable foundation of the project.
         "id": "stmt_b7e2f941",
         "type": "action",
         "role": "Driveway Light",
+        "role_tokens": ["light.driveway_main"],
         "entity_ids": ["light.driveway_main"],
         "tasks": [
           {
@@ -219,6 +226,7 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
   "id": "cond_a3f8c2d1",
   "is_trigger": true,
   "role": "Front Door",
+  "role_tokens": ["binary_sensor.front_door"],
   "entity_ids": ["binary_sensor.front_door"],
   "aggregation": "any",
   "attribute": "contact",
@@ -241,7 +249,8 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
 |---|---|---|---|
 | `id` | string | Yes | Stable ID. Format: `cond_` + 8 hex chars. |
 | `is_trigger` | boolean | Yes | `true` = trigger, `false` = condition. Set by wizard based on which section was clicked. |
-| `role` | string | Yes | Human-readable label shown in the editor (e.g. `"Front Door"`, `"Doors"`). For time conditions, use `"time"`. |
+| `role` | string | Yes | Human-readable label shown in the editor (e.g. `"Front Door"`, `"Doors"`). For time conditions, use `"time"`. Display only — never used for compilation. |
+| `role_tokens` | array | Yes | Raw tokens the user selected at commit time — entity_ids for physical devices, variable names for piston variables, `@name` for globals. Stored for edit round-trip hydration only. Compiler ignores this field. Editor must preserve it on every save. |
 | `entity_ids` | array | Yes | Array of real HA entity IDs. Always an array — even for single-device conditions. Compiler reads this directly. For time conditions, omit or use `[]`. |
 | `aggregation` | string | Yes | `"any"` / `"all"` / `"none"`. Applies to multi-device conditions (entity_ids.length > 1). Use `"any"` for single-device. |
 | `attribute` | string | Yes | Device attribute name (e.g. `"contact"`, `"illuminance"`). For time conditions, omit. |
@@ -258,6 +267,7 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
 
 **The compiler reads `entity_ids` directly. It does not look up a role name in any map.**
 `role` is a display label only — it is shown in the editor but never used for compilation.
+`role_tokens` is an editor round-trip field only — the compiler must ignore it entirely.
 
 **Multi-device example:**
 ```json
@@ -265,12 +275,37 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
   "id": "cond_b7e2f941",
   "is_trigger": true,
   "role": "Doors",
+  "role_tokens": ["binary_sensor.front_door", "binary_sensor.back_door", "binary_sensor.side_door"],
   "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door", "binary_sensor.side_door"],
   "aggregation": "any",
   "attribute": "contact",
   "attribute_type": "binary",
   "device_class": "door",
   "operator": "changes to",
+  "display_value": "Open",
+  "compiled_value": "on",
+  "value_to": null,
+  "duration": null,
+  "duration_unit": null,
+  "group_operator": "and",
+  "interaction": "any"
+}
+```
+
+**Variable/global example** — when a piston variable or global is selected, `role_tokens`
+differs from `entity_ids` because it stores the original token, not the resolved IDs:
+```json
+{
+  "id": "cond_c9d4a112",
+  "is_trigger": false,
+  "role": "@Door_Contacts",
+  "role_tokens": ["@Door_Contacts"],
+  "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
+  "aggregation": "any",
+  "attribute": "contact",
+  "attribute_type": "binary",
+  "device_class": "door",
+  "operator": "is",
   "display_value": "Open",
   "compiled_value": "on",
   "value_to": null,
@@ -288,6 +323,7 @@ The same schema is used for triggers (`is_trigger: true`) and conditions
   "id": "cond_c1d4e823",
   "is_trigger": false,
   "role": "time",
+  "role_tokens": [],
   "entity_ids": [],
   "subject": "time",
   "operator": "is between",
@@ -334,6 +370,7 @@ Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements
   "type": "action",
   "async": false,
   "role": "Driveway Light",
+  "role_tokens": ["light.driveway_main", "light.garage"],
   "entity_ids": ["light.driveway_main", "light.garage"],
   "tasks": [
     {
@@ -358,6 +395,7 @@ Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements
 | `type` | string | Yes | Always `"action"`. |
 | `async` | boolean | No | Default `false`. Reserved — not compiled yet. |
 | `role` | string | Yes | Human-readable label shown in the editor (e.g. `"Driveway Light"`). Display only — never used for compilation. |
+| `role_tokens` | array | Yes | Raw tokens the user selected at commit time — entity_ids for physical devices, variable names for piston variables, `@name` for globals. Stored for edit round-trip hydration only. Compiler ignores this field. Editor must preserve it on every save. |
 | `entity_ids` | array | Yes | Array of real HA entity IDs. Always an array. Compiler reads this directly to determine what to control. |
 | `tasks` | array | Yes | One or more task objects. See Task Field Reference below. |
 | `description` | string | No | Optional note shown in editor. Null if not set. |
@@ -365,6 +403,7 @@ Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements
 
 **The compiler reads `entity_ids` directly. It does not look up a role name in any map.**
 `role` is a display label only.
+`role_tokens` is an editor round-trip field only — the compiler must ignore it entirely.
 
 ### Task Field Reference
 
@@ -376,6 +415,29 @@ Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements
 | `ha_service` | string | Yes | Full service call: `domain + "." + command`. Must always be set explicitly. |
 | `parameters` | object | No | Service call data fields. Empty object `{}` if none. |
 | `description` | string | No | Null if not set. |
+
+---
+
+## Field Lifecycle Rules
+
+This section defines exactly when each key field is written, read, and what happens
+to it on Snapshot export. This is the authoritative reference — if another spec
+contradicts this table, this table wins and the other spec needs updating.
+
+| Field | Written by | Read by | On Snapshot export |
+|---|---|---|---|
+| `role` | Wizard at commit time. Generated from selected row labels (count-based for multi). | Editor for display only. Never read by compiler. | Kept — used as the placeholder label in Snapshot format. |
+| `role_tokens` | Wizard at commit time. Stores the raw tokens the user selected (entity_ids, variable names, `@globals`). | Editor on re-open for edit — restores `sel.tokens` from this field to re-highlight correct rows. | Stripped — Snapshot format has no concept of tokens. |
+| `entity_ids` | Wizard at commit time via `_getFlatEntityIds(sel.tokens)`. Also updated by `_reResolveVariableUses` when a device variable is edited. | Compiler reads this directly. Editor does not re-resolve — it trusts what is on the node. | Stripped — Snapshot format uses role placeholders, not entity IDs. |
+| `display_value` | Wizard at commit time. Friendly label for binary values (e.g. `"Open"`). | Editor for display only. Never read by compiler. | Kept — helps the AI mapper understand what the condition means. |
+| `compiled_value` | Wizard at commit time. The raw HA state string (e.g. `"on"`). | Compiler reads this. Editor uses it for numeric condition pre-fill to avoid unit suffix rejection. | Stripped — Snapshot format does not include compiled values. |
+| `aggregation` | Wizard at commit time. `"any"` / `"all"` / `"none"`. Single-device nodes always get `"any"`. | Compiler reads this to decide trigger/condition template expansion. Editor displays it in the aggregation bar on re-open. | Kept — relevant to the Snapshot mapping step. |
+
+**Resolution rule:** Token-to-entity-id resolution at wizard commit time goes through
+`_getFlatEntityIds` only. Read-side walks of `entity_ids` on already-committed nodes
+do not re-resolve — they trust what is on the node. If you find yourself wanting to
+resolve tokens in a read-side walk, that means a previous commit did not fully resolve.
+Fix the commit path, not the read path.
 
 ---
 
@@ -430,6 +492,7 @@ A simple single-trigger piston with one action:
           "id": "cond_001",
           "is_trigger": true,
           "role": "time",
+          "role_tokens": [],
           "entity_ids": [],
           "subject": "time",
           "operator": "happens daily at",
@@ -444,6 +507,7 @@ A simple single-trigger piston with one action:
           "type": "action",
           "async": false,
           "role": "Driveway Light",
+          "role_tokens": ["light.driveway_main"],
           "entity_ids": ["light.driveway_main"],
           "tasks": [
             {

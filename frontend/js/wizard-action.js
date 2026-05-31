@@ -687,18 +687,42 @@ function _renderCmdParams(service, services) {
   const _sel = WizardCore.sel;
   const el = document.getElementById('wiz-cmd-params');
   if (!el) return;
-  const svc = services.find(s=>s.service===service);
-  if (!svc?.fields || !Object.keys(svc.fields).length) { el.innerHTML=''; return; }
-  el.innerHTML = Object.entries(svc.fields).map(([key,field])=>`
-    <div class="wiz-param-section">
-      <div class="wiz-row-label">${_esc(field.name||key)}${field.optional?' (optional)':''}</div>
-      ${field.selector?.number
-        ? `<input type="number" class="wiz-value-input" data-param="${_esc(key)}" min="${field.selector.number.min??''}" max="${field.selector.number.max??''}" value="${_sel.parameters?.[key]??field.selector.number.min??0}" />`
-        : field.selector?.select
-        ? `<select class="wiz-select-blue-sm" data-param="${_esc(key)}">${field.selector.select.options.map(o=>`<option value="${_esc(o.value)}" ${_sel.parameters?.[key]===o.value?'selected':''}>${_esc(o.label)}</option>`).join('')}</select>`
-        : `<input type="text" class="wiz-value-input" data-param="${_esc(key)}" value="${_esc(String(_sel.parameters?.[key]??''))}" placeholder="${_esc(field.description||'')}" />`
-      }
-    </div>`).join('');
+  const svc = services.find(s => s.service === service);
+  // Backend returns fields as an array: [{name, label, type, required, ...}, ...]
+  // Object.keys() on an array returns indices ("0","1",...) — always normalize to array.
+  const fields = Array.isArray(svc?.fields) ? svc.fields : [];
+  if (!fields.length) { el.innerHTML = ''; return; }
+  el.innerHTML = fields.map(field => {
+    const key      = field.name;
+    const label    = field.label || key.replace(/_/g, ' ');
+    const optional = !field.required;
+    const current  = _sel.parameters?.[key] ?? '';
+    let input;
+    if (field.type === 'number') {
+      input = `<input type="number" class="wiz-value-input" data-param="${_esc(key)}"
+        min="${field.min ?? ''}" max="${field.max ?? ''}" step="${field.step ?? 1}"
+        value="${current !== '' ? _esc(String(current)) : (field.min ?? 0)}" />`;
+    } else if (field.type === 'select' && field.options?.length) {
+      const opts = field.options.map(o => {
+        const val = typeof o === 'object' ? (o.value ?? o) : o;
+        const lbl = typeof o === 'object' ? (o.label ?? o.value ?? o) : o;
+        return `<option value="${_esc(String(val))}" ${String(current)===String(val)?'selected':''}>${_esc(String(lbl))}</option>`;
+      }).join('');
+      input = `<select class="wiz-select-blue-sm" data-param="${_esc(key)}">${opts}</select>`;
+    } else if (field.type === 'boolean') {
+      input = `<select class="wiz-select-blue-sm" data-param="${_esc(key)}">
+        <option value="true"  ${current===true ||current==='true' ?'selected':''}>true</option>
+        <option value="false" ${current===false||current==='false'?'selected':''}>false</option>
+      </select>`;
+    } else {
+      input = `<input type="text" class="wiz-value-input" data-param="${_esc(key)}"
+        value="${_esc(String(current))}" placeholder="${_esc(field.description || '')}" />`;
+    }
+    return `<div class="wiz-param-section">
+      <div class="wiz-row-label">${_esc(label)}${optional ? ' (optional)' : ''}</div>
+      ${input}
+    </div>`;
+  }).join('');
 }
 
 // _saveDeviceCmd — writes the action node to the piston JSON.
@@ -715,7 +739,10 @@ function _saveDeviceCmd(addMore) {
   const command = document.getElementById('wiz-cmd')?.value || _sel.command;
   if (!command) return;
   const params = {};
-  document.querySelectorAll('[data-param]').forEach(el => { params[el.dataset.param] = el.value; });
+  const modal = document.getElementById('wiz-cmd-params') || document.getElementById('wizard-modal');
+  (modal || document).querySelectorAll('[data-param]').forEach(el => {
+    params[el.dataset.param] = el.value;
+  });
 
   // Resolve tokens → flat real entity_ids.
   // These are ALL entity_ids from the selected defines/devices.

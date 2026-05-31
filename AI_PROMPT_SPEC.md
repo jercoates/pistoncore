@@ -1,3 +1,25 @@
+> # ⚠ INTENTIONALLY STALE — DO NOT TREAT AS AUTHORITATIVE
+>
+> **This spec is frozen on purpose until the piston JSON structure is final.**
+>
+> AI_PROMPT_SPEC.md is written against the OLD `device_map` model (logic_version 1). The
+> data model has since changed substantially: device_map is eliminated, entity IDs live on
+> nodes (attribute-bearing, one per device), triggers/conditions/restrictions are top-level
+> wrapper arrays, variables store device names not entity IDs, and logic_version 1 is retired.
+>
+> Updating this spec in parallel with every JSON change wastes effort while the format is
+> still moving. It will be rewritten for logic_version 2 in one pass once the format is final
+> (alongside the compiler-spec rewrite, D-S6), and only then will `write-a-piston.md` and
+> `migrate-from-webcore.md` be written.
+>
+> **Until then, this document is NOT a reliable guide to the current format.** The authoritative
+> sources for the current data model are:
+> - **PISTON_FORMAT.md** — wrapper, node schemas, field names, the device→entity load-bearing rule
+> - **DESIGN.md** Section 6.10/6.11 — Snapshot format and import flow (the AI target format)
+> - **REFERENCE_PISTON_V2.json** — a known-good v2 piston
+>
+> Do not write AI prompt content or update this spec piecemeal before the D-S6 rewrite.
+
 # PistonCore AI Prompt Specification
 
 **Version:** 2.0

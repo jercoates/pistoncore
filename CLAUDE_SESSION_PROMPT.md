@@ -409,7 +409,7 @@ moves to TASKS_HISTORY.md). Default next bundle: **W-S11 — Device-Data Core Fi
 ---
 
 ## Spec File Versions (after Session 69)
-- DESIGN.md v1.7
+- DESIGN.md v1.8
 - PISTON_FORMAT.md v2.3
 - WIZARD_SPEC.md v2.6
 - STATEMENT_TYPES.md v2.2

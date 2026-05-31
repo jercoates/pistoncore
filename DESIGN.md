@@ -1,8 +1,14 @@
 # PistonCore Design Document
 
-**Version:** 1.7
+**Version:** 1.8
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 69 / D-S5b — PISTON_FORMAT.md reference updated
+**Last Updated:** May 2026 (Session 69c — DESIGN.md full reconciliation: Section 10.3 trigger
+  storage corrected to TOP-LEVEL arrays (was wrongly "inside if blocks"); Section 6.4 wrapper
+  adds triggers/conditions/restrictions rows + v2.3 ref + v1-retired note; Section 6.5 compiler
+  reads top-level arrays; Section 8 load-bearing device-data rule added; Finding 7 — four
+  "do not re-open" markers given reopen criteria; Pattern B — authoritative preamble added to
+  Section 6, 6.2/6.3 confirmed as pointers; AI_PROMPT_SPEC.md marked intentionally frozen.
+  Prior Session 69/D-S5b — PISTON_FORMAT.md reference updated
   to v2.2; render invariant "100%" language softened; role_tokens added to render
   example (Section 6.6); Snapshot node rules updated to note role_tokens is stripped
   on export; compiler spec freeze notice added; open item 11 closed; Grok frontend
@@ -169,7 +175,9 @@ The output model by piston type is permanent:
 | Complex — addon v2+ | PistonCore native runtime | Permanent for complex |
 | Complex — Docker | PyScript | Permanent |
 
-Do not re-open the question of routing simple pistons through the native runtime.
+Re-open only if v1 user testing shows the simple/complex boundary causes real confusion or
+breakage. The decision to keep simple pistons on native YAML stays; only the boundary's shape
+would be revisited — not by argument, but by a test or user-testing result that contradicts it.
 
 ### Compile Target Is Always Compiler-Owned — Never User-Controlled
 
@@ -244,6 +252,13 @@ PistonCore automatically decides what to compile to based on what your piston do
 
 ## 6. Piston JSON — The Permanent Master Format
 
+> **What's authoritative in this section.** Sections 6.2 and 6.3 are SHORT POINTERS to the
+> current full specs in 6.10 (Snapshot format) and 6.11 (Import flow). Do not treat 6.2/6.3
+> as authoritative on their own. For the canonical field reference, schemas, the device→entity
+> load-bearing rule, and a hand-written example, see **PISTON_FORMAT.md v2.3** and
+> **REFERENCE_PISTON_V2.json**. Where this section and PISTON_FORMAT.md ever disagree,
+> PISTON_FORMAT.md wins.
+
 ### Two Formats — One Clear Purpose Each
 
 **Internal stored format:** Structured JSON — every statement is a typed data object. The wizard writes structured data. The editor renders display text from that data. The compiler reads structured JSON directly. This is the working format — the source of truth for everything PistonCore does with a piston.
@@ -262,7 +277,7 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
-For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.2.
+For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.3.
 
 ---
 
@@ -287,7 +302,7 @@ Summary: PistonCore detects Snapshot vs Backup by checking whether entity_ids ar
 
 ### 6.4 Wrapper Fields
 
-The authoritative wrapper field reference is in PISTON_FORMAT.md v2.2.
+The authoritative wrapper field reference is in PISTON_FORMAT.md v2.3.
 
 Current wrapper fields (logic_version 2):
 
@@ -299,14 +314,25 @@ Current wrapper fields (logic_version 2):
 | `folder` | ✅ | ✅ | ✅ | Folder name or null |
 | `mode` | ✅ | ✅ | ✅ | single/restart/queued/parallel |
 | `enabled` | ✅ | ✅ | ✅ | boolean |
-| `logic_version` | ✅ | ✅ | ✅ | Statement format version |
+| `logic_version` | ✅ | ✅ | ✅ | Statement format version (must be 2 — v1 retired) |
 | `ui_version` | ✅ | ✅ | ✅ | Editor layout version |
-| `compile_target` | ✅ | ✅ | ✅ | native_script or pyscript |
-| `variables` | ✅ | ✅ | ✅ | Variable definitions |
-| `statements` | ✅ | ✅ | ✅ | Structured statement objects |
+| `compile_target` | ✅ | ✅ | ✅ | native_script or pyscript (compiler-owned cache) |
+| `variables` | ✅ | ✅ | ✅ | Variable definitions (device vars hold friendly names) |
+| `triggers` | ✅ | ✅ | ✅ | Top-level trigger condition objects (`is_trigger: true`) |
+| `conditions` | ✅ | ✅ | ✅ | Top-level piston-level condition objects |
+| `restrictions` | ✅ | ✅ | ✅ | Top-level restriction condition objects |
+| `statements` | ✅ | ✅ | ✅ | The action tree — structured statement objects |
+
+**Triggers, conditions, and restrictions are top-level wrapper arrays — not nested inside
+`if` blocks.** This matches the editor's section layout and the frontend storage model
+(confirmed against editor.js, Session 69). The compiler reads `triggers` directly to build
+the automation trigger block; it does not walk `statements` looking for `is_trigger` nodes.
+See Section 10.3 and PISTON_FORMAT.md "Trigger / Condition / Restriction Storage".
 
 **`logic_version` and `ui_version` are separate and change independently.**
-A UI change bumps `ui_version` only. A new statement type bumps `logic_version` only. Never collapse them into one field.
+A UI change bumps `ui_version` only. A new statement type bumps `logic_version` only. Never
+collapse them into one field. **logic_version 1 is retired — no v1→v2 migration; reject
+non-v2 pistons on load.**
 
 ---
 
@@ -316,7 +342,7 @@ A UI change bumps `ui_version` only. A new statement type bumps `logic_version` 
 |---|---|---|
 | Editor | `statements` | Renders display text from structured data |
 | Wizard | `statements` | Reads structured data to pre-populate edit, writes structured data on save |
-| Compiler | `statements` (entity_ids on nodes) | Reads typed statement objects directly — no role lookup, no device_map |
+| Compiler | `triggers`, `conditions`, `restrictions`, `statements` (entity_ids on nodes) | Reads typed objects directly — no role lookup, no device_map. Reads top-level trigger/condition/restriction arrays directly. |
 | Import dialog | Snapshot or Backup JSON | Detects format, runs role mapping for Snapshots, skips for Backups |
 | Piston list | `piston_index.json` | Reads index — never touches raw piston files for list display |
 | Snapshot export | `statements` + wrapper | Strips entity_ids from nodes (sets to []), preserves role labels |
@@ -387,7 +413,7 @@ JSON directly with entity_ids stripped from nodes.
 
 #### Snapshot Wrapper
 
-Identical to the internal format wrapper (PISTON_FORMAT.md v2.2) with two differences:
+Identical to the internal format wrapper (PISTON_FORMAT.md v2.3) with two differences:
 - A new `id` is assigned on import (not preserved from the Snapshot)
 - No `entity_ids` on any node (stripped on export)
 
@@ -534,7 +560,7 @@ PistonCore uses two different mechanisms for global variables depending on type,
 * **Non-device globals** (Text, Number, Yes/No, Date/Time) — backed by HA input helpers with a `pistoncore_` prefix. Compiled pistons read these live via HA template syntax at runtime. PistonCore creates and manages the helpers — the user never touches them directly.
 * **Edge cases over threshold** — if a global variable usage pattern cannot be expressed cleanly in native YAML (e.g., a device global used in a loop with dynamic iteration), the piston is a candidate for PyScript compilation per `target-boundary.json`.
 
-This model was a deliberate decision. Device globals being compile-time eliminates runtime race conditions entirely. Non-device globals being HA helpers means they work in HA's native UI, HA history, and HA automations written outside PistonCore. Do not relitigate this model.
+This model was a deliberate decision. Device globals being compile-time eliminates runtime race conditions entirely. Non-device globals being HA helpers means they work in HA's native UI, HA history, and HA automations written outside PistonCore. Re-open only if real testing shows the compile-time bake-in causes a concrete problem (e.g. redeploy-all at scale is too slow) — and even then the path forward is the `variable_refs` escape hatch, not runtime group lookup.
 
 **Storage — two-part model:**
 
@@ -835,7 +861,18 @@ List variants (Dynamic list, Text list, etc.) are deferred to v2.
 
 ---
 
-## 8. Device and Entity Model
+## 8. Device and Entity Model
+
+> **⭐ Load-bearing rule (the contract everything depends on).** Variables and globals store
+> device NAMES (friendly names) — never entity IDs. The friendly name is the lookup key: it's
+> how PistonCore asks HA for a device's current entity IDs, pulled live every time. Nodes
+> (condition / action / for_each / trigger) store the resolved attribute-bearing entity ID,
+> one per device, for the chosen function (illuminance condition on 2 devices -> the 2
+> *_illuminance entities, not battery/motion/temp). Resolution happens at the node, at commit,
+> because the same variable can feed different attributes in different statements. Only nodes
+> hold entity IDs; variables/globals never do. Full spec: PISTON_FORMAT.md the load-bearing
+> rule section; diff anchor: REFERENCE_PISTON_V2.json.
+
 
 ### Device-Level Picker
 
@@ -922,7 +959,8 @@ HA `state` conditions only accept a single entity. For multi-entity conditions P
 
 For `all` and `none` aggregation on triggers, the compiler must use a template trigger since HA state triggers do not support ALL-match semantics natively. This is a known compiler complexity point — document in COMPILER_SPEC.md when the condition compiler is built.
 
-**This is a locked compilation decision. Do not reopen.**
+**This is a researched compilation decision (verified against HA docs, May 2026). Re-open only
+if HA changes its multi-entity behavior in a future version** — not by argument.
 
 ---
 
@@ -1077,11 +1115,24 @@ One or more triggers. Uses the same multi-step wizard as conditions and actions.
 
 **How triggers are stored in the structured JSON:**
 
-Triggers are stored as condition objects inside `if` statement blocks, with `"is_trigger": true` on the condition object. This flag is what distinguishes a trigger from a condition — not position, not operator name guessing.
+Triggers are stored in the **top-level `triggers` array** on the piston wrapper, as condition
+objects with `"is_trigger": true`. This flag is what distinguishes a trigger from a condition —
+not position, not operator name guessing. (Piston-level conditions live in the top-level
+`conditions` array; restrictions in `restrictions`; the action tree is `statements`.)
 
-In the editor display, trigger conditions are shown with a ⚡ indicator. The ⚡ is rendered from the `is_trigger` flag in the structured data — it is not parsed from text.
+Note: this is a top-level array, NOT conditions nested inside an `if` block. An `if` block in
+`statements` has its own inline `conditions` array for branch logic — that is separate from the
+piston-level `triggers`/`conditions`/`restrictions` arrays. The compiler reads the top-level
+`triggers` array directly to build the automation trigger block; it does not walk `statements`
+hunting for `is_trigger` nodes. (Confirmed against editor.js, Session 69 — Path A reconciliation.)
 
-The wizard knows whether the user is adding a trigger or a condition based on which section they clicked — it sets `is_trigger` accordingly when writing the structured data. Triggers and conditions use the same wizard flow; the operator list is divided into trigger operators (shown with ⚡) and condition operators.
+In the editor display, trigger conditions are shown with a ⚡ indicator. The ⚡ is rendered from
+the `is_trigger` flag in the structured data — it is not parsed from text.
+
+The wizard knows whether the user is adding a trigger or a condition based on which section they
+clicked — it sets `is_trigger` accordingly and writes to the matching top-level array. Triggers
+and conditions use the same wizard flow; the operator list is divided into trigger operators
+(shown with ⚡) and condition operators.
 
 Trigger types:
 * Device or entity state change — `changes`, `changes to`, `changes from`, `changes from X to Y`
@@ -1901,7 +1952,9 @@ When running as an addon, PistonCore writes compiled output to:
 2. **Observability is impossible** — PistonCore must replicate WebCoRE's logs, traces, and execution visibility. You cannot get clean observability riding on top of another runtime you don't control. This single point rules out AppDaemon.
 3. **Three-layer debugging** — PistonCore logic → AppDaemon → HA means users cannot tell which layer caused a failure. Unacceptable for a product targeting non-technical users.
 
-Do not re-open this question.
+Re-open only if v2 native runtime construction becomes a blocking ship-date problem AND a
+1-week spike confirms AppDaemon can deliver observability acceptable for non-technical users.
+Absent both, this stays closed — but the criterion is a test/prototype result, not argument.
 
 ### What to Build (v2)
 
@@ -2071,7 +2124,7 @@ produced false confidence and wasted session time. The decision: let the JSON fo
 fully stabilize, then do one authoritative compiler spec rewrite in D-S6.
 
 **Treat all COMPILER_SPEC.md content as directionally correct but not authoritative.**
-The JSON schemas in PISTON_FORMAT.md v2.2 and STATEMENT_TYPES.md v2.2 are the
+The JSON schemas in PISTON_FORMAT.md v2.3 and STATEMENT_TYPES.md v2.2 are the
 current truth. Compiler coding proceeds against those documents, not COMPILER_SPEC.md.
 
 ---
@@ -2081,7 +2134,12 @@ current truth. Compiler coding proceeds against those documents, not COMPILER_SP
 1. **COMPILER_SPEC.md** — current as of Session 57 (v1.3). No longer blocking.
 2. **AI-REVIEW-PROMPT.md** — update to reflect current architecture before next external review.
 3. **settings / end settings block contents** — research WebCoRE behavior, define before implementing.
-4. **AI Prompt feature** — AI_PROMPT_SPEC.md must be rewritten for logic_version 2 (device_map references are stale). write-a-piston.md cannot be written until AI_PROMPT_SPEC.md is updated. Blocked until Snapshot format (Section 6.10) is stable.
+4. **AI Prompt feature** — AI_PROMPT_SPEC.md is intentionally FROZEN/STALE (same policy as
+   the compiler specs). It is written against the old device_map model and will be rewritten
+   for logic_version 2 only after the JSON format is final (alongside D-S6). A stale notice is
+   added at the top of the file. write-a-piston.md and migrate-from-webcore.md cannot be
+   written until that rewrite. Do not update AI_PROMPT_SPEC.md piecemeal before then —
+   chasing a moving format is what the freeze prevents. Tracked as GAP-S57-3 / D-S6-adjacent.
 5. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step.
 6. **Timer statement** — evaluate overlap with HA scheduler before including in v1.
 7. **on_event wizard warning** — wizard must display blocking behavior warning when user adds on_event block. See STATEMENT_TYPES.md Section 10.
@@ -2187,6 +2245,40 @@ Full spec hardening pass across 6 documents. No code written.
 **FRONTEND_SPEC.md → v1.5:** role_tokens awareness note added to Import Dialog. Snapshot export section updated to note role_tokens is stripped. Grok frontend audit findings documented.
 
 **Grok frontend audit (May 2026):** Grok ran an in-depth analysis of the frontend codebase. Overall finding: frontend is impressively solid for vanilla JS of this complexity. Main risk area is editor complexity — bugs there are most visible to users. Architecture is very AI-friendly. Key findings noted for future work: _esc() usage not 100% consistent across all raw HTML insertions; sessionStorage for API key acceptable for same-origin but noted as XSS risk; full re-renders on editor operations acceptable for v1 scale; Google Fonts import noted (consider self-hosting for offline installs); no CSP in index.html. No structural changes recommended — all findings deferred as post-v1 polish.
+
+### Session 69b — May 2026 (Code↔Spec Reconciliation — Path A)
+Live code review (editor.js, wizard-core/action/condition/variable/loops.js, api.js).
+Reconciled specs to actual code; code is authoritative where they disagreed.
+- **Triggers/conditions/restrictions confirmed as top-level wrapper arrays** (editor.js), not
+  nested `is_trigger` nodes. PISTON_FORMAT.md v2.3 + DESIGN.md 6.4/10.3 updated to match.
+- **Variable schema corrected** to actual field names `var_type` / `initial_value` (not
+  `type` / `default_value`). `initial_device_names` is NOT written by code — `initial_value`
+  holds friendly names for both data and display.
+- **logic_version 1 / device_map fully retired** — no migration; reject non-v2 pistons; sandbox
+  pistons regenerated fresh as v2.
+- **REFERENCE_PISTON_V2.json created** as the canonical v2 diff anchor (real two-device example).
+- TASKS.md rebuilt as a single active file; gaps grouped into session bundles. CODE_FINDINGS.md
+  and SESSION_69B_GAPS.md absorbed and retired to /reference. SPEC_AUDIT.md retired (findings
+  applied or tracked in D-S5c/D-S6).
+- **GAP-S69-9 found (the root-cause device bug):** `_getFlatEntityIds` returns the whole device
+  cluster instead of the attribute-bearing entity per device — it has no attribute parameter.
+  Both condition and action commits inherit this. The W-S11 fix. The variable side is already
+  correct (stores names, not IDs).
+
+### Session 69c — May 2026 (DESIGN.md Full Reconciliation)
+- **Section 10.3 corrected** — trigger storage was wrongly described as "condition objects inside
+  if blocks"; rewritten to top-level `triggers`/`conditions`/`restrictions` arrays, compiler reads
+  them directly. This was a real internal contradiction with the now-locked model.
+- **Section 6.4** — added triggers/conditions/restrictions rows to the wrapper table, v2.3 ref,
+  v1-retired note. **Section 6.5** — compiler reads the top-level arrays.
+- **Section 8** — load-bearing device→entity rule added (variables=names, nodes=attribute-bearing
+  entity IDs, resolution at node).
+- **Finding 7** — the four "do not re-open / relitigate / locked" markers (hybrid output, device
+  globals, multi-entity, AppDaemon) each given a concrete reopen criterion (test/result, not argument).
+- **Pattern B** — authoritative preamble added to top of Section 6; 6.2/6.3 confirmed as pointers
+  to 6.10/6.11.
+- **AI_PROMPT_SPEC.md** marked intentionally frozen/stale (same policy as compiler specs) — rewrite
+  for logic_version 2 only after the format is final.
 
 ---
 

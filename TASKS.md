@@ -323,7 +323,7 @@ Success = all seven checklist items at top of file.
 ---
 
 ## Spec File Versions (after Session 69)
-- DESIGN.md **v1.7**
+- DESIGN.md **v1.8**
 - PISTON_FORMAT.md **v2.3** (load-bearing rule, top-level arrays, var_type/initial_value, v1 retired)
 - WIZARD_SPEC.md **v2.6** (device variable model corrected)
 - STATEMENT_TYPES.md **v2.2**

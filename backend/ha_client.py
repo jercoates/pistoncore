@@ -544,8 +544,11 @@ class HAClient:
 
     def get_services(self, entity_id: str) -> list[dict]:
         """
-        Return valid services for a device's domain with parameter schema.
-        Result is cached per domain — not per entity_id (Bug 27 fix).
+        Return valid services for a device's domain, filtered to fields this
+        specific entity actually supports. Result is cached per entity_id.
+        Fields are filtered using the entity's live state attributes — e.g.
+        a light with supported_color_modes: [onoff] will not show brightness
+        or color fields even though those exist in the domain service schema.
 
         Returns a list of:
           {
@@ -558,8 +561,7 @@ class HAClient:
             ]
           }
         """
-        domain = entity_id.split(".")[0]
-        cache_key = f"svc:{domain}"   # Bug 27 fix — cache by domain, not entity_id
+        cache_key = f"svc:{entity_id}"  # per entity_id — fields filtered by entity attributes
         cached = self._cache_get(cache_key, CAPABILITY_CACHE_TTL)
         if cached is not None:
             return cached
@@ -571,21 +573,61 @@ class HAClient:
     async def _fetch_services(self, entity_id: str) -> list[dict]:
         domain = entity_id.split(".")[0]
 
+        # Fetch services and entity state in one WebSocket connection.
+        # Entity state is needed to filter fields to what this specific entity supports.
         results = await self._ws_call([
             {"id": 1, "type": "get_services"},
+            {"id": 2, "type": "get_states"},
         ])
-        svc_resp = results[0]
+        svc_resp, states_resp = results
 
         if not svc_resp.get("success"):
             raise HAClientError("HA returned error for get_services.")
 
+        # Find this entity's current attributes for field filtering.
+        entity_attrs: dict = {}
+        if states_resp.get("success"):
+            for s in states_resp.get("result", []):
+                if s["entity_id"] == entity_id:
+                    entity_attrs = s.get("attributes", {})
+                    break
+
         all_services = svc_resp.get("result", {})
         domain_services = all_services.get(domain, {})
+
+        # Build the set of fields to suppress for light entities based on what
+        # this specific light actually supports. Other domains pass all fields through.
+        suppressed_fields: set[str] = set()
+        if domain == "light":
+            color_modes = set(entity_attrs.get("supported_color_modes") or [])
+            # brightness fields — suppress if the only supported mode is onoff/unknown
+            brightness_modes = color_modes - {"onoff", "unknown"}
+            if not brightness_modes:
+                suppressed_fields.update({"brightness", "brightness_pct", "brightness_step", "brightness_step_pct"})
+            # color_temp fields — suppress if color_temp not in supported modes
+            if "color_temp" not in color_modes:
+                suppressed_fields.update({"color_temp", "color_temp_kelvin", "kelvin"})
+            # color fields — suppress if no color modes present
+            color_color_modes = color_modes & {"hs", "rgb", "rgbw", "rgbww", "xy", "white"}
+            if not color_color_modes:
+                suppressed_fields.update({"rgb_color", "rgbw_color", "rgbww_color",
+                                          "hs_color", "xy_color", "color_name"})
+            # effect — suppress if entity has no effect_list or it is empty
+            effect_list = entity_attrs.get("effect_list") or []
+            if not effect_list:
+                suppressed_fields.add("effect")
+            # flash — suppress if supported_features bit 8 not set (FLASH = 8)
+            supported_features = entity_attrs.get("supported_features", 0)
+            if not (supported_features & 8):
+                suppressed_fields.add("flash")
 
         output = []
         for svc_name, svc_data in domain_services.items():
             fields = []
             for field_name, field_data in svc_data.get("fields", {}).items():
+                # Skip fields this entity does not support
+                if field_name in suppressed_fields:
+                    continue
                 field = {
                     "name": field_name,
                     "label": field_data.get("name", field_name.replace("_", " ").title()),

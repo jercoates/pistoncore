@@ -663,7 +663,7 @@ async function _goCommandPicker() {
         return { ...s, fields: (s.fields || []).filter(f => sharedFieldNames.includes(f.name)) };
       });
 
-
+    const sel = document.getElementById('wiz-cmd');
     if (sel) {
       if (services.length) {
         sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +

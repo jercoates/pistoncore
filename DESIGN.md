@@ -1,8 +1,12 @@
 # PistonCore Design Document
 
-**Version:** 1.6
+**Version:** 1.7
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 62 — Section 9.2 expanded: entity state subscription vs polling decision; MISSING_SPECS Item 25 resolved)
+**Last Updated:** May 2026 (Session 69 / D-S5b — PISTON_FORMAT.md reference updated
+  to v2.2; render invariant "100%" language softened; role_tokens added to render
+  example (Section 6.6); Snapshot node rules updated to note role_tokens is stripped
+  on export; compiler spec freeze notice added; open item 11 closed; Grok frontend
+  audit findings logged in Section 34)
 
 ---
 
@@ -254,11 +258,11 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 
 **The statements array is a nested tree.** Control flow nodes own their children directly — `then`, `else`, `statements`, `else_ifs`, and `cases` contain child statement objects embedded inline. There are no ID references between statements. The tree structure is explicit and self-contained.
 
-**The editor must render from this JSON correctly 100% of the time, every time, without fail.** This is the non-negotiable foundation of the project.
+**The editor must render every well-formed piston JSON correctly.** For malformed nodes (missing required fields, unknown type, future logic_version), it renders a clearly-flagged placeholder row that preserves the node and lets the user repair or delete it. The editor must never silently drop, duplicate, or corrupt nodes.
 
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
-For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.1.
+For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.2.
 
 ---
 
@@ -283,7 +287,7 @@ Summary: PistonCore detects Snapshot vs Backup by checking whether entity_ids ar
 
 ### 6.4 Wrapper Fields
 
-The authoritative wrapper field reference is in PISTON_FORMAT.md v2.1.
+The authoritative wrapper field reference is in PISTON_FORMAT.md v2.2.
 
 Current wrapper fields (logic_version 2):
 
@@ -332,6 +336,7 @@ display line.
 {
   "operator": "changes to",
   "role": "Doors",
+  "role_tokens": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "aggregation": "any",
   "attribute": "contact",
@@ -382,7 +387,7 @@ JSON directly with entity_ids stripped from nodes.
 
 #### Snapshot Wrapper
 
-Identical to the internal format wrapper (PISTON_FORMAT.md v2.1) with two differences:
+Identical to the internal format wrapper (PISTON_FORMAT.md v2.2) with two differences:
 - A new `id` is assigned on import (not preserved from the Snapshot)
 - No `entity_ids` on any node (stripped on export)
 
@@ -407,6 +412,8 @@ Identical to the internal format wrapper (PISTON_FORMAT.md v2.1) with two differ
 #### Snapshot Node Rules
 
 **Condition nodes:** `entity_ids` is always an empty array `[]`. `role` is preserved.
+`role_tokens` is stripped — it contains entity_ids and variable names that are
+installation-specific and have no meaning in a shared Snapshot.
 ```json
 {
   "id": "cond_a3f8c2d1",
@@ -425,6 +432,7 @@ Identical to the internal format wrapper (PISTON_FORMAT.md v2.1) with two differ
 ```
 
 **Action nodes:** `entity_ids` is always an empty array `[]`. `role` is preserved.
+`role_tokens` is stripped for the same reason.
 ```json
 {
   "id": "stmt_b7e2f941",
@@ -2052,12 +2060,19 @@ Write the prompts only after the Snapshot JSON import flow is tested end-to-end.
 - Help an AI write a PyScript template
 - Help an AI explain what an existing piston does
 
-### COMPILER_SPEC.md — Current (updated through Session 24)
+### COMPILER_SPEC.md — Frozen Pending JSON Stabilization
 
-COMPILER_SPEC.md has been updated through Session 24. Field names, global_variables
-structure, and output format are current. The companion references and old schema_version
-fields noted as stale in earlier sessions have been removed. Compiler coding proceeds
-against the current spec.
+COMPILER_SPEC.md was last updated through Session 57 (v1.3). It is **intentionally
+not being kept in sync** during the current JSON structure stabilization phase.
+
+The piston JSON format has been evolving (device_map removed, entity_ids on nodes,
+role_tokens added). Keeping the compiler spec in sync with every JSON change has
+produced false confidence and wasted session time. The decision: let the JSON format
+fully stabilize, then do one authoritative compiler spec rewrite in D-S6.
+
+**Treat all COMPILER_SPEC.md content as directionally correct but not authoritative.**
+The JSON schemas in PISTON_FORMAT.md v2.2 and STATEMENT_TYPES.md v2.2 are the
+current truth. Compiler coding proceeds against those documents, not COMPILER_SPEC.md.
 
 ---
 
@@ -2073,9 +2088,10 @@ against the current spec.
 8. **on_event user documentation** — "PistonCore can't do this because HA can't do it" section needed in user docs covering on_event async limitation.
 9. **STATEMENT_TYPES.md action schema** — CLOSED Session 57 / D-S2. action schema updated to role+entity_ids. Condition schema Section 19 updated with entity_ids field.
 10. **MISSING_SPECS.md Items 7 and 8** — CLOSED (Session 58 / D-S3). Both updated to entity_state_cache and MISSING_ENTITY model.
-11. **HA_LIMITATIONS.md Section 3** — references device_map and has_missing_devices. Fix in a dedicated HA_LIMITATIONS session — not blocking current work.
+11. **HA_LIMITATIONS.md Section 3** — CLOSED Session 69 / D-S5b. Stale device_map and has_missing_devices references replaced with current logic_version 2 model.
+12. **COMPILER_SPEC.md — intentionally frozen.** The compiler spec is not being actively maintained during the JSON structure stabilization phase. It is directionally correct but not authoritative. A dedicated D-S6 session will rewrite it once the piston JSON format is final. Do not update COMPILER_SPEC.md until D-S6.
 12. **WIZARD_SPEC.md globals picker** — CLOSED Session 57 / D-S2. No longer deferred.
-13. **for_each list_role architecture** — CLOSED Session 57 / D-S2. entity_ids on node, list_role retired. See STATEMENT_TYPES.md v2.1 Section 6.
+13. **for_each list_role architecture** — CLOSED Session 57 / D-S2. entity_ids on node, list_role retired. See STATEMENT_TYPES.md v2.2 Section 6.
 14. **SAMPLE_PISTONS.md** — CLOSED Session 59 / D-S4. Three logic_version 2 examples created (simple, multi-device, global+for_each).
 
 ---
@@ -2147,13 +2163,30 @@ Full cross-document audit. No code. Key findings and changes:
 - Section 32: Open items updated — 13 items, stale entries corrected.
 
 **Audit findings documented in session chat (not yet fixed — need their own sessions):**
-- STATEMENT_TYPES.md Section 1 (action) still uses old devices/role_name format — fix before W-S8
-- STATEMENT_TYPES.md Section 19 condition schema lacks entity_ids — fix before W-S8
+- STATEMENT_TYPES.md Section 1 (action) still uses old devices/role_name format — CLOSED Session 69 / D-S5b
+- STATEMENT_TYPES.md Section 19 condition schema lacks entity_ids — CLOSED Session 69 / D-S5b
 - MISSING_SPECS.md Items 7 and 8 — CLOSED Session 58 / D-S3 (entity_state_cache, MISSING_ENTITY model)
 - AI_PROMPT_SPEC.md entirely written against old device_map model — fix before AI prompt work (GAP-S57-3)
 - WIZARD_SPEC.md globals picker still says "deferred" — CLOSED Session 57 / D-S2
-- HA_LIMITATIONS.md Section 3 references device_map and has_missing_devices — fix anytime
+- HA_LIMITATIONS.md Section 3 references device_map and has_missing_devices — CLOSED Session 69 / D-S5b
 - for_each list_role architecture — CLOSED Session 57 / D-S2 (entity_ids on node, list_role retired)
+
+### Session 69 — May 2026 (D-S5 / D-S5b Spec Hardening)
+Full spec hardening pass across 6 documents. No code written.
+
+**PISTON_FORMAT.md → v2.2:** `role_tokens` added to Condition and Action schemas and all JSON examples. Render invariant "100%" language replaced with correct malformed-node-placeholder behavior. Field Lifecycle Rules section added. Resolution path rule formally stated.
+
+**WIZARD_SPEC.md → v2.5:** UI/Data Separation Rule, Device Grouping by device_id, search filter rule, `_reResolveVariableUses` contract, globals cache model, `initial_device_names` field all formally documented. `role_tokens` added to all JSON output examples. Hard Rules rewritten with rationale attached and "never change" language removed. Render invariant and resolution path rule corrected.
+
+**DESIGN.md → v1.7:** PISTON_FORMAT.md references updated to v2.2. Render invariant in Section 6.1 softened. role_tokens added to Section 6.6 render example. Section 6.10 Snapshot node rules updated — role_tokens explicitly noted as stripped on export. Open item 11 closed. COMPILER_SPEC.md frozen pending JSON stabilization documented in Section 31 and Open Items.
+
+**STATEMENT_TYPES.md → v2.2:** role_tokens added to action schema (Section 1), for_each schema (Section 6), and Condition Object Schema. Render invariant language softened. Compiler output warning block added noting COMPILER_SPEC.md is frozen.
+
+**HA_LIMITATIONS.md:** Section 3 stale device_map and has_missing_devices references replaced with current logic_version 2 model. Fix flow expanded.
+
+**FRONTEND_SPEC.md → v1.5:** role_tokens awareness note added to Import Dialog. Snapshot export section updated to note role_tokens is stripped. Grok frontend audit findings documented.
+
+**Grok frontend audit (May 2026):** Grok ran an in-depth analysis of the frontend codebase. Overall finding: frontend is impressively solid for vanilla JS of this complexity. Main risk area is editor complexity — bugs there are most visible to users. Architecture is very AI-friendly. Key findings noted for future work: _esc() usage not 100% consistent across all raw HTML insertions; sessionStorage for API key acceptable for same-origin but noted as XSS risk; full re-renders on editor operations acceptable for v1 scale; Google Fonts import noted (consider self-hosting for offline installs); no CSP in index.html. No structural changes recommended — all findings deferred as post-v1 polish.
 
 ---
 

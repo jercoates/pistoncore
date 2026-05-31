@@ -1,19 +1,22 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.5
+**Version:** 2.6
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
 **Last Updated:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
-  output examples (GAP-S63-4, GAP-S64-1); initial_device_names field added to variable
-  nodes; _reResolveVariableUses contract formally documented; globals cache model
-  documented; UI/data separation rule added as named rule; search filter rule clarified;
-  resolution path rule restated to allow read-side walks; Output Invariant "100%"
-  language softened per SPEC_AUDIT.md finding #1.)
+  output examples; _reResolveVariableUses contract; globals cache model; UI/data
+  separation rule; resolution path rule. Session 69b — CODE_FINDINGS reconciliation
+  (Path A, code authoritative): W-7 variable JSON corrected to actual code field names
+  (var_type/initial_value). Session 69c — device variable model
+  corrected: variables/globals store DEVICE NAMES (friendly names) and NEVER entity IDs;
+  the Device Variables section and _reResolveVariableUses contract rewritten so resolution
+  is name → live HA entities → attribute-bearing entity at the NODE; cross-referenced to
+  PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE".)
 
 **Authority rule:** WIZARD_REBUILD_SPEC.md is now merged into this document and retired.
 This is the single wizard spec. All wizard coding must reference this document.
 
 **Source:** WebCoRE piston.module.html, app.js, wizard-*.js files, PISTON_FORMAT.md v2.2,
-STATEMENT_TYPES.md v2.1, SESSION_54_FINDINGS.md.
+STATEMENT_TYPES.md v2.2, SESSION_54_FINDINGS.md.
 
 Read DESIGN.md and PISTON_FORMAT.md v2.2 before this document.
 
@@ -438,21 +441,43 @@ This table is the authoritative mapping. The compiler reads `aggregation` from t
 
 ## Device Variables (Defines) — How the Wizard Handles Them
 
-A device variable (define) is a named group of devices the user wants to treat as one unit. From the user's perspective it is a list of friendly device names — "Kitchen Light", "Outdoor Motion Sensor". From PistonCore's perspective it is a complete flat list of ALL entity IDs that belong to every device in that group. Both the friendly names and the entity IDs are stored on the variable node.
+A device variable (define) is a named group of devices the user wants to treat as one
+unit. It is a **list of device references — friendly names** ("Kitchen Light", "Outdoor
+Motion"). The friendly name is the lookup key: it is how PistonCore asks HA for that
+device's current entity IDs. **The variable stores device names only — it NEVER stores
+entity IDs.** Entity IDs are pulled live from HA whenever the variable is used, and the
+resolved attribute-bearing entity IDs are written onto the consuming NODE, never back
+onto the variable. See PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE" for the authoritative
+contract.
 
 ### In the Picker
 
-When the user picks a device variable row (local or global) in a condition or action picker, the wizard immediately resolves that variable name to its full flat list of entity IDs via `_getFlatEntityIds`. It then fetches capabilities for ALL of those entity IDs and computes the intersection — only capabilities that every entity in the group shares are shown in the attribute dropdown.
+When the user picks a device variable row (local or global) in a condition or action
+picker, the wizard takes the variable's device names, asks HA for each device's current
+entities (live), and computes the capability intersection across all of them — only
+capabilities every device in the group shares are shown in the attribute dropdown.
 
-- If all entities share `motion` and `battery` → show both
-- If only some share `motion` → do not show `motion`
+- If all devices have `motion` and `battery` → show both
+- If only some have `motion` → do not show `motion`
 - The user sees only what every device in the group can actually do
+
+This live lookup is why the variable stores names, not entity IDs: the entity list is
+always current, even if a device was reconfigured in HA since the variable was created.
 
 ### On Commit (Add / Add More)
 
-When the user clicks Add or Add More, the wizard resolves the selected tokens to entity IDs via `_getFlatEntityIds` and writes them to `entity_ids` on the node. The variable name becomes the `role` label for display in the editor. `role_tokens` stores the original token (e.g. `["Motion_sensor"]`) for edit round-trip.
+When the user clicks Add or Add More, the wizard knows the attribute the user chose. For
+each device in the variable, it resolves to the **entity that carries that attribute**
+(one per device) and writes those entity IDs to `entity_ids` on the NODE. The variable
+name becomes the `role` label for display; `role_tokens` stores the variable name (e.g.
+`["Motion_sensor"]`) so the node can be re-resolved later.
 
-The entity IDs written are the ones relevant to the capability and domain the user selected — resolved from the variable's current `initial_value` at commit time.
+Example: variable `Outdoor_Sensors` = `["Outdoor Motion", "Zooz outdoor"]`. Used in an
+illuminance condition, the node gets
+`entity_ids: ["sensor.outdoor_motion_illuminance", "sensor.zooz_outdoor_illuminance"]` —
+two devices, two illuminance entities. Used in a motion trigger, the node gets the two
+`*_motion` entities instead. The variable never changes; only the node's `entity_ids`
+differ by attribute.
 
 ### _reResolveVariableUses Contract
 
@@ -461,9 +486,9 @@ Called in editor.js after any device variable (define) is saved by the user.
 **What it does:**
 1. Walks the entire piston tree recursively (statements, triggers, conditions, restrictions)
 2. Finds every node where `role_tokens` contains the variable name (for local vars) or `@name` (for globals)
-3. Re-resolves `entity_ids` on those nodes from the variable's current `initial_value` (local) or `value` (global)
+3. Re-resolves `entity_ids` on those nodes by: reading the variable's current device-name list, asking HA for each device's entities, and selecting the entity that carries the node's existing `attribute` — one per device. (Resolution is name → live HA entities → attribute-bearing entity. It does NOT read entity IDs out of the variable, because the variable has none.)
 4. Other tokens in the same node (other variables, globals, physical devices) are preserved — only the changed variable's contribution is updated
-5. Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`)
+5. Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`); a global's `value` is also a device-name list, resolved the same way
 
 **What it does NOT do:**
 - It does not update nodes that do not reference the changed variable in `role_tokens`
@@ -1089,7 +1114,10 @@ Number list (decimal), Large number list (long), Date and Time list, Date list, 
 | `dynamic` | Operand widget: Value \| Variable \| Expression \| Argument |
 | list types | Hidden — lists have no initial value in v1 |
 
-**`devices` type initial value:** When the user selects devices, entity_ids are resolved from live HA at commit time and written directly to `default_value`. Same rule as everywhere else — entity_ids captured at wizard commit, never at runtime.
+**`devices` type initial value:** When the user selects devices, their **friendly names**
+are stored in `initial_value` — NOT entity IDs. A device variable is a device list; entity
+IDs are resolved live from HA at each consuming node, never stored on the variable. See
+the "Device Variables (Defines)" section and PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE".
 
 Note: "By assigning an initial value, you instruct the piston to initialize
 the variable on every run. If storing data between runs, leave as Nothing Selected."
@@ -1100,46 +1128,69 @@ the variable on every run. If storing data between runs, leave as Nothing Select
 ### Footer (edit)
 `Cancel` | `Delete` | ⚙ | `Save`
 
-### JSON output — scalar types (string, number, boolean, datetime, device)
+### JSON output — scalar types (string, number, boolean, datetime)
 ```json
 {
+  "type": "variable",
+  "id": "var_xxxxxxxx",
+  "name": "message",
+  "var_type": "string",
+  "initial_value": "Hello"
+}
+```
+
+### JSON output — device type (single-select)
+```json
+{
+  "type": "variable",
   "id": "var_xxxxxxxx",
   "name": "my_light",
-  "display_name": "My Light",
-  "type": "device",
-  "default_value": {
-    "role": "Living Room Light",
-    "role_tokens": ["light.living_room"],
-    "entity_ids": ["light.living_room"],
-    "initial_device_names": ["Living Room Light"]
-  }
+  "var_type": "device",
+  "initial_value_type": "device",
+  "initial_value": ["Living Room Light"]
 }
 ```
 
 ### JSON output — devices type (multi-select)
 ```json
 {
+  "type": "variable",
   "id": "var_xxxxxxxx",
   "name": "my_lights",
-  "display_name": "My Lights",
-  "type": "devices",
-  "default_value": {
-    "role": "My Lights",
-    "role_tokens": ["light.living_room", "light.kitchen", "light.hallway"],
-    "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"],
-    "initial_device_names": ["Living Room Light", "Kitchen Light", "Hallway Light"]
-  }
+  "var_type": "devices",
+  "initial_value_type": "device",
+  "initial_value": ["Living Room Light", "Kitchen Light", "Hallway Light"]
 }
 ```
 
-**`initial_device_names`** — array of friendly device names the user selected, in selection order. Stored for display in the variable picker button and globals drawer. Display only — the compiler ignores this field. It is not used for resolution; `entity_ids` is the source of truth.
+**Field names match the actual frontend code (not the older `type`/`default_value`
+draft).** `type` is always `"variable"` (the node-kind marker); `var_type` is the
+variable's data type; `initial_value` holds the value.
 
-For `device` and `devices` types, `default_value` is always an object with `role`
-(display label), `role_tokens` (raw tokens for edit round-trip), `entity_ids` (resolved
-array of real HA entity IDs), and `initial_device_names` (friendly names for display).
-For all other types, `default_value` is a scalar value matching the type.
+**`initial_value` for device/devices types holds a LIST OF DEVICE REFERENCES (friendly
+names), NEVER entity IDs.** A device variable is a list of devices. It never stores entity
+IDs — not at save, not resolved, not anywhere. The picker re-grabs each device's current
+entities live from HA every time the variable is used, so the list stays accurate when
+devices are reconfigured.
 
-If the user selects "Nothing selected" for initial value, `default_value` is `null`.
+**Why the variable never holds entity IDs:** the same variable can feed many statements,
+each using a different attribute (illuminance condition, motion trigger, battery condition).
+There is no single correct set of entity IDs for the variable — resolution depends on what
+attribute each consuming statement uses, so it can only happen at the node. See
+PISTON_FORMAT.md "Device Variables and Globals — Entity IDs Live on NODES, Never on
+Variables."
+
+**`initial_value_type`** — set alongside `initial_value` to record how the value was entered
+(`device` for the device picker). Omitted for "Nothing selected".
+
+**Display source** — the editor reads the `initial_value` friendly-name array directly for
+display. Current code does NOT write a separate `initial_device_names` field; the friendly
+names in `initial_value` serve as both data and display. (If you see `initial_device_names`
+in an older file, it duplicates `initial_value` and can be ignored.)
+
+For all non-device variable types, `initial_value` is a scalar matching `var_type`.
+
+If the user selects "Nothing selected" for initial value, `initial_value` is omitted or `null`.
 
 ### for_each and piston variables — V1 Rule
 

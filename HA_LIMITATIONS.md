@@ -79,18 +79,20 @@ If a user renames a device in HA, the entity ID may change. This breaks any pist
 that references that entity_id — the compiled YAML or PyScript will reference an entity
 that no longer exists.
 
-**Current status (logic_version 2):** Entity IDs are stored directly on condition and
-action nodes. The scheduled entity validation (DESIGN.md Section 9.2) checks all
-deployed pistons every 30 minutes against the live HA entity registry. If an entity_id
-is missing from the registry (not just offline — actually gone), the piston is flagged
-`entity_missing: true` in the piston index and ⚠ appears on the piston list.
+**Current status (logic_version 2):** Entity IDs are stored directly on condition,
+action, and for_each nodes. There is no device_map. The scheduled entity validation
+(DESIGN.md Section 9.2) checks all deployed pistons every 30 minutes against the live
+HA entity registry. If any entity_id is not present in the registry, the piston is
+flagged `entity_missing: true` in the piston index and ⚠ appears on the piston list.
 
 **Important:** A device that is offline, unavailable, or has a dead battery is NOT
 missing — it still exists in the registry. The flag only fires when the entity_id is
 completely absent from HA (renamed, deleted, or integration removed).
 
-The fix flow: user opens the piston in the editor, updates the entity in the wizard
-device picker (which shows live HA entities), saves, redeploys.
+The fix flow: user opens the piston in the editor. The node with the missing entity
+shows an inline warning. User clicks the node — wizard opens pre-filled with the
+current role label. User picks a replacement device from the live HA picker. New
+entity_ids are written to the node on commit. Save and redeploy.
 
 ### Multi-Entity Compilation — Confirmed Native Support
 

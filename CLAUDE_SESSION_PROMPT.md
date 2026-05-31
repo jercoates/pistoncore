@@ -8,6 +8,28 @@ SQLite/JSON storage, Docker on Unraid at port 7777.
 Jeremy has no formal programming background — relies entirely on Claude for
 architecture and code. Never does targeted/line-level edits — only full file replacements.
 
+## ⭐ THE LOAD-BEARING RULE — Device → Entity Resolution (read first)
+
+If this breaks, nothing works — the editor shows pretty text that compiles to nothing.
+This is the single most important contract and the hardest part of the project.
+
+- **Variables and globals store device NAMES (friendly names) — NEVER entity IDs.** The
+  friendly name is the lookup key: it's how PistonCore asks HA for that device's current
+  entity IDs. A variable is a device list. Entity IDs are pulled live from HA when used.
+- **Nodes store entity IDs** — the attribute-bearing entity, one per device, for the chosen
+  function. Illuminance condition on 2 devices → the 2 `*_illuminance` entity IDs. Not
+  battery, not motion, not temperature.
+- **Resolution happens at the NODE, at commit time**, because the same variable can feed
+  different attributes in different statements (illuminance condition, motion trigger,
+  battery condition — same variable, three different resolved entity sets, one per node).
+- **Only nodes hold entity IDs. Variables and globals never do. One rule, no exceptions.**
+
+Authoritative: PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE". Diff anchor: REFERENCE_PISTON_V2.json.
+
+**Current code does NOT fully obey this yet** — `_getFlatEntityIds` returns the whole device
+cluster instead of the attribute-bearing entity (GAP-S69-9, the W-S11 fix). The variable side
+is already correct (stores names, not IDs). See TASKS.md W-S11.
+
 ## Non-Negotiable Rules
 - Specs before code. Read all listed files before writing anything.
 - All problems logged in TASKS.md with GAP-SXX-N format.
@@ -168,8 +190,9 @@ Whenever the user is building an Action (`wizard-action.js`) or a Condition (`wi
 - A device define (piston variable of type `device`) holds a list of friendly names as `initial_value`.
 - Friendly names resolve to device groups via `_groupDevices()`. Each group contains ALL entity_ids for that physical device.
 - When selected in the wizard, the variable name becomes the `role` token.
-- `_getFlatEntityIds` resolves the variable name → friendly names → all entity_ids (for commit).
-- `_getGroupedEntityIdsForTokens` resolves the variable name → friendly names → groups → all entity_ids per group (for cap/service lookup).
+- `_getFlatEntityIds(name, attribute)` resolves the variable name → friendly names → the
+  attribute-bearing entity per device (for commit — see load-bearing rule and GAP-S69-9).
+- `_getGroupedEntityIdsForTokens` resolves the variable name → friendly names → groups → all entity_ids per group (for cap/service lookup — here ALL entities are correct, that's how the capability intersection works).
 - For capability lookup: fetch caps for ALL entity_ids in each group, union per group, intersect across groups. Caps named "state" with a device_class are keyed by device_class so illuminance/temperature/battery appear as distinct picker entries.
 - Global device variables work exactly like local device variables. Both store friendly names.
 - Globals store friendly names in `value` field (not entity_ids).
@@ -203,76 +226,17 @@ See TASKS_HISTORY.md for full archive.
 
 ---
 
-## Current Priority — W-S10 continued (Session 69 work)
+## Current Priority — see TASKS.md
 
-### ⚠ Testing reminder for Session 69
-Before writing any new code, ask Jeremy to test the following from Session 68:
-1. Edit a condition inside an if block — confirm it replaces in place (no new line added)
-2. Edit a numeric condition (e.g. illuminance is less than 800) — confirm value pre-fills correctly
-3. Edit a condition with a trigger operator — confirm interaction row shows. With condition operator — confirm it hides.
-4. Select a piston variable in action picker — confirm Next button enables
-5. Open action command picker — confirm params do NOT show until a command is picked
-6. Select a variable/global in condition device picker — confirm button shows correct prefix tag
+Open work is grouped into session bundles in TASKS.md. Default next session is **W-S11 —
+Device-Data Core Fix** (GAP-S69-9: make `_getFlatEntityIds` attribute-aware). That is THE
+blocker — until nodes carry attribute-bearing entity IDs, the round-trip and the compiler
+cannot work.
 
-### What was done in Session 68 (W-S10 partial):
-
-**WIZARD_SPEC.md updated to v2.4:**
-- sel.tokens model corrected — physical rows store ALL entity_ids (not just primary_entity_id).
-  This is correct working behavior. Hard guardrail added. DO NOT CHANGE.
-- Union-then-intersect cap model documented with plain English explanation.
-- selected_entity_ids references removed (field does not exist — use sel.tokens).
-- Edit pre-fill hydration corrected to use role_tokens → sel.tokens.
-
-**GAP-S67-1 ✅ — wizard-condition.js:**
-- showInteraction now requires isTrigger(op) — fixed in _goConditionBuilder,
-  _refreshConditionRows, and device panel click handler.
-
-**GAP-S67-2 ✅ — wizard-action.js:**
-- Next button syncs after every _renderActDevList re-render.
-- NOTE: the "primary_entity_id only" part of this gap was WRONG and has been deleted.
-  Physical rows correctly store ALL entity_ids in sel.tokens. See WIZARD_SPEC.md v2.4.
-
-**GAP-S67-3 ✅ — wizard-action.js:**
-- Removed auto-select of first command and auto-render of params on load.
-  Params only render when user picks a command or when editing an existing node.
-
-**GAP-S67-4 ✅ — wizard-condition.js:**
-- Device button tag now shows correct prefix: variable / global / device.
-
-**GAP-S64-2 ✅ — closed as won't fix:**
-- Old-format pistons should be reimported. Not worth fixing.
-
-**editor.js — condition edit insert-vs-replace bug fixed:**
-- Root cause: ln() only wrote data-id and data-type, ignoring all other opts.
-  data-parent-block never reached the DOM so parentBlock was always null.
-  Wizard opened with edit_condition context instead of if_condition.
-  _commitCondition wrapped result in new if block instead of replacing.
-- Fix: both ln() functions now write all extra opts as data- attributes (same as gh()).
-
-**wizard-core.js — condition value pre-fill fixed:**
-- _route() now uses compiled_value for numeric attributes (avoids unit suffix like
-  "800lux" being rejected by type="number" inputs), display_value for all others.
-
-**Files changed this session:**
-- WIZARD_SPEC.md → v2.4
-- wizard-action.js (GAP-S67-2, GAP-S67-3)
-- wizard-condition.js (GAP-S67-1, GAP-S67-4)
-- editor.js (condition edit routing fix)
-- wizard-core.js (condition value pre-fill fix)
-
-### Still open — W-S10:
-- **GAP-S46-5 → W-S10:** Import modal has no file picker — paste-only
-- **GAP-S58-2 → W-S10:** Copy/paste/duplicate statements
-- **GAP-S68-1 → W-S10:** Import mapper shows raw entity_ids instead of friendly names
-- **GAP-S68-2 → W-S10:** Import role mapping does not populate defines initial_value
-- **GAP-S68-3 → W-S10:** Action params save as indexed keys {0:'',1:''} instead of named
-  fields — _saveDeviceCmd querySelectorAll('[data-param]') reading index not data-param value
-
-**Upload for Session 69:**
-wizard-core.js, wizard-action.js, wizard-condition.js, wizard-variable.js,
-wizard-loops.js, wizard-statement.js, editor.js, globals.js,
-DESIGN.md, WIZARD_SPEC.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
----
+Workflow note: Jeremy fixes what's in front of him. When a new problem surfaces during
+testing, log it into the right TASKS.md group and push the planned session back a slot —
+groups stay intact, order flexes. At session end, move completed items to TASKS_HISTORY.md
+and roll partial-fix remainders forward (remind Jeremy — it's not automatic).
 
 ## Architecture — Decisions With Rationale
 
@@ -354,11 +318,20 @@ bugs) unless marked otherwise.
 - Search in device pickers: filter on display label only
 
 ## _getFlatEntityIds Resolution Order
-For each token in sel.tokens:
-1. Starts with `@` → global variable → look up in `WizardCore.globalsData`, get `value` array (friendly names) → resolve each to all entity_ids in group
-2. No `.` → piston variable name → look up in `Editor.getPistonVariables()`, get `initial_value` array (friendly names) → resolve each to all entity_ids in group
-3. Has `.` → plain entity_id → expand to all entity_ids in its group
-Returns flat deduplicated array of real HA entity_ids.
+**TARGET behavior (what the spec now requires — see GAP-S69-9, not yet in code):**
+`_getFlatEntityIds(tokens, attribute)` is attribute-aware. For each token in sel.tokens:
+1. Starts with `@` → global variable → look up `value` array (friendly names) → resolve each
+   to the ONE entity per device matching `attribute`
+2. No `.` → piston variable name → look up `initial_value` array (friendly names) → resolve
+   each to the ONE entity per device matching `attribute`
+3. Has `.` → plain entity_id → use as-is (or resolve within its group to the attribute-bearing entity)
+Returns flat deduplicated array of the attribute-bearing entity IDs, one per device.
+**Condition passes the chosen attribute; action passes the command domain/service (→ the
+controllable entity). No attribute given → fall back to all entities in group.**
+
+**CURRENT code behavior (the bug):** `_getFlatEntityIds(tokens)` takes no attribute and returns
+ALL entity_ids for ALL sub-entities of every device. That is GAP-S69-9 — the W-S11 fix. Do not
+treat the current "all entities" behavior as correct; it's the thing being fixed.
 
 ## _getGroupedEntityIdsForTokens Resolution Order
 For each token in sel.tokens:
@@ -397,76 +370,57 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 - Editor.js nested tree rendering complete (Session 36)
 - Wizard split complete (Session 46)
 - Globals backend G-1 (Session 48), frontend G-2 (Session 49), CSS G-2b (Session 50)
-- Vertical structure lines (Session 47)
-- SPEC REWRITE COMPLETE (Session 55): device_map eliminated, entity_ids on nodes
-- FULL SPEC AUDIT (Session 57)
-- D-S3 COMPLETE (Session 58)
-- D-S4 COMPLETE (Sessions 59–60)
-- W-S8 COMPLETE (Session 63): all wizard coding done, device picker rebuilt
-- W-S9 COMPLETE (Session 64): sel.tokens model, capability intersection, define auto-update
-- W-S10 PARTIAL (Sessions 65–67): cap/service intersection rewritten, globals aligned
+- SPEC REWRITE (Session 55): device_map eliminated, entity_ids on nodes
+- FULL SPEC AUDIT (Session 57), D-S3 (Session 58), D-S4 (Sessions 59–60)
+- W-S8 (Session 63), W-S9 (Session 64), W-S10 partial (Sessions 65–68)
+- **Session 69 — D-S5 + D-S5b COMPLETE + full code↔spec reconciliation:**
+  - All specs reconciled to actual code (Path A — code is authoritative).
+  - Triggers/conditions/restrictions confirmed as TOP-LEVEL wrapper arrays (not nested
+    `is_trigger` nodes). PISTON_FORMAT.md documents this; compiler reads them directly.
+  - Variable schema corrected to actual field names: `var_type` / `initial_value`
+    (not `type` / `default_value`). `initial_device_names` is NOT written by code —
+    `initial_value` holds friendly names for both data and display.
+  - Device-data model LOCKED: variables/globals store device names, nodes store
+    attribute-bearing entity IDs. The load-bearing rule (top of this file).
+  - logic_version 1 / device_map RETIRED — no migration, sandbox pistons regenerated as v2.
+  - Compiler specs (COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md) intentionally FROZEN/STALE
+    until JSON structure is final (stale notice at top of each). Rewrite in D-S6.
+  - REFERENCE_PISTON_V2.json created — the v2 diff anchor.
+  - Live code review found GAP-S69-9 (the root-cause device bug) and grouped all open
+    gaps into session bundles in TASKS.md.
 
 ---
 
-## Open Gaps — All Assigned
-
-### Session 67 gaps (new)
-
-- **GAP-S67-1 → W-S10:** Interaction row shows on conditions — should only show when operator is a trigger
-- **GAP-S67-2 → W-S10:** Next button dead when piston variable selected in action picker; also physical rows write all entity_ids to sel.tokens instead of primary_entity_id only
-- **GAP-S67-3 → W-S10:** Action command picker shows all params immediately — should wait for command selection
-- **GAP-S67-4 → W-S10:** Variable/global names missing prefix in condition device button display
-
-### Session 64 gaps
-
-- **GAP-S64-1 → D-S5:** role_tokens must be documented as required in PISTON_FORMAT.md
-- **GAP-S64-2 → W-S10:** Picker not loading correct state for old-format imported pistons
-
-### Session 63 gaps
-
-- **GAP-S63-1 → deferred:** Domain priority investigation — not blocking anything
-- **GAP-S63-4 → D-S5:** Spec update — sel.tokens, role_tokens, _getFlatEntityIds,
-  device grouping, _getGroupedEntityIdsForTokens, globals friendly name model,
-  _reResolveVariableUses contract, globals cache model, UI/data separation rule
-- **GAP-S63-5 → W-S10 ✅:** for_each device picker complete (Session 66)
-
-### Pre-session-63 coding gaps still open
-
-- **GAP-S57-5 → G-4:** Global device edit redeploy prompt
-- **GAP-S46-4 → G-3:** Imported globals land in piston variables instead of globals store
-- **GAP-S46-5 → W-S10:** Import modal has no file picker — paste-only
-- **GAP-S58-2 → W-S10:** Copy/paste/duplicate statements
-- **GAP-S58-3 → S2-3:** Piston backup trigger/download/restore
-- **GAP-S50-1 → S3-1:** Compiler does not handle device initial_value disambiguation
-- **GAP-S33-2 → S3-2:** condition_and/or template indentation needs real-world testing
-- **GAP-S34-1 → S4-16:** _compile_single_condition has no warnings param
-- **GAP-S38-1 → S2-2:** /api/logs route missing from api.py
-- **GAP-S39-1 → S2-2:** ha_client import pattern wrong in api.py and compiler.py
-- **GAP-S43-4 → S2-3:** Snapshot export not yet implemented
-- **GAP-S30-3 → S4-16:** Double config load per compile call
-- **GAP-S47-1 → S4-16:** Structure line position needs fine-tuning (cosmetic)
-- **GAP-S45-1 → S4-16:** set_variable wizard doesn't normalize $ prefix (cosmetic)
-
-### Spec gaps still open
-
-- **MISSING_SPECS Item 11 (partial)** → post-S3-2: Production sample pistons
-- **MISSING_SPECS Item 12** → post-S3-1: Write BEST_PRACTICES.md
-- **MISSING_SPECS Item 15** → before S4-10: write-a-piston.md actual prompt content
-- **MISSING_SPECS Item 25** → S4-17: HA entity state subscription vs polling
-- **MISSING_SPECS Item 26** → W-S10: Copy/paste/duplicate statements
-- **MISSING_SPECS Item 27** → S2-3: Piston backup trigger/download/restore
+## Newly Locked Decisions (Session 69) — add to Researched bucket
+- **Triggers/conditions/restrictions are top-level wrapper arrays** (Researched — confirmed
+  against editor.js). The compiler reads `_piston.triggers` directly; it does NOT walk
+  `statements` for `is_trigger` nodes.
+- **logic_version 1 retired** (decision) — no v1→v2 migration. Reject non-v2 pistons on load.
+- **Compiler specs frozen** (decision) — directional only until JSON final; rewrite in D-S6.
 
 ---
 
-## Spec File Versions (after Session 67)
-- DESIGN.md v1.6
-- PISTON_FORMAT.md v2.1 (needs update — GAP-S63-4, GAP-S64-1)
-- COMPILER_SPEC.md v1.5
-- WIZARD_SPEC.md v2.2 (needs update — GAP-S63-4)
-- STATEMENT_TYPES.md v2.1
-- FRONTEND_SPEC.md v1.4
+## Open Gaps — see TASKS.md
+
+All open gaps and fixes live in TASKS.md, grouped into session bundles so related bugs get
+fixed together. This prompt no longer duplicates the gap list (one task file — completed work
+moves to TASKS_HISTORY.md). Default next bundle: **W-S11 — Device-Data Core Fix**.
+
+---
+
+## Spec File Versions (after Session 69)
+- DESIGN.md v1.7
+- PISTON_FORMAT.md v2.3
+- WIZARD_SPEC.md v2.6
+- STATEMENT_TYPES.md v2.2
+- FRONTEND_SPEC.md v1.5
+- HA_LIMITATIONS.md — Section 3 corrected
+- COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6)
+- PYSCRIPT_COMPILER_SPEC.md — FROZEN/STALE (rewrite in D-S6)
 - SAMPLE_PISTONS.md v1.0
-- AI_PROMPT_SPEC.md v2.0
+- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model, rewrite before AI-import work)
+- REFERENCE_PISTON_V2.json — the v2 diff anchor
 
-
-After B-1 and S3-1, do a pass to audit all raw HTML insertions in editor.js and the wizard files to confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for offline HA compatibility.
+After B-1 and S3-1, audit all raw HTML insertions in editor.js and the wizard files to
+confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for
+offline HA compatibility.

@@ -1,11 +1,18 @@
 # PistonCore — Canonical Piston JSON Format
 
-**Version:** 2.2
+**Version:** 2.3
 **Status:** Authoritative — Single source of truth for piston data structure
 **Last Updated:** May 2026 (Session 69 — D-S5/D-S5b: role_tokens added to Condition and
   Action schemas (GAP-S64-1); Field Lifecycle Rules section added; render invariant
   language softened per SPEC_AUDIT.md finding #1; single-resolution-path rule clarified
-  per finding #2)
+  per finding #2. Session 69b — CODE_FINDINGS reconciliation (Path A, code is
+  authoritative): triggers/conditions/restrictions documented as top-level wrapper
+  arrays; variable schema corrected to actual code field names (var_type, initial_value,
+  initial_value as device-name list); logic_version 1 / device_map fully retired — no migration path,
+  all pistons regenerated fresh as v2. Session 69c — device variable model corrected
+  (this was the hard-won fix): variables and globals are DEVICE LISTS (friendly names)
+  and NEVER hold entity IDs; only nodes hold resolved attribute-bearing entity IDs, one
+  per device for the chosen function; attribute-bearing resolution rule added (GAP-S69-9).)
 
 This document defines the canonical internal JSON format for a PistonCore piston.
 This is the format the wizard writes, the editor renders from, the backend stores,
@@ -16,6 +23,95 @@ Read DESIGN.md Section 6 before this document.
 For statement-level schemas, see STATEMENT_TYPES.md.
 For compiler output from this format, see COMPILER_SPEC.md.
 For editor rendering from this format, see FRONTEND_SPEC.md.
+
+---
+
+## ⭐ THE LOAD-BEARING RULE — Device → Entity Resolution
+
+**Read this before anything else. If this is wrong, nothing works — the editor shows
+pretty text that compiles to nothing.** This is the single most important contract in
+PistonCore and the hardest part of the project to get right.
+
+### The two layers
+
+**Layer 1 — Variables and globals are DEVICE LISTS.** They store device references
+(friendly names — the exact strings HA uses to identify a device). They NEVER store
+entity IDs. The friendly name is not a display convenience; **it is the lookup key.**
+Asking HA about a device by its friendly name is how PistonCore gets that device's
+current entity IDs. Storing entity IDs on a variable would be redundant (HA already has
+them, keyed by name) and would go stale when a device is reconfigured. So variables hold
+names, and entity IDs are pulled live from HA whenever needed.
+
+**Layer 2 — Nodes (condition / action / for_each / trigger) store ENTITY IDs.** At the
+moment the wizard commits a statement, it knows which attribute the user chose. It
+resolves the device list to the **entity that carries that attribute — one per physical
+device** — and writes those entity IDs to the node. The compiler reads these directly.
+
+### Why resolution can only happen at the node
+
+The same variable feeds multiple statements, each using a different attribute. There is
+no single "entity_ids for this variable" — the correct entities depend entirely on what
+each consuming statement does. So the variable stays a name list, and each node resolves
+independently.
+
+### Worked example (real devices)
+
+A device variable `Outdoor_Sensors` containing two physical devices:
+
+```json
+{
+  "type": "variable",
+  "id": "var_outdoor01",
+  "name": "Outdoor_Sensors",
+  "var_type": "devices",
+  "initial_value": ["Outdoor Motion", "Zooz outdoor"]
+}
+```
+
+`initial_value` holds two **device names** — no entity IDs. The friendly-name array is both
+the stored data and the display source (the editor reads `initial_value` directly). "Outdoor
+Motion" is a physical
+device exposing `sensor.outdoor_motion_illuminance`, `binary_sensor.outdoor_motion_motion`,
+plus battery/temperature/tamper. "Zooz outdoor" exposes `sensor.zooz_outdoor_illuminance`,
+`binary_sensor.zooz_outdoor_motion`, `binary_sensor.zooz_outdoor_tamper`.
+
+The SAME variable used in two statements with two different attributes resolves
+differently on each node:
+
+**Motion trigger** — resolves to the motion entity of each device:
+```json
+{
+  "role": "Outdoor_Sensors",
+  "role_tokens": ["Outdoor_Sensors"],
+  "attribute": "motion",
+  "entity_ids": ["binary_sensor.outdoor_motion_motion", "binary_sensor.zooz_outdoor_motion"]
+}
+```
+
+**Illuminance condition** — resolves to the illuminance entity of each device:
+```json
+{
+  "role": "Outdoor_Sensors",
+  "role_tokens": ["Outdoor_Sensors"],
+  "attribute": "illuminance",
+  "entity_ids": ["sensor.outdoor_motion_illuminance", "sensor.zooz_outdoor_illuminance"]
+}
+```
+
+Two devices → two attribute-bearing entity IDs per node, one per device. The battery,
+temperature, and tamper entities NEVER appear — the compiler testing illuminance has no
+use for them. The variable itself never changes and never holds any of these entity IDs.
+
+### The rules in one line each
+
+1. Variables and globals store device names (friendly names). Never entity IDs.
+2. Nodes store entity IDs — the attribute-bearing entity, one per device, for the chosen function.
+3. Resolution happens at the node, at commit time, because the attribute is only known there.
+4. `role` / `role_tokens` on the node keep the variable/device name so the editor can display it and the node can be re-resolved if the variable's device list changes.
+5. The picker's transient `sel.tokens` may hold ALL entities of a device (needed for the capability intersection that decides which attributes to offer) — but only the attribute-bearing entity per device is written to the node.
+
+The complete worked piston is in REFERENCE_PISTON_V2.json. That file is the diff anchor:
+a real save that resolves device data correctly looks like that.
 
 ---
 
@@ -52,6 +148,9 @@ The editor renders from structured JSON only.
   "created_at": "2026-05-01T08:00:00Z",
   "modified_at": "2026-05-03T14:22:00Z",
   "variables": [],
+  "triggers": [],
+  "conditions": [],
+  "restrictions": [],
   "statements": []
 }
 ```
@@ -71,12 +170,34 @@ The editor renders from structured JSON only.
 | `compile_target` | string | Yes | `"native_script"` or `"pyscript"`. Always set by compiler — never by user. |
 | `created_at` | string | Yes | ISO 8601 UTC timestamp. |
 | `modified_at` | string | Yes | ISO 8601 UTC timestamp. Updated on every save. |
-| `variables` | array | Yes | Piston-local variable definitions. Empty array if none. |
-| `statements` | array | Yes | Top-level statement objects. Empty array if none. |
+| `variables` | array | Yes | Piston-local variable definitions (defines). Empty array if none. |
+| `triggers` | array | Yes | Top-level trigger condition objects (`is_trigger: true`). Empty array if none. See Trigger/Condition/Restriction Storage below. |
+| `conditions` | array | Yes | Top-level restriction-style condition objects checked before the action tree runs. Empty array if none. |
+| `restrictions` | array | Yes | Top-level restriction condition objects. Empty array if none. |
+| `statements` | array | Yes | The action tree — top-level statement objects. Empty array if none. |
 
 **Note:** `device_map` is eliminated as of logic_version 2. Entity IDs are stored
-directly on condition and action nodes. See Condition Object Schema and Action Node
-Schema below.
+directly on condition, action, and for_each nodes. There is no role-to-entity lookup
+table anywhere. See Condition Object Schema and Action Node Schema below.
+
+### Trigger / Condition / Restriction Storage
+
+Triggers, conditions, and restrictions are stored as **top-level arrays on the piston
+wrapper** — `triggers`, `conditions`, `restrictions` — not nested inside `if` blocks in
+the `statements` array. This matches the editor's TRIGGERS / CONDITIONS / RESTRICTIONS
+section layout (FRONTEND_SPEC.md) and the frontend's storage model (editor.js routes
+each by wizard context to its array).
+
+- Each entry is a condition object (same schema as the Condition Object Schema below).
+- Trigger entries carry `is_trigger: true`. Condition and restriction entries carry `is_trigger: false`.
+- The `statements` array is the action tree only. `if` blocks inside `statements` carry
+  their own inline `conditions` array for branch logic — that is separate from the
+  top-level `conditions` array, which holds piston-level gating conditions.
+
+The compiler reads `triggers` to build the automation trigger block, `conditions` and
+`restrictions` to build the entry guard, and `statements` for the action sequence. It
+does not walk `statements` looking for `is_trigger` nodes — triggers live in the
+top-level `triggers` array.
 
 ### Mode Values
 
@@ -90,11 +211,15 @@ Schema below.
 ### Version Fields
 
 - `logic_version` — bump when the statement schema changes. **Version 2 = device_map
-  eliminated, entity_ids stored directly on condition and action nodes.**
+  eliminated, entity_ids stored directly on condition/action/for_each nodes, top-level
+  trigger/condition/restriction arrays.**
 - `ui_version` — bump when editor rendering structure changes
 - These change independently — never collapse into one field
-- If either is missing on load, treat as v1
-- If either is from the future, warn and refuse to load — never silently corrupt
+- **Logic_version 1 is retired.** PistonCore no longer reads or migrates v1 pistons
+  (which used `device_map`). All pistons are v2. A file without `logic_version: 2`
+  should be rejected with a clear message, not silently migrated. There is no v1→v2
+  migration path — early sandbox pistons were regenerated fresh as v2.
+- If `logic_version` is from the future, warn and refuse to load — never silently corrupt
 
 ---
 
@@ -106,42 +231,122 @@ finishes. They compile to the native HA script `variables:` action.
 ```json
 "variables": [
   {
+    "type": "variable",
     "id": "var_a3f8c2d1",
     "name": "message",
-    "display_name": "Message",
-    "type": "string",
-    "default_value": ""
+    "var_type": "string",
+    "initial_value": ""
   },
   {
+    "type": "variable",
     "id": "var_b7e2f941",
     "name": "count",
-    "display_name": "Count",
-    "type": "number",
-    "default_value": 0
+    "var_type": "number",
+    "initial_value": 0
   }
 ]
 ```
 
 ### Variable Field Reference
 
+These field names match the actual frontend code (editor.js, wizard-core.js). Earlier
+spec drafts used `type`/`default_value`; the code uses `type: "variable"` as a node-kind
+marker and `var_type`/`initial_value` for the variable's own type and value. The code
+is authoritative — the field names below are what the wizard writes and the editor reads.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `id` | string | Yes | Stable UUID. Never changes even if variable is renamed. |
-| `name` | string | Yes | Internal name used in statements. Lowercase, underscores only. |
-| `display_name` | string | Yes | Shown to user. Can contain spaces and capitals. |
-| `type` | string | Yes | See type table below. |
-| `default_value` | any | No | Initial value when piston starts. Type must match `type` field. For `device`/`devices` types, an object `{ "role": "...", "entity_ids": [...] }`. |
+| `type` | string | Yes | Always `"variable"` — the node-kind marker, same role as `type` on statements. |
+| `id` | string | Yes | Stable UUID. Format `var_` + 8 hex. Never changes even if variable is renamed. |
+| `name` | string | Yes | Internal name used in statements. The `$`/`@` prefix is part of how it's referenced. |
+| `var_type` | string | Yes | The variable's data type. See type table below. |
+| `initial_value` | any | No | Initial value when piston starts. For scalar types, a scalar matching `var_type`. For `device`/`devices` types, a **list of device references (friendly names) — NEVER entity IDs** (see below). Serves as both the stored data and the editor display source. `null` or omitted if "Nothing selected". |
+| `initial_value_type` | string | No | Set by the wizard alongside `initial_value` to record how the value was entered (`device` / `value` / `variable` / `expression`). Omitted for "Nothing selected". |
+| `initial_device_names` | array | No | **Not written by current code.** Optional/aspirational — current code uses the `initial_value` friendly-name array for both data and display, so a separate names field is redundant. Documented here only so a reader who sees it in older files knows it duplicates `initial_value`. Do not add it without a reason. |
 
-### Variable Types
+### Device Variables and Globals — Entity IDs Live on NODES, Never on Variables
 
-| `type` value | Description | HA compile target |
+This is the single most important rule for device data, and it was the hardest part of
+the project to get right. Read it carefully.
+
+**A device variable (a "define") and a global are a LIST OF DEVICES — friendly names /
+device references. They NEVER store entity IDs. Not at save, not resolved, not anywhere.**
+
+Why variables can never hold entity IDs:
+
+1. **The same variable feeds many statements, each using a different attribute.** A
+   variable `Motion_sensors` (3 physical motion devices) might be used in an illuminance
+   condition (→ 3 illuminance entity IDs), a motion trigger (→ 3 motion entity IDs), and a
+   battery condition (→ 3 battery entity IDs) — all in the same piston. There is no single
+   correct "entity_ids for this variable" — the right entities depend entirely on what
+   attribute each consuming statement uses. So resolution can only happen at the node,
+   where the attribute is known.
+
+2. **Live accuracy.** Because the variable stays a device list, the picker re-grabs the
+   device's current entities live from HA every time it is used. Entity IDs stored on a
+   variable would go stale when devices are reconfigured. Device references don't.
+
+3. **Globals are shared across pistons.** Same reasoning — a global is a device list;
+   each consuming node resolves it to the attribute-bearing entities it needs.
+
+**Therefore:**
+- **Variables / globals** → `initial_value` (variable) or `value` (global) holds the device
+  list (friendly names). This array is both the data and the display source. No entity IDs, ever.
+- **Nodes (condition / action / for_each)** → `entity_ids` holds the resolved
+  attribute-bearing entity IDs, written by the wizard at commit time for that specific
+  statement. `role` / `role_tokens` holds the variable/global name (or friendly name) so
+  the editor can display it and so the node can be re-resolved when the variable changes.
+
+**Only nodes ever hold entity IDs. Variables and globals never do. One rule, no exceptions.**
+
+#### Attribute-Bearing Resolution at the Node
+
+When the wizard commits a condition or action that uses a device, variable, or global,
+it resolves to the **entity that carries the selected attribute — one per physical device**,
+not the device's whole entity cluster.
+
+- 1 device, illuminance condition → 1 illuminance entity ID
+- 3 devices (or a variable/global containing 3 devices), illuminance condition → 3
+  illuminance entity IDs
+- An action `light.turn_on` on 2 light devices → the 2 controllable `light.` entity IDs
+
+The battery, temperature, and motion entities of a device are NOT written to an
+illuminance condition node. The compiler reading an illuminance value has no use for the
+battery entity — so it never appears on that node. (This is the bug GAP-S69-9 tracks: the
+v1 path dumped the entire device cluster onto the node with blank values.)
+
+Note the division of labor inside the wizard: `sel.tokens` (transient) tracks ALL entities
+of a selected device group — that is correct and necessary for the capability intersection
+that decides which attributes/operators to offer. But at commit, only the attribute-bearing
+entity per device is written to the node's `entity_ids`. The picker sees everything; the
+node keeps only what the chosen function needs.
+
+```json
+{
+  "type": "variable",
+  "id": "var_e0e51804",
+  "name": "Motion_sensors",
+  "var_type": "devices",
+  "initial_value": ["Kitchen Motion", "Hall Motion", "Garage Motion"]
+}
+```
+
+The variable above is a device list. A condition using it for illuminance would write,
+on its OWN node, `entity_ids: ["sensor.kitchen_motion_illuminance",
+"sensor.hall_motion_illuminance", "sensor.garage_motion_illuminance"]` and
+`role_tokens: ["Motion_sensors"]`. The variable itself never changes and never holds
+those entity IDs.
+
+### Variable Types (`var_type` values)
+
+| `var_type` value | Description | HA compile target |
 |---|---|---|
 | `"string"` | Text value | `variables:` with string value |
 | `"number"` | Numeric value (integer or decimal) | `variables:` with numeric value |
 | `"boolean"` | True/false | `variables:` with boolean value |
 | `"datetime"` | Date and time | `variables:` with datetime string |
-| `"device"` | Single HA entity reference | Baked inline at compile time |
-| `"devices"` | Collection of HA entity references | Baked inline at compile time |
+| `"device"` | Single device reference (a device list of one) | resolved to attribute-bearing entity IDs at each consuming node |
+| `"devices"` | List of device references | resolved to attribute-bearing entity IDs at each consuming node |
 
 **Variable naming in statements:**
 - Piston variables use `$` prefix: `$message`, `$count`

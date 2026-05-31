@@ -1,0 +1,169 @@
+{
+  "id": "ref00002",
+  "name": "Reference Piston v2",
+  "description": "Canonical logic_version 2 example using REAL devices to demonstrate the load-bearing rule: a device variable 'Outdoor_Sensors' holds two device references (friendly names 'Outdoor Motion', 'Zooz outdoor') and NEVER entity IDs. The SAME variable is used in two statements with two different attributes, and each resolves on its own NODE to the attribute-bearing entity per device: the motion trigger -> the two *_motion entities; the illuminance condition -> the two *_illuminance entities. Battery/temperature/tamper entities never appear. This is the diff anchor for correct device->entity resolution.",
+  "folder": "Examples",
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "compile_target": "native_script",
+  "created_at": "2026-05-30T00:00:00Z",
+  "modified_at": "2026-05-30T00:00:00Z",
+  "variables": [
+    {
+      "type": "variable",
+      "id": "var_a1b2c3d4",
+      "name": "Outdoor_Sensors",
+      "var_type": "devices",
+      "initial_value": [
+        "Outdoor Motion",
+        "Zooz outdoor"
+      ],
+      "initial_value_type": "device"
+    },
+    {
+      "type": "variable",
+      "id": "var_e5f6a7b8",
+      "name": "message",
+      "var_type": "string",
+      "initial_value": "Motion detected"
+    }
+  ],
+  "triggers": [
+    {
+      "id": "cond_11111111",
+      "is_trigger": true,
+      "role": "Outdoor_Sensors",
+      "role_tokens": [
+        "Outdoor_Sensors"
+      ],
+      "entity_ids": [
+        "binary_sensor.outdoor_motion_motion",
+        "binary_sensor.zooz_outdoor_motion"
+      ],
+      "aggregation": "any",
+      "attribute": "motion",
+      "attribute_type": "binary",
+      "device_class": "motion",
+      "operator": "changes to",
+      "display_value": "Active",
+      "compiled_value": "on",
+      "value_to": null,
+      "duration": null,
+      "duration_unit": null,
+      "interaction": "any",
+      "group_operator": "and"
+    }
+  ],
+  "conditions": [
+    {
+      "id": "cond_22222222",
+      "is_trigger": false,
+      "role": "Outdoor_Sensors",
+      "role_tokens": [
+        "Outdoor_Sensors"
+      ],
+      "entity_ids": [
+        "sensor.outdoor_motion_illuminance",
+        "sensor.zooz_outdoor_illuminance"
+      ],
+      "aggregation": "any",
+      "attribute": "illuminance",
+      "attribute_type": "numeric",
+      "device_class": "illuminance",
+      "operator": "is less than",
+      "display_value": "50 lux",
+      "compiled_value": "50",
+      "value_to": null,
+      "duration": null,
+      "duration_unit": null,
+      "interaction": "any",
+      "group_operator": "and"
+    }
+  ],
+  "restrictions": [],
+  "statements": [
+    {
+      "id": "stmt_aaaa0001",
+      "type": "action",
+      "async": false,
+      "role": "Lights",
+      "role_tokens": [
+        "Lights"
+      ],
+      "entity_ids": [
+        "light.living_room",
+        "light.kitchen"
+      ],
+      "tasks": [
+        {
+          "id": "task_bbbb0001",
+          "command": "turn_on",
+          "domain": "light",
+          "ha_service": "light.turn_on",
+          "parameters": {
+            "brightness_pct": 100
+          },
+          "description": null
+        }
+      ],
+      "description": null,
+      "disabled": false
+    },
+    {
+      "id": "stmt_aaaa0002",
+      "type": "action",
+      "async": false,
+      "role": "@announce_speakers",
+      "role_tokens": [
+        "@announce_speakers"
+      ],
+      "entity_ids": [
+        "media_player.kitchen",
+        "media_player.living_room"
+      ],
+      "tasks": [
+        {
+          "id": "task_bbbb0002",
+          "command": "play_media",
+          "domain": "media_player",
+          "ha_service": "media_player.play_media",
+          "parameters": {},
+          "description": null
+        }
+      ],
+      "description": null,
+      "disabled": false
+    },
+    {
+      "id": "stmt_aaaa0003",
+      "type": "for_each",
+      "async": false,
+      "variable": "$device",
+      "role": "Smoke Detectors",
+      "role_tokens": [
+        "@smoke_detectors"
+      ],
+      "entity_ids": [
+        "sensor.smoke_basement",
+        "sensor.smoke_kitchen"
+      ],
+      "statements": [
+        {
+          "id": "stmt_aaaa0004",
+          "type": "log_message",
+          "message": {
+            "type": "expression",
+            "expression": "$device + ' checked'"
+          },
+          "level": "info",
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "description": null,
+      "disabled": false
+    }
+  ]
+}

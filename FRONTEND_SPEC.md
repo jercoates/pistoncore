@@ -1,8 +1,10 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.4
+**Version:** 1.5
 **Status:** Authoritative — For Developer Use
-**Last Updated:** May 2026 (Session 62 — Snapshot and Backup Export section added; MISSING_SPECS Items 26/27 resolved)
+**Last Updated:** May 2026 (Session 69 / D-S5b — role_tokens awareness note added to
+  Import Dialog; Snapshot export updated to note role_tokens stripped; Grok frontend
+  audit findings documented)
 
 This document is written for the frontend developer. It defines exactly what to build.
 Read DESIGN.md first for background and philosophy. This document is the concrete implementation spec.
@@ -85,6 +87,11 @@ whether any condition or action node has a non-empty `entity_ids` array:
 - **All nodes have entity_ids populated** → Backup format. Skip role mapping,
   assign new ID (or preserve original for restore), open in editor.
 - **Any node has empty entity_ids** → Snapshot format. Proceed to role mapping.
+
+**`role_tokens` and format detection:** `role_tokens` is present on internal/Backup
+nodes and absent on Snapshot nodes (stripped on export). Format detection uses
+`entity_ids` only — do not use presence or absence of `role_tokens` as a detection
+signal. This keeps the detection logic simple and correct for both formats.
 
 ### Role Mapping Step (Snapshot Import Only)
 
@@ -1737,9 +1744,10 @@ Strips all entity_ids, preserves role placeholders. Safe to post publicly.
 
 **What happens:**
 1. Backend walks the piston's statement tree and sets `entity_ids: []` on every condition, action, and for_each node.
-2. `role` values are preserved as placeholders.
-3. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
-4. Browser downloads the file immediately. No confirmation dialog needed.
+2. `role_tokens` is stripped from every node — it contains entity_ids and variable names that are installation-specific and have no meaning in a shared Snapshot.
+3. `role` values are preserved as placeholders.
+4. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
+5. Browser downloads the file immediately. No confirmation dialog needed.
 
 **File naming:** `{slugified-piston-name}-snapshot.json`
 - Slug rules: lowercase, spaces → hyphens, strip all non-alphanumeric except hyphens
@@ -1838,6 +1846,42 @@ When implemented, the behavior must be:
 
 Do not implement until the compile-time MISSING_ENTITY check is working and the smoke
 test (S3-1) has passed.
+
+---
+
+## Grok Frontend Audit Findings — May 2026
+
+Grok ran an in-depth analysis of the frontend codebase (Session 69). Overall assessment:
+frontend is impressively solid for vanilla JS of this complexity. Architecture is very
+AI-friendly. No structural changes recommended. All findings below are noted for future
+work — none are blocking v1.
+
+### Noted for Post-v1 (no action required now)
+
+- **_esc() consistency** — the _esc() sanitization helper exists but its usage is not
+  100% consistent across all raw HTML insertions. Audit all innerHTML assignments
+  before v1 public release.
+- **sessionStorage for API key** — acceptable for same-origin. Noted as an XSS
+  surface if the application is ever exposed to untrusted content. Not a concern
+  for the current local-only deployment model.
+- **Full re-renders on editor operations** — _render() is called on many operations.
+  Acceptable for v1 scale. Consider targeted partial re-renders for deeply nested
+  pistons if lag becomes observable.
+- **Google Fonts import** — consider self-hosting or switching to system fonts for
+  offline/air-gapped HA installs. Not a v1 blocker.
+- **No CSP in index.html** — Content Security Policy would add a layer of XSS
+  protection. Noted for security hardening pass post-v1.
+- **No ARIA labels** on many interactive elements (drag handles, context menus, wizard
+  steps). Accessibility pass deferred to post-v1.
+- **No test suite** — Grok recommended a small set of golden sample pistons with a
+  basic compile-check script. Low effort, high value. Deferred but encouraged.
+
+### Already Handled / Not Applicable
+
+- Nested tree migration — confirmed solid per Grok.
+- _normalizePiston() — critical and present.
+- IIFE pattern + shared globals — intentional, works correctly at current scale.
+- All HA communication through backend — confirmed. Security invariant holds.
 
 ---
 

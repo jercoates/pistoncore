@@ -1,9 +1,10 @@
 # PistonCore — Statement Types Reference
 
-**Version:** 2.1
+**Version:** 2.2
 **Status:** Authoritative — Required reference before compiler or wizard coding
-**Last Updated:** May 2026 (Session 57 — action schema updated to role+entity_ids,
-  for_each list_role replaced with role+entity_ids, condition schema updated with entity_ids)
+**Last Updated:** May 2026 (Session 69 / D-S5b — role_tokens added to action schema
+  (Section 1), for_each schema (Section 6), and Condition Object Schema; render
+  invariant "100%" language softened; compiler output warning block added)
 
 This document defines every statement type PistonCore supports. For each type it specifies:
 1. The structured JSON schema the wizard writes
@@ -27,9 +28,11 @@ The editor calls a render function per statement type. The render function recei
 the structured JSON object and returns display text. The same render functions are
 used for editor display AND for the Snapshot preview on export.
 
-**The editor must render from JSON correctly 100% of the time, every time, without
-fail.** This is the non-negotiable foundation of the project. It is why the data
-model uses a nested tree — children are embedded objects, never ID references.
+**The editor must render every well-formed piston JSON correctly.** For malformed
+nodes (missing required fields, unknown type, future logic_version), it renders a
+clearly-flagged placeholder row that preserves the node and lets the user repair or
+delete it. The editor must never silently drop, duplicate, or corrupt nodes. This is
+why the data model uses a nested tree — children are embedded objects, never ID references.
 
 ---
 
@@ -73,6 +76,7 @@ This is consistent with the nested tree model — everything is embedded.
   "type": "action",
   "async": false,
   "role": "Living Room Light",
+  "role_tokens": ["light.living_room"],
   "entity_ids": ["light.living_room"],
   "tasks": [
     {
@@ -94,6 +98,7 @@ This is consistent with the nested tree model — everything is embedded.
 **Fields:**
 - `async` — boolean, default false. If true renders as `async with`
 - `role` — human-readable label shown in the editor (e.g. `"Living Room Light"`). Display only. Written at wizard commit time. Never used for compilation.
+- `role_tokens` — raw tokens the user selected at commit time (entity_ids for physical devices, variable names for piston vars, `@name` for globals). Stored for edit round-trip hydration only. Compiler ignores this field entirely. Editor must preserve it on every save.
 - `entity_ids` — array of real HA entity IDs. Written at wizard commit time from the live device picker selection. Always an array, even for a single device. The compiler reads this directly — it never looks up a role name. Multi-device example: `["light.living_room", "light.kitchen", "light.hallway"]`
 - `tasks` — array of task objects embedded directly in the action node (see task schema below)
 
@@ -104,6 +109,7 @@ This is consistent with the nested tree model — everything is embedded.
   "type": "action",
   "async": false,
   "role": "Downstairs Lights",
+  "role_tokens": ["light.living_room", "light.kitchen", "light.hallway"],
   "entity_ids": ["light.living_room", "light.kitchen", "light.hallway"],
   "tasks": [
     {
@@ -451,6 +457,7 @@ repeat only supports count-based loops.
   "async": false,
   "variable": "$device",
   "role": "Smoke Detectors",
+  "role_tokens": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "entity_ids": ["sensor.smoke_detector_basement", "sensor.smoke_detector_kitchen"],
   "statements": [],
   "description": null,
@@ -461,6 +468,7 @@ repeat only supports count-based loops.
 **Fields:**
 - `variable` — the loop variable name (with `$` prefix). On each iteration, `$device` holds the current entity_id string.
 - `role` — human-readable label shown in the editor. Display only. Never used by the compiler.
+- `role_tokens` — raw tokens the user selected at commit time. Stored for edit round-trip hydration only. Compiler ignores this field.
 - `entity_ids` — array of real HA entity IDs to iterate over. Written at wizard commit time from the live device picker selection. The compiler uses this list directly — no lookup, no runtime resolution.
 - `statements` — array of child statement objects embedded directly (nested tree model)
 
@@ -697,6 +705,7 @@ always be emitted when compiling an `on_event` statement, regardless of context.
       "id": "cond_001",
       "is_trigger": true,
       "role": "Doors",
+      "role_tokens": ["binary_sensor.front_door", "binary_sensor.back_door"],
       "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
       "aggregation": "any",
       "attribute": "contact",
@@ -1110,6 +1119,7 @@ The same schema is used for both triggers (`is_trigger: true`) and conditions
   "id": "cond_001",
   "is_trigger": false,
   "role": "Doors",
+  "role_tokens": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "entity_ids": ["binary_sensor.front_door", "binary_sensor.back_door"],
   "aggregation": "any",
   "attribute": "contact",
@@ -1128,6 +1138,7 @@ The same schema is used for both triggers (`is_trigger: true`) and conditions
 
 **Fields:**
 - `role` — human-readable label shown in the editor. Display only. Never used by the compiler.
+- `role_tokens` — raw tokens the user selected at commit time (entity_ids for physical devices, variable names for piston vars, `@name` for globals). Stored for edit round-trip hydration only. Compiler ignores this field. Editor must preserve it on every save.
 - `entity_ids` — array of real HA entity IDs. Written at wizard commit time from the live device picker. Always an array. The compiler reads this directly. For time/date/mode/virtual conditions: empty array `[]`.
 - `aggregation` — `"any"` / `"all"` / `"none"`. Applies when multiple entities selected. Use `"any"` for single-device conditions. Determines how the compiler generates the trigger or condition template.
 - `compiled_value` — the HA state string used by the compiler (e.g. `"on"`). Always used by the compiler, never `display_value`.
@@ -1289,6 +1300,27 @@ IDs are stable — they never change once assigned, even if the statement is mov
 edited, or the piston is renamed. The compiler uses them as YAML aliases.
 Edit-in-place uses them to find the correct statement to update within its owning
 parent's child array.
+
+---
+
+## ⚠ Compiler Output Sections — Not Being Actively Maintained
+
+The "Compiler Output" sections in each statement type above show the intended HA YAML
+or PyScript output. These are directionally correct but are **not being kept in sync**
+during the current JSON structure stabilization phase.
+
+**Reason:** The piston JSON format has been evolving (most recently: device_map removed,
+entity_ids on nodes, role_tokens added). Updating the compiler spec in parallel with every
+JSON change has created false confidence and wasted session time. The decision was made to
+let the JSON structure stabilize, then do a single authoritative compiler spec pass.
+
+**What this means:**
+- The JSON schemas in this document ARE authoritative and current.
+- The compiler output examples are reference material, not a contract.
+- COMPILER_SPEC.md is similarly frozen — treat its content as directionally correct only.
+- A dedicated D-S6 session will rewrite COMPILER_SPEC.md once the JSON format is final.
+
+Do not update compiler output sections in this document until D-S6.
 
 ---
 

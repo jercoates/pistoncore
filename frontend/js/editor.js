@@ -686,7 +686,14 @@ const Editor = (() => {
     if (ghost) {
       const ctx = ghost.dataset.insert;
       const extra = {};
-      for (const k of Object.keys(ghost.dataset)) { if (k !== 'insert') extra[k] = ghost.dataset[k]; }
+      for (const k of Object.keys(ghost.dataset)) {
+        if (k === 'insert') continue;
+        // The DOM camelCases data-attrs (data-block-id -> dataset.blockId), but the
+        // wizard reads hyphenated keys (extra['block-id']). Normalize back to hyphen
+        // so block-id / branch / condition-operator all reach the commit path.
+        const hyphenKey = k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+        extra[hyphenKey] = ghost.dataset[k];
+      }
       Wizard.open(ctx, null, extra);
       return;
     }
@@ -1092,6 +1099,8 @@ const Editor = (() => {
           const ci = block.conditions.findIndex(c => c.id === statementData.id);
           if (ci >= 0) block.conditions[ci] = statementData;
           else block.conditions.push(statementData);
+          // Apply the AND/OR the user picked in the wizard, if provided.
+          if (meta && meta.conditionOperator) block.condition_operator = meta.conditionOperator;
           _markUnsaved(true);
           render();
           return;

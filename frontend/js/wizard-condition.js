@@ -761,16 +761,17 @@ function _commitCondition() {
 
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
+  const groupOp = document.getElementById('wiz-group-op-selector')?.value || 'and';
 
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId } : {};
+    const meta = blockId ? { blockId, conditionOperator: groupOp } : { conditionOperator: groupOp };
     close();
     Editor.insertStatement(ctx, node, meta);
   } else {
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: 'and',
+      conditions: [node], condition_operator: groupOp,
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
@@ -786,21 +787,22 @@ function _commitConditionAndMore() {
 
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
+  const groupOp = document.getElementById('wiz-group-op-selector')?.value || 'and';
 
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId } : {};
+    const meta = blockId ? { blockId, conditionOperator: groupOp } : { conditionOperator: groupOp };
     Editor.insertStatement(ctx, node, meta);
-    WizardCore.sel = { statement_class: 'condition', group_operator: 'and' };
+    WizardCore.sel = { statement_class: 'condition', group_operator: groupOp };
   } else {
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: 'and',
+      conditions: [node], condition_operator: groupOp,
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
     Editor.insertStatement(ctx, ifNode);
-    WizardCore.sel = { statement_class: 'condition' };
+    WizardCore.sel = { statement_class: 'condition', group_operator: groupOp };
     WizardCore.context = 'if_condition';
     WizardCore.extra = { 'block-id': ifBlockId };
   }

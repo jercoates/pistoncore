@@ -612,6 +612,8 @@ async function _loadCapsIntoSelect() {
     // For each physical device group: fetch caps for ALL entity_ids, union them.
     // Caps named "state" with a device_class are stored under device_class key
     // so illuminance/temperature/battery appear as distinct picker entries.
+    // source_entity_id is stored on each cap so commit time knows exactly which
+    // entity_id from this group carries that attribute — one per physical device.
     const groupCapSets = await Promise.all(deviceGroups.map(async entityIds => {
       const allCaps = await Promise.all(entityIds.map(async id => {
         try {
@@ -623,16 +625,19 @@ async function _loadCapsIntoSelect() {
       }));
       // Union: key by device_class when name is "state" and device_class exists,
       // otherwise key by name. This keeps illuminance/temperature/battery distinct.
+      // Record source_entity_id — the entity that produced this cap — so commit
+      // time can write exactly the right entity_id to the node, not the whole cluster.
       const seen = new Map();
-      for (const capList of allCaps) {
+      for (const [idx, capList] of allCaps.entries()) {
+        const sourceEntityId = entityIds[idx];
         for (const cap of capList) {
           const key = (cap.name === 'state' && cap.device_class) ? cap.device_class : cap.name;
           if (!seen.has(key)) {
-            // Store with display name = device_class when available, else cap.name
             seen.set(key, {
               ...cap,
               name: key,
               display_name: key,
+              source_entity_id: sourceEntityId,
             });
           }
         }
@@ -653,6 +658,18 @@ async function _loadCapsIntoSelect() {
       }
       caps = groupCapSets[0].filter(c => intersectedNames.has(c.name));
     }
+
+    // Build _capEntityMap: attribute name → [entity_id from group 0, entity_id from group 1, ...]
+    // This is what _buildConditionNode reads at commit time instead of _getFlatEntityIds.
+    // Each inner array position corresponds to one physical device group — one entity_id per device.
+    const capEntityMap = new Map();
+    for (const groupCaps of groupCapSets) {
+      for (const cap of groupCaps) {
+        if (!capEntityMap.has(cap.name)) capEntityMap.set(cap.name, []);
+        if (cap.source_entity_id) capEntityMap.get(cap.name).push(cap.source_entity_id);
+      }
+    }
+    WizardCore.sel._capEntityMap = capEntityMap;
 
     if (!caps.length) caps = _getCapsForDomain(deviceGroups[0][0]);
   }
@@ -810,10 +827,19 @@ function _buildConditionNode() {
   if (subjType === 'device') {
     role        = _sel.device_label || _sel.device_id || '';
     role_tokens = (_sel.tokens || []).filter(Boolean);
-    // Resolve tokens → flat real entity_ids at commit time
-    entity_ids  = _getFlatEntityIds(role_tokens);
-    if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
-      entity_ids = [_sel.device_id];
+    // Use _capEntityMap to write only the attribute-bearing entity_id per device.
+    // _capEntityMap is built by _loadCapsIntoSelect: attribute name → [entity_id per group].
+    // This is the correct fix for GAP-S69-9 — the map already holds exactly the right ids.
+    // Fall back to _getFlatEntityIds only if the map is missing (e.g. non-device subject).
+    const chosenAttr = document.getElementById('wiz-attr-select')?.value || _sel.attribute || '';
+    const mapIds = chosenAttr ? (_sel._capEntityMap?.get(chosenAttr) || []).filter(Boolean) : [];
+    if (mapIds.length) {
+      entity_ids = mapIds;
+    } else {
+      entity_ids = _getFlatEntityIds(role_tokens);
+      if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
+        entity_ids = [_sel.device_id];
+      }
     }
   } else if (subjType === 'variable') {
     role = document.getElementById('wiz-subj-var')?.value || _sel.device_id || '';

@@ -129,9 +129,12 @@ function _goForEachPicker() {
     const variable  = varSel === '__custom__' ? varCustom : varSel;
 
     // list_role: store the first token (variable name or @global) as a friendly label.
-    // entity_ids will be resolved at compile time by the compiler via the variable.
+    // entity_ids: resolve tokens → flat entity_ids now, at commit time. No attribute
+    // filter — for_each iterates the full device list so all entity_ids are correct.
+    // This satisfies the load-bearing rule: nodes store entity_ids, not role names.
     const tokens = WizardCore.sel.fe_tokens || [];
     const list_role = tokens.length === 1 ? tokens[0] : tokens.join(', ');
+    const entity_ids = WizardCore._getFlatEntityIds(tokens);
 
     const blockId = WizardCore.extra?.['block-id'];
     const branch  = WizardCore.extra?.['branch'] || 'then';
@@ -139,8 +142,10 @@ function _goForEachPicker() {
     const node = {
       type:'for_each', id:WizardCore.editNode?.id || _newId(), async:false,
       variable: variable || '$device',
+      role: list_role,
       list_role,
       role_tokens: tokens,
+      entity_ids,
       statements:[], description:null, disabled:false,
     };
     close();

@@ -647,9 +647,23 @@ async function _goCommandPicker() {
         if (!thisSet.has(name)) intersectedNames.delete(name);
       }
     }
-    const services = groupServiceSets[0].filter(s => intersectedNames.has(s.service));
 
-    const sel = document.getElementById('wiz-cmd');
+    // For each intersected service, also intersect its fields across all groups.
+    // Only fields present on ALL groups' version of that service are shown.
+    // Single-device selections short-circuit — no change in behavior.
+    const services = groupServiceSets[0]
+      .filter(s => intersectedNames.has(s.service))
+      .map(s => {
+        if (groupServiceSets.length === 1) return s;
+        const sharedFieldNames = groupServiceSets.slice(1).reduce((names, groupSvcs) => {
+          const match = groupSvcs.find(g => g.service === s.service);
+          const matchNames = new Set((match?.fields || []).map(f => f.name));
+          return names.filter(n => matchNames.has(n));
+        }, (s.fields || []).map(f => f.name));
+        return { ...s, fields: (s.fields || []).filter(f => sharedFieldNames.includes(f.name)) };
+      });
+
+
     if (sel) {
       if (services.length) {
         sel.innerHTML = `<option value="" style="display:none" disabled>Please select a command</option>` +

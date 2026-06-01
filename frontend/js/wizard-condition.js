@@ -61,6 +61,8 @@ function _goConditionBuilder() {
   const interaction = _sel.interaction || 'any';
   const subjType    = _sel.subject_type || 'device';
   const isTimeSubj  = subjType === 'time';
+  // Device conditions require an attribute; other subject types have no attribute.
+  const hasAttr     = subjType !== 'device' || !!attr;
 
   const backFn = (_sel.statement_class === 'condition' && WizardCore.context !== 'if_condition')
     ? _goConditionOrGroup : null;
@@ -214,8 +216,8 @@ function _goConditionBuilder() {
     </div>
     <div class="wiz-footer-right">
       <button class="btn btn-ghost btn-sm" id="wiz-cog">⚙</button>
-      ${!WizardCore.editNode ? `<button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp?'':'disabled'}>Add more</button>` : ''}
-      <button class="btn btn-primary btn-sm" id="wiz-add" ${hasDevice&&hasOp?'':'disabled'}>${WizardCore.editNode ? 'Save' : 'Add'}</button>
+      ${!WizardCore.editNode ? `<button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp&&hasAttr?'':'disabled'}>Add more</button>` : ''}
+      <button class="btn btn-primary btn-sm" id="wiz-add" ${hasDevice&&hasOp&&hasAttr?'':'disabled'}>${WizardCore.editNode ? 'Save' : 'Add'}</button>
     </div>
     `
   );
@@ -299,6 +301,9 @@ function _goConditionBuilder() {
     WizardCore.sel.attribute_type = opt?.dataset.type || '';
     WizardCore.sel.device_class   = opt?.dataset.class || null;
     _renderValueWidget();
+    // Re-evaluate Add/Add more — a device condition is only valid once an
+    // attribute is chosen, and the guard must flip the moment it is.
+    _refreshConditionRows();
   });
 
   document.getElementById('wiz-operator')?.addEventListener('change', e => {
@@ -396,7 +401,12 @@ function _refreshConditionRows() {
 
   if (needsVal) _renderValueWidget();
 
-  const ok = hasSubject && !!op;
+  // For a device subject, an attribute must be chosen too — otherwise the node
+  // commits with empty attribute and falls back to all entity_ids. Other subject
+  // types (variable/time/date/mode) have no attribute selector.
+  const attrChosen = subjType !== 'device'
+    || !!(document.getElementById('wiz-attr-select')?.value || WizardCore.sel.attribute);
+  const ok = hasSubject && !!op && attrChosen;
   document.getElementById('wiz-add')?.toggleAttribute('disabled', !ok);
   document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
 }
@@ -683,6 +693,8 @@ async function _loadCapsIntoSelect() {
     const opt = sel.querySelector(`option[value="${CSS.escape(_sel.attribute)}"]`);
     if (opt) WizardCore.sel.device_class = opt.dataset.class || null;
   }
+  // Caps just loaded — re-evaluate Add/Add more in case attribute state changed.
+  _refreshConditionRows();
 }
 
 function _goGroupBuilder() {
@@ -761,17 +773,16 @@ function _commitCondition() {
 
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
-  const groupOp = document.getElementById('wiz-group-op-selector')?.value || 'and';
 
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId, conditionOperator: groupOp } : { conditionOperator: groupOp };
+    const meta = blockId ? { blockId } : {};
     close();
     Editor.insertStatement(ctx, node, meta);
   } else {
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: groupOp,
+      conditions: [node], condition_operator: 'and',
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
@@ -787,22 +798,21 @@ function _commitConditionAndMore() {
 
   const ctx     = WizardCore.context;
   const blockId = WizardCore.extra?.['block-id'] || null;
-  const groupOp = document.getElementById('wiz-group-op-selector')?.value || 'and';
 
   if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId, conditionOperator: groupOp } : { conditionOperator: groupOp };
+    const meta = blockId ? { blockId } : {};
     Editor.insertStatement(ctx, node, meta);
-    WizardCore.sel = { statement_class: 'condition', group_operator: groupOp };
+    WizardCore.sel = { statement_class: 'condition', group_operator: 'and' };
   } else {
     const ifBlockId = blockId || _newId();
     const ifNode = {
       type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: groupOp,
+      conditions: [node], condition_operator: 'and',
       then: [], else_ifs: [], else: [],
       description: null, disabled: false,
     };
     Editor.insertStatement(ctx, ifNode);
-    WizardCore.sel = { statement_class: 'condition', group_operator: groupOp };
+    WizardCore.sel = { statement_class: 'condition' };
     WizardCore.context = 'if_condition';
     WizardCore.extra = { 'block-id': ifBlockId };
   }

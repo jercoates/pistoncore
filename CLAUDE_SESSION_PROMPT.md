@@ -26,9 +26,11 @@ This is the single most important contract and the hardest part of the project.
 
 Authoritative: PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE". Diff anchor: REFERENCE_PISTON_V2.json.
 
-**Current code does NOT fully obey this yet** — `_getFlatEntityIds` returns the whole device
-cluster instead of the attribute-bearing entity (GAP-S69-9, the W-S11 fix). The variable side
-is already correct (stores names, not IDs). See TASKS.md W-S11.
+**Code now obeys this rule for conditions/actions/for_each (W-S11 closed, Session 70).** Nodes
+carry the single attribute-bearing entity_id per device; the variable side stores names only.
+The fix was a set of commit-path defects, not just `_getFlatEntityIds` — see TASKS.md W-S11
+(closed) for the full diagnosis. Remaining verification: `_reResolveVariableUses` under a real
+variable edit (GAP-S70-1).
 
 ## Non-Negotiable Rules
 - Specs before code. Read all listed files before writing anything.
@@ -228,10 +230,12 @@ See TASKS_HISTORY.md for full archive.
 
 ## Current Priority — see TASKS.md
 
-Open work is grouped into session bundles in TASKS.md. Default next session is **W-S11 —
-Device-Data Core Fix** (GAP-S69-9: make `_getFlatEntityIds` attribute-aware). That is THE
-blocker — until nodes carry attribute-bearing entity IDs, the round-trip and the compiler
-cannot work.
+Open work is grouped into session bundles in TASKS.md. **W-S11 is CLOSED (Session 70) — the
+first lossless, compiler-ready round-trip is proven.** The default next session is now
+**STAGE B / B-1 — compiler.py** (direct entity_id read + MISSING_ENTITY validation), which
+W-S11 unblocked. Nodes now carry correct attribute-bearing entity_ids, so the compiler can be
+written and tested against real wizard output. Visual/display-only gaps are parked in W-S16
+and are non-blocking.
 
 Workflow note: Jeremy fixes what's in front of him. When a new problem surfaces during
 testing, log it into the right TASKS.md group and push the planned session back a slot —
@@ -329,9 +333,12 @@ Returns flat deduplicated array of the attribute-bearing entity IDs, one per dev
 **Condition passes the chosen attribute; action passes the command domain/service (→ the
 controllable entity). No attribute given → fall back to all entities in group.**
 
-**CURRENT code behavior (the bug):** `_getFlatEntityIds(tokens)` takes no attribute and returns
-ALL entity_ids for ALL sub-entities of every device. That is GAP-S69-9 — the W-S11 fix. Do not
-treat the current "all entities" behavior as correct; it's the thing being fixed.
+**IMPLEMENTED (Session 70, W-S11 closed):** the attribute-bearing resolution is now driven by
+`_capEntityMap` (built in `_loadCapsIntoSelect`: attribute name → one entity_id per device
+group) and read at commit in `_buildConditionNode`. The Add button now requires an attribute,
+so a device condition can no longer commit empty and fall back to the whole cluster. Treat the
+single-entity-per-device output as the correct, current behavior. `_getFlatEntityIds` still
+exists as the no-attribute fallback (for_each loops, edit re-open before caps load).
 
 ## _getGroupedEntityIdsForTokens Resolution Order
 For each token in sel.tokens:
@@ -388,6 +395,23 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
   - REFERENCE_PISTON_V2.json created — the v2 diff anchor.
   - Live code review found GAP-S69-9 (the root-cause device bug) and grouped all open
     gaps into session bundles in TASKS.md.
+- **Session 70 — ⭐ MILESTONE: first lossless, compiler-ready round-trip (W-S11 CLOSED):**
+  - The diagnosis evolved: GAP-S69-9 was real but the dominant failures were three commit-path
+    defects. (1) editor.js dropped `block-id` — the DOM camelCases `data-block-id` →
+    `dataset.blockId` while consumers read `block-id`; a second AND/OR condition orphaned into
+    `statements[]` typeless and got stripped on load. (2) the AND/OR operator was never read at
+    commit. (3) the Add button never required an attribute, so device conditions committed empty
+    and fell back to the whole entity cluster.
+  - Fixes: editor.js dataset-key normalization + `meta.conditionOperator` applied to block;
+    wizard-condition.js reads `wiz-group-op-selector` and threads it; Add/Add-more now require an
+    attribute (`hasAttr`/`attrChosen`), re-evaluated on attr change and after caps load.
+  - Attribute-bearing resolution driven by `_capEntityMap` (one entity_id per device group).
+  - Verified in saved JSON (`bdc4cca2.json`): two conditions in one `if`,
+    `condition_operator: "and"`, illuminance → only `sensor.outdoor_motion_illuminance`,
+    `display_value: "800"`; turn-off block with `duration: 5/minutes` round-tripped.
+  - First time the compiler could be run on real wizard output. STAGE B / B-1 now unblocked.
+  - Visual/display-only items parked in W-S16 (e.g. GAP-S70-2: `_condLine` doesn't render the
+    condition value). Carry-forward verifications: GAP-S70-1 (`_reResolveVariableUses`), GAP-S50-1.
 
 ---
 
@@ -404,7 +428,7 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 All open gaps and fixes live in TASKS.md, grouped into session bundles so related bugs get
 fixed together. This prompt no longer duplicates the gap list (one task file — completed work
-moves to TASKS_HISTORY.md). Default next bundle: **W-S11 — Device-Data Core Fix**.
+moves to TASKS_HISTORY.md). **W-S11 is closed; default next bundle: STAGE B / B-1 — compiler.py.**
 
 ---
 

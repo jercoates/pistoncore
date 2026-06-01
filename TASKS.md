@@ -1,12 +1,20 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — single active task file. Update at the end of every session.
-**Last Updated:** Session 69 — Full spec reconciliation (D-S5 + D-S5b complete). Specs
-reconciled to actual code (Path A). Device-data model locked: variables/globals store
-device names, nodes store attribute-bearing entity IDs. logic_version 1 / device_map
-retired. Live code review found the root-cause device bug (GAP-S69-9) and grouped all
-open gaps into session bundles below. CODE_FINDINGS.md and SESSION_69B_GAPS.md absorbed
-into this file and retired.
+**Last Updated:** Session 70 — ⭐ MILESTONE: first lossless, compiler-ready round-trip.
+W-S11 closed (GAP-S69-9/-10/-11). The real root cause was NOT only `_getFlatEntityIds` —
+the dominant bugs were three commit-path defects: (1) editor.js dropped `block-id` because
+the DOM camelCases `data-block-id`→`dataset.blockId` while every consumer read `block-id`,
+so a second AND/OR condition orphaned into `statements[]` typeless and got stripped on load;
+(2) the AND/OR operator was never read at commit; (3) the Add button never required an
+attribute, so a device condition could commit with empty attribute → fell back to all
+sub-entity IDs. All three fixed. The "by hand kitchen" piston now builds → saves → reopens
+identically with correct single attribute-bearing entity_ids, populated attribute/
+display_value, and both conditions nested in one `if` with `condition_operator: "and"`.
+First time the compiler could actually be run on real wizard output. Prior context:
+Session 69 did full spec reconciliation (D-S5 + D-S5b); device-data model locked;
+logic_version 1 / device_map retired. CODE_FINDINGS.md and SESSION_69B_GAPS.md retired
+into this file.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions and closed gaps:** See TASKS_HISTORY.md
 
@@ -81,42 +89,58 @@ Default order is top to bottom. Reorder as testing dictates; keep the groups int
 
 ---
 
-## W-S11 — Device-Data Core Fix  ⚠ THE BLOCKER — DO FIRST
+## W-S11 — Device-Data Core Fix  ✅ CLOSED (Session 70)
 
-The single highest-value session. Every item here touches the same resolution path, so
-they get fixed together. Until this is done, no node carries correct entity IDs and B-1
-(compiler) cannot be written or tested.
+The blocker is cleared. The first lossless, compiler-ready round-trip is proven on the
+"by hand kitchen" piston. What actually fixed it (the diagnosis evolved from the original
+single-function theory):
 
-**Files:** wizard-core.js (the fix), wizard-condition.js, wizard-action.js, wizard-loops.js,
-DESIGN.md, PISTON_FORMAT.md, WIZARD_SPEC.md, REFERENCE_PISTON_V2.json, CLAUDE_SESSION_PROMPT.md, TASKS.md
+- **editor.js — dataset key casing (the dominant bug).** `_handleDocClick` copied
+  `ghost.dataset` keys verbatim into `extra`. The DOM camelCases `data-block-id` →
+  `dataset.blockId`, but every wizard consumer reads `extra['block-id']`. Mismatch → `block-id`
+  was lost → a second condition added with AND/OR fell out of the `if_condition` path,
+  orphaned into top-level `statements[]` as a typeless `cond_*` node, and got stripped by
+  `_normalizePiston` on the next load. **Fix:** normalize camelCase dataset keys back to
+  hyphen form at the single chokepoint. Also: `insertStatement`'s `if_condition` branch now
+  applies `meta.conditionOperator` to the target block.
+- **wizard-condition.js — operator never read.** `_commitCondition` / `_commitConditionAndMore`
+  did not read `wiz-group-op-selector`, so the chosen AND/OR was discarded. **Fix:** both
+  commit paths read the selector and thread it through `meta` (append) or seed it on the new
+  wrapping `if` node; Add-more carries it into the next `sel`.
+- **wizard-condition.js — attribute not required at commit.** The Add/Add-more guard checked
+  device+operator only. A device condition could commit with no attribute → `_capEntityMap`
+  had no key to resolve → fell back to `_getFlatEntityIds` and wrote ALL sub-entity IDs
+  (battery, illuminance, motion, temperature) plus empty `attribute`/`display_value`. This was
+  the live form of GAP-S69-9. **Fix:** `hasAttr` gates initial render, `attrChosen` gates the
+  live guard, the attr `change` handler re-runs the guard, and `_loadCapsIntoSelect` re-runs it
+  after caps load. Non-device subjects exempt. Result: cannot commit without picking the
+  attribute; `_capEntityMap` then resolves the single attribute-bearing entity per device.
+- **GAP-S69-11 (for_each entity_ids):** addressed earlier in the session — for_each commit now
+  writes `entity_ids` via `_getFlatEntityIds(tokens)` (no attribute filter, correct for a loop).
+- **GAP-S69-10 (variable re-resolve):** variable commit confirmed correct (stores friendly
+  names only). `_reResolveVariableUses` still to be exercised against the attribute-aware path
+  under a real edit — see carry-forward below.
 
-- **GAP-S69-9 (CRITICAL — root cause):** `_getFlatEntityIds(tokens)` in wizard-core.js
-  (~lines 258-307) returns ALL entity_ids for ALL sub-entities of a device — it has no
-  attribute parameter, so it can't pick the attribute-bearing entity. Both commit paths
-  inherit the bug: `wizard-condition.js _buildConditionNode` (~813) and
-  `wizard-action.js _saveDeviceCmd` (~724). This is the `stmt_48a120b9` symptom (illuminance
-  condition stored all four motion-device entities) — confirmed CURRENT behavior, not a
-  stale file.
-  **Fix:** make `_getFlatEntityIds(tokens, attribute)` attribute-aware; `_friendlyNameToEntityIds`
-  returns the ONE entity per device matching the attribute (the matching data already exists —
-  it's what the capability intersection uses). Condition passes the chosen attribute; action
-  passes the command domain/service (→ the controllable entity). No attribute → keep
-  current "all entities" as fallback. **Single-function root cause — fixing it fixes both paths.**
-- **GAP-S69-11:** for_each commit (wizard-loops.js ~131-143) writes `list_role` + `role_tokens`
-  but NO `entity_ids` ("resolved at compile time by the compiler" — wrong, violates the rule).
-  Apply the same attribute-aware resolution; write `entity_ids`. Keep `role_tokens`. `list_role`
-  may remain only as the display label (`role`).
-- **GAP-S69-10 (mostly verify):** variable commit (wizard-variable.js) is ALREADY correct —
-  stores friendly names in `initial_value`, no entity IDs. Just confirm `_reResolveVariableUses`
-  re-resolves node `entity_ids` (never writes IDs back to the variable) using the variable's
-  name list + the node's attribute, once GAP-S69-9 makes resolution attribute-aware.
-- **GAP-S50-1 (pulled forward from S3-1):** compiler device initial_value disambiguation —
-  same underlying issue. Once nodes carry attribute-bearing entity_ids, the compiler reads
-  them directly; confirm no disambiguation needed at compile.
+**Confirmed in saved JSON (`bdc4cca2.json`, 2026-06-01):** illuminance condition →
+`entity_ids: ["sensor.outdoor_motion_illuminance"]` only, `attribute: "illuminance"`,
+`display_value: "800"`; both conditions in one `if`, `condition_operator: "and"`; turn-off
+block with `duration: 5 / minutes` round-tripped. Files delivered: editor.js, wizard-condition.js.
 
-**Companion to verify:** blank `display_value`/`compiled_value` seen on the bad node may be a
-partial/aborted edit (`_buildConditionNode` reads `wiz-val-1` live at build). Confirm the
-value step completes before commit with a fresh save.
+### Carried forward from W-S11 (do not lose):
+- **GAP-S70-1 (verify, low):** exercise `_reResolveVariableUses` — edit a device variable that
+  feeds an attribute-bearing condition, confirm node `entity_ids` re-resolve via the variable's
+  name list + the node's attribute (and that IDs are never written back onto the variable).
+  Belongs with STAGE G / globals-edit work.
+- **GAP-S50-1 (verify):** with nodes now carrying attribute-bearing entity_ids, confirm the
+  compiler reads them directly and needs no initial_value disambiguation. Verify during B-1.
+
+---
+
+## ⚠ NEXT BLOCKER — STAGE B (compiler) is now UNBLOCKED
+
+W-S11 was the gate. B-1 (compiler.py — direct entity_id read + MISSING_ENTITY validation) can
+now be written and tested against real, correct wizard output. See STAGE B below. This is the
+recommended next coding session.
 
 ---
 
@@ -182,10 +206,32 @@ All import-path work grouped together.
 
 **Files:** wizard-action.js, wizard-core.js, WIZARD_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-- **GAP-S68-3:** Action params save as indexed keys `{0:'',1:''}` instead of named fields —
-  `_saveDeviceCmd` `querySelectorAll('[data-param]')` reads index, not the `data-param` value.
+- **GAP-S68-3 ✅ DONE (Session 70):** Action params no longer save as indexed keys. Two fixes
+  in wizard-action.js: `_renderCmdParams` treats `svc.fields` as the array the backend sends
+  ({name,label,type,...}) instead of `Object.entries()` (which produced "0","1","2" keys);
+  `_saveDeviceCmd` scopes `querySelectorAll('[data-param]')` to `wiz-cmd-params` only. Also in
+  the same area: ha_client.py `_fetch_services` now filters fields by the specific entity's
+  capabilities (supported_color_modes / effect_list / supported_features) and caches per
+  entity_id, and `_goCommandPicker` intersects service fields across multi-device selections.
+  Confirmed: turn_on action saved `parameters: {transition, advanced_fields}` cleanly.
 - **GAP-S45-1 (cosmetic):** set_variable wizard doesn't normalize `$` prefix.
 - **GAP-S69-5 superseded** — merged into GAP-S69-11 (W-S11).
+
+---
+
+## W-S16 — Visual / Display-Only Gaps (parked, non-blocking)
+
+Cosmetic and display issues deliberately deferred during the round-trip push. None block the
+compiler. Group and clear in a dedicated UI-polish session.
+
+- **GAP-S70-2:** `_condLine` (editor.js) does not render `display_value` for some operators —
+  e.g. the editor shows `{Illuminance} is less than or equal to` with no `800` (the value IS
+  saved correctly in JSON; this is render-only). Append display_value/value_to + unit to the
+  condition line.
+- **(add visual items here as found)** — action-edit routing should open the device picker
+  first, device picker should show checkmarks + persist the selected device label, "Only during
+  these modes" restriction block (WebCoRE parity) not yet present. Triage and split out per
+  earlier screenshots when this session runs.
 
 ---
 

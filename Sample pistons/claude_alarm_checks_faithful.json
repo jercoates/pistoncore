@@ -1,0 +1,807 @@
+{
+  "name": "Claude Alarm Checks",
+  "description": "When system is armed check for open doors and windows. Send SMS when armed/disarmed. Faithful structural copy of WebCoRE piston 9j3j. Trigger adapted from HSM to a virtual switch; all devices are role placeholders to be mapped on import.",
+  "folder": "Security",
+  "mode": "single",
+  "enabled": true,
+  "logic_version": 2,
+  "ui_version": 1,
+  "variables": [
+    { "type": "variable", "id": "var_0001", "name": "DoorsOpen", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0002", "name": "WindowsOpen", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0003", "name": "SystemStatus", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0004", "name": "DoorsLeftUnlocked", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0005", "name": "Unlocked_By", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0006", "name": "Keypad", "var_type": "device", "initial_value": [], "initial_value_type": "device" },
+    { "type": "variable", "id": "var_0007", "name": "Door_locks", "var_type": "devices", "initial_value": [], "initial_value_type": "device" },
+    { "type": "variable", "id": "var_0008", "name": "string_Disarmed_By_Name", "var_type": "string", "initial_value": "" },
+    { "type": "variable", "id": "var_0009", "name": "Integer_Lock_Confirm_Wait", "var_type": "number", "initial_value": 40 },
+    { "type": "variable", "id": "var_0010", "name": "Integer_Speaker_Volum", "var_type": "number", "initial_value": 90 }
+  ],
+  "triggers": [
+    {
+      "id": "cond_trig01",
+      "is_trigger": true,
+      "role": "Arm Away Virtual Switch",
+      "role_tokens": [],
+      "entity_ids": [],
+      "aggregation": "any",
+      "attribute": "state",
+      "attribute_type": "binary",
+      "device_class": "switch",
+      "operator": "changes to",
+      "display_value": "On",
+      "compiled_value": "on",
+      "value_to": null,
+      "duration": null,
+      "duration_unit": null,
+      "group_operator": "and",
+      "interaction": "any"
+    }
+  ],
+  "conditions": [],
+  "restrictions": [],
+  "statements": [
+    {
+      "id": "stmt_if01",
+      "type": "if",
+      "async": false,
+      "description": "If Lock/Keypad code is entered and system is armed, then disarm and send message of what and who disarmed.",
+      "conditions": [
+        {
+          "id": "cond_0101",
+          "is_trigger": false,
+          "subject": "expression",
+          "operator": "is any of",
+          "value": { "type": "expression", "expression": "{$currentEventDescription} is any of '{$currentEventDevice} was unlocked by {$Disarmed_By_Name}'" },
+          "group_operator": "and"
+        },
+        {
+          "id": "cond_0102",
+          "is_trigger": false,
+          "role": "Hubitat Safety Monitor",
+          "role_tokens": [],
+          "entity_ids": [],
+          "aggregation": "any",
+          "attribute": "status",
+          "attribute_type": "enum",
+          "operator": "is",
+          "display_value": "Armed Away",
+          "compiled_value": "Armed Away",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_sv0101",
+          "type": "set_variable",
+          "variable": "$Unlocked_By",
+          "value": { "type": "expression", "expression": "\"Disarmed by: {([ $currentEventDevice : lastCodeName ])}\" via $currentEventDevice" },
+          "description": null,
+          "disabled": false
+        },
+        {
+          "id": "stmt_wait0101",
+          "type": "wait",
+          "wait_type": "duration",
+          "duration": 2,
+          "duration_unit": "s",
+          "description": null,
+          "disabled": false
+        },
+        {
+          "id": "stmt_act0101",
+          "type": "action",
+          "async": false,
+          "role": "Hubitat Safety Monitor",
+          "role_tokens": [],
+          "entity_ids": [],
+          "tasks": [
+            {
+              "id": "task_0101",
+              "command": "set_value",
+              "domain": "input_select",
+              "ha_service": "input_select.set_value",
+              "parameters": { "option": "disarm" },
+              "description": "Set Hubitat Safety Monitor status to disarm"
+            }
+          ],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "disabled": false
+    },
+    {
+      "id": "stmt_if02",
+      "type": "if",
+      "async": false,
+      "description": "Reset all notification strings on any HSM state change so data from previous runs does not appear in new notifications.",
+      "conditions": [
+        {
+          "id": "cond_0201",
+          "is_trigger": false,
+          "role": "Hubitat Safety Monitor",
+          "role_tokens": [],
+          "entity_ids": [],
+          "aggregation": "any",
+          "attribute": "status",
+          "attribute_type": "enum",
+          "operator": "changes to any of",
+          "display_value": "Armed Away, Disarmed, or All Disarmed",
+          "compiled_value": "Armed Away,Disarmed,All Disarmed",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        { "id": "stmt_sv0201", "type": "set_variable", "variable": "$DoorsOpen", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false },
+        { "id": "stmt_sv0202", "type": "set_variable", "variable": "$SystemStatus", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false },
+        { "id": "stmt_sv0203", "type": "set_variable", "variable": "$DoorsLeftUnlocked", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "disabled": false
+    },
+    {
+      "id": "stmt_if03",
+      "type": "if",
+      "async": false,
+      "description": "Auto Arm System if everyone is gone, check for things left open or unlocked send status messages and error messages.",
+      "conditions": [
+        {
+          "id": "cond_0301",
+          "is_trigger": false,
+          "role": "Hubitat Safety Monitor",
+          "role_tokens": [],
+          "entity_ids": [],
+          "aggregation": "any",
+          "attribute": "status",
+          "attribute_type": "enum",
+          "operator": "changes to any of",
+          "display_value": "Armed Away, Disarmed, or All Disarmed",
+          "compiled_value": "Armed Away,Disarmed,All Disarmed",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_if03a",
+          "type": "if",
+          "async": false,
+          "conditions": [
+            {
+              "id": "cond_03a1",
+              "is_trigger": false,
+              "subject": "expression",
+              "operator": "is true",
+              "value": { "type": "literal", "data": "when true" },
+              "group_operator": "and"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            { "id": "stmt_sv0301", "type": "set_variable", "variable": "$DoorsOpen", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false },
+            { "id": "stmt_sv0302", "type": "set_variable", "variable": "$WindowsOpen", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false },
+            { "id": "stmt_sv0303", "type": "set_variable", "variable": "$SystemStatus", "value": { "type": "literal", "data": "" }, "description": null, "disabled": false }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [],
+      "disabled": false
+    },
+    {
+      "id": "stmt_if04",
+      "type": "if",
+      "async": false,
+      "description": "ARMED AWAY BRANCH - Build status strings, check locks and contacts, notify.",
+      "conditions": [
+        {
+          "id": "cond_0401",
+          "is_trigger": false,
+          "role": "Hubitat Safety Monitor",
+          "role_tokens": [],
+          "entity_ids": [],
+          "aggregation": "any",
+          "attribute": "status",
+          "attribute_type": "enum",
+          "operator": "is",
+          "display_value": "Armed Away",
+          "compiled_value": "Armed Away",
+          "value_to": null,
+          "duration": null,
+          "duration_unit": null,
+          "group_operator": "and",
+          "interaction": "any"
+        }
+      ],
+      "condition_operator": "and",
+      "then": [
+        {
+          "id": "stmt_if04a",
+          "type": "if",
+          "async": false,
+          "conditions": [
+            {
+              "id": "cond_04a1",
+              "is_trigger": false,
+              "subject": "expression",
+              "operator": "is true",
+              "value": { "type": "literal", "data": "when true" },
+              "group_operator": "and"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_sv0401",
+              "type": "set_variable",
+              "variable": "$SystemStatus",
+              "value": { "type": "expression", "expression": "\"\\ud83d\\udd12 System Armed \\ud83d\\udd12 $monthName $day - $time \"" },
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "description": null,
+          "disabled": false
+        },
+        {
+          "id": "stmt_if04b",
+          "type": "if",
+          "async": false,
+          "description": "Build list of any unlocked doors and flag for lock attempt. Uses global @Locks.",
+          "conditions": [
+            {
+              "id": "cond_04b1",
+              "is_trigger": false,
+              "role": "@Locks",
+              "role_tokens": ["@Locks"],
+              "entity_ids": [],
+              "aggregation": "any",
+              "attribute": "lock",
+              "attribute_type": "enum",
+              "operator": "is not",
+              "display_value": "locked",
+              "compiled_value": "locked",
+              "value_to": null,
+              "duration": null,
+              "duration_unit": null,
+              "group_operator": "and",
+              "interaction": "any"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_sv0402",
+              "type": "set_variable",
+              "variable": "$DoorsLeftUnlocked",
+              "value": { "type": "literal", "data": "\ud83d\udd13 Door(s) Left Unlocked \ud83d\udd13 " },
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_fe0401",
+              "type": "for_each",
+              "async": false,
+              "variable": "$device",
+              "role": "Door_locks",
+              "role_tokens": ["Door_locks"],
+              "entity_ids": [],
+              "statements": [
+                {
+                  "id": "stmt_if04b1",
+                  "type": "if",
+                  "async": false,
+                  "conditions": [
+                    {
+                      "id": "cond_04b1a",
+                      "is_trigger": false,
+                      "subject": "variable",
+                      "variable": "$device",
+                      "attribute": "lock",
+                      "operator": "is not",
+                      "display_value": "locked",
+                      "compiled_value": "locked",
+                      "group_operator": "and"
+                    }
+                  ],
+                  "condition_operator": "and",
+                  "then": [
+                    {
+                      "id": "stmt_sv0403",
+                      "type": "set_variable",
+                      "variable": "$DoorsLeftUnlocked",
+                      "value": { "type": "expression", "expression": "$DoorsLeftUnlocked $device " },
+                      "description": null,
+                      "disabled": false
+                    }
+                  ],
+                  "else_ifs": [],
+                  "else": [],
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_sv0404",
+              "type": "set_variable",
+              "variable": "$DoorsLeftUnlocked",
+              "value": { "type": "expression", "expression": "$DoorsLeftUnlocked . Attempting to lock door(s)" },
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "disabled": false
+        },
+        {
+          "id": "stmt_if04c",
+          "type": "if",
+          "async": false,
+          "description": "Build list of all open exterior door and window contacts. Uses global @Door_Contacts_Exterior.",
+          "conditions": [
+            {
+              "id": "cond_04c1",
+              "is_trigger": false,
+              "role": "@Door_Contacts_Exterior",
+              "role_tokens": ["@Door_Contacts_Exterior"],
+              "entity_ids": [],
+              "aggregation": "any",
+              "attribute": "contact",
+              "attribute_type": "binary",
+              "device_class": "door",
+              "operator": "is",
+              "display_value": "open",
+              "compiled_value": "on",
+              "value_to": null,
+              "duration": null,
+              "duration_unit": null,
+              "group_operator": "and",
+              "interaction": "any"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_sv0405",
+              "type": "set_variable",
+              "variable": "$DoorsOpen",
+              "value": { "type": "literal", "data": "\ud83d\udeaa Door(s) Left Open \ud83d\udeaa " },
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_fe0402",
+              "type": "for_each",
+              "async": false,
+              "variable": "$device",
+              "role": "@Door_Contacts_Exterior",
+              "role_tokens": ["@Door_Contacts_Exterior"],
+              "entity_ids": [],
+              "statements": [
+                {
+                  "id": "stmt_if04c1",
+                  "type": "if",
+                  "async": false,
+                  "conditions": [
+                    {
+                      "id": "cond_04c1a",
+                      "is_trigger": false,
+                      "subject": "variable",
+                      "variable": "$device",
+                      "attribute": "contact",
+                      "operator": "is",
+                      "display_value": "open",
+                      "compiled_value": "on",
+                      "group_operator": "and"
+                    }
+                  ],
+                  "condition_operator": "and",
+                  "then": [
+                    {
+                      "id": "stmt_if04c1a",
+                      "type": "if",
+                      "async": false,
+                      "conditions": [
+                        {
+                          "id": "cond_04c1aa",
+                          "is_trigger": false,
+                          "subject": "expression",
+                          "operator": "is true",
+                          "value": { "type": "literal", "data": "when true" },
+                          "group_operator": "and"
+                        }
+                      ],
+                      "condition_operator": "and",
+                      "then": [
+                        {
+                          "id": "stmt_sv0406",
+                          "type": "set_variable",
+                          "variable": "$DoorsOpen",
+                          "value": { "type": "expression", "expression": "$DoorsOpen $device " },
+                          "description": null,
+                          "disabled": false
+                        }
+                      ],
+                      "else_ifs": [],
+                      "else": [],
+                      "description": null,
+                      "disabled": false
+                    }
+                  ],
+                  "else_ifs": [],
+                  "else": [],
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "disabled": false
+        },
+        {
+          "id": "stmt_with0401",
+          "type": "action",
+          "async": false,
+          "description": "Step 3: Send initial armed notification - combined status in a single notification including system status, any unlocked doors, and any open contacts. Uses global @Notification_Push.",
+          "role": "@Notifications_Push",
+          "role_tokens": ["@Notifications_Push"],
+          "entity_ids": [],
+          "tasks": [
+            {
+              "id": "task_0402a",
+              "command": "set_variable",
+              "domain": "variable",
+              "ha_service": "variable.set",
+              "parameters": { "variable": "$SystemStatus", "value": "$SystemStatus $DoorsLeftUnlocked $DoorsOpen $WindowsOpen " },
+              "description": "Set variable SystemStatus = SystemStatus DoorsLeftUnlocked DoorsOpen WindowsOpen"
+            },
+            {
+              "id": "task_0402b",
+              "command": "send_message",
+              "domain": "notify",
+              "ha_service": "notify.send_message",
+              "parameters": { "message": "$SystemStatus" },
+              "description": "Send device notification SystemStatus"
+            }
+          ],
+          "disabled": false
+        },
+        {
+          "id": "stmt_if04d",
+          "type": "if",
+          "async": false,
+          "conditions": [
+            {
+              "id": "cond_04d1",
+              "is_trigger": false,
+              "role": "@Locks",
+              "role_tokens": ["@Locks"],
+              "entity_ids": [],
+              "aggregation": "any",
+              "attribute": "lock",
+              "attribute_type": "enum",
+              "operator": "is not",
+              "display_value": "locked",
+              "compiled_value": "locked",
+              "value_to": null,
+              "duration": null,
+              "duration_unit": null,
+              "group_operator": "and",
+              "interaction": "any"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_fe0403",
+              "type": "for_each",
+              "async": false,
+              "variable": "$device",
+              "role": "@Locks",
+              "role_tokens": ["@Locks"],
+              "entity_ids": [],
+              "statements": [
+                {
+                  "id": "stmt_if04d1",
+                  "type": "if",
+                  "async": false,
+                  "conditions": [
+                    {
+                      "id": "cond_04d1a",
+                      "is_trigger": false,
+                      "subject": "variable",
+                      "variable": "$device",
+                      "attribute": "lock",
+                      "operator": "is not",
+                      "display_value": "locked",
+                      "compiled_value": "locked",
+                      "group_operator": "and"
+                    }
+                  ],
+                  "condition_operator": "and",
+                  "then": [
+                    {
+                      "id": "stmt_with0402",
+                      "type": "action",
+                      "async": false,
+                      "role": "$device",
+                      "role_tokens": ["$device"],
+                      "entity_ids": [],
+                      "tasks": [
+                        {
+                          "id": "task_0403",
+                          "command": "lock",
+                          "domain": "lock",
+                          "ha_service": "lock.lock",
+                          "parameters": {},
+                          "description": "Lock"
+                        }
+                      ],
+                      "description": null,
+                      "disabled": false
+                    }
+                  ],
+                  "else_ifs": [],
+                  "else": [],
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_wait0402",
+              "type": "wait",
+              "wait_type": "duration",
+              "duration_variable": "$Integer_Lock_Confirm_Wait",
+              "duration": null,
+              "duration_unit": "s",
+              "description": "Wait {Integer_Lock_Confirm_Wait} seconds",
+              "disabled": false
+            },
+            {
+              "id": "stmt_if04e",
+              "type": "if",
+              "async": false,
+              "conditions": [
+                {
+                  "id": "cond_04e1",
+                  "is_trigger": false,
+                  "role": "@Locks",
+                  "role_tokens": ["@Locks"],
+                  "entity_ids": [],
+                  "aggregation": "any",
+                  "attribute": "lock",
+                  "attribute_type": "enum",
+                  "operator": "is not",
+                  "display_value": "locked",
+                  "compiled_value": "locked",
+                  "value_to": null,
+                  "duration": null,
+                  "duration_unit": null,
+                  "group_operator": "and",
+                  "interaction": "any"
+                }
+              ],
+              "condition_operator": "and",
+              "then": [
+                {
+                  "id": "stmt_sv0407",
+                  "type": "set_variable",
+                  "variable": "$DoorsLeftUnlocked",
+                  "value": { "type": "expression", "expression": "\"\\u26a0 Unable to Lock Door(s) \\u26a0 $monthName $day - $time \"" },
+                  "description": null,
+                  "disabled": false
+                },
+                {
+                  "id": "stmt_fe0404",
+                  "type": "for_each",
+                  "async": false,
+                  "variable": "$device",
+                  "role": "@Locks",
+                  "role_tokens": ["@Locks"],
+                  "entity_ids": [],
+                  "statements": [
+                    {
+                      "id": "stmt_if04e1",
+                      "type": "if",
+                      "async": false,
+                      "conditions": [
+                        {
+                          "id": "cond_04e1a",
+                          "is_trigger": false,
+                          "subject": "variable",
+                          "variable": "$device",
+                          "attribute": "lock",
+                          "operator": "is not",
+                          "display_value": "locked",
+                          "compiled_value": "locked",
+                          "group_operator": "and"
+                        }
+                      ],
+                      "condition_operator": "and",
+                      "then": [
+                        {
+                          "id": "stmt_sv0408",
+                          "type": "set_variable",
+                          "variable": "$DoorsLeftUnlocked",
+                          "value": { "type": "expression", "expression": "$DoorsLeftUnlocked $device " },
+                          "description": null,
+                          "disabled": false
+                        }
+                      ],
+                      "else_ifs": [],
+                      "else": [],
+                      "description": null,
+                      "disabled": false
+                    }
+                  ],
+                  "description": null,
+                  "disabled": false
+                },
+                {
+                  "id": "stmt_with0403",
+                  "type": "action",
+                  "async": false,
+                  "role": "@Notifications_Push",
+                  "role_tokens": ["@Notifications_Push"],
+                  "entity_ids": [],
+                  "tasks": [
+                    {
+                      "id": "task_0404",
+                      "command": "send_message",
+                      "domain": "notify",
+                      "ha_service": "notify.send_message",
+                      "parameters": { "message": "$DoorsLeftUnlocked Please Return Home and Manually Lock Door(s)" },
+                      "description": null
+                    }
+                  ],
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "else_ifs": [],
+              "else": [
+                {
+                  "id": "stmt_with0404",
+                  "type": "action",
+                  "async": false,
+                  "role": "@Notifications_Push",
+                  "role_tokens": ["@Notifications_Push"],
+                  "entity_ids": [],
+                  "tasks": [
+                    {
+                      "id": "task_0405",
+                      "command": "send_message",
+                      "domain": "notify",
+                      "ha_service": "notify.send_message",
+                      "parameters": { "message": "\ud83d\udd12 \ud83d\udeaa Door(s) Locked \ud83d\udd12 \ud83d\udeaa $monthName $day - $time " },
+                      "description": null
+                    }
+                  ],
+                  "description": null,
+                  "disabled": false
+                }
+              ],
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "disabled": false
+        }
+      ],
+      "else_ifs": [],
+      "else": [
+        {
+          "id": "stmt_if05",
+          "type": "if",
+          "async": false,
+          "conditions": [
+            {
+              "id": "cond_0501",
+              "is_trigger": false,
+              "role": "Hubitat Safety Monitor",
+              "role_tokens": [],
+              "entity_ids": [],
+              "aggregation": "any",
+              "attribute": "status",
+              "attribute_type": "enum",
+              "operator": "is",
+              "display_value": "Disarmed",
+              "compiled_value": "Disarmed",
+              "value_to": null,
+              "duration": null,
+              "duration_unit": null,
+              "group_operator": "and",
+              "interaction": "any"
+            }
+          ],
+          "condition_operator": "and",
+          "then": [
+            {
+              "id": "stmt_with0501",
+              "type": "action",
+              "async": false,
+              "role": "@Speakers",
+              "role_tokens": ["@Speakers"],
+              "entity_ids": [],
+              "tasks": [
+                { "id": "task_0501", "command": "media_stop", "domain": "media_player", "ha_service": "media_player.media_stop", "parameters": {}, "description": "Stop" },
+                { "id": "task_0502", "command": "volume_set", "domain": "media_player", "ha_service": "media_player.volume_set", "parameters": { "volume_level": "$Integer_Speaker_Volum" }, "description": "Set Volume to {Integer_Speaker_Volum}" },
+                { "id": "task_0503", "command": "speak", "domain": "tts", "ha_service": "tts.speak", "parameters": { "message": "System Disarmed" }, "description": "Speak text \"System Disarmed\"" }
+              ],
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_with0502",
+              "type": "action",
+              "async": false,
+              "role": "@Speakers",
+              "role_tokens": ["@Speakers"],
+              "entity_ids": [],
+              "tasks": [
+                { "id": "task_0504", "command": "media_stop", "domain": "media_player", "ha_service": "media_player.media_stop", "parameters": {}, "description": "Stop" }
+              ],
+              "description": null,
+              "disabled": false
+            },
+            {
+              "id": "stmt_with0503",
+              "type": "action",
+              "async": false,
+              "role": "@Notifications_Push",
+              "role_tokens": ["@Notifications_Push"],
+              "entity_ids": [],
+              "tasks": [
+                { "id": "task_0505", "command": "send_message", "domain": "notify", "ha_service": "notify.send_message", "parameters": { "message": "\ud83d\udd13 System Disarmed \ud83d\udd13 $monthName $day - $time . $Unlocked_By" }, "description": null }
+              ],
+              "description": null,
+              "disabled": false
+            }
+          ],
+          "else_ifs": [],
+          "else": [],
+          "description": null,
+          "disabled": false
+        }
+      ],
+      "disabled": false
+    }
+  ]
+}

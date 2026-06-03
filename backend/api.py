@@ -26,6 +26,7 @@
 import hashlib
 import os
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Security, Body
 from fastapi.security import APIKeyHeader
@@ -115,35 +116,6 @@ def _compile(piston: dict) -> dict:
 # Piston helpers
 # ---------------------------------------------------------------------------
 
-def _migrate_piston(piston: dict) -> dict:
-    """
-    Schema migration hook. Pass-through for now — no migrations defined yet.
-    When logic_version bumps, add migration steps here keyed by version number.
-    Called on every GET /pistons/{id} before the version check.
-    """
-    return piston
-
-
-def _validate_device_map(device_map: dict) -> dict:
-    """
-    Coerce device_map values to lists. Per PISTON_FORMAT.md, all role values
-    must be arrays of entity ID strings — never bare strings.
-    Raises 422 if a value cannot be coerced to a list.
-    """
-    cleaned = {}
-    for role, value in device_map.items():
-        if isinstance(value, list):
-            cleaned[role] = value
-        elif isinstance(value, str):
-            cleaned[role] = [value]   # coerce bare string to single-item list
-        else:
-            raise HTTPException(
-                status_code=422,
-                detail=f"device_map role '{role}' must be a list of entity IDs.",
-            )
-    return cleaned
-
-
 # ---------------------------------------------------------------------------
 # Piston endpoints
 # ---------------------------------------------------------------------------
@@ -168,7 +140,7 @@ def list_pistons():
     ]
 
 
-CURRENT_LOGIC_VERSION = 1
+CURRENT_LOGIC_VERSION = 2
 CURRENT_UI_VERSION = 1
 
 
@@ -179,19 +151,26 @@ def get_piston(piston_id: str):
     if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
 
-    piston = _migrate_piston(piston)  # schema migration hook (GAP-S29-12)
+    # logic_version 2 is the only supported format. Version 1 (device_map model)
+    # is retired — there is no migration path. Reject anything that is not exactly 2.
+    logic_v = piston.get("logic_version")
+    ui_v = piston.get("ui_version", CURRENT_UI_VERSION)
 
-    # Spec: if logic_version or ui_version is from the future, refuse to load.
-    # Treat missing version fields as v1 (safe default per spec).
-    logic_v = piston.get("logic_version", 1)
-    ui_v = piston.get("ui_version", 1)
-    if logic_v > CURRENT_LOGIC_VERSION:
+    if logic_v != CURRENT_LOGIC_VERSION:
+        if logic_v is not None and logic_v > CURRENT_LOGIC_VERSION:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Piston '{piston_id}' was created with a newer logic version "
+                       f"({logic_v}) than this PistonCore supports ({CURRENT_LOGIC_VERSION}). "
+                       f"Update PistonCore before opening this piston.",
+            )
         raise HTTPException(
             status_code=409,
-            detail=f"Piston '{piston_id}' was created with a newer logic version "
-                   f"({logic_v}) than this PistonCore supports ({CURRENT_LOGIC_VERSION}). "
-                   f"Update PistonCore before opening this piston.",
+            detail=f"Piston '{piston_id}' uses a legacy logic version "
+                   f"({logic_v}) that is no longer supported. PistonCore only supports "
+                   f"logic version {CURRENT_LOGIC_VERSION}. Recreate this piston.",
         )
+
     if ui_v > CURRENT_UI_VERSION:
         raise HTTPException(
             status_code=409,
@@ -219,15 +198,13 @@ def create_piston(piston: dict = Body(...)):
     piston.setdefault("folder", None)
     piston.setdefault("mode", "single")
     piston.setdefault("enabled", True)
-    piston.setdefault("logic_version", 1)
-    piston.setdefault("ui_version", 1)
-    piston.setdefault("device_map", {})
-    piston.setdefault("device_map_meta", {})
+    piston.setdefault("logic_version", CURRENT_LOGIC_VERSION)
+    piston.setdefault("ui_version", CURRENT_UI_VERSION)
     piston.setdefault("variables", [])
+    piston.setdefault("triggers", [])
+    piston.setdefault("conditions", [])
+    piston.setdefault("restrictions", [])
     piston.setdefault("statements", [])
-    piston["device_map"] = _validate_device_map(piston["device_map"])
-    # piston_text stored as-is but never parsed — frontend render functions are
-    # the source of truth for display text (PISTON_FORMAT.md Section 1, GAP-S29-16)
     saved = storage.save_piston(piston)
     return saved
 
@@ -246,9 +223,6 @@ def update_piston(piston_id: str, piston: dict = Body(...)):
 
     piston["id"] = piston_id  # enforce ID from URL
     piston.pop("compile_target", None)  # compiler owns this — never user-supplied
-    piston["device_map"] = _validate_device_map(piston.get("device_map", {}))
-    # piston_text stored as-is but never parsed — frontend render functions are
-    # the source of truth for display text (PISTON_FORMAT.md Section 1, GAP-S29-16)
     saved = storage.save_piston(piston)
     return {"piston": saved}
 
@@ -736,17 +710,16 @@ def duplicate_piston(piston_id: str):
 @router.post("/pistons/import", status_code=201)
 def import_piston(piston: dict = Body(...)):
     """
-    Import a piston from Snapshot JSON (DESIGN.md Section 6.3).
-    Accepts the full piston body, assigns a new ID, applies spec defaults,
-    validates device_map, and saves. Returns the saved piston.
+    Import a piston from Snapshot or Backup JSON (DESIGN.md Section 6.11).
+    Assigns a fresh ID, applies v2 spec defaults, sets timestamps, and saves.
+    Returns the saved piston.
 
-    device_map values may be empty arrays (Snapshot) or populated (Backup).
-    Role mapping — filling empty device_map entries with real entity IDs —
-    is handled by the frontend import dialog after this call returns.
+    Role mapping — collecting unique roles and writing entity_ids onto matching
+    nodes — is handled by the frontend import dialog before this call. The backend
+    persists whatever it receives. Snapshots arrive with empty entity_ids; Backups
+    arrive with entity_ids already populated. Either way the backend just saves.
     """
-    import datetime
-
-    # Always assign a fresh ID on import — DESIGN.md Section 6.7
+    # Always assign a fresh ID on import — DESIGN.md Section 6.11 Step 5
     piston.pop("id", None)
     piston.pop("compile_target", None)  # compiler owns this
 
@@ -755,29 +728,15 @@ def import_piston(piston: dict = Body(...)):
     piston.setdefault("folder", None)
     piston.setdefault("mode", "single")
     piston.setdefault("enabled", True)
-    piston.setdefault("logic_version", 1)
-    piston.setdefault("ui_version", 1)
-    piston.setdefault("device_map", {})
-    piston.setdefault("device_map_meta", {})
+    piston.setdefault("logic_version", CURRENT_LOGIC_VERSION)
+    piston.setdefault("ui_version", CURRENT_UI_VERSION)
     piston.setdefault("variables", [])
+    piston.setdefault("triggers", [])
+    piston.setdefault("conditions", [])
+    piston.setdefault("restrictions", [])
     piston.setdefault("statements", [])
 
-    piston["device_map"] = _validate_device_map(piston["device_map"])
-
-    # Ensure every device_map role has a matching device variable in the define block.
-    # This is a core requirement — without it the define block is empty and the piston
-    # is uneditable. The AI prompt should produce these but this is the safety net.
-    existing_var_names = {v.get("name") for v in piston["variables"] if isinstance(v, dict)}
-    for role in piston["device_map"]:
-        if role not in existing_var_names:
-            piston["variables"].append({
-                "id": "var_" + __import__("uuid").uuid4().hex[:8],
-                "name": role,
-                "var_type": "device",
-                "display_name": role.replace("_", " "),
-            })
-
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat()
     piston["created_at"] = now
     piston["modified_at"] = now
 

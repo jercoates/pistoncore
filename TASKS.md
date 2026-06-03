@@ -1,20 +1,26 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — single active task file. Update at the end of every session.
-**Last Updated:** Session 70 — ⭐ MILESTONE: first lossless, compiler-ready round-trip.
-W-S11 closed (GAP-S69-9/-10/-11). The real root cause was NOT only `_getFlatEntityIds` —
-the dominant bugs were three commit-path defects: (1) editor.js dropped `block-id` because
-the DOM camelCases `data-block-id`→`dataset.blockId` while every consumer read `block-id`,
-so a second AND/OR condition orphaned into `statements[]` typeless and got stripped on load;
-(2) the AND/OR operator was never read at commit; (3) the Add button never required an
-attribute, so a device condition could commit with empty attribute → fell back to all
-sub-entity IDs. All three fixed. The "by hand kitchen" piston now builds → saves → reopens
-identically with correct single attribute-bearing entity_ids, populated attribute/
-display_value, and both conditions nested in one `if` with `condition_operator: "and"`.
-First time the compiler could actually be run on real wizard output. Prior context:
+**Last Updated:** Session 71 — backend reconciled to logic_version 2 (B-0 CLOSED) and the
+faithful alarm piston walk-through began. The deployed backend (api.py) was silently still
+logic_version 1 while the frontend had moved to v2, so v2 pistons were rejected on load with
+"supports (1)". This was NOT tracked anywhere — the assumption (reinforced by TASKS.md) was
+that device_map cleanup only touched the compiler. It did not: api.py's create/update/import
+paths were full of device_map and v1 defaults. Fixed in api.py and the v2 alarm piston now
+loads and renders. Walking it surfaced real wizard gaps (filed below into W-S14/W-S15). A
+faithful structural copy of the alarm piston (devices stripped to role placeholders, all
+branches/loops/with-blocks reproduced and validated against STATEMENT_TYPES.md) was built as
+the test vehicle — `claude_alarm_checks_faithful.json` — replacing an earlier approximate
+copy that produced ambiguous test signal.
+
+**Order correction (important):** STAGE B (compiler) is BLOCKED behind the wizard round-trip,
+not "next". The JSON is not proven stable until the real pistons build and round-trip through
+the wizard. B-0 (the version gate) was the one exception — done out of order only because the
+piston physically could not load without it. It does not pull the rest of STAGE B forward.
+
+Prior context: Session 70 closed W-S11 (first lossless round-trip on the kitchen piston).
 Session 69 did full spec reconciliation (D-S5 + D-S5b); device-data model locked;
-logic_version 1 / device_map retired. CODE_FINDINGS.md and SESSION_69B_GAPS.md retired
-into this file.
+logic_version 1 / device_map retired.
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions and closed gaps:** See TASKS_HISTORY.md
 
@@ -89,58 +95,34 @@ Default order is top to bottom. Reorder as testing dictates; keep the groups int
 
 ---
 
-## W-S11 — Device-Data Core Fix  ✅ CLOSED (Session 70)
+## B-0 — Backend v2 Reconciliation  ✅ CLOSED (Session 71)
 
-The blocker is cleared. The first lossless, compiler-ready round-trip is proven on the
-"by hand kitchen" piston. What actually fixed it (the diagnosis evolved from the original
-single-function theory):
+The deployed backend (api.py) was still entirely logic_version 1 while the frontend had moved
+to v2 — v2 pistons were rejected on load with "supports (1)". Not previously tracked; the
+assumption was device_map cleanup only touched the compiler. It did not.
 
-- **editor.js — dataset key casing (the dominant bug).** `_handleDocClick` copied
-  `ghost.dataset` keys verbatim into `extra`. The DOM camelCases `data-block-id` →
-  `dataset.blockId`, but every wizard consumer reads `extra['block-id']`. Mismatch → `block-id`
-  was lost → a second condition added with AND/OR fell out of the `if_condition` path,
-  orphaned into top-level `statements[]` as a typeless `cond_*` node, and got stripped by
-  `_normalizePiston` on the next load. **Fix:** normalize camelCase dataset keys back to
-  hyphen form at the single chokepoint. Also: `insertStatement`'s `if_condition` branch now
-  applies `meta.conditionOperator` to the target block.
-- **wizard-condition.js — operator never read.** `_commitCondition` / `_commitConditionAndMore`
-  did not read `wiz-group-op-selector`, so the chosen AND/OR was discarded. **Fix:** both
-  commit paths read the selector and thread it through `meta` (append) or seed it on the new
-  wrapping `if` node; Add-more carries it into the next `sel`.
-- **wizard-condition.js — attribute not required at commit.** The Add/Add-more guard checked
-  device+operator only. A device condition could commit with no attribute → `_capEntityMap`
-  had no key to resolve → fell back to `_getFlatEntityIds` and wrote ALL sub-entity IDs
-  (battery, illuminance, motion, temperature) plus empty `attribute`/`display_value`. This was
-  the live form of GAP-S69-9. **Fix:** `hasAttr` gates initial render, `attrChosen` gates the
-  live guard, the attr `change` handler re-runs the guard, and `_loadCapsIntoSelect` re-runs it
-  after caps load. Non-device subjects exempt. Result: cannot commit without picking the
-  attribute; `_capEntityMap` then resolves the single attribute-bearing entity per device.
-- **GAP-S69-11 (for_each entity_ids):** addressed earlier in the session — for_each commit now
-  writes `entity_ids` via `_getFlatEntityIds(tokens)` (no attribute filter, correct for a loop).
-- **GAP-S69-10 (variable re-resolve):** variable commit confirmed correct (stores friendly
-  names only). `_reResolveVariableUses` still to be exercised against the attribute-aware path
-  under a real edit — see carry-forward below.
+Fixed in api.py:
+- CURRENT_LOGIC_VERSION 1 → 2.
+- get_piston: reject anything != 2 (v1 retired, no migration; future AND legacy/missing both
+  rejected with clear messages). Missing logic_version no longer silently defaults to 1.
+- create_piston: v2 defaults; added top-level triggers/conditions/restrictions arrays; removed
+  device_map / device_map_meta defaults + _validate_device_map call.
+- update_piston: removed _validate_device_map call.
+- import_piston: v2 defaults; removed device_map handling and the role→variable safety net
+  (frontend owns role mapping per DESIGN 6.11); fixed inline `import datetime` / `__import__`
+  to top-level imports.
+- Deleted dead helpers _validate_device_map and _migrate_piston entirely (no stubs).
 
-**Confirmed in saved JSON (`bdc4cca2.json`, 2026-06-01):** illuminance condition →
-`entity_ids: ["sensor.outdoor_motion_illuminance"]` only, `attribute: "illuminance"`,
-`display_value: "800"`; both conditions in one `if`, `condition_operator: "and"`; turn-off
-block with `duration: 5 / minutes` round-tripped. Files delivered: editor.js, wizard-condition.js.
+Files: api.py. Verified: v2 alarm piston now loads and renders in the editor.
+(storage.py confirmed clean — no version/device_map logic there.)
 
-### Carried forward from W-S11 (do not lose):
-- **GAP-S70-1 (verify, low):** exercise `_reResolveVariableUses` — edit a device variable that
-  feeds an attribute-bearing condition, confirm node `entity_ids` re-resolve via the variable's
-  name list + the node's attribute (and that IDs are never written back onto the variable).
-  Belongs with STAGE G / globals-edit work.
-- **GAP-S50-1 (verify):** with nodes now carrying attribute-bearing entity_ids, confirm the
-  compiler reads them directly and needs no initial_value disambiguation. Verify during B-1.
+→ Move this block to TASKS_HISTORY.md once B-2 (backend audit) confirms nothing else is v1.
 
 ---
 
-## ⚠ NEXT BLOCKER — STAGE B (compiler) is now UNBLOCKED
-
-W-S11 was the gate. B-1 (compiler.py — direct entity_id read + MISSING_ENTITY validation) can
-now be written and tested against real, correct wizard output. See STAGE B below. This is the
-recommended next coding session.
+## W-S11 — Device-Data Core Fix  ✅ CLOSED (Session 70) → move to TASKS_HISTORY.md
+(Full detail in history. First lossless round-trip on the kitchen piston. Carry-forwards
+GAP-S70-1 and GAP-S50-1 live in their target bundles below.)
 
 ---
 
@@ -199,13 +181,40 @@ All import-path work grouped together.
 - **GAP-S68-2:** Import role mapping does not populate defines `initial_value`.
 - **GAP-S46-4 (G-3):** Imported globals land in piston variables instead of the globals store.
   (Was STAGE G item G-3; folded here since it's import work. Upload api.py for this one.)
+- **GAP-S71-3 (import role-mapping dialog never fires):** importing a v2 Snapshot did not
+  trigger the role-mapping dialog (DESIGN 6.11 Steps 2–4). Piston imported with empty
+  entity_ids, forcing manual per-node mapping in the editor. Frontend import flow not wired to
+  walk roles. Same import path as GAP-S68-1/-2. Found Session 71 (alarm piston walk).
 
 ---
 
-## W-S15 — Action Param Bug + Loose Wizard Items
+## W-S15 — Action Param Bug + Loose Wizard Items  ← RECOMMENDED NEXT SESSION
+
+GAP-S71-1 and -4 block speaker/TTS actions, which are core to Jeremy's real pistons. Start here.
 
 **Files:** wizard-action.js, wizard-core.js, WIZARD_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+(also wizard-variable.js for GAP-S71-2)
 
+- **GAP-S71-1 (action wizard — global resolution, HIGH):** "Add a new task" on a with-block
+  using a global (e.g. `{@Speakers}`) shows "No devices could be resolved" + empty service
+  dropdown, even though the global has a device assigned (media_player.basement, confirmed in
+  globals panel and HA dev tools). The picker dies in `_goCommandPicker` (wizard-action.js ~581):
+  `_getGroupedEntityIdsForTokens(_sel.tokens)` returns empty for the `@global` token. Two
+  candidate root causes, not yet narrowed (need runtime console data — see SESSION PROMPT
+  "How to diagnose GAP-S71-1"): (a) the resolver reads `_deviceData_globals` (wizard-core.js
+  ~370, may be null / different cache than the condition wizard's `_piston._globalsCache`);
+  (b) the global's stored `value` holds entity_ids rather than friendly names, and the target
+  media_player isn't present in `_groupDevices(_deviceData)`. Found Session 71.
+- **GAP-S71-2 (variable edit dialog — wrong type, MED):** editing a device variable
+  (e.g. Door_locks, var_type `devices`) opens with the type dropdown set to "Dynamic" instead
+  of "Device". Renders fine in the define block; the edit round-trip mis-maps `var_type` on
+  hydrate. File: wizard-variable.js. Found Session 71.
+- **GAP-S71-4 (TTS action builder — HIGH, NEW):** no path to build a TTS/announce action that
+  (a) targets a media_player/speaker global and (b) composes the spoken text from literals +
+  variables (e.g. `"System Disarmed — Unlocked by " + $Unlocked_By`). Speaker/TTS is core to
+  Jeremy's automations and has had zero wizard work. Depends on GAP-S71-1 (speaker must resolve
+  first). Needs: service = tts.speak / media_player.play_media, templated message field with
+  variable insertion. File: wizard-action.js. Found Session 71.
 - **GAP-S68-3 ✅ DONE (Session 70):** Action params no longer save as indexed keys. Two fixes
   in wizard-action.js: `_renderCmdParams` treats `svc.fields` as the array the backend sends
   ({name,label,type,...}) instead of `Object.entries()` (which produced "0","1","2" keys);
@@ -220,6 +229,7 @@ All import-path work grouped together.
 ---
 
 ## W-S16 — Visual / Display-Only Gaps (parked, non-blocking)
+
 
 Cosmetic and display issues deliberately deferred during the round-trip push. None block the
 compiler. Group and clear in a dedicated UI-polish session.
@@ -244,14 +254,17 @@ compiler. Group and clear in a dedicated UI-polish session.
 
 ---
 
-## STAGE B — Backend Compiler  (BLOCKED until W-S11 done)
+## STAGE B — Backend Compiler  (BLOCKED until the wizard round-trip works)
+
+**Do not start STAGE B until the alarm piston (or an equivalent real piston) builds AND
+round-trips cleanly through the wizard.** The JSON format is not proven stable until then —
+writing/auditing the compiler now risks rework when wizard fixes surface schema changes (this
+is a hard lesson, not a preference). The wizard gaps in W-S14/W-S15 come first.
 
 ### B-1: compiler.py — Entity IDs Direct Read + MISSING_ENTITY Validation
-**Blocked:** do not start until W-S11 lands. A compiler written now would read entity_ids that
-the wizard isn't yet writing correctly (whole-cluster instead of attribute-bearing). Also blocked
-on the trigger-storage model — now resolved: triggers/conditions/restrictions are TOP-LEVEL
-wrapper arrays (Path A, documented in PISTON_FORMAT.md). The compiler reads `_piston.triggers`
-directly; it does NOT walk `statements` for `is_trigger` nodes.
+**Blocked** per the stage note above. Trigger-storage model is resolved:
+triggers/conditions/restrictions are TOP-LEVEL wrapper arrays (Path A, in PISTON_FORMAT.md).
+The compiler reads `_piston.triggers` directly; it does NOT walk `statements` for `is_trigger`.
 
 **What to implement:**
 1. Remove all `device_map` / `list_role` lookup from compiler.py.
@@ -268,6 +281,14 @@ directly; it does NOT walk `statements` for `is_trigger` nodes.
 only; PISTON_FORMAT.md + STATEMENT_TYPES.md + REFERENCE_PISTON_V2.json are authoritative.
 **Files:** compiler.py, context_builder.py, COMPILER_SPEC.md, PISTON_FORMAT.md,
 STATEMENT_TYPES.md, REFERENCE_PISTON_V2.json, SAMPLE_PISTONS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+### B-2: Full Backend v1-Residue Audit  (do with or before B-1)
+B-0 (Session 71) found api.py was silently still-v1 long after the frontend moved to v2, and
+nothing tracked it. Other backend files were never audited for the same residue. Grep every
+backend `.py` (context_builder.py, ha_client.py, main.py, compiler.py, utils.py) for:
+`device_map`, `list_role`, `logic_version` defaults of 1, and any other v1-model assumptions.
+Confirm each is v2-clean or log a gap. storage.py already confirmed clean (Session 71).
+**Files:** all backend *.py, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -367,6 +388,24 @@ Success = all seven checklist items at top of file.
   any AI-import work. Not blocking v1 round-trip.
 
 ---
+
+---
+
+## Session 71 Notes — Test Vehicle & Adaptation Decisions (not bugs)
+
+- **Test vehicle:** `claude_alarm_checks_faithful.json` is a faithful structural copy of the
+  WebCoRE "Claude Alarm Checks" piston (import code 9j3j), built as a v2 Snapshot — all devices
+  stripped to role placeholders (`entity_ids: []`), every branch/loop/with-block/wait/set_variable
+  reproduced and validated against STATEMENT_TYPES.md schemas. Use THIS to walk the wizard. (An
+  earlier approximate copy gave ambiguous signal and was discarded — stripping devices to
+  placeholders is correct; approximating the LOGIC structure was the mistake.)
+- **HSM / keypad references are adaptation decisions, NOT PistonCore bugs.** The source is
+  Hubitat-native (Hubitat Safety Monitor status, keypad lock codes,
+  `$currentEventDevice:lastCodeName`). The trigger was swapped to a virtual switch; the remaining
+  HSM/keypad references must be modeled in HA (input_select / alarm_control_panel / person-based)
+  when adapting. Do not "fix" these in the wizard.
+- **Known later issue (not a load bug):** `volume_set` uses WebCoRE 0–100 but HA expects 0.0–1.0
+  — a value-conversion concern for the compiler/wizard, logged for when TTS work (GAP-S71-4) runs.
 
 ## Spec File Versions (after Session 69)
 - DESIGN.md **v1.8**

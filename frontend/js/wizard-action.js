@@ -577,6 +577,15 @@ async function _goCommandPicker() {
   if (!WizardCore.deviceData) {
     try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
   }
+  // Ensure globalsData is loaded — _loadActDevices only runs via the device picker flow,
+  // not when _route() calls _goCommandPicker directly on edit. Without this, @global
+  // tokens in sel.tokens resolve to nothing and the service picker shows empty.
+  if (!WizardCore.globalsData) {
+    try {
+      const result = await API.getGlobals();
+      WizardCore.globalsData = Object.values(result || {});
+    } catch(e) { WizardCore.globalsData = []; }
+  }
 
   const deviceGroups = _getGroupedEntityIdsForTokens(_sel.tokens || [_sel.device_id].filter(Boolean));
 

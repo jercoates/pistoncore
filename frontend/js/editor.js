@@ -1391,6 +1391,7 @@ const Editor = (() => {
     insertStatement,
     deleteStatement,
     getPistonVariables: () => (_piston?.variables || []),
+    getGlobalsCache:    () => (_piston?._globalsCache || []),
     getDeviceMap: () => (_piston?.device_map || {}),
     updateConditionOperator(blockId, operator) {
       // Find the block (if, while, repeat, on_event, else_if) and update its condition_operator

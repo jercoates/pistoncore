@@ -292,7 +292,8 @@ const Wizard = (() => {
       if (!token) continue;
       if (token.startsWith('@')) {
         const gname = token.slice(1);
-        const g = (_deviceData_globals || []).find(g => g.name === gname);
+        const globals = (Editor.getGlobalsCache ? Editor.getGlobalsCache() : (_deviceData_globals || []));
+        const g = globals.find(g => g.name === gname);
         const val = g?.value || g?.initial_value;
         _resolveNames(val);
       } else if (!token.includes('.')) {
@@ -352,7 +353,8 @@ const Wizard = (() => {
       if (!token) continue;
       if (token.startsWith('@')) {
         const gname = token.slice(1);
-        const g = (_deviceData_globals || []).find(g => g.name === gname);
+        const globals = (Editor.getGlobalsCache ? Editor.getGlobalsCache() : (_deviceData_globals || []));
+        const g = globals.find(g => g.name === gname);
         _resolveNames(g?.value || g?.initial_value);
       } else if (!token.includes('.')) {
         const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];

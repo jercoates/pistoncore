@@ -1,10 +1,47 @@
 # PistonCore — Speak / Announce Action Contract
 
-**Version:** 0.2 (DRAFT — standalone)
+**Version:** 0.3 (DRAFT — standalone)
 **Status:** Pre-coding contract. NOT yet integrated into WIZARD_SPEC.md / COMPILER_SPEC.md.
-**Last Updated:** June 2026 (Session 73 — feasibility confirmed, tts.speak signature verified)
+**Last Updated:** June 2026 (Session 73 — verified/assumed ledger added)
 **Authority:** WebCoRE `with` / `do` / `Speak text` / `Set Volume` task model
 (piston.module.html + WebCoRE source archived in Session 14 chat).
+
+---
+
+## LEDGER — Verified vs. Assumed (read this to audit the spec)
+
+Default convention: **the spec records Jeremy's DECISIONS.** Anything Claude *assumed*
+to fill a gap is listed in the ASSUMED column below and is **never load-bearing** — it
+is a proposal awaiting Jeremy's call, freely overridable in coding without archaeology.
+If it is not in the ASSUMED list, it is either a verified fact or a Jeremy decision.
+
+### VERIFIED (live HA / WebCoRE source — facts, not choices)
+- `tts.speak` takes `target.entity_id` (the engine), `data.media_player_entity_id` (the
+  output), and `data.message`. (HA docs, Session 73.)
+- `cache: true` is a real `tts.speak` data param; standard in Piper/Wyoming usage; it is
+  the offline-clip-caching equivalent of Hubitat's behavior. (HA docs / community.)
+- SSML rendering is engine-dependent: SSML-capable engines require `options.text_type:
+  ssml`; Piper has no SSML support at all. (HA docs, Session 73.)
+- WebCoRE reference structure: Speak is a `do` task inside a `with` block; Set Volume is a
+  separate sibling task; no engine appears in the piston. (WebCoRE trace, Session 72.)
+- The reference piston's `<prosody>` was a hand-added flourish, not part of WebCoRE's
+  model. (Jeremy, Session 73.)
+
+### DECIDED (Jeremy's calls)
+- Engine is resolved at compile time from a global setting, not stored in the node.
+- Compiler is read-only; incompatibility goes to the debug page, never mutates JSON.
+- SSML passed verbatim; compiler does NOT inject `text_type` or strip SSML; rate control
+  is an engine/voice concern (`length_scale` for Piper), out of scope for the node.
+- Build queues behind GAP-S72-1 (multi-task with-block).
+
+### ASSUMED by Claude (NOT load-bearing — override freely in coding)
+- All field/key names in Section 4 (`with_block`, `entity_ids`, `tasks`, `command`,
+  `params`, `set_volume`, `speak_text`, `message`, `volume`) — PROPOSED only, must be
+  reconciled against PISTON_FORMAT.md. Section 7 tracks this.
+- That Set Volume already exists as a reusable media_player task type (Section 7 item 4).
+- The author-time wizard gate logic (PLAY_MEDIA bit + tts.* existence) as the gating
+  rule — proposed shape, not a verified requirement.
+- `cache` emitted as default-on with no user toggle — a proposed default, not a decision.
 
 ---
 
@@ -327,3 +364,24 @@ These are not free choices — they are reconciliations against existing rigid s
 - **Compiler:** read-only; pulls live HA at compile time for engine + compatibility;
   emits volume_set + tts.speak (with `cache: true`); SSML passed verbatim, never opted-in
   or stripped; on incompatibility writes to the debug page; never touches the JSON.
+
+---
+
+## CONVENTION NOTE — for the session prompt and TASKS.md
+
+**New standing convention (add to session prompt + TASKS.md):**
+
+> When Claude writes or edits a spec, it MUST mark anything that is Claude's own
+> assumption (a gap Claude filled, a proposed name/shape/rule Jeremy did not explicitly
+> decide) as ASSUMED. Decisions do not need marking — the default is that a spec records
+> Jeremy's decisions. Marking the assumptions is what keeps the rare assumption visible
+> instead of letting it masquerade as a settled decision. Assumptions are never
+> load-bearing and are freely overridable in coding. Maintain a "Verified vs. Assumed"
+> ledger near the top of each standalone spec.
+
+This exists because the project's drift-class bugs came partly from Claude's gap-filling
+assumptions hardening into apparent "decisions" across sessions that neither party could
+later distinguish. The existing prompt already states Jeremy will break any "rule" that
+blocks coding a working product — this convention is the complement: it keeps spec rules
+honestly labeled so Jeremy knows which ones are real decisions worth keeping and which
+are Claude's proposals safe to break.

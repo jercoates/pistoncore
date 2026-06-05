@@ -1,8 +1,8 @@
 # PistonCore — Speak / Announce Action Contract
 
-**Version:** 0.1 (DRAFT — standalone)
+**Version:** 0.2 (DRAFT — standalone)
 **Status:** Pre-coding contract. NOT yet integrated into WIZARD_SPEC.md / COMPILER_SPEC.md.
-**Last Updated:** June 2026 (Session 72 design)
+**Last Updated:** June 2026 (Session 73 — feasibility confirmed, tts.speak signature verified)
 **Authority:** WebCoRE `with` / `do` / `Speak text` / `Set Volume` task model
 (piston.module.html + WebCoRE source archived in Session 14 chat).
 
@@ -65,9 +65,12 @@ Observations that fix the contract:
    TTS-engine reference. The engine is environment configuration, resolved outside the
    piston — i.e. at compile time, from a global setting.
 4. **The message is a string with variable interpolation** (`"{Message}"`). The Message
-   variable was built earlier with Set variable and contains SSML
-   (`<prosody rate='slow'>$currentEventDevice, Opened</prosody>`), so the message field
-   must pass SSML through untouched.
+   variable was built earlier with Set variable and may contain SSML
+   (`<prosody rate='slow'>$currentEventDevice, Opened</prosody>`). The message field must
+   pass whatever the variable holds — literal text, variable tokens, SSML — through
+   untouched. **SSML rendering is engine-dependent and explicitly NOT guaranteed** (see
+   Section 5.5). In the reference piston the `<prosody>` was a hand-added flourish, not
+   part of WebCoRE's model; it is cosmetic, not load-bearing.
 
 ---
 
@@ -219,10 +222,32 @@ For each with-block containing a speak task, emit in order:
    resolved `entity_ids` (volume converted from the stored UI scale to HA's 0.0–1.0
    here, in the compiler).
 2. `tts.speak`:
-   - target = the global TTS engine entity
+   - target = the global TTS engine entity (`target.entity_id`, a `tts.*` entity)
    - `data.media_player_entity_id` = the with-block's resolved `entity_ids`
    - `data.message` = the compiled Jinja2 template produced from `params.message`
-     (variable tokens → variable refs; SSML preserved verbatim).
+     (variable tokens → variable refs; message contents preserved verbatim).
+   - `data.cache: true` — emitted by default. This is the HA-side equivalent of the
+     offline clip caching Jeremy relies on under Hubitat: HA generates the audio once and
+     persists it, so a self-hosted engine (Piper) does not re-synthesize every fire and
+     announcements survive without a live cloud dependency. Confirmed standard in every
+     Piper/Wyoming `tts.speak` example. Whether `cache` is exposed as a user toggle or
+     hardcoded is a later UI decision; default-on is the contract.
+
+The verified `tts.speak` shape (HA docs, Session 73):
+
+```yaml
+action: tts.speak
+target:
+  entity_id: tts.piper          # the engine (global setting)
+data:
+  cache: true
+  media_player_entity_id: media_player.sonos_kitchen   # the output(s)
+  message: "{{ ...compiled Jinja2... }}"
+```
+
+`target.entity_id` selects the engine; `data.media_player_entity_id` selects the
+output device(s). These are two distinct fields and must not be conflated — the engine
+is never a media_player and the media_player is never the target.
 
 All values go through Jinja2 (standing project rule — no exceptions). The
 variable-token → Jinja substitution MUST reuse the single canonical substitution
@@ -231,6 +256,28 @@ path for Speak.
 
 PyScript target: same service call via the PyScript service-call mechanism, preserving
 volume-then-speak ordering. (Detail confirmed during compiler work.)
+
+### 5.5 SSML — passthrough, not rendering (feasibility confirmed Session 73)
+
+The message string may contain SSML, but **the compiler does not guarantee it renders.**
+SSML interpretation is entirely a property of the resolved TTS engine, not of PistonCore:
+
+- **Engines that honor SSML** (Google Cloud, Polly, etc.) require an explicit opt-in,
+  typically `options.text_type: ssml` in the `tts.speak` call (default is `text`). Plain
+  passthrough alone is a no-op — the tags speak as literal characters unless the engine
+  is told to parse them.
+- **Piper (Jeremy's local engine) has no SSML support at all.** `<prosody>` and any other
+  tags are ignored/spoken literally. There is no `text_type` option for it.
+
+Contract decision: the message is passed verbatim; the compiler does **not** inject
+`text_type: ssml` and does **not** strip SSML. Rendering SSML is out of scope for the
+Speak action. If per-engine SSML opt-in is ever wanted, it belongs in the global
+engine/options configuration, not in the Speak node.
+
+Rate/cadence control (the original `<prosody rate='slow'>` intent) is likewise an
+engine concern, not a node concern. For Piper, the local equivalent is the voice's
+`length_scale` (utterance-wide speed), configured at the voice/Wyoming level — never
+in the piston. This keeps the Speak action engine-agnostic and fully local-capable.
 
 ---
 
@@ -267,11 +314,16 @@ These are not free choices — they are reconciliations against existing rigid s
 
 ## 8. Summary — the contract in one line each
 
+- **Feasibility (Session 73):** CONFIRMED possible in HA, fully local. Message-from-live-data
+  → native Script `variables:` block with Jinja2 interpolation; spoken by Piper, cached
+  via `cache: true`, played on Sonos, zero cloud/internet dependency. No PyScript required
+  for the variable mechanic. The only thing that ever pulled toward cloud was SSML rate
+  control, which is cosmetic and out of scope.
 - **Editor:** Speak renders as a `do` task in a `with` block, Set Volume as a sibling
   task, matching WebCoRE exactly. This is the deliverable.
 - **JSON:** Speak is a task in `with_block.tasks`; no engine; message is a
-  token-interpolated SSML-preserving string. Shape dictated by WebCoRE, reconciled to
-  existing schema.
+  token-interpolated string (SSML permitted but not rendered-guaranteed). Shape dictated
+  by WebCoRE, reconciled to existing schema.
 - **Compiler:** read-only; pulls live HA at compile time for engine + compatibility;
-  emits volume_set + tts.speak; on incompatibility writes to the debug page; never
-  touches the JSON.
+  emits volume_set + tts.speak (with `cache: true`); SSML passed verbatim, never opted-in
+  or stripped; on incompatibility writes to the debug page; never touches the JSON.

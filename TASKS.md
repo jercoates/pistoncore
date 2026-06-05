@@ -93,6 +93,10 @@ Default order is top to bottom. Reorder as testing dictates; keep the groups int
 **Files:** wizard-action.js, wizard-core.js, wizard-variable.js, editor.js,
 WIZARD_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
+- ** i added a SPEAK_ACTION_SPEC.md with a spec for the tts in the editor and the compiler
+this is a do first task as it impacts how the rest get resolved.  from you, do GAP-S72-1 first
+; the multi-task with-block fix is the foundation the Speak spec depends on.
+
 - **GAP-S71-1 ✅ CLOSED (Session 72):** Global resolution in action wizard fixed.
   `_getFlatEntityIds` and `_getGroupedEntityIdsForTokens` now read from
   `Editor.getGlobalsCache()` (loaded at editor-open time) instead of `_deviceData_globals`

@@ -1,0 +1,277 @@
+# PistonCore — Speak / Announce Action Contract
+
+**Version:** 0.1 (DRAFT — standalone)
+**Status:** Pre-coding contract. NOT yet integrated into WIZARD_SPEC.md / COMPILER_SPEC.md.
+**Last Updated:** June 2026 (Session 72 design)
+**Authority:** WebCoRE `with` / `do` / `Speak text` / `Set Volume` task model
+(piston.module.html + WebCoRE source archived in Session 14 chat).
+
+---
+
+## 0. Why this document exists
+
+Speak/TTS is core to Jeremy's real automations and has had zero wizard work
+(GAP-S71-4). Before any code is written, the JSON contract that the editor/wizard
+produces and the compiler consumes must be fixed in writing. The drift-class bugs
+this project has fought (`service_call` vs `with_block`, `entity_id` vs `entity_ids`,
+indexed-key params) all came from the frontend and compiler each assuming a JSON
+shape with no written contract between them. Speak is a new task shape, so it gets
+pinned here first.
+
+This file will be folded into WIZARD_SPEC.md (editor/wizard side) and COMPILER_SPEC.md
+(compiler side) as those areas are coded. A TASKS.md entry tracks final spec integration.
+
+---
+
+## 1. First principle — what defines "done"
+
+**PistonCore is a recreation of WebCoRE for Home Assistant, as faithfully as HA allows.**
+
+The editor's job is to reproduce WebCoRE's visual logic exactly. What the user *sees*
+in the editor is how they know what the piston does — the visual IS the contract with
+the user. How the automation actually runs under the hood (which HA service, which TTS
+engine, how volume is scaled) has no bearing on the visual and is entirely hidden.
+
+Therefore:
+
+- **Editor/visual fidelity is the definition of done.** Verified by eye against the
+  WebCoRE source piston — it matches character-for-character or it does not.
+- **The compiler is invisible plumbing.** Its only obligation is: given the fixed JSON
+  the editor produced, emit HA that behaves as the visual promises.
+- **Under-the-hood choices must never leak upward into the editor display.**
+
+---
+
+## 2. The WebCoRE reference (authority)
+
+From the live WebCoRE trace (Hubitat HubwebCoRE, confirmed Session 72):
+
+```
+with {@Announcement_Sonos}        /* #13 */
+do
+    Set Volume to 70;             /* #14 */
+    Speak text "{Message}";       /* #15 */
+end with;
+```
+
+Observations that fix the contract:
+
+1. **Speak is a task inside a `with` block — NOT a standalone action node and NOT a
+   distinct top-level type.** The `with {device}` owns an ordered list of `do` tasks.
+   "Speak text" is one task type among others.
+2. **Set Volume is a separate sibling task**, ordered before Speak inside the same
+   with-block. Volume is NOT a field on the Speak task.
+3. **No engine appears anywhere in the piston.** `Speak text "{Message}"` carries no
+   TTS-engine reference. The engine is environment configuration, resolved outside the
+   piston — i.e. at compile time, from a global setting.
+4. **The message is a string with variable interpolation** (`"{Message}"`). The Message
+   variable was built earlier with Set variable and contains SSML
+   (`<prosody rate='slow'>$currentEventDevice, Opened</prosody>`), so the message field
+   must pass SSML through untouched.
+
+---
+
+## 3. Editor / visual contract (AUTHORITATIVE — the deliverable)
+
+The editor renders the Speak task and its containing with-block exactly as WebCoRE
+displays them. This is a pure deterministic projection from the rigid JSON — one node
+shape, one display form, no judgment calls.
+
+### 3.1 Rendered display
+
+Inside a with-block, each Speak task renders as:
+
+```
+Speak text "<message>";
+```
+
+A sibling Set Volume task renders as:
+
+```
+Set Volume to <n>;
+```
+
+The enclosing block renders as WebCoRE does:
+
+```
+with {<device or @global>}
+do
+    <task>;
+    <task>;
+end with;
+```
+
+`with`, `do`, `end with` are display artifacts only — never editable nodes, never
+stored. (Consistent with the core rendering invariant in STATEMENT_TYPES.md.)
+
+### 3.2 Wizard task editor
+
+The Speak task editor mirrors WebCoRE's `dialog-edit-task` template (pull the exact
+template from the Session 14 chat before coding the form). At minimum it provides:
+
+- A message field: free text + `$variable` insertion (literals and variables mixed),
+  SSML passed through verbatim.
+- (Set Volume remains its own task editor, unchanged — it is not part of the Speak form.)
+
+### 3.3 Where Speak appears in the wizard (author-time gate)
+
+Speak is offered as an available **task type inside a with-block** (the `do` task list),
+NOT as a synthetic command competing in the flat `media_player.*` service list.
+
+The author-time gate decides whether Speak is offered:
+
+```
+all resolved entities in the with-block are domain media_player?
+  AND every resolved player advertises supported_features & 512 (PLAY_MEDIA)?
+  AND at least one tts.* engine entity exists in HA?
+    → offer "Speak text" as an available do-task
+```
+
+- PLAY_MEDIA is intersected across all selected physical devices (union within a
+  device's sub-entities, then intersect across devices — the locked capability pattern).
+- This gate is **best-effort and author-time only.** It can be stale. The authoritative
+  compatibility check happens in the compiler (Section 5). The wizard gate exists to stop
+  the user building an obviously-broken task, not to guarantee correctness.
+
+---
+
+## 4. JSON contract (the shape that backs the visual)
+
+The JSON shape is **dictated by the WebCoRE structure**, not chosen freely. Speak is a
+task in a with-block because WebCoRE makes it one. This shape backs the Section 3 visual
+and is the fixed input the compiler consumes.
+
+> NOTE — field names below are PROPOSED and must be reconciled against the actual
+> with_block / task schema in PISTON_FORMAT.md during coding. The intent is fixed
+> (Speak = a task in a with_block; volume = a separate sibling task; no engine in the
+> node; message = token-interpolated string). Exact key names get locked against the
+> existing schema, NOT invented here. This is where `entity_id` vs `entity_ids` and
+> `service_call` vs `with_block` must be checked, not assumed.
+
+Illustrative (subject to schema reconciliation):
+
+```json
+{
+  "type": "with_block",
+  "entity_ids": ["media_player.sonos_kitchen", "media_player.sonos_living"],
+  "tasks": [
+    {
+      "type": "task",
+      "command": "set_volume",
+      "params": { "volume": 70 }
+    },
+    {
+      "type": "task",
+      "command": "speak_text",
+      "params": { "message": "{Message}" }
+    }
+  ]
+}
+```
+
+Fixed by the WebCoRE structure:
+
+- Speak is a `task` within `with_block.tasks` — never a standalone node, never a top-level
+  type.
+- Set Volume is a separate sibling `task`, ordered before the speak task.
+- The node carries **no TTS engine** — engine is resolved at compile time from a global.
+- `params.message` is a single string containing literal text + variable tokens
+  (`$Var` / `{Var}` per the project's variable syntax), SSML preserved verbatim.
+- Volume scale stored in the node is a UI/visual decision (WebCoRE shows `70`); any
+  conversion to HA's 0.0–1.0 happens in the compiler, never in the stored JSON.
+
+---
+
+## 5. Compiler contract (read-only, invisible plumbing)
+
+### 5.1 Absolute rule
+
+**The compiler reads the JSON. It NEVER writes, reshapes, or mutates it.** The JSON is
+authored by the editor/wizard and is the source of truth. The compiler is input-only.
+This is the rule whose violation has bitten the project before.
+
+### 5.2 Live HA lookups at compile time
+
+The compiler MAY pull live HA information at compile time to make its hidden translation
+correct. These lookups inform the OUTPUT only — never the source JSON:
+
+- **TTS engine selection** — resolve the engine from the global "default TTS engine"
+  setting (a `tts.*` entity discovered from HA states). The engine is not in the piston.
+- **Device compatibility** — verify each resolved `media_player` in the with-block can
+  actually accept TTS (live `supported_features` / PLAY_MEDIA bit at compile time).
+
+### 5.3 Error handling — debug page, never mutation
+
+If the compiler finds an incompatible device (cannot speak) or no available TTS engine:
+
+- It does **not** edit the JSON.
+- It does **not** silently drop the Speak task.
+- It writes a clear, specific error to the **debug page** identifying the offending
+  device/engine and why it failed.
+
+The piston source stays untouched regardless of compile outcome.
+
+### 5.4 Emitted HA (per Speak task in a with-block)
+
+For each with-block containing a speak task, emit in order:
+
+1. If a Set Volume task is present, `media_player.volume_set` for the with-block's
+   resolved `entity_ids` (volume converted from the stored UI scale to HA's 0.0–1.0
+   here, in the compiler).
+2. `tts.speak`:
+   - target = the global TTS engine entity
+   - `data.media_player_entity_id` = the with-block's resolved `entity_ids`
+   - `data.message` = the compiled Jinja2 template produced from `params.message`
+     (variable tokens → variable refs; SSML preserved verbatim).
+
+All values go through Jinja2 (standing project rule — no exceptions). The
+variable-token → Jinja substitution MUST reuse the single canonical substitution
+function used elsewhere in the compiler; do not introduce a second variable-substitution
+path for Speak.
+
+PyScript target: same service call via the PyScript service-call mechanism, preserving
+volume-then-speak ordering. (Detail confirmed during compiler work.)
+
+---
+
+## 6. Data availability (confirmed Session 72)
+
+Everything the gate and compiler need is already in the single HA `get_states` call —
+no new HA round-trips required:
+
+- **PLAY_MEDIA bit:** `attributes.supported_features` is read in `ha_client.py`
+  `_fetch_devices` (line ~375) but currently DROPPED — the device dict (line ~384) keeps
+  only entity_id/friendly_name/domain/area/device_id. Carrying `supported_features`
+  through `_fetch_devices` and then through `_groupDevices` (wizard-core.js ~220) is the
+  plumbing needed for the author-time gate.
+- **TTS engine list:** `tts.*` entities are in the same `get_states` result but filtered
+  out by `ALLOWED_DOMAINS` (ha_client.py ~372). A small enumeration of `tts.` entities
+  feeds the global default-engine setting.
+
+---
+
+## 7. Open items to reconcile during coding (NOT decisions — schema checks)
+
+These are not free choices — they are reconciliations against existing rigid structure:
+
+1. Exact field/key names in Section 4 vs the real with_block/task schema in
+   PISTON_FORMAT.md (the `entity_id` vs `entity_ids`, `service_call` vs `with_block`
+   problem area).
+2. The exact `dialog-edit-task` template from Session 14 for the Speak form layout.
+3. Where the global "default TTS engine" setting lives (globals store vs a separate
+   settings area) and how it is populated from discovered `tts.*` entities.
+4. Volume task: confirm Set Volume already exists as a media_player task type and reuse
+   it rather than adding anything for Speak.
+
+---
+
+## 8. Summary — the contract in one line each
+
+- **Editor:** Speak renders as a `do` task in a `with` block, Set Volume as a sibling
+  task, matching WebCoRE exactly. This is the deliverable.
+- **JSON:** Speak is a task in `with_block.tasks`; no engine; message is a
+  token-interpolated SSML-preserving string. Shape dictated by WebCoRE, reconciled to
+  existing schema.
+- **Compiler:** read-only; pulls live HA at compile time for engine + compatibility;
+  emits volume_set + tts.speak; on incompatibility writes to the debug page; never
+  touches the JSON.

@@ -1248,8 +1248,11 @@ const Editor = (() => {
     // Snapshot JSON is generated on export, not on save. Do not generate it here.
 
     try {
-      const result = await API.savePiston(_piston.id, _piston);
+      // Strip runtime-only fields before sending — never part of the piston schema.
+      const { _globalsCache, ...pistonToSave } = _piston;
+      const result = await API.savePiston(_piston.id, pistonToSave);
       _piston = result.piston || _piston;
+      if (_globalsCache) _piston._globalsCache = _globalsCache; // restore runtime cache — never stored by backend
       _isNew = false;
       _markUnsaved(false);
 

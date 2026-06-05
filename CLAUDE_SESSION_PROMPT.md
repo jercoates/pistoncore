@@ -432,6 +432,21 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
   - **Order corrected:** STAGE B is BLOCKED behind the wizard round-trip, not "next". B-0 was the
     one out-of-order exception (the piston couldn't load without it). Next session: W-S15
     (GAP-S71-1 first — speakers/TTS are core and blocked).
+- **Session 72 — GAP-S71-1 CLOSED; _globalsCache leak fixed; W-S17 filed:**
+  - GAP-S71-1 fixed: `_getFlatEntityIds` and `_getGroupedEntityIdsForTokens` were reading
+    `_deviceData_globals` (never populated in the edit flow). Fix: exposed `Editor.getGlobalsCache()`
+    on the Editor public API alongside `getPistonVariables()`. Both resolvers now read from
+    `_piston._globalsCache` loaded at editor-open time. Action wizard now correctly resolves
+    `@global` tokens to device groups and shows the full service list.
+  - `_globalsCache` leak fixed: editor.js was sending `_globalsCache` stripped on save but backend
+    echoed it back in `result.piston`, putting it straight back on `_piston`. Fix: restore cache
+    from local variable after `_piston = result.piston` reassignment.
+  - Walking the alarm piston surfaced a class of must-work features with no wizard path:
+    multi-task with-blocks (GAP-S72-1), wait with variable duration (GAP-S72-2), volume_set
+    with variable + unit conversion (GAP-S72-3), set_variable with expression (GAP-S72-4).
+    These are not nice-to-haves — real pistons cannot be built without them. Filed as W-S17
+    (spec session required before any code).
+  - Files changed: editor.js, wizard-core.js, wizard-action.js.
 
 ---
 
@@ -449,37 +464,20 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 All open gaps and fixes live in TASKS.md, grouped into session bundles so related bugs get
 fixed together. This prompt no longer duplicates the gap list (one task file — completed work
-moves to TASKS_HISTORY.md). **B-0 closed (backend v2). STAGE B is BLOCKED behind the wizard
-round-trip. Recommended next bundle: W-S15 — start with GAP-S71-1 (global resolution in the
-action wizard), since speaker/TTS actions are core and currently blocked.**
-
-### How to diagnose GAP-S71-1 (run first next session)
-The action "Do..." picker dies because `_getGroupedEntityIdsForTokens(_sel.tokens)`
-(wizard-action.js `_goCommandPicker` ~581) returns empty for an `@global` token. Two candidate
-root causes — get runtime data before writing a fix. With the "Add a new task" picker open on a
-global-backed with-block (showing "No devices could be resolved"), run in the browser console:
-```
-console.log('sel.tokens:', WizardCore.sel.tokens);
-API.getGlobals().then(g => console.log('globals:', g));
-API.getDevices().then(d => console.log('media_players:',
-  d.filter(x => (x.entity_id||'').startsWith('media_player'))));
-```
-- (a) Does `_sel.tokens` even contain the `@Speakers` token?
-- (b) Is the resolver reading the wrong/empty cache? `_getGroupedEntityIdsForTokens` reads
-  `_deviceData_globals` (wizard-core.js ~370, may be null), while the condition wizard reads
-  `_piston._globalsCache` — a likely mismatch.
-- (c) Does the global's stored `value` hold friendly NAMES (per load-bearing rule) or entity_ids,
-  and is the target media_player actually present in `_groupDevices(_deviceData)`?
-The fix follows from which of these is true — do not guess.
+moves to TASKS_HISTORY.md). **GAP-S71-1 CLOSED (Session 72). Recommended next: W-S17 spec
+session (must-work wizard features — multi-task with-blocks, wait, TTS, set_variable with
+expression). These block real piston construction and must be fully specced before coding.**
 
 ---
 
-## Test Vehicle & Adaptation Notes (Session 71)
+## Test Vehicle & Adaptation Notes (Sessions 71–72)
 - `claude_alarm_checks_faithful.json` is the faithful alarm-piston copy to walk the wizard with.
   Devices are role placeholders (`entity_ids: []`) — correct; the LOGIC structure is faithful.
 - HSM / keypad / `$currentEventDevice:lastCodeName` references are HA adaptation decisions,
   NOT bugs. Trigger already swapped to a virtual switch; model the rest in HA when adapting.
-- `volume_set` 0–100 (WebCoRE) vs 0.0–1.0 (HA) is a conversion concern for GAP-S71-4, logged.
+- `volume_set` 0–100 (WebCoRE) vs 0.0–1.0 (HA) is a conversion concern for GAP-S72-3, logged.
+- Old globals (test/lights/lumin_sensor/lock/Notifications_Push) still store entity_ids in
+  `value` — pre-fix data. Edit them manually via the globals panel. Speakers is correct.
 
 ---
 

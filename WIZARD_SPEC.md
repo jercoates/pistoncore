@@ -1,8 +1,13 @@
 # PistonCore Wizard Specification
 
-**Version:** 2.6
+**Version:** 2.7
 **Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
+**Last Updated:** June 2026 (Session 73 — W-6 reconciled to code + WITH_BLOCK_TASK_FRAMEWORK.md:
+  "Add more" annotated with the VERIFIED GAP-S72-1 root cause (overwrite vs append); added
+  per-task edit-by-id, per-task delete, and virtual-tasks-inside-device-block flows that the
+  spec previously lacked. The with-block container, editor render, and append seam already
+  exist in code; the wizard commit/edit paths are the work. See WITH_BLOCK_TASK_FRAMEWORK.md.)
+**Prior:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
   output examples; _reResolveVariableUses contract; globals cache model; UI/data
   separation rule; resolution path rule. Session 69b — CODE_FINDINGS reconciliation
   (Path A, code authoritative): W-7 variable JSON corrected to actual code field names
@@ -991,6 +996,36 @@ Each field from service definition:
 ### "Add more" behavior
 Inserts current task into action node's `tasks` array, reopens W-6 for same devices.
 Does NOT create a new action node — accumulates tasks in one action node.
+
+> ⚠ **IMPLEMENTATION STATUS (Session 73 — VERIFIED against code):** This is the correct
+> spec'd behavior, but the code does NOT do it yet. `_saveDeviceCmd` (wizard-action.js)
+> rebuilds the whole action node with `tasks:[newTask]` on every commit — overwriting the
+> array instead of appending. This is the true root cause of GAP-S72-1. The fix: commit one
+> task via the existing `insertStatement('task', task, {blockId})` append seam (editor.js),
+> which already pushes-or-replaces by `task.id`. The editor render and append seam already
+> support multi-task blocks; only the wizard commit path is wrong. See
+> WITH_BLOCK_TASK_FRAMEWORK.md §1.2 (BUG A) and §6 item 2.
+
+### Editing one task in a multi-task block (Session 73 — currently broken, VERIFIED)
+The editor renders each task line with its own `task.id` (editor.js), so clicking a task
+should open THAT task. But `_route` (wizard-core.js) hydrates only `_editNode.tasks[0]`, so
+editing the 2nd+ task is impossible. Fix: thread the clicked `task.id` into the edit context;
+hydrate that task; on Save replace it by id via the same append seam. See
+WITH_BLOCK_TASK_FRAMEWORK.md §1.2 (BUG B) and §3.2.
+
+### Deleting one task (Session 73 — not yet covered)
+Delete in task-edit mode removes only the addressed task by `task.id` from `tasks[]`,
+preserving siblings and order. If the last task is removed, the empty action node is removed
+(default; confirm — see framework spec §3.3). A remove-by-task-id path must be added (the
+current `insertStatement` seam only inserts/replaces). See WITH_BLOCK_TASK_FRAMEWORK.md §3.3.
+
+### Virtual tasks inside a device block (Session 73 — not yet possible)
+`+ add a new task` inside a device with-block must offer BOTH device commands AND the
+virtual/location commands (LOCATION_COMMANDS) in one picker (WebCoRE's three-group "Do…"
+dropdown), and append a virtual task into the block's `tasks[]` — interleaved with device
+tasks, order preserved. Today `_saveLocationCmd` only produces standalone statements or
+fake one-task "Location" nodes, so Wait/notify/etc. cannot live inside a device block. See
+WITH_BLOCK_TASK_FRAMEWORK.md §1.2 (BUG C), §3.4, and §2.3 (the virtual-task shape).
 
 ### Footer (new)
 `← Back` | ⚙ | `Add more` | `Add`

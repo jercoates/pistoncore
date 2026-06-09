@@ -1,8 +1,14 @@
 # PistonCore — Statement Types Reference
 
-**Version:** 2.2
+**Version:** 2.3
 **Status:** Authoritative — Required reference before compiler or wizard coding
-**Last Updated:** May 2026 (Session 69 / D-S5b — role_tokens added to action schema
+**Last Updated:** June 2026 (Session 73 — task model reconciled to code +
+  WITH_BLOCK_TASK_FRAMEWORK.md: Task Schema (§1) now documents device-vs-virtual tasks,
+  the ASSUMED `kind` discriminator, and load-bearing task order; set_variable (§13) and
+  wait (§14) noted as also-available-as-in-block-virtual-tasks, with wait duration as an
+  operand for variable-duration support. See WITH_BLOCK_TASK_FRAMEWORK.md for the
+  container contract and current code gaps.)
+**Prior:** May 2026 (Session 69 / D-S5b — role_tokens added to action schema
   (Section 1), for_each schema (Section 6), and Condition Object Schema; render
   invariant "100%" language softened; compiler output warning block added)
 
@@ -128,6 +134,9 @@ This is consistent with the nested tree model — everything is embedded.
 
 ### Task Schema
 
+A task is one entry in the action node's `tasks[]` array — the "do …" list. Two kinds:
+
+**Device task** (a service call against the block's `entity_ids`):
 ```json
 {
   "id": "task_001",
@@ -139,8 +148,28 @@ This is consistent with the nested tree model — everything is embedded.
 }
 ```
 
+**Virtual task** (a non-device action inside the block — Wait, Set variable, notify, log;
+ASSUMED `kind` discriminator, Session 73, not yet in code):
+```json
+{
+  "id": "task_002",
+  "kind": "virtual",
+  "command": "wait",
+  "parameters": { "duration": 5, "duration_unit": "minutes" },
+  "description": null
+}
+```
+
 Tasks are embedded objects inside the action node. They are never referenced by ID
-from outside the action node.
+from outside the action node. **Order is load-bearing** — tasks run top to bottom in array
+order, not concurrently. Array position = execution order; round-trip and compile preserve
+it exactly.
+
+The same command may appear as a **virtual task here OR as a top-level statement node**
+(`wait`, `set_variable`, `log_message`, `call_piston` — see their sections below). WebCoRE
+allows both. See `WITH_BLOCK_TASK_FRAMEWORK.md` for the task-container contract, the
+device/virtual model, and the current code gaps (the wizard does not yet append/edit
+multiple tasks correctly, and virtual tasks cannot yet be added inside a device block).
 
 ### Editor Render
 
@@ -844,6 +873,10 @@ do Stop;
 
 ## 13. set_variable
 
+> Also available as a **virtual task** inside an action node's `tasks[]` (not only as a
+> top-level statement). Same payload (`variable` + `value` operand). See
+> WITH_BLOCK_TASK_FRAMEWORK.md §2.3.
+
 ### JSON Schema
 
 ```json
@@ -900,6 +933,11 @@ Global variable:
 ---
 
 ## 14. wait (duration)
+
+> Also available as a **virtual task** inside an action node's `tasks[]`. The `duration`
+> field should accept an operand (literal OR variable) so a variable-duration wait
+> (e.g. `Wait {integer_Lock_Confirm_Wait} seconds`) is expressible — confirmed needed by
+> real pistons. See WITH_BLOCK_TASK_FRAMEWORK.md §5.3. (ASSUMED operand-duration extension.)
 
 ### JSON Schema
 

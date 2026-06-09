@@ -1,8 +1,14 @@
 # PistonCore — Canonical Piston JSON Format
 
-**Version:** 2.3
+**Version:** 2.4
 **Status:** Authoritative — Single source of truth for piston data structure
-**Last Updated:** May 2026 (Session 69 — D-S5/D-S5b: role_tokens added to Condition and
+**Last Updated:** June 2026 (Session 73 — task model reconciled to code + WITH_BLOCK_TASK_FRAMEWORK.md:
+  Task Field Reference now documents device-vs-virtual tasks and the proposed `kind`
+  discriminator (ASSUMED); task order documented as load-bearing; statement-vs-task duality
+  for wait/set_variable/log_message/call_piston documented; `tasks[]` documented as the
+  universal ordered task container with the `insertStatement` task seam as the add/replace
+  path. See WITH_BLOCK_TASK_FRAMEWORK.md for the container contract and current code gaps.)
+**Prior:** May 2026 (Session 69 — D-S5/D-S5b: role_tokens added to Condition and
   Action schemas (GAP-S64-1); Field Lifecycle Rules section added; render invariant
   language softened per SPEC_AUDIT.md finding #1; single-resolution-path rule clarified
   per finding #2. Session 69b — CODE_FINDINGS reconciliation (Path A, code is
@@ -418,6 +424,15 @@ no lookup map is required or permitted.
 consistent with the nested tree model — everything is embedded. Tasks have their
 own `task_` prefixed IDs and are never referenced from outside their parent action node.
 
+The `tasks[]` array is the **universal ordered task container** — the "do …" list of a
+WebCoRE `with {devices} do … end with` block. It holds an ordered, possibly heterogeneous
+list of tasks: device service calls and virtual (non-device) actions, interleaved. Order =
+execution order (load-bearing — see Task Field Reference). A task is appended/edited/removed
+in place by its `task_` id; the editor's `insertStatement` task path (context `'task'` +
+the action node's id) is the canonical add/replace seam. See
+`WITH_BLOCK_TASK_FRAMEWORK.md` for the full container contract and the current
+implementation gaps.
+
 ---
 
 ## Condition Object Schema
@@ -612,14 +627,44 @@ Action nodes appear in `then`, `else`, `statements`, and `else_ifs[n].statements
 
 ### Task Field Reference
 
+A task is one entry in an action node's `tasks[]` array. There are two kinds: a **device
+task** (a service call against the with-block's `entity_ids`) and a **virtual task** (a
+non-device action — Wait, Set variable, notify, log — that ignores the block's devices).
+The two are distinguished so the compiler can route them. See
+`WITH_BLOCK_TASK_FRAMEWORK.md` for the authoritative task-container contract; this table
+is the field-level schema.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | Yes | Stable ID. Format: `task_` + 8 hex chars. |
-| `command` | string | Yes | Service name without domain (e.g. `"turn_on"`). |
-| `domain` | string | Yes | HA domain (e.g. `"light"`, `"switch"`). |
-| `ha_service` | string | Yes | Full service call: `domain + "." + command`. Must always be set explicitly. |
-| `parameters` | object | No | Service call data fields. Empty object `{}` if none. |
+| `kind` | string | No | **ASSUMED (Session 73) — proposed, not yet in code.** `"device"` (default if absent) or `"virtual"`. Distinguishes a device service call from a non-device action so the compiler routes correctly. The framework requirement is only that a task is unambiguously classifiable device-vs-virtual; the exact mechanism (this `kind` field, or detecting a virtual task by a reserved `domain`) is a coding-session choice — see WITH_BLOCK_TASK_FRAMEWORK.md §2.3. Override freely. |
+| `command` | string | Yes | Service name without domain (e.g. `"turn_on"`) for a device task; the virtual command id (e.g. `"wait"`, `"set_variable"`) for a virtual task. |
+| `domain` | string | Device tasks only | HA domain (e.g. `"light"`, `"switch"`). Present on device tasks. Omitted on virtual tasks — the compiler resolves a virtual task's HA mapping from `command`. |
+| `ha_service` | string | Device tasks only | Full service call: `domain + "." + command`. Set explicitly on device tasks. Omitted on virtual tasks. |
+| `parameters` | object | No | For device tasks: service call data fields. For virtual tasks: the command payload, reusing the same shapes the standalone statement form uses (e.g. wait → `{duration, duration_unit}`, set_variable → `{variable, value:{type,…}}`, log → `{message, level}`). Empty object `{}` if none. |
 | `description` | string | No | Null if not set. |
+
+**Task order is load-bearing.** Tasks execute top to bottom in array order, not
+concurrently — `Set Volume` then `Speak text` means volume first. Array position IS
+execution order. Round-trip and compile must preserve it exactly. (Decided, Session 73.)
+
+**Virtual-task example** (a Wait inside a device with-block — ASSUMED shape):
+```json
+{
+  "id": "task_a1b2c3d4",
+  "kind": "virtual",
+  "command": "wait",
+  "parameters": { "duration": 5, "duration_unit": "minutes" },
+  "description": null
+}
+```
+
+**Statement-vs-task duality:** `wait`, `set_variable`, `log_message`, and `call_piston`
+exist BOTH as top-level statement nodes (see STATEMENT_TYPES.md) AND as virtual tasks
+inside an action node's `tasks[]`. WebCoRE allows the same command as a standalone step or
+as a task inside a `with`. Both forms are valid and must round-trip. Which one is produced
+depends on where the user added it: from the statement picker → standalone statement; from
+`+ add a new task` inside a device block → virtual task.
 
 ---
 
@@ -750,6 +795,7 @@ A simple single-trigger piston with one action:
 ## Keeping This Document In Sync
 
 This document must stay in sync with:
+- **WITH_BLOCK_TASK_FRAMEWORK.md** — the authoritative task-container contract (with-blocks, device/virtual tasks, ordering, the three current code gaps)
 - **STATEMENT_TYPES.md** — statement-level JSON schemas
 - **COMPILER_SPEC.md** — how the compiler reads this format
 - **FRONTEND_SPEC.md** — how the editor renders and wizard writes this format

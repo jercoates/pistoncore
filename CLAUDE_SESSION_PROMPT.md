@@ -230,12 +230,24 @@ See TASKS_HISTORY.md for full archive.
 
 ## Current Priority — see TASKS.md
 
-Open work is grouped into session bundles in TASKS.md. **W-S11 is CLOSED (Session 70) — the
-first lossless, compiler-ready round-trip is proven.** The default next session is now
-**STAGE B / B-1 — compiler.py** (direct entity_id read + MISSING_ENTITY validation), which
-W-S11 unblocked. Nodes now carry correct attribute-bearing entity_ids, so the compiler can be
-written and tested against real wizard output. Visual/display-only gaps are parked in W-S16
-and are non-blocking.
+Open work is grouped into session bundles in TASKS.md.
+
+**The immediate blocker is GAP-S73-2 (picker / device resolution).** As of Session 73 the
+action command picker returns "No devices could be resolved" even after switching `@Speakers`
+off the broken Sonos to another device. The trigger was HA/Unraid updates breaking the Sonos
+`media_player` entity feed (HA-side), but the failure persisting after switching devices means
+there is a real picker/resolution bug to find. **This must be debugged against a HEALTHY HA
+(entities actually flowing) — confirm device data is present before chasing wizard logic.**
+Nothing downstream can be tested until the picker populates.
+
+**GAP-S72-1 (multi-task with-block) is CODED (Session 73) but UNVERIFIED** — it cannot be
+tested end-to-end until the picker works (you need to pick a command to commit a task). The
+code is in editor.js / wizard-core.js / wizard-action.js. Once the picker is healthy, verify
+task stacking, per-task edit, and then build the per-task DELETE path
+(WITH_BLOCK_TASK_FRAMEWORK.md §3.3) and the device-picker pre-fill (GAP-S72-1b).
+
+STAGE B / B-1 (compiler) remains BLOCKED until the wizard round-trip works. Visual/display
+gaps parked in W-S16.
 
 Workflow note: Jeremy fixes what's in front of him. When a new problem surfaces during
 testing, log it into the right TASKS.md group and push the planned session back a slot —
@@ -447,10 +459,32 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
     These are not nice-to-haves — real pistons cannot be built without them. Filed as W-S17
     (spec session required before any code).
   - Files changed: editor.js, wizard-core.js, wizard-action.js.
-
----
-
-## Newly Locked Decisions (Session 69) — add to Researched bucket
+- **Session 73 — task/with-block specs reconciled to code; GAP-S72-1 coded; new gaps found:**
+  - Spec reconciliation: the older specs had DRIFTED BEHIND in-code fixes (fixes were made by
+    ignoring stale specs; specs never caught up). Rewrote to match the CODE as source of truth.
+    NEW: WITH_BLOCK_TASK_FRAMEWORK.md (authoritative task-container spec — framework holds ALL
+    WebCoRE task types, implement only Jeremy's pistons). Reconciled PISTON_FORMAT (2.4),
+    STATEMENT_TYPES (2.3), WIZARD_SPEC (2.7).
+  - Structure decision MADE: a with-block is an `action` node + ordered `tasks[]`; each task
+    carries its picker category (device / location-virtual) as the discriminator — the picker
+    already knows it at selection time, so it's not invented, just carried to the task.
+  - GAP-S72-1 CODED: bug was deeper than filed — clicking a task line resolved to null
+    (`_findAnyNode` doesn't search `tasks[]`) so task EDIT did nothing; `_route` read `tasks[0]`;
+    `_saveDeviceCmd` wrote `tasks:[newTask]`. Fixed across editor.js (task-owner attr; click
+    resolves to owning action node + passes task-id), wizard-core.js (edit clicked task,
+    record edit_task_id), wizard-action.js (append/replace by id, preserve siblings, Add-more
+    stacks). UNVERIFIED — untestable until the picker populates (GAP-S73-2).
+  - NEW GAPS: GAP-S73-1 (global editor can't remove a missing/failed HA device — structural;
+    removal keys off a live match, not the stored reference). GAP-S73-2 (picker/resolution
+    returns "No devices could be resolved" even after switching off the broken Sonos — must
+    debug against a healthy HA).
+  - Platform note: HA/Unraid updates broke the Sonos `media_player` entity feed (HA-side).
+    `@Speakers` was switched to a ReSpeaker as a workaround; picker still failed.
+  - REVIEW PENDING: the Session 73 SPEC files were written at the end of a long session with
+    several mid-session corrections; skim them against reality before treating as reference
+    (the `kind`/category discriminator and "what already works" claims especially). Code files
+    are syntax-checked.
+  - Files changed (code): editor.js, wizard-core.js, wizard-action.js.
 - **Triggers/conditions/restrictions are top-level wrapper arrays** (Researched — confirmed
   against editor.js). The compiler reads `_piston.triggers` directly; it does NOT walk
   `statements` for `is_trigger` nodes.
@@ -464,9 +498,10 @@ All functions top-level (no IIFE wrapping). Shared state via WizardCore object.
 
 All open gaps and fixes live in TASKS.md, grouped into session bundles so related bugs get
 fixed together. This prompt no longer duplicates the gap list (one task file — completed work
-moves to TASKS_HISTORY.md). **GAP-S71-1 CLOSED (Session 72). Recommended next: W-S17 spec
-session (must-work wizard features — multi-task with-blocks, wait, TTS, set_variable with
-expression). These block real piston construction and must be fully specced before coding.**
+moves to TASKS_HISTORY.md). **As of Session 73: GAP-S72-1 is CODED but UNVERIFIED. The
+immediate blocker is GAP-S73-2 (picker/device resolution) — must be debugged against a
+HEALTHY HA before anything downstream can be tested or verified. GAP-S73-1 (global editor
+can't remove a missing device) is a logged structural gap. See TASKS.md.**
 
 ---
 
@@ -477,22 +512,31 @@ expression). These block real piston construction and must be fully specced befo
   NOT bugs. Trigger already swapped to a virtual switch; model the rest in HA when adapting.
 - `volume_set` 0–100 (WebCoRE) vs 0.0–1.0 (HA) is a conversion concern for GAP-S72-3, logged.
 - Old globals (test/lights/lumin_sensor/lock/Notifications_Push) still store entity_ids in
-  `value` — pre-fix data. Edit them manually via the globals panel. Speakers is correct.
+  `value` — pre-fix data. Edit them manually via the globals panel. NOTE (Session 73):
+  `@Speakers` was switched off the broken Sonos to a ReSpeaker; resolution still failed
+  (GAP-S73-2, separate bug). Compounded by GAP-S73-1 (can't remove a missing device).
 
 ---
 
-## Spec File Versions (after Session 69)
+## Spec File Versions (after Session 73)
 - DESIGN.md v1.8
-- PISTON_FORMAT.md v2.3
-- WIZARD_SPEC.md v2.6
-- STATEMENT_TYPES.md v2.2
+- PISTON_FORMAT.md v2.4 (Session 73 — task model: device/virtual tasks, `kind` ASSUMED, order)
+- WIZARD_SPEC.md v2.7 (Session 73 — W-6 task append/edit/delete + virtual-in-block flows)
+- STATEMENT_TYPES.md v2.3 (Session 73 — task schema device/virtual, wait/set_var duality)
+- WITH_BLOCK_TASK_FRAMEWORK.md v1.0 (NEW, Session 73 — authoritative task-container spec)
 - FRONTEND_SPEC.md v1.5
-- HA_LIMITATIONS.md — Section 3 corrected
-- COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6)
+- HA_LIMITATIONS.md — Section 3 corrected; command classification PENDING (separate research
+  vs current HA; `target-boundary.json` existence UNVERIFIED — confirm in code or create it)
+- COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6; do not touch until v1 JSON locks)
 - PYSCRIPT_COMPILER_SPEC.md — FROZEN/STALE (rewrite in D-S6)
 - SAMPLE_PISTONS.md v1.0
-- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model, rewrite before AI-import work)
+- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model; FROZEN until v1 JSON locks)
 - REFERENCE_PISTON_V2.json — the v2 diff anchor
+- SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now answerable
+  against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
+
+**Session 73 output files want a review pass before being treated as authoritative reference**
+(written end of a long, self-correcting session). Code files are syntax-checked.
 
 After B-1 and S3-1, audit all raw HTML insertions in editor.js and the wizard files to
 confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for

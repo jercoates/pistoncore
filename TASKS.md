@@ -1,18 +1,26 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — single active task file. Update at the end of every session.
-**Last Updated:** Session 72 — GAP-S71-1 CLOSED (global resolution in action wizard). Root cause
-was that `_getFlatEntityIds` and `_getGroupedEntityIdsForTokens` read `_deviceData_globals` which
-was never populated in the edit flow. Fix: exposed `Editor.getGlobalsCache()` on the Editor public
-API (alongside `getPistonVariables()`); both resolvers now read from `_piston._globalsCache` which
-is already loaded at editor-open time. Also fixed `_globalsCache` leaking into saved piston JSON —
-editor.js now restores the cache after `_piston = result.piston` reassignment so it survives save
-without being persisted. GAP-S72-1 (multi-task with-block) and W-S17 (must-work wizard features
-spec) filed this session. G-4 design decision captured: scan-on-demand vs indexed used_by list —
-both viable, decide at G-4 session time.
+**Last Updated:** Session 73 — (1) Spec reconciliation: the task/with-block specs were
+rewritten to match the CODE (the older specs had drifted behind in-code fixes). New
+authoritative spec WITH_BLOCK_TASK_FRAMEWORK.md written; PISTON_FORMAT (2.4),
+STATEMENT_TYPES (2.3), WIZARD_SPEC (2.7) reconciled. (2) GAP-S72-1 CODED (partial — see
+W-S15): the with-block now stacks tasks instead of overwriting. Root cause was deeper than
+filed — clicking a task line resolved to null (`_findAnyNode` doesn't search `tasks[]`), so
+task EDIT was a dead path; `_route` always read `tasks[0]`; `_saveDeviceCmd` wrote
+`tasks:[newTask]`. Fixed across editor.js (task-owner attr + click resolves to owning action
+node, passes task-id), wizard-core.js (edit the clicked task, record edit_task_id), and
+wizard-action.js (append/replace by id, preserve siblings, Add-more stacks into same block).
+(3) New gap found: GAP-S73-1 — global editor can't remove a missing/failed HA device.
+(4) Tonight's "No devices could be resolved" symptom traced to HA/Unraid updates breaking
+the Sonos media_player entity feed (HA-side, not a PistonCore code bug); Jeremy switched
+`@Speakers` to a ReSpeaker and it still won't pull — picker/resolution is a separate gap
+(GAP-S73-2). NOTE: the GAP-S72-1 code is untestable end-to-end until the picker populates.
 
-Prior context: Session 71 closed B-0 (backend v2). Session 70 closed W-S11 (first lossless
-round-trip). Session 69 full spec reconciliation.
+Prior context: Session 72 closed GAP-S71-1 (global resolution in action wizard — resolvers
+now read `Editor.getGlobalsCache()`; `_globalsCache` no longer leaks into saved JSON).
+Session 71 closed B-0 (backend v2). Session 70 closed W-S11 (first lossless round-trip).
+Session 69 full spec reconciliation.
 
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions and closed gaps:** See TASKS_HISTORY.md
@@ -88,14 +96,13 @@ Default order is top to bottom. Reorder as testing dictates; keep the groups int
 
 ---
 
-## W-S15 — Action Wizard Fixes  ← RECOMMENDED NEXT SESSION
+## W-S15 — Action Wizard Fixes
 
 **Files:** wizard-action.js, wizard-core.js, wizard-variable.js, editor.js,
 WIZARD_SPEC.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-- ** i added a SPEAK_ACTION_SPEC.md with a spec for the tts in the editor and the compiler
-this is a do first task as it impacts how the rest get resolved.  from you, do GAP-S72-1 first
-; the multi-task with-block fix is the foundation the Speak spec depends on.
+- ** SPEAK_ACTION_SPEC.md holds the TTS spec for editor + compiler. GAP-S72-1 (the
+multi-task with-block foundation) is done in code; Speak rides on it.
 
 - **GAP-S71-1 ✅ CLOSED (Session 72):** Global resolution in action wizard fixed.
   `_getFlatEntityIds` and `_getGroupedEntityIdsForTokens` now read from
@@ -105,12 +112,44 @@ this is a do first task as it impacts how the rest get resolved.  from you, do G
   into saved piston JSON — editor.js restores the cache after backend response reassignment.
   Files changed: editor.js, wizard-core.js, wizard-action.js.
 
-- **GAP-S72-1 (multi-task with-block — HIGH):** `_saveDeviceCmd` always writes
-  `tasks: [newTask]` — replaces the entire tasks array instead of appending. A with-block
-  that already has tasks (e.g. Volume set + Play media) loses all previous tasks when a new
-  one is added via "Add a new task". The with-block is designed to hold multiple sequential
-  tasks; this is a fundamental editor/wizard contract failure. Needs design before code —
-  see W-S17 note below. Filed Session 72.
+- **GAP-S72-1 (multi-task with-block — HIGH) — CODED Session 73, NEEDS VERIFY:**
+  The with-block now stacks tasks instead of overwriting. The bug was deeper than filed:
+  clicking a task line resolved to null (`_findAnyNode` doesn't search `tasks[]`) so task
+  EDIT did nothing; `_route` always read `tasks[0]`; `_saveDeviceCmd` wrote `tasks:[newTask]`.
+  Fix landed across three files (full replacements in Session 73 outputs):
+  - **editor.js** — task line carries `task-owner` (parent action id); a task click resolves
+    to the owning action node and passes the clicked `task-id` to the wizard.
+  - **wizard-core.js** — `_route` edits the task matching `extra['task-id']` (not `tasks[0]`);
+    records `_sel.edit_task_id`.
+  - **wizard-action.js** — `_saveDeviceCmd` appends/replaces the task by id, preserves
+    sibling tasks; "Add more" re-targets the same block so tasks stack.
+  **Remainder still open (rolled forward):**
+  - **GAP-S72-1b (UX, picker-adjacent):** "+ add a new task" on an EXISTING block forces a
+    device re-pick (the add-task path has no `editNode`, so the device picker resets). The
+    code is safe (CASE 1 appends to the existing block regardless), but the user shouldn't
+    re-select devices the block already has. Fix = pre-fill the device picker from the block
+    on `'task'`-context entry. Do this WITH the picker work (GAP-S73-2) — same code area.
+  - **VERIFY:** untestable end-to-end until the picker populates (GAP-S73-2). Once resolution
+    is healthy, confirm: add 2nd/3rd task stacks; edit middle task edits only it; delete one
+    keeps the rest (delete path not yet built — see WITH_BLOCK_TASK_FRAMEWORK.md §3.3).
+
+- **GAP-S73-2 (picker / device resolution — HIGH, NEW Session 73):** The action command
+  picker shows "No devices could be resolved" even after switching `@Speakers` to a device
+  that is NOT the broken Sonos (a ReSpeaker). Tonight's trigger was HA/Unraid updates
+  breaking the Sonos `media_player` entity feed (HA-side), BUT the failure persisting after
+  switching devices indicates a real resolution/picker bug, not only the missing entity.
+  This is its OWN session, and must be debugged against a HEALTHY HA (entities flowing).
+  Do NOT conflate with GAP-S72-1. Owns: `_goCommandPicker`, `_goActionDevicePicker`,
+  `_getGroupedEntityIdsForTokens`, `_getFlatEntityIds`, globals/variable resolution, and the
+  GAP-S72-1b device-picker pre-fill above. Files: wizard-action.js, wizard-core.js, editor.js.
+
+- **GAP-S73-1 (global editor can't remove a missing device — HIGH structural, NEW):**
+  A global device that goes missing in HA cannot be deselected and "remove all" fails — the
+  only escape is deleting and recreating the whole global. Underlying cause (per Jeremy):
+  removal operates on a LIVE-resolved match instead of the stored reference, so an
+  unresolvable entry becomes un-removable. Full write-up:
+  GAP_global_editor_missing_device_removal.md. Verify against the global-editor code before
+  fixing. Files: globals editor path (globals.js / wizard-variable.js / editor.js).
 
 - **GAP-S71-2 (variable edit dialog — wrong type, MED):** editing a device variable
   (e.g. Door_locks, var_type `devices`) opens with the type dropdown set to "Dynamic" instead
@@ -121,54 +160,62 @@ this is a do first task as it impacts how the rest get resolved.  from you, do G
 
 ---
 
-## W-S17 — Must-Work Wizard Features Spec  ← DO BEFORE CODING W-S17 ITEMS
+## ⚠ REVIEW BEFORE TREATING AS REFERENCE (Session 73 output)
 
-These are not nice-to-haves. They are core to real pistons and must be fully specced before
-any code is written. Walking the alarm piston surfaced all of these as hard blockers.
+These were produced at the end of a long Session 73 where Claude corrected its read of the
+problem several times. The CODE (3 JS files) is syntax-checked and traced, but the SPEC
+files should get a review pass before being treated as authoritative reference:
+- WITH_BLOCK_TASK_FRAMEWORK.md (NEW) — especially the `kind` discriminator (marked ASSUMED,
+  Claude's proposal) and the "what already works" claims (read from code, NOT runtime-verified).
+- PISTON_FORMAT.md 2.4, STATEMENT_TYPES.md 2.3, WIZARD_SPEC.md 2.7 — the task-model edits.
+- GAP_global_editor_missing_device_removal.md — fix direction is a structural read, not yet
+  confirmed against the global-editor code.
+Action: skim each, confirm it matches reality, THEN move to the repo as reference.
 
-**This is a SPEC SESSION — no code. Read WIZARD_SPEC.md, STATEMENT_TYPES.md, DESIGN.md,
-PISTON_FORMAT.md, and the WebCoRE source before writing anything.**
+---
 
-### Multi-task with-blocks (GAP-S72-1)
-The with-block holds multiple sequential tasks on ONE device/group — this is the core
-WebCoRE action model. The wizard currently replaces tasks instead of stacking them.
-Must spec and implement:
-- How "Add a new task" appends to existing tasks array (not replaces)
-- How each task in the list renders in the editor (task lines under the with-block)
-- How editing an existing task re-opens the command picker pre-filled for THAT task only
-- How deleting one task from a multi-task with-block works without losing the others
-- JSON schema for tasks array (already exists — just the wizard flow is wrong)
+## W-S17 — Must-Work Wizard Features Spec  ← SPEC PARTIALLY DONE (Session 73)
+
+These are not nice-to-haves. They are core to real pistons. Walking the alarm piston
+surfaced all of these as hard blockers.
+
+**Session 73 update:** The with-block / task container is now specced authoritatively in
+**WITH_BLOCK_TASK_FRAMEWORK.md** (the framework holds ALL WebCoRE task types; only Jeremy's
+pistons' commands get implemented). PISTON_FORMAT/STATEMENT_TYPES/WIZARD_SPEC reconciled to
+the code. The structure decision is made: a with-block is an `action` node + ordered
+`tasks[]`; each task carries its picker category (device / location/virtual) as the
+discriminator (the picker already knows it at selection time). GAP-S72-1 is also CODED
+(see W-S15). The remaining W-S17 items below still need their wizard PATHS built.
+
+### Multi-task with-blocks (GAP-S72-1) ✅ SPEC DONE + CODED (Session 73)
+Specced in WITH_BLOCK_TASK_FRAMEWORK.md; coded in W-S15. Remaining: the per-task DELETE
+path (framework spec §3.3) and the picker pre-fill (GAP-S72-1b). Verify once picker works.
 
 ### Wait (GAP-S72-2)
-`wait` duration nodes must be buildable in the wizard. The test piston has waits.
-Currently the wait wizard only exists as a location command (indirect path). Must work
-as a first-class statement type from the statement picker.
-- Wait for N seconds/minutes/hours (literal duration)
-- Wait for N seconds using a variable (e.g. `$Integer_Lock_Confirm_Wait`)
-- JSON output: `{ type: "wait", duration: {type:"variable", name:"$varname"}, duration_unit: "seconds" }`
+`wait` must be buildable as a first-class duration, including variable duration
+(`Wait {integer_Lock_Confirm_Wait} seconds`). STATEMENT_TYPES §14 now flags wait-duration
+as needing an operand (literal OR variable). Must work from the statement picker AND as an
+in-block virtual task (framework spec §2.4 duality).
+- JSON: `{ type: "wait", duration: {type:"variable", name:"$varname"}, duration_unit: "seconds" }`
 
 ### Volume set with variable (GAP-S72-3)
-`volume_level` in HA is 0.0–1.0. WebCoRE used 0–100. The wizard must:
-- Accept a variable as the volume value (not just a literal number)
-- Convert or document the 0–100 vs 0.0–1.0 difference so the compiler handles it
-- This is part of the TTS/speaker flow — set volume before playing media
+`volume_level` in HA is 0.0–1.0; WebCoRE used 0–100. Wizard must accept a variable as the
+volume value (operand, per framework spec §5.3) and the compiler handles the 0–100 → 0.0–1.0
+conversion (compiler concern, deferred to D-S6).
 
 ### TTS / Play media with composed message (GAP-S71-4 — carried forward)
-No path exists to build a TTS or play_media action that:
-- Targets a media_player global (now unblocked by GAP-S71-1)
-- Composes the spoken text from literals + variables
-  (e.g. `"System Disarmed — Unlocked by " + $Unlocked_By`)
-Must spec: which HA service(s) to use (tts.speak / media_player.play_media), how the
-message field accepts variable interpolation, how that compiles to a Jinja2 template.
+Build a TTS / play_media action targeting a media_player global, composing spoken text from
+literals + variables. See SPEAK_ACTION_SPEC.md (authoritative for the Speak task) — its
+PROPOSED field names are now answerable against the reconciled PISTON_FORMAT task schema.
 
 ### Set variable with expression (GAP-S72-4)
-Set variable nodes using string concatenation expressions
-(e.g. `$DoorsOpen = $DoorsOpen + " " + $contact`) must be buildable in the wizard.
-The JSON schema supports it (`type: "expression"`) but there is no wizard path to build one.
+Set variable nodes using string concatenation (`$DoorsOpen = $DoorsOpen + " " + $contact`)
+must be buildable. JSON supports it (`value.type: "expression"`, STATEMENT_TYPES §13); the
+wizard path doesn't exist. Also available as an in-block virtual task.
 
-**Files for spec session:** WIZARD_SPEC.md, STATEMENT_TYPES.md, DESIGN.md,
-PISTON_FORMAT.md, wizard-action.js, wizard-statement.js, wizard-loops.js,
-CLAUDE_SESSION_PROMPT.md, TASKS.md
+**Files for these items:** WIZARD_SPEC.md, STATEMENT_TYPES.md, PISTON_FORMAT.md,
+WITH_BLOCK_TASK_FRAMEWORK.md, SPEAK_ACTION_SPEC.md, wizard-action.js, wizard-statement.js,
+wizard-loops.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 
@@ -349,23 +396,34 @@ Success = all seven checklist items at top of file.
   Devices are role placeholders (`entity_ids: []`). Use this to walk the wizard.
 - **Old globals (entity_ids in value field):** test/lights/lumin_sensor/lock/Notifications_Push
   still store entity_ids instead of friendly names — pre-fix data. Edit them manually via the
-  globals panel to correct. Speakers global is correct (`value: ['Basement']`).
+  globals panel to correct. NOTE (Session 73): `@Speakers` was switched off the broken Sonos
+  to a ReSpeaker; resolution still failed (GAP-S73-2). An HA update broke the Sonos
+  `media_player` entity feed. The pre-fix-globals cleanup and GAP-S73-1 (can't remove a
+  missing device) compound each other.
 - **`_globalsCache` in saved JSON:** fixed Session 72 (editor.js restores cache after save
   response, preventing it from accumulating on `_piston` and leaking to disk).
 - **volume_set 0–100 vs HA 0.0–1.0:** conversion concern logged in W-S17 (GAP-S72-3).
 
-## Spec File Versions (after Session 69)
+## Spec File Versions (after Session 73)
 - DESIGN.md **v1.8**
-- PISTON_FORMAT.md **v2.3**
-- WIZARD_SPEC.md **v2.6**
-- STATEMENT_TYPES.md **v2.2**
+- PISTON_FORMAT.md **v2.4** (Session 73 — task model: device/virtual tasks, `kind` ASSUMED, order)
+- WIZARD_SPEC.md **v2.7** (Session 73 — W-6 task append/edit/delete + virtual-in-block flows)
+- STATEMENT_TYPES.md **v2.3** (Session 73 — task schema device/virtual, wait/set_var duality)
+- WITH_BLOCK_TASK_FRAMEWORK.md **v1.0 (NEW, Session 73)** — authoritative task-container spec
 - FRONTEND_SPEC.md **v1.5**
-- HA_LIMITATIONS.md — Section 3 corrected
-- COMPILER_SPEC.md **v1.5 — FROZEN/STALE** (see D-S6)
+- HA_LIMITATIONS.md — Section 3 corrected; command classification still PENDING (separate
+  research deliverable vs current HA; `target-boundary.json` existence UNVERIFIED)
+- COMPILER_SPEC.md **v1.5 — FROZEN/STALE** (see D-S6 — do not touch until v1 JSON locks)
 - PYSCRIPT_COMPILER_SPEC.md — **FROZEN/STALE** (see D-S6)
 - SAMPLE_PISTONS.md v1.0
-- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model)
+- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model; FROZEN until v1 JSON locks)
 - REFERENCE_PISTON_V2.json — v2 diff anchor
+- SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now
+  answerable against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
+
+### Session 73 output files needing review before moving to reference
+See the "⚠ REVIEW BEFORE TREATING AS REFERENCE" block above. Code files (editor.js,
+wizard-core.js, wizard-action.js) are syntax-checked; spec files want a skim against reality.
 
 ---
 

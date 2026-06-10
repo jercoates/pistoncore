@@ -44,15 +44,44 @@ builds on truth, not on guesses.
    re-architecting. Only the commands Jeremy's real pistons use need a working end-to-end
    path now. Everything else is a registered-but-unhandled slot, not a missing concept.
    (Jeremy, Session 73.)
-4. **"Can HA do it?" decides native / PyScript / cannot-do.** For each command: native HA
-   Script if possible; else PyScript; else it genuinely cannot cross — and that gets NOTED
-   in HA_LIMITATIONS.md for the docs, never silently dropped. The editor still renders and
-   round-trips a cannot-do command losslessly; the inability is a compile-time outcome
-   (debug page), not an editor refusal. (Jeremy, Session 73.)
+4. **"Can HA cleanly reproduce this?" decides whether the command stays in the wizard.**
+   For each command: if HA can cleanly reproduce the action — native HA Script, or PyScript,
+   or via an add-on/integration that exposes a usable, relevant state HA can act on — it
+   STAYS in the wizard. If there is no clean way to reproduce it in HA, it is **CUT from the
+   wizard** and recorded on the "can't reproduce in HA currently" list (the docs file). This
+   is a deliberate scope reduction (Jeremy, Session 73): the earlier "preserve the entire
+   WebCoRE command universe in the editor and fail only at compile" goal was over-scoped and
+   is dropped. The test is reproducing the RESULT, not matching the command name — renaming a
+   command to a lossy HA approximation does NOT count as reproducing it.
+   - The list is **"currently"** — a living document, not a permanent verdict. A command cut
+     today can return if HA (or an add-on) later gains a clean way to reproduce it.
+   - **What is hard-impossible is NOT predetermined.** Classification is per-command research
+     against current HA at classification time. Do not enshrine an impossible-list in the
+     spec as fact.
 5. **Order is load-bearing.** Tasks fire top to bottom in sequence, not concurrently.
    `Set Volume; Speak text;` means volume THEN speak. Array position = execution order.
    Anything that reorders tasks on round-trip or compile is a correctness bug. (Jeremy,
    Session 73; visible in every screenshot.)
+6. **Visible command names follow the USER's expectation (WebCoRE-default); rename only the
+   narrow exceptions.** The label shown in the picker/editor is for the human, so it uses the
+   name the user already understands — which is almost always WebCoRE's name. WebCoRE's names
+   are good, plain descriptions of what an action does (e.g. "Write to file", "Capture
+   attributes", "Make a web request") and are KEPT even when HA's internal name differs — the
+   HA service name (`rest_command`, `scene.create`, etc.) is invisible plumbing, never the
+   label. The instinct to use the HA/technical name for the label is wrong for the user.
+   - **Rename ONLY when the WebCoRE name points to something that no longer exists for the
+     user** — a Hubitat subsystem or a named third-party service that isn't what's actually
+     happening in HA. Calling a thing by a name that's flatly wrong won't sit right with
+     people; that, not "platform-specific," is the trigger to rename.
+   - **The replacement is a plain user-side term, and Jeremy picks it** — NOT the HA technical
+     name, and not Claude's choice. Settled so far: "Set Hubitat Safety Monitor status" → the
+     HA alarm action (HSM doesn't exist in HA); "Send an IFTTT Maker event" → **"Webhook"**
+     (IFTTT is a specific service; the real action is firing a webhook). Everything else keeps
+     its WebCoRE name.
+   - **This is a deliberately NARROW scope, with the usual every-rule-has-an-exception
+     caveat** — when a new case comes up, the test is "does this name still describe, to the
+     user, what happens?", decided case by case, not by a blanket platform rule. (Jeremy,
+     Session 73.)
 
 ---
 
@@ -123,8 +152,10 @@ The fix is NOT "build a with-block model." It is:
    `tasks[]` as device tasks, interleaved, order preserved — instead of becoming standalone
    siblings or fake-device nodes.
 
-Item 3 is the only part with real design work, and it needs a task-kind discriminator so
-the compiler can route each task (device service vs virtual action). See Section 3.
+Item 3 is the only part with real design work: a non-device command must carry its picker
+category into `tasks[]` so the compiler can route it (device service vs non-device action).
+How that's stored is an internal choice (Section 2.3); the requirement is that the category
+travels with the task. See Section 3.
 
 ---
 
@@ -165,41 +196,49 @@ the compiler can route each task (device service vs virtual action). See Section
 }
 ```
 
-### 2.3 The task object — virtual/location task (ASSUMED shape — the proposed change)
+### 2.3 The task object — non-device task (storage is an implementation detail; the requirement is on the picker)
 
-To put a virtual command (Wait, Set variable, notify, log, …) inside a device with-block's
-`tasks[]`, it needs a task form that the compiler can tell apart from a device service
-call. **Proposed (ASSUMED — override freely): add a `kind` discriminator to every task.**
+To put a non-device command (Wait, Set variable, notify, log, …) inside a device
+with-block's `tasks[]`, the committed task must carry enough information for the compiler
+to route it as a non-device action rather than a service call against the block's devices.
+
+**The discriminator is NOT a design decision for Jeremy, and not an invention to defend —
+it is sourced from the picker.** WebCoRE's "Do…" dropdown already tags every command with
+the category it was selected under (see §5.2: *all-devices* / *emulated* / *location*).
+That category is known for free at selection time. The committed task simply carries the
+category it was picked under, threaded from selection to commit — the compiler reads it, it
+is never re-derived later.
+
+How that category is represented in the JSON (a `kind` field, a reserved `domain`, etc.) is
+an internal storage choice and belongs to the coding session — it is invisible to the user
+and not Jeremy's call. The current code already tags location tasks via `domain:'location'`
+(wizard-action.js lines 494, 504, 511); a coding session may keep that, add an explicit
+field, or do something else. The only fixed requirements are:
+
+- **The picker category travels with the task** (selection → commit), so a task in
+  `tasks[]` is unambiguously classifiable as device vs. non-device without guesswork.
+- **Order is preserved** (array position = execution order).
+- **Parameters reuse the shapes the code already builds** in `_saveLocationCmd` (e.g.
+  wait → `{duration, duration_unit}`, set_variable → `{variable, value:{type,…}}`,
+  log → `{message, level}`). Don't invent new payload shapes. (VERIFIED source:
+  wizard-action.js lines 454–522.)
+
+Illustrative only (field names are the coding session's to choose, NOT a spec contract):
 
 ```json
 {
   "id": "task_xxxxxxxx",
-  "kind": "virtual",
   "command": "wait",
-  "parameters": { "duration": 5, "duration_unit": "minutes" },
-  "description": null
+  "parameters": { "duration": 5, "duration_unit": "minutes" }
+  /* + whatever internal tag distinguishes it from a device service call */
 }
 ```
 
-- `kind: "device"` (default if absent, for back-compat) → a device service call; compiler
-  emits a service call against the block's `entity_ids`. Carries `domain` / `ha_service`.
-- `kind: "virtual"` → a non-device action (Wait, Set variable, notify, log, execute piston,
-  …); ignores the block's devices; compiler routes by `command`. Carries no `domain`/
-  `ha_service` — the compiler resolves the HA mapping by `command` (and by the native/
-  pyscript/cannot-do routing of Section 4).
-- The task `parameters` for a virtual task mirror the standalone-statement payloads the
-  code already builds in `_saveLocationCmd` (e.g. wait → `{duration, duration_unit}`,
-  set_variable → `{variable, value:{type,…}}`, log → `{message, level}`). Reuse those
-  shapes; do not invent new ones. (VERIFIED source for the payloads: wizard-action.js
-  lines 454–522.)
-
-> **ASSUMED — the `kind` field name and the device/virtual split.** This is Claude's
-> proposed discriminator. An equally valid alternative the coding session may prefer:
-> keep using `domain`/`ha_service` for device tasks and detect a virtual task by a
-> reserved `domain` (the code already uses `domain:'location'` for http/set_mode/
-> raise_event — wizard-action.js lines 494, 504, 511). Either works. Pick the one that
-> makes the compiler's routing cleanest. The DECIDED requirement is only that a task
-> inside `tasks[]` is unambiguously classifiable as device-vs-virtual and ordered.
+A device task carries its `domain` / `ha_service` and compiles to a service call against the
+block's `entity_ids`; a non-device task ignores the block's devices and the compiler routes
+it by `command` per the reproduce-cleanly policy of Section 4 (native / PyScript / via
+add-on state; cut + logged if HA can't cleanly reproduce it). That routing behavior is fixed;
+the field that encodes it is not.
 
 ### 2.4 Standalone statements still exist (VERIFIED — do not remove)
 
@@ -211,7 +250,8 @@ step OR a task inside a `with`. Both forms must remain. The framework duality:
 - A virtual command chosen from the **statement picker** (or the **Location** with-target)
   → standalone statement node, as today.
 - A virtual command chosen from **`+ add a new task` inside an existing device with-block**
-  → a `kind:"virtual"` task appended to that block's `tasks[]` (the new path, Section 2.3).
+  → a non-device task appended to that block's `tasks[]`, carrying its picker category
+  (the new path, Section 2.3).
 
 ---
 
@@ -260,9 +300,9 @@ step OR a task inside a `with`. Both forms must remain. The framework duality:
   commands (the current `_goCommandPicker` intersection list) AND the virtual/location
   commands (the `LOCATION_COMMANDS` list), in one picker, matching WebCoRE's three-group
   "Do…" dropdown (Section 5).
-- Choosing a virtual command there appends a `kind:"virtual"` task (Section 2.3) into the
-  block's `tasks[]` at the current position — NOT a standalone statement, NOT a fake
-  Location node. Order preserved.
+- Choosing a virtual command there appends a non-device task (carrying its picker
+  category, Section 2.3) into the block's `tasks[]` at the current position — NOT a
+  standalone statement, NOT a fake Location node. Order preserved.
 - (VERIFIED constraint) This is the path that does not exist today; `_saveLocationCmd`
   only ever produces standalone/fake-device nodes. This is the real new construction.
 
@@ -277,34 +317,51 @@ tasks, item 3.4).
 
 ---
 
-## 4. Command routing — native / PyScript / cannot-do (DECIDED policy; classification PENDING)
+## 4. Command routing — can HA cleanly reproduce it? (DECIDED policy; classification PENDING)
 
-Per principle 4: each command is classified by "can HA do it?". The routing lives in the
-mechanism the old specs call `target-boundary.json`.
+Per principle 4: each command is classified by **"can HA cleanly reproduce this action?"**
+Three outcomes — the first two STAY in the wizard, the third is CUT:
+- **native** — HA can reproduce it; compiles to native HA Script YAML. Stays.
+- **pyscript** — HA can reproduce it but not in native Script; forces PyScript compile
+  target. Stays.
+- **reproducible via add-on/integration state** — HA can reproduce it once a relevant
+  add-on/integration is present that exposes a usable state the piston can read/act on (e.g.
+  a security integration that surfaces a real, relevant state). Stays. (The dependency on
+  that add-on is a note for the user, not a reason to cut.)
+- **cannot reproduce in HA currently** — no clean way to reproduce the RESULT in HA by any
+  of the above. **CUT from the wizard** (not rendered, not stored) and recorded on the
+  "can't reproduce in HA currently" docs list. A lossy rename to a rough HA equivalent does
+  NOT count as reproducing it. (DECIDED, Session 73 — this is the scope reduction; the old
+  "render everything, fail only at compile" behavior is dropped.)
 
-> **UNVERIFIED — `target-boundary.json` existence.** The old specs (HA_LIMITATIONS.md,
+The "can't reproduce currently" list is a **living document**: a command cut today returns
+to the wizard if HA or an add-on later gains a clean way to reproduce it.
+
+> **The routing mechanism is UNVERIFIED in code.** The old specs (HA_LIMITATIONS.md,
 > STATEMENT_TYPES.md) refer to `target-boundary.json` as the file that forces PyScript for
-> `break`/`on_event`/`cancel_pending_tasks`. Whether this file actually exists in the repo,
-> or whether the boundary is hardcoded, is NOT confirmed from the frontend code provided.
-> The coding session MUST check the backend for it and either extend it or create it. Do
-> not assume it exists. (This is exactly the kind of stale-spec claim that needs verifying
-> against code, per this document's reason for existing.)
+> `break`/`on_event`/`cancel_pending_tasks`. Whether this file exists in the repo, or the
+> boundary is hardcoded, is NOT confirmed from the frontend code provided. The coding
+> session MUST check the backend and either extend it or create it. Do not assume it exists.
 
-The three-way status per command:
-- **native** — compiles to native HA Script YAML.
-- **pyscript** — no native equivalent; forces PyScript compile target.
-- **cannot-do** — no HA equivalent at all (native or PyScript). Renders + round-trips in
-  the editor losslessly; compiler writes a debug-page message; NOTED in HA_LIMITATIONS.md
-  for the docs. (DECIDED.)
+**The full command classification is a SEPARATE research deliverable**, done per-command
+against CURRENT HA at classification time. Current HA moves monthly, so version-sensitive
+commands must be researched live, never classified from memory — and **what is
+hard-impossible is NOT predetermined here.** Do not bake an impossible-list into the spec.
+Known routing anchors verified from existing specs: `break`, `on_event`,
+`cancel_pending_tasks` → pyscript (they stay).
 
-**The full command classification is a SEPARATE deliverable** (extends HA_LIMITATIONS.md +
-the boundary file). It requires checking each command against CURRENT HA — and current HA
-moves monthly, so version-sensitive commands (notify transition, HSM, web request) must be
-researched live, not classified from memory. Known anchors from existing specs (VERIFIED in
-HA_LIMITATIONS / STATEMENT_TYPES): `break`, `on_event`, `cancel_pending_tasks` → pyscript.
-Hubitat-only commands surfaced by Jeremy's pistons (e.g. **Set Hubitat Safety Monitor
-status**, file I/O, fuel streams, piston tiles, IFTTT, LIFX scenes) → almost certainly
-cannot-do, pending confirmation + an HA-side adaptation note.
+**This research was done for the non-device command set in Session 73 — the authoritative,
+dated results live in HA_LIMITATIONS.md §10 (verified against HA 2026.6).** Do not re-derive
+from memory; read §10. Summary of what §10 found, so it isn't mis-remembered here: many
+commands previously assumed cut are actually REPRODUCIBLE and stay — web request (native
+`rest_command`), file read/write (native File integration), HSM status (HA's built-in
+`alarm_control_panel` — so HSM is NOT cut, contrary to earlier assumptions), capture/restore
+attributes (`scene.create`/`scene.turn_on`), and IFTTT-as-webhook (`rest_command`; renamed
+"Webhook" per principle 6). The genuine cuts are Hubitat/WebCoRE-platform artifacts: piston
+tiles and piston engine state (pause/resume/set state) — those are the ONLY cuts. The
+non-device command research is COMPLETE (Session 73, vs HA 2026.6): web request, file I/O,
+capture/restore, IFTTT-as-webhook, set location mode, and LIFX effects ALL resolved to
+reproducible. The "line for now" framing is in §10.
 
 ---
 
@@ -330,14 +387,18 @@ For Loop (`for_loop`), For Each Loop (`for_each`), While Loop (`while_loop`), Re
 ### 5.2 Device "Do…" command picker — three groups (VERIFIED structure from screenshots)
 
 WebCoRE's command dropdown inside a `with {devices}` block has three optgroups
-(this session's first screenshot set):
+(this session's first screenshot set). **This grouping is the authoritative source of the
+"picker category" §2.3 refers to** — the category a command is selected under here is what
+travels with the committed task. Reproducing these three groups is a WebCoRE visual-fidelity
+requirement, not an internal detail:
 
 1. **Commands available to all devices** — the capability INTERSECTION across all selected
    devices. (VERIFIED mechanism: wizard-action.js `_goCommandPicker` / service intersection,
    lines ~640–697; `DOMAIN_CAPS` static fallback wizard-core.js 93–172.)
 2. **Commands available to only some devices** — marked `emulated`. WebCoRE synthesizes
-   these for devices lacking native support. (ASSUMED: treat as NOT v1 — most don't map
-   cleanly to HA. Flag, don't build, unless a specific one is needed.)
+   these for devices lacking native support. (Treat as NOT v1 — most don't map
+   cleanly to HA. Flag, don't build, unless a specific one is needed. The group still
+   renders for fidelity.)
 3. **Location commands (non-device)** — marked `location`. The virtual command list. See 5.4.
 
 ### 5.3 Operand / value types for task parameters (VERIFIED — screenshots + code)
@@ -388,10 +449,14 @@ Set piston tile mouseover title, Set piston tile text, Set piston tile title,
 Set piston tile, Set variable, Store media, Wait for date & time, Wait for time,
 Wait randomly, Wait, Wake a LAN device, Write to file.
 
-> Each entry needs a status (native / pyscript / cannot-do) — that is the Section 4
-> classification deliverable. Many (file I/O, fuel streams, piston tiles, IFTTT, LIFX,
-> HSM) are Hubitat-platform-specific and will be cannot-do in HA. The picker should still
-> list them (render fidelity / lossless import), with cannot-do ones flagged.
+> Each entry needs a classification — can HA cleanly reproduce it? (Section 4). The ones HA
+> CAN reproduce (native / pyscript / via add-on state) appear in the picker. The ones with
+> no clean HA reproduction are **CUT from the picker** and recorded on the "can't reproduce
+> in HA currently" docs list — NOT listed-but-flagged. (This reverses the earlier
+> render-everything note; see principle 4 and Section 4 — the scope reduction.) Which of the
+> above fall on which side is the per-command research deliverable, decided against current
+> HA at classification time — NOT predetermined here. The list above is the full menu data
+> to evaluate, not a list of what ships in the wizard.
 
 ### 5.5 Device command universe for media_players (from screenshots — the `@Speakers` block)
 
@@ -440,17 +505,21 @@ In dependency order. Each item cites the code it touches.
    last task deleted (confirm with Jeremy — Section 3.3). (New.)
 4. **Virtual tasks inside device blocks** — `+ add a new task` in a device block offers the
    `LOCATION_COMMANDS` list alongside device commands (one picker, WebCoRE's three groups,
-   Section 5.2); choosing a virtual command appends a `kind:"virtual"` task (Section 2.3) to
-   the block's `tasks[]` instead of a standalone/fake node. Editor render must handle a
-   virtual task line (extend editor.js 378–384's `_friendlyCmd` rendering to virtual kinds).
+   Section 5.2); choosing a virtual command appends a non-device task (carrying its picker
+   category, Section 2.3) to the block's `tasks[]` instead of a standalone/fake node. Editor
+   render must handle a non-device task line (extend editor.js 378–384's `_friendlyCmd`
+   rendering to non-device commands).
    (Fixes BUG C — the real new construction.)
 5. **Operand-valued task parameters** — task params accept Value/Variable/Expression, not
    just literals (Section 5.3); needed for variable-duration Wait and variable Set Volume
    from Jeremy's pistons. Reuse the operand shape already in `_saveLocationCmd` (457–461).
 6. **Command classification + `target-boundary.json` verification** — SEPARATE deliverable
    (Section 4). Verify the boundary file exists or create it; classify the full command
-   list native/pyscript/cannot-do; extend HA_LIMITATIONS.md with the cannot-do set
-   (HSM, file I/O, etc.) and the HA adaptation notes.
+   classify each by the reproduce-cleanly test (native / pyscript / add-on-state = stays;
+   no clean reproduction = cut from wizard); the dated results are in HA_LIMITATIONS.md §10
+   (done Session 73 vs HA 2026.6). Note: HSM and file I/O turned out REPRODUCIBLE and stay
+   (see §10) — the ONLY cuts are piston tiles and piston engine state. Research is complete;
+   LIFX, capture/restore, IFTTT, web request, file I/O, and set location mode all reproducible.
 
 Items 1–5 are the with-block framework and make Jeremy's pistons buildable. Item 6 is the
 routing/classification that tells the compiler what each task becomes.
@@ -459,11 +528,13 @@ routing/classification that tells the compiler what each task becomes.
 
 ## 7. What this spec deliberately does NOT decide (open, for Jeremy or the coding session)
 
-- The `kind` discriminator name/shape (Section 2.3) — ASSUMED, override freely.
+- The internal storage representation of the task discriminator (Section 2.3) — a coding
+  choice, not Jeremy's and not an open spec question. Listed here only to say it is settled
+  as "coding session decides."
 - Whether a zero-task action node is removed or kept (Section 3.3) — needs Jeremy.
 - Whether standalone `wait`/`set_variable`/`log` get top-level statement-picker cards to
   match WebCoRE's Execution group (Section 5.1) — ASSUMED gap.
-- The full native/pyscript/cannot-do classification (Section 4 / item 6) — separate
+- The full reproduce-cleanly classification (Section 4 / item 6) — separate
   research deliverable against current HA; not done here.
 - `emulated` device commands (Section 5.2 group 2) — flagged not-v1, not decided.
 - Form-layout pixel fidelity of each task editor vs WebCoRE's `dialog-edit-task` — the JSON
@@ -481,5 +552,7 @@ routing/classification that tells the compiler what each task becomes.
   by task id, and give virtual commands an in-block task form.
 - **Order is load-bearing; render matches WebCoRE; storage is ours; framework holds all
   commands, implement Jeremy's.** (DECIDED.)
-- **Routing (native/pyscript/cannot-do) is a separate classification deliverable** against
-  current HA, extending HA_LIMITATIONS.md + the (unverified) boundary file.
+- **Routing (can HA cleanly reproduce it?) is a separate classification deliverable** against
+  current HA. Commands HA can reproduce (native / pyscript / via add-on state) stay in the
+  wizard; commands with no clean reproduction are CUT and logged to the living "can't
+  reproduce in HA currently" docs list. What's hard-impossible is NOT predetermined.

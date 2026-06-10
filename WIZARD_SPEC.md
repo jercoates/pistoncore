@@ -1024,8 +1024,10 @@ current `insertStatement` seam only inserts/replaces). See WITH_BLOCK_TASK_FRAME
 virtual/location commands (LOCATION_COMMANDS) in one picker (WebCoRE's three-group "Do…"
 dropdown), and append a virtual task into the block's `tasks[]` — interleaved with device
 tasks, order preserved. Today `_saveLocationCmd` only produces standalone statements or
-fake one-task "Location" nodes, so Wait/notify/etc. cannot live inside a device block. See
-WITH_BLOCK_TASK_FRAMEWORK.md §1.2 (BUG C), §3.4, and §2.3 (the virtual-task shape).
+fake one-task "Location" nodes, so Wait/notify/etc. cannot live inside a device block. The
+non-device task carries the picker category it was selected under (how that's stored is a
+coding-time choice — the framework owns this, not this screen spec). See
+WITH_BLOCK_TASK_FRAMEWORK.md §1.2 (BUG C), §3.4, and §2.3.
 
 ### Footer (new)
 `← Back` | ⚙ | `Add more` | `Add`

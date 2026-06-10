@@ -160,17 +160,29 @@ multi-task with-block foundation) is done in code; Speak rides on it.
 
 ---
 
-## ⚠ REVIEW BEFORE TREATING AS REFERENCE (Session 73 output)
+## ✅ SESSION 73 OUTPUT REVIEW — DONE (consolidation review)
 
-These were produced at the end of a long Session 73 where Claude corrected its read of the
-problem several times. The CODE (3 JS files) is syntax-checked and traced, but the SPEC
-files should get a review pass before being treated as authoritative reference:
-- WITH_BLOCK_TASK_FRAMEWORK.md (NEW) — especially the `kind` discriminator (marked ASSUMED,
-  Claude's proposal) and the "what already works" claims (read from code, NOT runtime-verified).
-- PISTON_FORMAT.md 2.4, STATEMENT_TYPES.md 2.3, WIZARD_SPEC.md 2.7 — the task-model edits.
-- GAP_global_editor_missing_device_removal.md — fix direction is a structural read, not yet
-  confirmed against the global-editor code.
-Action: skim each, confirm it matches reality, THEN move to the repo as reference.
+The Session 73 outputs were reviewed against the conversation context and the CODE (source
+of truth). Findings:
+- **Code (editor.js / wizard-core.js / wizard-action.js):** GAP-S72-1 fix traced end-to-end
+  and verified consistent across all three files (task-owner threading → edit-by-task-id →
+  append/replace-by-id). Logically correct; still untestable end-to-end until the picker
+  populates (GAP-S73-2). No code changes needed.
+- **WITH_BLOCK_TASK_FRAMEWORK.md:** the task discriminator was mis-framed as an unresolved
+  ASSUMED storage decision ("Claude invented it, override freely"). Corrected: the three-way
+  WebCoRE picker category (all-devices / emulated / location) is the authoritative VISIBLE
+  requirement (§5.2); the JSON representation is an internal coding-time choice, not Jeremy's
+  call and not an open spec question. §2.3, §3.4, §6, §7 reframed accordingly.
+- **WIZARD_SPEC.md W-6:** confirmed it references the framework for the model/bug rationale
+  and does not restate a competing discriminator; one cross-reference tightened.
+- **COMPILER_DECISIONS_HOLDING.md (NEW):** created to preserve the at-risk SPEAK/NOTIFY
+  compiler decisions (Speak volume-as-separate-step, compile-time engine, cache default,
+  SSML passthrough; Notify stable-target-ref + template-by-kind + service-registry fetch)
+  before they're lost to the frozen compiler specs. Retire at D-S6.
+- **GAP_global_editor_missing_device_removal.md:** fix direction is still a structural read,
+  not yet confirmed against the global-editor code — verify before fixing (unchanged).
+
+Spec files are now safe to treat as reference.
 
 ---
 
@@ -212,6 +224,18 @@ PROPOSED field names are now answerable against the reconciled PISTON_FORMAT tas
 Set variable nodes using string concatenation (`$DoorsOpen = $DoorsOpen + " " + $contact`)
 must be buildable. JSON supports it (`value.type: "expression"`, STATEMENT_TYPES §13); the
 wizard path doesn't exist. Also available as an in-block virtual task.
+
+### Command picker rename-map (GAP-S73-3 — decision needs a home + a code home)
+WITH_BLOCK_TASK_FRAMEWORK.md principle 6 says a NARROW set of commands gets a user-facing
+rename in the picker (visible label ≠ WebCoRE name) because the WebCoRE name points to
+something that doesn't exist for the HA user. Settled renames so far: "Set Hubitat Safety
+Monitor status" → HA alarm action; "Send an IFTTT Maker event" → **"Webhook"**. **Open
+question:** WHERE does this rename map live in code, and where in the spec is the
+authoritative list? The picker is populated from the WebCoRE command list (framework §5);
+nothing yet specifies a rename layer between that list and the displayed label. A coding
+session must (a) decide the rename-map's home (likely a small lookup applied at picker render),
+and (b) the authoritative rename list needs a spec home — Jeremy picks each replacement name,
+not Claude (principle 6). Until then the map is two entries living only in principle 6.
 
 **Files for these items:** WIZARD_SPEC.md, STATEMENT_TYPES.md, PISTON_FORMAT.md,
 WITH_BLOCK_TASK_FRAMEWORK.md, SPEAK_ACTION_SPEC.md, wizard-action.js, wizard-statement.js,
@@ -338,7 +362,20 @@ storage.py already confirmed clean (Session 71).
 - **Finding 12:** `compile_target` is a cache, not a user preference — document in PISTON_FORMAT.md.
 - **Finding 15:** Test button always fires real actions — deferred v2 dry-run feature, recorded.
 - **Pattern B:** DESIGN.md superseded-section cascade — add preamble, reduce 6.2/6.3 to pointers.
-**Files:** DESIGN.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+- **§10-a ✅ RESOLVED (Session 73):** "Set location mode → input_select" researched live and
+  confirmed (input_select.select_option + state-trigger); now in §10.1 as verified.
+- **§10-b ✅ RESOLVED (Session 73):** §10.1 now has a column-meaning note distinguishing
+  "HA doc read this session" from "Existing path" (already-in-code).
+- **§10-c ✅ RESOLVED (Session 73):** LIFX researched — native effect actions exist
+  (lifx.effect_pulse w/ modes, effect_colorloop, effect_move, set_state; scenes via
+  select.select_option). LIFX is REPRODUCIBLE, moved to §10.1, removed from cut list.
+- **§10-d ✅ RESOLVED (Session 73):** §10.4 now states plainly that "reproducible" = the HA
+  action exists, NOT end-to-end behavior-tested (scene.create unavailable-entity quirk cited);
+  real-HA testing still advised before v1.
+- **§10 status:** non-device command research is COMPLETE for wizard load — no open items.
+  The only remaining real-HA *testing* (not research) is end-to-end behavior verification of
+  the §10.1 mappings, which belongs in Stage 3, not here.
+**Files:** DESIGN.md, PISTON_FORMAT.md, HA_LIMITATIONS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ### D-S6: Compiler Spec Rewrite (after JSON structure is final)
 COMPILER_SPEC.md and PYSCRIPT_COMPILER_SPEC.md intentionally FROZEN/STALE. Rewrite after
@@ -406,7 +443,8 @@ Success = all seven checklist items at top of file.
 
 ## Spec File Versions (after Session 73)
 - DESIGN.md **v1.8**
-- PISTON_FORMAT.md **v2.4** (Session 73 — task model: device/virtual tasks, `kind` ASSUMED, order)
+- PISTON_FORMAT.md **v2.4** (Session 73 — task model: device/non-device tasks, picker
+  category as discriminator (storage is a coding-time choice), order)
 - WIZARD_SPEC.md **v2.7** (Session 73 — W-6 task append/edit/delete + virtual-in-block flows)
 - STATEMENT_TYPES.md **v2.3** (Session 73 — task schema device/virtual, wait/set_var duality)
 - WITH_BLOCK_TASK_FRAMEWORK.md **v1.0 (NEW, Session 73)** — authoritative task-container spec
@@ -420,10 +458,19 @@ Success = all seven checklist items at top of file.
 - REFERENCE_PISTON_V2.json — v2 diff anchor
 - SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now
   answerable against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
+- COMPILER_DECISIONS_HOLDING.md **v1.0 (NEW, Session 73)** — holds the at-risk SPEAK/NOTIFY
+  compiler decisions until D-S6 folds them into COMPILER_SPEC; retire then
+- BACKEND_SPEC_PROTO.md **v0.1 (NEW, Session 73)** — PROTO research-gathering for the add-on/
+  backend phase (parked, builds when STAGE B unblocks). Verified findings so far: Shortumation
+  add-on config.yaml + Dockerfile + WebSocket HA client (`hass-websocket-client`, with
+  `fetch_services()` covering NOTIFY's service-registry need); issue-#115 file-vs-WS lesson.
+  Research queue: HomeAssistantEditor, TimeMachine, addon-vscode, re-verify Shortumation vs
+  current HA add-on docs.
 
-### Session 73 output files needing review before moving to reference
-See the "⚠ REVIEW BEFORE TREATING AS REFERENCE" block above. Code files (editor.js,
-wizard-core.js, wizard-action.js) are syntax-checked; spec files want a skim against reality.
+### Session 73 output files — review status
+Review COMPLETE. See the "✅ SESSION 73 OUTPUT REVIEW — DONE" block above. Code files
+(editor.js, wizard-core.js, wizard-action.js) traced and verified; spec files reconciled
+to code and safe to treat as reference.
 
 ---
 

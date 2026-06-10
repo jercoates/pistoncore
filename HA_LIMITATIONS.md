@@ -1,7 +1,7 @@
 # PistonCore — HA Limitations & Gotchas Reference
 
 **Status:** Living document — add to this whenever a new HA limitation is discovered.
-**Last Updated:** May 2026 (Session 60 — variable scoping fixed in HA 2025.3; continue_on_error in UI as of HA 2026.3; break/on_event/cancel_pending_tasks still PyScript-only; current stable is 2026.4)
+**Last Updated:** June 2026 (Session 73 — live-researched the WebCoRE non-device command set against current HA docs; added Section 10 "Non-Device Command Reproducibility"; current stable is **2026.6**, not 2026.4 as previously logged. break/stop nuance re-verified against 2026.6 docs.)
 
 This document captures Home Assistant limitations that affect PistonCore design and
 implementation. It exists because the gap between Hubitat/WebCoRE and HA is significant
@@ -18,6 +18,7 @@ For wizard-specific handling, see WIZARD_SPEC.md.
 | Reviewed against | Date | Findings |
 |---|---|---|
 | HA 2026.4 (current stable) | May 2026 | Variable scoping fixed in 2025.3. `continue_on_error` added to UI editor in 2026.3. `break`/`on_event`/`cancel_pending_tasks` still PyScript-only. No other limitations resolved. |
+| HA 2026.6 (current stable) | June 2026 (Session 73) | Stable is now **2026.6** (prior log said 2026.4 — stale). Re-verified loop control against live 2026.6 script-syntax docs: HA's native `stop` action only ends the current sequence block / current repeat iteration / current choose — it is **not** a true WebCoRE `break` (exit loop, continue after it). So `break` stays PyScript **for now**. Live-researched the WebCoRE non-device (location/emulated) command set for reproducibility — results recorded in new Section 10. NOTE: this is the line as of 2026.6 — HA gains native capability over time, so Section 10 must be re-reviewed periodically, not treated as permanent. |
 
 ---
 
@@ -37,6 +38,14 @@ with significant restrictions:
 | Context tracking ($currentEventDevice) | Yes | No | PyScript only |
 | Physical vs programmatic interaction | Yes | PyScript only | Wizard prompts conversion |
 
+> **`break`/`on_event`/`cancel` re-verified June 2026 (HA 2026.6):** the *capability* claims
+> above still hold — HA's native `stop` action only ends the current sequence block / repeat
+> iteration / choose, so there is still no true WebCoRE `break` natively; these stay PyScript
+> **for now** (re-review each HA release — this is a moving target). **However**, the
+> `target-boundary.json` mechanism named above is referenced by the specs but its existence
+> in the backend was NOT confirmed from code — a coding session must verify whether it exists
+> or the boundary is hardcoded, and extend/create it accordingly. Do not treat the
+> `target-boundary.json` column as verified.
 **Variable scoping fix (HA 2025.3):** The long-standing bug where variables set inside a loop or parallel sequence body didn't update the outer scope was fixed in HA 2025.3 (PR #138883). The `wait` and `response_variable` scoping bugs were also fixed. General variable mutation across nested sequence blocks now works correctly. The `repeat` variable (available inside loop body as `repeat.index`, `repeat.first`, `repeat.last`) is still intentionally local to the loop — that hasn't changed. If PistonCore targets HA 2025.3+ (which it does — minimum is 2023.1), the old compiler warning about variable scoping can be downgraded or removed for most patterns. **Exception:** string accumulation across loop iterations using `variables:` still has subtle scope behavior that should be tested — the PyScript fallback for `loop_string_accumulation` remains correct.
 
 ### Long-Running Pistons
@@ -215,7 +224,9 @@ but behave differently in edge cases. Users migrating from Hubitat may be surpri
 These limitations were discovered and designed around. Listed here so they are
 not re-litigated:
 
-- **No HA native break/on_event/cancel** → PyScript fallback via target-boundary.json ✅
+- **No HA native break/on_event/cancel** → PyScript fallback (routing mechanism the specs
+  call `target-boundary.json` — capability re-verified vs HA 2026.6, but the file's existence
+  in code is UNVERIFIED; see Section 1 note) ⚠
 - **Binary sensors always report on/off** → Friendly label system in wizard,
   compiled_value always "on"/"off" ✅
 - **Entity IDs are compile-time** → entity_ids baked at wizard commit time, static in JSON ✅
@@ -260,6 +271,78 @@ Questions to answer with real testing:
 **How to test:** Create a simple test automation in HA that references a known entity. Remove the entity (or rename it so it no longer exists). Reload automations. Observe what HA does — check the HA log, check whether the automation is marked as disabled, check what error (if any) is returned by the reload call.
 
 Results go here and inform the implementation of the hard flag logic in PistonCore. Do not implement the single-device missing deploy block until this is validated.
+
+---
+
+## 10. Non-Device Command Reproducibility (WebCoRE location/emulated → HA)
+
+**Scope:** This section is ONLY about WebCoRE's **non-device** commands — the "location" and
+"emulated" groups of the with-block "Do…" picker. **Device commands are out of scope here:**
+anything that is a real HA entity is pulled natively into the device picker as an entity and
+never appears on any cut list. The question here is only: for a non-device WebCoRE command,
+can HA cleanly reproduce the *result*? If yes → it STAYS in the wizard. If there is no clean
+HA reproduction → it is CUT from the wizard and listed below.
+
+**This is the line as of HA 2026.6 (June 2026) — NOT forever.** HA gains native capability
+over time (e.g. variable scoping went native in 2025.3; `continue_on_error` hit the UI in
+2026.3). Re-review periodically. A command cut today returns to the wizard if HA later gains
+a clean way to reproduce it. **Rule:** if HA has a *built-in* for it, use HA's built-in
+(do not reach for optional add-ons when a native path exists); only if there is no built-in
+and no other clean path does it go on the cut list.
+
+### 10.1 REPRODUCIBLE — stays in the wizard
+
+> **What "Verified" means per row:** "...docs 2026.6" = the current HA doc was read this
+> session confirming the action exists. "Existing path" = PistonCore already compiles this
+> (verified in code, not necessarily re-checked against the newest HA doc). Neither means the
+> WebCoRE→HA mapping was tested end-to-end for identical behavior — see §10.4.
+
+| WebCoRE command | HA reproduction | Verified |
+|---|---|---|
+| Wait / Wait for time / Wait for date & time / Wait randomly | Native `delay`, `wait_for_trigger`, `wait_template` | Existing PistonCore path (`_saveLocationCmd`); script-syntax docs 2026.6 |
+| Set variable | Native `variables:` action | Script-syntax docs 2026.6 (variable scoping fixed 2025.3) |
+| Log to console | Native `logbook.log` / `system_log.write` | Existing path |
+| Execute piston / call_piston | `script.turn_on` / `automation.trigger` on the compiled target | Existing path |
+| Set location mode | Native `input_select` helper: `input_select.select_option` sets a named mode state; state-change is a usable trigger. (No HA *built-in* "location mode" — you create the helper — but the result is fully reproduced.) | input_select docs, June 2026 |
+| Make a web request | Native **`rest_command`** (GET/POST/PUT/DELETE, templated URL/payload/headers/auth, response via `response_variable`) — reproduces WebCoRE web request incl. JSON response handling | rest_command docs, June 2026 |
+| Read from file / Write to file | Native **File integration** (enabled by default): `file.read_file` (→ `response_variable`) and the file notify entity for writes. Caveat: paths must be in `allowlist_external_dirs` | File integration docs, June 2026 |
+| HSM status (Set Hubitat Safety Monitor) | HA ships a **built-in `alarm_control_panel`** with arm_home/arm_away/arm_night/disarm/triggered states + arm/disarm actions. Use HA's built-in alarm entity. (NOTE: WebCoRE *custom* HSM monitoring rules don't map 1:1 — only the arm/disarm/status maps cleanly; custom-rule fidelity needs per-piston validation) | alarm_control_panel docs, June 2026 |
+| Capture attributes to store / Restore attributes from store | Native `scene.create` with `snapshot_entities` (capture) + `scene.turn_on` (restore) — saves current entity states and restores them | scene docs, June 2026 |
+| Send an IFTTT Maker event | Reproducible as a webhook fire via native `rest_command` to the target URL. RENAMED in the picker to "Webhook" (principle 6) — IFTTT is a specific service; the real action is firing a webhook | rest_command docs, June 2026 |
+| LIFX – Breathe / Pulse / Set State / Activate scene / Toggle | Native LIFX integration effect actions: `lifx.effect_pulse` (with mode: breathe/blink/ping/strobe/solid — old `lifx_effect_breathe` folded into this), `lifx.effect_colorloop`, `lifx.effect_move`, `lifx.set_state`, `effect_stop`; scenes/themes via `select.select_option`. Toggle/basic = ordinary `light` entity. | LIFX integration docs, June 2026 |
+
+### 10.2 CUT — no clean HA reproduction as of 2026.6 (Hubitat/WebCoRE-platform artifacts)
+
+These are constructs of the Hubitat/WebCoRE platform itself, not automation actions HA has
+an equivalent for. Cut from the wizard; logged here.
+
+| WebCoRE command | Why no clean HA reproduction |
+|---|---|
+| Piston tiles (set tile, tile colors/footer/text/title/mouseover, clear tile) | WebCoRE-dashboard-specific UI construct; HA has no piston-tile concept. (HIGH confidence — pure WebCoRE UI.) |
+| Set piston state / Pause piston / Resume piston | Operate on the WebCoRE engine's own run state; no HA analog to a "piston" runtime to pause/resume. (HIGH confidence.) |
+
+### 10.3 EMULATED group — not v1 (unchanged)
+
+WebCoRE "emulated" commands (WebCoRE synthesizing a command for a device that lacks it
+natively) are flagged NOT-v1 in WITH_BLOCK_TASK_FRAMEWORK.md §5.2. Most don't map cleanly to
+HA. Not researched per-command here; the group renders for fidelity but isn't implemented.
+
+### 10.4 Confidence + completeness note
+
+**Research COMPLETE for the non-device command set as of 2026.6 (Session 73)** — every
+non-device command resolved to a definitive stays/cut, so the wizard can be loaded from this
+without "verify later" gaps. The 10.1 entries are confirmed against current HA docs (sources
+dated June 2026). The only cuts (10.2) are piston tiles and piston engine state — pure
+WebCoRE/Hubitat-platform constructs with no HA analog (HIGH confidence). There are no
+remaining MED/unresolved items.
+
+**Caveat on what "reproducible" means:** §10.1 means *HA has an action that should reproduce
+the result*, confirmed to exist — it is NOT end-to-end behavior-tested. Known example:
+`scene.create`/`snapshot_entities` has a documented quirk where an entity unavailable at
+snapshot time breaks restore. Real-HA testing per mapping is still wise before v1; "exists
+and is the right action" is not "proven byte-identical to WebCoRE."
+
+**Not permanent:** this is the line as of 2026.6 — re-review on major HA releases.
 
 ---
 

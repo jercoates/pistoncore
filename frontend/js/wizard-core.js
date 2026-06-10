@@ -639,17 +639,25 @@ const Wizard = (() => {
         }
         _sel.device_id    = _sel.tokens[0] || '';
         _sel.device_label = _editNode.role || _sel.device_id || '';
-        if ((_editNode.tasks || []).length) {
-          const task = _editNode.tasks[0];
-          _sel.command    = task.command || '';
-          _sel.parameters = task.parameters ? { ...task.parameters } : {};
+        // Edit the SPECIFIC clicked task (task-id carried from the editor), not always
+        // tasks[0]. Falls back to tasks[0] when no task-id is present (older callers).
+        // edit_task_id is recorded so the save path replaces the right task by id.
+        // See WITH_BLOCK_TASK_FRAMEWORK.md BUG B.
+        const _editTaskId = _extra && _extra['task-id'] ? _extra['task-id'] : null;
+        const _tasks = _editNode.tasks || [];
+        const _targetTask = _editTaskId
+          ? (_tasks.find(t => t && t.id === _editTaskId) || _tasks[0])
+          : _tasks[0];
+        _sel.edit_task_id = (_targetTask && _targetTask.id) || _editTaskId || null;
+        if (_targetTask) {
+          _sel.command    = _targetTask.command || '';
+          _sel.parameters = _targetTask.parameters ? { ..._targetTask.parameters } : {};
         }
         const isLocation = _sel.device_id === '__location__' ||
           (_editNode.entity_ids || []).includes('__location__') ||
           (_editNode.devices || []).includes('Location');
         if (isLocation) {
-          const task = (_editNode.tasks||[])[0];
-          if (task) _sel.location_cmd = task.command || '';
+          if (_targetTask) _sel.location_cmd = _targetTask.command || '';
           _goLocationCmdPicker();
         } else {
           _goCommandPicker();

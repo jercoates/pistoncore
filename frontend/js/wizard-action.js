@@ -797,16 +797,38 @@ function _saveDeviceCmd(addMore) {
   const branch  = WizardCore.extra?.['branch'] || 'then';
   const meta    = blockId ? { blockId, branch } : undefined;
 
-  if (WizardCore.editNode && WizardCore.editNode.type === 'action') {
+  // Which task are we editing (if any)? Set by _route when a specific task line was
+  // clicked. When editing, newTask reuses that id so insertStatement replaces in place.
+  const editTaskId = WizardCore.sel?.edit_task_id || null;
+  if (editTaskId) newTask.id = editTaskId;
+
+  // CASE 1 — Adding a task into an EXISTING action block via the "+ add a new task"
+  // ghost (context 'task', block-id = the action node's id, no branch). Append/replace
+  // the single task into that block's tasks[] without disturbing siblings or the block's
+  // devices. Uses the insertStatement task seam (push-or-replace by id).
+  if (ctx === 'task' && blockId && !WizardCore.extra?.['branch']) {
+    Editor.insertStatement('task', newTask, { blockId });
+
+  // CASE 2 — Editing an existing action node (clicked a task line). Preserve the node's
+  // existing tasks; replace the edited task by id, or append if it's new. This is the
+  // GAP-S72-1 fix: do NOT flatten tasks to [newTask].
+  } else if (WizardCore.editNode && WizardCore.editNode.type === 'action') {
+    const existing = Array.isArray(WizardCore.editNode.tasks) ? [...WizardCore.editNode.tasks] : [];
+    const ti = existing.findIndex(t => t && t.id === newTask.id);
+    if (ti >= 0) existing[ti] = newTask;
+    else existing.push(newTask);
     const updatedNode = {
       ...WizardCore.editNode,
       role,
       role_tokens: roleTokens,
       entity_ids: finalIds.length ? finalIds : (WizardCore.editNode.entity_ids || []),
-      tasks: [newTask],
+      tasks: existing,
     };
     delete updatedNode.devices;
     Editor.insertStatement(ctx, updatedNode, meta);
+
+  // CASE 3 — Brand-new action node (first task). Create the node with this task as its
+  // first entry.
   } else {
     Editor.insertStatement(ctx, {
       type: 'action', id: WizardCore.editNode?.id || _newId(), async: false,
@@ -819,9 +841,23 @@ function _saveDeviceCmd(addMore) {
   }
 
   if (addMore) {
-    WizardCore.sel.command    = '';
-    WizardCore.sel.parameters = {};
-    WizardCore.editNode = null;
+    // Keep appending into the SAME block. Re-target the wizard at the block we just
+    // committed into so the next task is added, not overwritten and not made a sibling
+    // action node. Clear the command/params and the edit-task marker.
+    const committedBlockId =
+      (ctx === 'task' && blockId) ? blockId
+      : (WizardCore.editNode && WizardCore.editNode.id) ? WizardCore.editNode.id
+      : null;
+    WizardCore.sel.command      = '';
+    WizardCore.sel.parameters   = {};
+    WizardCore.sel.edit_task_id = null;
+    if (committedBlockId) {
+      WizardCore.context  = 'task';
+      WizardCore.extra    = { 'block-id': committedBlockId };
+      WizardCore.editNode = null;
+    } else {
+      WizardCore.editNode = null;
+    }
     _goCommandPicker();
   } else {
     close();

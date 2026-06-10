@@ -380,7 +380,7 @@ const Editor = (() => {
             const params = task.parameters
               ? Object.entries(task.parameters).map(([k,v]) => `<span class="doc-param-k">${_esc(k)}</span>: ${_val(v)}`).join(', ')
               : '';
-            ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task' });
+            ln(`${_esc(cmdLabel)}${params ? ` <span class="doc-params">${params}</span>` : ''};`, pad + 2, { id: task.id, type: 'task', 'task-owner': id });
           });
           gh('· add a new task', 'task', pad + 2, { 'block-id': id });
           ln(`<span class="kw">end with;</span>`, pad);
@@ -713,6 +713,19 @@ const Editor = (() => {
       // Skip condition_operator pseudo-statements — handled above
       if (stmt.dataset.type === 'condition_operator') return;
       _selectStmt(stmt.dataset.id);
+
+      // Task line: data-id is the TASK id, not a statement node id. _findAnyNode does
+      // not search inside action.tasks[], so we resolve the OWNING action node via the
+      // task-owner attr the renderer stamped, and pass the clicked task id through so the
+      // wizard edits THAT task (not tasks[0]). See WITH_BLOCK_TASK_FRAMEWORK.md BUG B.
+      if (stmt.dataset.type === 'task') {
+        const ownerId = stmt.dataset['taskOwner'] || stmt.dataset['task-owner'] || null;
+        const taskId  = stmt.dataset.id || null;
+        const owner   = ownerId ? _findAnyNode(ownerId) : null;
+        if (owner) Wizard.open('task', owner, { 'task-id': taskId });
+        return;
+      }
+
       const node = _findAnyNode(stmt.dataset.id);
       const parentBlock = stmt.dataset['parentBlock'] || stmt.dataset['parent-block'] || null;
       const renderedType = stmt.dataset.type || null;

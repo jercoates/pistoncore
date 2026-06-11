@@ -56,7 +56,6 @@ const App = (() => {
     if (params.pistonId !== undefined) state.pistonId = params.pistonId;
     const el = pages[page];
     if (el) el.classList.add('active');
-    _saveNavState();
 
     switch (page) {
       case 'list':   ListPage.load(); break;
@@ -66,26 +65,12 @@ const App = (() => {
   }
 
   // ── Browser refresh restore ──────────────────────────────
-  function _saveNavState() {
-    try {
-      localStorage.setItem('pistoncore_nav', JSON.stringify({
-        page: state.currentPage,
-        pistonId: state.pistonId,
-      }));
-    } catch {}
-  }
-
+  // Refresh always returns to the list. Persisting the last page and
+  // auto-restoring it on boot was removed: restoring 'editor'/'status'
+  // re-triggered a piston load on startup, and a piston that can't load
+  // (e.g. a retired logic_version) trapped the user on a dead page with no
+  // way back. The list is always safe; the user re-opens from there.
   function _restoreNavState() {
-    try {
-      const saved = localStorage.getItem('pistoncore_nav');
-      if (saved) {
-        const { page, pistonId } = JSON.parse(saved);
-        if (page && pages[page]) {
-          navigate(page, { pistonId });
-          return;
-        }
-      }
-    } catch {}
     navigate('list');
   }
 
@@ -265,6 +250,12 @@ const App = (() => {
     });
 
     document.getElementById('header-status')?.addEventListener('click', () => HASettings.open());
+
+    // The persistent header logo is the universal "back to list" escape hatch —
+    // available on every page, including a failed editor load. navigate() already
+    // runs the unsaved-changes guard when leaving a dirty editor, so clicking the
+    // logo mid-edit prompts Save / Discard / Cancel automatically.
+    document.getElementById('header-home')?.addEventListener('click', () => navigate('list'));
 
     setTimeout(_connectWebSocket, 2000);
     setTimeout(checkHAConnection, 1000);

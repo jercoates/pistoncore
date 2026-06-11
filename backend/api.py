@@ -151,24 +151,18 @@ def get_piston(piston_id: str):
     if piston is None:
         raise HTTPException(status_code=404, detail=f"Piston '{piston_id}' not found.")
 
-    # logic_version 2 is the only supported format. Version 1 (device_map model)
-    # is retired — there is no migration path. Reject anything that is not exactly 2.
+    # Guard against pistons from a newer PistonCore than this instance.
+    # Older/missing logic_version values load fine — the editor and wizard
+    # write logic_version on save, so pistons self-upgrade on edit.
     logic_v = piston.get("logic_version")
     ui_v = piston.get("ui_version", CURRENT_UI_VERSION)
 
-    if logic_v != CURRENT_LOGIC_VERSION:
-        if logic_v is not None and logic_v > CURRENT_LOGIC_VERSION:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Piston '{piston_id}' was created with a newer logic version "
-                       f"({logic_v}) than this PistonCore supports ({CURRENT_LOGIC_VERSION}). "
-                       f"Update PistonCore before opening this piston.",
-            )
+    if logic_v is not None and logic_v > CURRENT_LOGIC_VERSION:
         raise HTTPException(
             status_code=409,
-            detail=f"Piston '{piston_id}' uses a legacy logic version "
-                   f"({logic_v}) that is no longer supported. PistonCore only supports "
-                   f"logic version {CURRENT_LOGIC_VERSION}. Recreate this piston.",
+            detail=f"Piston '{piston_id}' was created with a newer logic version "
+                   f"({logic_v}) than this PistonCore supports ({CURRENT_LOGIC_VERSION}). "
+                   f"Update PistonCore before opening this piston.",
         )
 
     if ui_v > CURRENT_UI_VERSION:

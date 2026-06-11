@@ -758,23 +758,29 @@ function _saveDeviceCmd(addMore) {
     params[el.dataset.param] = el.value;
   });
 
-  // Resolve tokens → flat real entity_ids.
-  // These are ALL entity_ids from the selected defines/devices.
-  // The intersection already determined which commands are valid for all of them —
-  // so every resolved id belongs on this node. No domain filtering here.
+  // Resolve tokens → flat real entity_ids, then filter to the command's domain.
+  // A physical device (e.g. a ReSpeaker) exposes many entities across multiple domains
+  // (media_player, switch, sensor, binary_sensor, light, etc). Only the entities whose
+  // domain matches the selected command's domain belong on this action node — the compiler
+  // must not be handed unrelated entity IDs for a service call it cannot use them for.
   const flatIds  = _getFlatEntityIds(_sel.tokens || []);
-  const finalIds = flatIds.filter(id => !id.startsWith('__'));
+  const allIds   = flatIds.filter(id => !id.startsWith('__'));
 
-  // Fix 2: if resolution produced no entity_ids, do not write a broken node.
-  // This happens if all selected tokens are variables with no devices assigned yet.
-  if (!finalIds.length) {
+  // If resolution produced no entity_ids, do not write a broken node.
+  if (!allIds.length) {
     const el = document.getElementById('wiz-cmd-params');
     if (el) el.innerHTML = `<div class="wiz-error">No devices could be resolved from the current selection. Check that your variables have devices assigned.</div>`;
     return;
   }
 
-  const firstId = finalIds[0] || '';
-  const domain  = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
+  // Derive domain from the command value (ha_service will be domain.command).
+  // command is already the bare service name; domain comes from the primary entity.
+  const firstId    = allIds[0] || '';
+  const domain     = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
+  // Filter to only entity_ids matching the command's domain.
+  // If nothing matches (shouldn't happen normally), fall back to all ids.
+  const domainIds  = allIds.filter(id => id.startsWith(domain + '.'));
+  const finalIds   = domainIds.length ? domainIds : allIds;
 
   // role label — derived from token labels (what the user selected), not entity count.
   // GAP-S63-6: use _sel.device_label which was built from label count in the click handler.

@@ -1,26 +1,23 @@
 # PistonCore — TASKS.md
 
 **Status:** Living document — single active task file. Update at the end of every session.
-**Last Updated:** Session 73 — (1) Spec reconciliation: the task/with-block specs were
-rewritten to match the CODE (the older specs had drifted behind in-code fixes). New
-authoritative spec WITH_BLOCK_TASK_FRAMEWORK.md written; PISTON_FORMAT (2.4),
-STATEMENT_TYPES (2.3), WIZARD_SPEC (2.7) reconciled. (2) GAP-S72-1 CODED (partial — see
-W-S15): the with-block now stacks tasks instead of overwriting. Root cause was deeper than
-filed — clicking a task line resolved to null (`_findAnyNode` doesn't search `tasks[]`), so
-task EDIT was a dead path; `_route` always read `tasks[0]`; `_saveDeviceCmd` wrote
-`tasks:[newTask]`. Fixed across editor.js (task-owner attr + click resolves to owning action
-node, passes task-id), wizard-core.js (edit the clicked task, record edit_task_id), and
-wizard-action.js (append/replace by id, preserve siblings, Add-more stacks into same block).
-(3) New gap found: GAP-S73-1 — global editor can't remove a missing/failed HA device.
-(4) Tonight's "No devices could be resolved" symptom traced to HA/Unraid updates breaking
-the Sonos media_player entity feed (HA-side, not a PistonCore code bug); Jeremy switched
-`@Speakers` to a ReSpeaker and it still won't pull — picker/resolution is a separate gap
-(GAP-S73-2). NOTE: the GAP-S72-1 code is untestable end-to-end until the picker populates.
+**Last Updated:** Session 74 — (1) GAP-S73-4 CLOSED: load-error trapping banner fully fixed
+across status.js and editor.js (graceful shell render + notice bar); PistonCore logo wired
+as persistent home button on all pages routing through unsaved-changes guard (index.html,
+app.js); nav restore now always boots to list eliminating startup trap; dead `_saveNavState`
+/ `pistoncore_nav` localStorage removed (app.js). (2) GAP-S73-2 CLOSED: "No devices could
+be resolved" was the v2-only backend gate blocking piston load before the wizard ever opened
+— NOT a picker/resolution bug. Removing the gate (api.py) unblocked the picker immediately;
+entity_ids domain filter also found missing in `_saveDeviceCmd` (was deliberately removed in
+a prior session with a wrong comment) — restored and locked as a hard guardrail in
+CLAUDE_SESSION_PROMPT.md. (3) GAP-S72-1 VERIFIED: multi-task with-block round-trips cleanly
+— four tasks stacked, order preserved, entity_ids correct, JSON confirmed. (4) GAP-S74-1
+NEW: command picker shows raw HA service names instead of WebCoRE vocabulary; three-group
+picker structure (framework §5.2) not built. Assigned to W-S17.
 
-Prior context: Session 72 closed GAP-S71-1 (global resolution in action wizard — resolvers
-now read `Editor.getGlobalsCache()`; `_globalsCache` no longer leaks into saved JSON).
-Session 71 closed B-0 (backend v2). Session 70 closed W-S11 (first lossless round-trip).
-Session 69 full spec reconciliation.
+Prior context: Session 73 coded GAP-S72-1 (multi-task with-block). Session 72 closed
+GAP-S71-1 (global resolution). Session 71 closed B-0 (backend v2). Session 70 closed
+W-S11 (first lossless round-trip). Session 69 full spec reconciliation.
 
 **Authority:** CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files
 **Completed sessions and closed gaps:** See TASKS_HISTORY.md
@@ -112,36 +109,26 @@ multi-task with-block foundation) is done in code; Speak rides on it.
   into saved piston JSON — editor.js restores the cache after backend response reassignment.
   Files changed: editor.js, wizard-core.js, wizard-action.js.
 
-- **GAP-S72-1 (multi-task with-block — HIGH) — CODED Session 73, NEEDS VERIFY:**
-  The with-block now stacks tasks instead of overwriting. The bug was deeper than filed:
-  clicking a task line resolved to null (`_findAnyNode` doesn't search `tasks[]`) so task
-  EDIT did nothing; `_route` always read `tasks[0]`; `_saveDeviceCmd` wrote `tasks:[newTask]`.
-  Fix landed across three files (full replacements in Session 73 outputs):
-  - **editor.js** — task line carries `task-owner` (parent action id); a task click resolves
-    to the owning action node and passes the clicked `task-id` to the wizard.
-  - **wizard-core.js** — `_route` edits the task matching `extra['task-id']` (not `tasks[0]`);
-    records `_sel.edit_task_id`.
-  - **wizard-action.js** — `_saveDeviceCmd` appends/replaces the task by id, preserves
-    sibling tasks; "Add more" re-targets the same block so tasks stack.
-  **Remainder still open (rolled forward):**
-  - **GAP-S72-1b (UX, picker-adjacent):** "+ add a new task" on an EXISTING block forces a
-    device re-pick (the add-task path has no `editNode`, so the device picker resets). The
-    code is safe (CASE 1 appends to the existing block regardless), but the user shouldn't
-    re-select devices the block already has. Fix = pre-fill the device picker from the block
-    on `'task'`-context entry. Do this WITH the picker work (GAP-S73-2) — same code area.
-  - **VERIFY:** untestable end-to-end until the picker populates (GAP-S73-2). Once resolution
-    is healthy, confirm: add 2nd/3rd task stacks; edit middle task edits only it; delete one
-    keeps the rest (delete path not yet built — see WITH_BLOCK_TASK_FRAMEWORK.md §3.3).
+- **GAP-S72-1 ✅ CLOSED (Session 73 coded, Session 74 verified):** Multi-task with-block
+  round-trips cleanly. Four tasks stacked on `@Speakers`, order preserved in JSON,
+  entity_ids correct (`media_player.room2` only after domain filter fix). Edit-by-task-id,
+  append, and Add-more all confirmed working against a live HA with real entities.
+  **Remainder still open (rolled into W-S17):**
+  - **GAP-S72-1b (UX):** “+ add a new task” on an EXISTING block forces a device re-pick.
+    Code is safe (CASE 1 appends correctly) but user shouldn't re-select devices the block
+    already has. Fix = pre-fill the device picker from the block on `'task'`-context entry.
+    Picker is now healthy so this is unblocked. Assigned to W-S17.
+  - **Per-task DELETE path** not yet built (framework spec §3.3). Assigned to W-S17.
 
-- **GAP-S73-2 (picker / device resolution — HIGH, NEW Session 73):** The action command
-  picker shows "No devices could be resolved" even after switching `@Speakers` to a device
-  that is NOT the broken Sonos (a ReSpeaker). Tonight's trigger was HA/Unraid updates
-  breaking the Sonos `media_player` entity feed (HA-side), BUT the failure persisting after
-  switching devices indicates a real resolution/picker bug, not only the missing entity.
-  This is its OWN session, and must be debugged against a HEALTHY HA (entities flowing).
-  Do NOT conflate with GAP-S72-1. Owns: `_goCommandPicker`, `_goActionDevicePicker`,
-  `_getGroupedEntityIdsForTokens`, `_getFlatEntityIds`, globals/variable resolution, and the
-  GAP-S72-1b device-picker pre-fill above. Files: wizard-action.js, wizard-core.js, editor.js.
+- **GAP-S73-2 ✅ CLOSED (Session 74):** “No devices could be resolved” was NOT a
+  picker/resolution bug. Root cause: the v2-only backend gate in `get_piston` (api.py)
+  rejected the piston before the wizard ever opened — no device data reached the picker.
+  Fixed by removing the lower-version rejection (future-version guard kept). The picker
+  worked immediately once pistons could load. Separately: the entity_ids domain filter in
+  `_saveDeviceCmd` was found missing (deliberately removed in a prior session with a wrong
+  justification) — restored and locked as a hard guardrail in CLAUDE_SESSION_PROMPT.md.
+  Files changed: api.py, wizard-action.js, CLAUDE_SESSION_PROMPT.md.
+
 
 - **GAP-S73-1 (global editor can't remove a missing device — HIGH structural, NEW):**
   A global device that goes missing in HA cannot be deselected and "remove all" fails — the
@@ -158,6 +145,19 @@ multi-task with-block foundation) is done in code; Speak rides on it.
 
 - **GAP-S45-1 (cosmetic):** set_variable wizard doesn't normalize `$` prefix.
 
+- **GAP-S73-4 ✅ CLOSED (Session 74):** A piston that failed the v2 check trapped the
+  entire UI. Root causes: (a) `_restoreNavState` saved the last page to localStorage and
+  re-navigated into the editor on boot — if that piston 409'd, the user booted straight
+  into a dead page with no way back; (b) the editor and status page load-error catch blocks
+  painted a full-page banner with nothing behind it. Fixed: nav restore now always boots
+  to list (`_saveNavState` and `pistoncore_nav` localStorage removed as dead code); status
+  page load-error renders a functional shell with the error in the validation-banner slot
+  and Delete available; editor load-error renders a blank editor shell with the error in
+  the non-blocking notice bar; PistonCore logo wired as a persistent home button on all
+  pages (including dead-editor state), routing through the unsaved-changes guard so a
+  dirty-editor click prompts Save/Discard/Cancel. Files: app.js, editor.js, status.js,
+  index.html.
+
 ---
 
 ## ✅ SESSION 73 OUTPUT REVIEW — DONE (consolidation review)
@@ -166,8 +166,8 @@ The Session 73 outputs were reviewed against the conversation context and the CO
 of truth). Findings:
 - **Code (editor.js / wizard-core.js / wizard-action.js):** GAP-S72-1 fix traced end-to-end
   and verified consistent across all three files (task-owner threading → edit-by-task-id →
-  append/replace-by-id). Logically correct; still untestable end-to-end until the picker
-  populates (GAP-S73-2). No code changes needed.
+  and verified (Session 74 — four tasks stacked, round-trip clean, domain filter confirmed).
+  No code changes needed to the Session 73 files.
 - **WITH_BLOCK_TASK_FRAMEWORK.md:** the task discriminator was mis-framed as an unresolved
   ASSUMED storage decision ("Claude invented it, override freely"). Corrected: the three-way
   WebCoRE picker category (all-devices / emulated / location) is the authoritative VISIBLE
@@ -199,9 +199,9 @@ the code. The structure decision is made: a with-block is an `action` node + ord
 discriminator (the picker already knows it at selection time). GAP-S72-1 is also CODED
 (see W-S15). The remaining W-S17 items below still need their wizard PATHS built.
 
-### Multi-task with-blocks (GAP-S72-1) ✅ SPEC DONE + CODED (Session 73)
-Specced in WITH_BLOCK_TASK_FRAMEWORK.md; coded in W-S15. Remaining: the per-task DELETE
-path (framework spec §3.3) and the picker pre-fill (GAP-S72-1b). Verify once picker works.
+### Multi-task with-blocks (GAP-S72-1) ✅ SPEC DONE + CODED + VERIFIED (Session 74)
+Specced in WITH_BLOCK_TASK_FRAMEWORK.md; coded and verified this session. Per-task DELETE
+path (framework spec §3.3) and picker pre-fill (GAP-S72-1b) remain open — see below.
 
 ### Wait (GAP-S72-2)
 `wait` must be buildable as a first-class duration, including variable duration
@@ -237,6 +237,17 @@ session must (a) decide the rename-map's home (likely a small lookup applied at 
 and (b) the authoritative rename list needs a spec home — Jeremy picks each replacement name,
 not Claude (principle 6). Until then the map is two entries living only in principle 6.
 
+
+### Command picker vocabulary / three-group structure (GAP-S74-1 — NEW Session 74)
+The task command picker shows raw HA service names instead of the WebCoRE vocabulary
+migration users expect. The three-group picker structure from framework §5.2
+(“Commands available to all devices” / “Commands available to only some devices” /
+“Location commands”) is not built. `Speak text` is not in the picker at all — it is
+not a raw HA service but a PistonCore-defined task type that compiles to `tts.speak`
+(see SPEAK_ACTION_SPEC.md). The operand widget (Value/Variable/Expression dropdown)
+backing Speak text, Set Volume, Wait, and any parameterized command does not exist.
+This is the foundation all of W-S17 sits on. Build it once; all commands use it.
+Prerequisite to: GAP-S71-4, GAP-S72-2, GAP-S72-3, GAP-S72-1b, GAP-S73-3.
 **Files for these items:** WIZARD_SPEC.md, STATEMENT_TYPES.md, PISTON_FORMAT.md,
 WITH_BLOCK_TASK_FRAMEWORK.md, SPEAK_ACTION_SPEC.md, wizard-action.js, wizard-statement.js,
 wizard-loops.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
@@ -441,7 +452,7 @@ Success = all seven checklist items at top of file.
   response, preventing it from accumulating on `_piston` and leaking to disk).
 - **volume_set 0–100 vs HA 0.0–1.0:** conversion concern logged in W-S17 (GAP-S72-3).
 
-## Spec File Versions (after Session 73)
+## Spec File Versions (after Session 74)
 - DESIGN.md **v1.8**
 - PISTON_FORMAT.md **v2.4** (Session 73 — task model: device/non-device tasks, picker
   category as discriminator (storage is a coding-time choice), order)
@@ -467,12 +478,12 @@ Success = all seven checklist items at top of file.
   Research queue: HomeAssistantEditor, TimeMachine, addon-vscode, re-verify Shortumation vs
   current HA add-on docs.
 
-### Session 73 output files — review status
-Review COMPLETE. See the "✅ SESSION 73 OUTPUT REVIEW — DONE" block above. Code files
-(editor.js, wizard-core.js, wizard-action.js) traced and verified; spec files reconciled
-to code and safe to treat as reference.
-
----
+### Session 73 + 74 output files — review status
+Session 73 reviewed and verified (see above). Session 74 files: api.py (v2 gate
+removed), app.js (_saveNavState removed, logo home button), editor.js (load-error
+graceful shell), status.js (load-error graceful shell), index.html (logo id),
+wizard-action.js (domain filter restored), CLAUDE_SESSION_PROMPT.md (domain filter
+hard guardrail added). All syntax-checked. Safe to treat as reference.
 
 ## Reminder for Jeremy
 At the end of each session: move fully-completed gaps/bundles to TASKS_HISTORY.md, roll

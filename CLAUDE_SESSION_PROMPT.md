@@ -97,6 +97,16 @@ Current hard guardrails:
   Projection invariant in FRONTEND_SPEC.md.
 - **UI/Data separation** — role/device_label always friendly names, entity_ids always
   real HA entity_ids. Mixing them is always a bug. See UI/Data Separation Rule below.
+- **`_saveDeviceCmd` domain filter — entity_ids contains ONLY the entities relevant to
+  the selected command's domain.** The picker already knows the command and therefore the
+  domain at commit time. A physical device exposes many entities across many domains
+  (media_player, switch, sensor, binary_sensor, light, etc). Only the entity_ids whose
+  domain prefix matches the selected command's domain go into the node. All-entities-in
+  is ALWAYS wrong — the compiler cannot use unrelated entity IDs for a service call.
+  This filter lives in `_saveDeviceCmd` in wizard-action.js at the `finalIds` assembly
+  step. Do NOT remove it, simplify it, or bypass it for any reason including multi-task
+  rewrites or with-block changes. If this filter is missing, every action node in every
+  piston is corrupt. This is the point of the picker existing.
 
 If a hard guardrail seems wrong, you (Claude) are most likely wrong. Ask before
 changing anything.

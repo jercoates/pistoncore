@@ -65,31 +65,18 @@ const Editor = (() => {
       _cutId = null;
       render();
     } catch (e) {
-      // Load failed (e.g. unsupported logic_version → 409). _piston may be null,
-      // so the escape actions key off the pistonId argument, never _piston.id.
-      // The banner must never trap the user on a dead editor page — it always
-      // offers a way back to the list and a way to delete the unloadable piston.
-      container.innerHTML = `
-        <div class="banner banner-error">Could not load piston: ${_esc(e.message)}</div>
-        <div class="editor-load-error-actions">
-          <button class="btn btn-ghost btn-sm" id="editor-load-back">← Back to list</button>
-          <button class="btn btn-danger btn-sm" id="editor-load-delete">Delete this piston</button>
-        </div>`;
-      container.querySelector('#editor-load-back')
-        ?.addEventListener('click', () => App.navigate('list'));
-      container.querySelector('#editor-load-delete')
-        ?.addEventListener('click', () => {
-          App.confirm({
-            title: 'Delete piston',
-            message: 'This piston could not be loaded and will be permanently deleted. This cannot be undone.',
-            confirmLabel: 'Delete',
-            danger: true,
-            onConfirm: async () => {
-              try { await API.deletePiston(pistonId); } catch {}
-              App.navigate('list');
-            },
-          });
-        });
+      // Load failed — open an empty editor shell so the user can still
+      // edit, save, or delete. The error shows in the non-blocking notice
+      // bar once render() puts #editor-notice in the DOM.
+      _piston = { id: pistonId, name: 'Unknown', statements: [], variables: [],
+                  triggers: [], conditions: [], restrictions: [],
+                  logic_version: 2, ui_version: 1 };
+      _normalizePiston(_piston);
+      App.state.unsavedChanges = false;
+      _selectedId = null;
+      _cutId = null;
+      render();
+      _showNotice(`Could not load piston: ${e.message}`, 'error');
     }
   }
 

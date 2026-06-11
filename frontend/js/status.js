@@ -18,7 +18,15 @@ const StatusPage = (() => {
       _piston = await API.getPiston(pistonId);
       render(_piston);
     } catch (e) {
-      container.innerHTML = `<div class="banner banner-error">Could not load piston: ${_esc(e.message)}</div>`;
+      // Load failed — render a minimal shell so the status page is still
+      // functional. The error shows in the validation-banner slot and the
+      // Delete button is available if the piston needs to be removed.
+      _piston = { id: pistonId, name: 'Unknown', statements: [], variables: [],
+                  triggers: [], conditions: [], restrictions: [],
+                  enabled: false, mode: 'single', compile_target: 'Native HA Script',
+                  logic_version: 2, ui_version: 1 };
+      render(_piston);
+      _showNotice(`Could not load piston: ${e.message}`, 'error');
     }
   }
 

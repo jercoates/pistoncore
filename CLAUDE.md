@@ -34,11 +34,26 @@ Never trust a comment over this rule or over PISTON_FORMAT.md.
 
 ---
 
+## Session Start — Do This Every Time Before Anything Else
+
+1. Read CLAUDE.md (this file).
+2. Read TASKS.md — this is the ONLY source of current project status. The TASKS.md in
+   this repo may be behind the latest chat session. If Jeremy says something is already
+   done that TASKS.md shows as open, **believe Jeremy, not TASKS.md.**
+3. Tell Jeremy in plain English: what the highest priority open task is, and whether
+   anything in TASKS.md looks already resolved based on what he's told you.
+4. **Do not read any other files, write any code, or start any task until Jeremy confirms
+   the starting point.**
+
+---
+
 ## Workflow Rules
 
-1. **Plan first, always.** Before editing any file: state what the problem is, what the
-   spec says, what the code actually does, which files you will touch, and what you will
-   change. Wait for approval. Plan mode is the default for anything non-trivial.
+1. **Plan first — this is a HARD STOP, not a suggestion.** Before editing ANY file, state
+   in plain English: what the problem is, what you will change, which files you will touch,
+   and what Jeremy should see differently afterward. Then STOP and wait for Jeremy to say
+   yes. Do not begin editing while explaining. The plan comes first, the edit comes after
+   approval. If you catch yourself writing code before getting a yes — stop, revert, ask.
 2. **Read before writing.** Read every file you intend to modify, plus the relevant spec
    sections, before proposing changes. Do not code from memory of a previous session.
 3. **One PLANNED task per session — with a triage protocol for discoveries** (see below).
@@ -50,10 +65,21 @@ Never trust a comment over this rule or over PISTON_FORMAT.md.
 6. **No scope creep.** Fix exactly what was agreed. Do not "improve" adjacent code,
    rename things, reformat, or remove code you think is dead without asking. Dead-code
    removal is its own task.
-7. **Check for stale comments in any file you touch** — update comments that contradict
+7. **Never create a new file in the repo without naming it, stating its purpose in one
+   plain sentence, and getting an explicit yes from Jeremy first.** This includes helper
+   scripts, checklists, notes, summaries, and spec files. If Jeremy didn't ask for a file,
+   don't create it.
+8. **Check for stale comments in any file you touch** — update comments that contradict
    the current model while you're there (this is in-scope, not creep).
-8. **Specs before code.** Spec sessions produce no code. Coding sessions follow specs;
+9. **Specs before code.** Spec sessions produce no code. Coding sessions follow specs;
    if a spec is wrong, say so and propose the spec fix — don't silently code around it.
+10. **No PowerShell, no CLI commands directed at Jeremy.** Jeremy does not use the command
+    line. If something needs a terminal command, give it as a single copyable block for
+    the Unraid server only (deploy command). Never ask Jeremy to run PowerShell, npm,
+    node, git CLI, or any shell command on his Windows machine.
+11. **When searching for a file or piece of information: if you cannot find it in two
+    searches, stop and say so in one sentence.** Do not keep searching. Ask Jeremy where
+    to look or whether it exists.
 
 ## Mid-Session Discovery Protocol (the realistic version of "one task")
 
@@ -107,14 +133,12 @@ task status, every detour taken, every gap filed.
   Code: built/fixed in W-S11 (Session 70) via `_capEntityMap` (`_loadCapsIntoSelect` builds
   attribute→one-entity-per-device; `_buildConditionNode` reads it at commit).
   `_getGroupedEntityIdsForTokens` does the step-3 union-then-intersect.
-  ⚠ W-S11 (Session 70) was verified WORKING — Jeremy confirmed by reading the saved JSON 
-  that the node held one entity per device for the chosen attribute. A LATER session then 
-  regressed it, dumping the full entity cluster back into the JSON. The lesson is NOT
-  "W-S11 never worked" — it's that a downstream change silently broke a confirmed-good 
-  behavior. Therefore: any change that touches the picker, the commit path, _capEntityMap,
-  or _getFlatEntityIds MUST be re-verified by reading a freshly-saved multi-attribute
-  piston's JSON and confirming one-entity-per-device. A passing checkmark upstream does
-  not survive a later edit. Re-read the JSON after every change in this area.
+  ⚠ **"W-S11 closed" is a CLAIM to verify, not a fact to trust.** Before relying on it, or
+  before any picker/commit change, open a freshly-saved multi-attribute piston and confirm
+  the node holds ONE entity per device for the chosen attribute — NOT the cluster. A "closed"
+  label has been wrong before. Authoritative source: WIZARD_SPEC.md guardrail section + the
+  actual `_capEntityMap` code — read both before touching this; do not trust any summary,
+  including this one, over them.
   (The wizard-action.js header comment saying rows store "primary_entity_id" is STALE —
   ignore it; step 2 says ALL entity_ids.)
 - **Nested tree model** — children embedded directly on parent nodes. No ID references
@@ -153,6 +177,32 @@ exception: a *fact* about frozen code may be cited when it informs a LIVE decisi
 `device`-vs-`devices` decision) — cite it as evidence, do not propose touching the frozen
 code.
 
+## 📋 PARKED UNTIL STAGE B — Live research docs, add to them, don't build from them yet
+
+These are NOT frozen — they are active, growing documents that feed D-S6 (the compiler
+rewrite and backend/add-on phase). They are parked only because STAGE B is blocked behind
+the wizard round-trip. Add to them opportunistically as research happens. Do NOT edit the
+frozen compiler specs above — add backend decisions HERE instead.
+
+- **BACKEND_SPEC_PROTO.md** — backend INFRASTRUCTURE research: add-on packaging, HA client
+  plumbing, Dockerfile patterns, WebSocket API, file write and reload patterns. This is
+  HOW PistonCore talks to HA and deploys as an add-on. Sourced from verified real code
+  (Shortumation, HA docs). §6 has an open research queue still to pull. Add verified
+  findings here as they come in. DO NOT build from it yet — promote items to a definitive
+  spec only when about to code them at STAGE B.
+
+- **COMPILER_DECISIONS_HOLDING.md** — compiler BEHAVIORAL decisions: what the compiler must
+  DO and WHY — Speak/Notify resolution chain, volume as separate step, engine resolved at
+  compile time, stable notify target reference, Jinja2 everywhere. These are the decisions
+  that currently live only in SPEAK_ACTION_SPEC.md and NOTIFY_ACTION_SPEC.md and must
+  survive into the D-S6 rewrite. Add behavioral decisions here as they are made. Authoritative
+  source for its decisions is always the action specs — this doc is a faithful pointer, not
+  a replacement. Retire at D-S6 when its contents are folded into the real compiler specs.
+
+These two are complementary, not redundant — BACKEND_SPEC_PROTO is infrastructure (how to
+build and deploy), COMPILER_DECISIONS_HOLDING is behavior (what to compile and how). Keep
+them separate.
+
 ## Authority Order & Key Files
 
 CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files. Code is the source of truth for
@@ -161,6 +211,12 @@ CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files. Code is the source of tru
 - **TASKS.md** — all open gaps, grouped into session bundles. The ONLY status file.
 - **PISTON_FORMAT.md** (data model) + **STATEMENT_TYPES.md** (per-statement schemas) +
   **WITH_BLOCK_TASK_FRAMEWORK.md** (task container) — authoritative for JSON shape.
+- **SPEAK_ACTION_SPEC.md** + **NOTIFY_ACTION_SPEC.md** — authoritative for their action
+  types; override any conflicting general spec text for Speak/Notify.
+- **BACKEND_SPEC_PROTO.md** — live backend infrastructure research (STAGE B). Add to it;
+  don't build from it yet. See "PARKED UNTIL STAGE B" above.
+- **COMPILER_DECISIONS_HOLDING.md** — live compiler behavioral decisions (STAGE B/D-S6).
+  Add to it; retire it when D-S6 folds it into the real compiler specs. See above.
 - **COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md** — INTENTIONALLY FROZEN/STALE
   (see "FROZEN ON PURPOSE" above). Directional only; do not update or trust examples.
 - **AI_PROMPT_SPEC.md** — INTENTIONALLY FROZEN/STALE (old device_map model; see above).

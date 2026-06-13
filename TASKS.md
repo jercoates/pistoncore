@@ -425,15 +425,24 @@ Small, low-risk items grouped so they don't each burn a session.
   (wizard-loops.js ~352, `value="${i}"`). Pin ISO 1–7 everywhere (one-character fix in
   wizard-loops + hydrate compatibility for any existing `every` nodes) so the compiler gets
   one encoding. Files: wizard-loops.js, STATEMENT_TYPES.md (§9 every).
-- **GAP-S74-7 (decision + LOW, NEW Session 74):** `list_role` is NOT retired v1 residue —
-  it is actively written on every new for_each (wizard-loops.js ~136, ~146, alongside
-  `role`/`role_tokens`) and READ by the editor render (editor.js ~390–393), status.js
-  (~201), the edit hydrate (wizard-core.js ~684), and seeded by wizard-statement.js (~98).
-  STATEMENT_TYPES §6 omits it. DECISION (Jeremy): document it in §6 as a for_each display
-  field, or migrate all four read sites to `role` and stop writing it. Migrating to `role`
-  is cleaner (it's a duplicate) but touches four files; documenting is one spec line.
+- **GAP-S74-7 (decision reversal — LOW, NEW Session 74):** `list_role` is NOT retired v1
+  residue — it is actively written on every new for_each (wizard-loops.js ~136, ~146,
+  alongside `role`/`role_tokens`) and READ by the editor render (editor.js ~390–393),
+  status.js (~201), the edit hydrate (wizard-core.js ~684), and seeded by
+  wizard-statement.js (~98). STATEMENT_TYPES §6 omits it entirely.
+  **MISSING_SPECS Item 22 context (Session 74 finding):** Item 22 says `list_role` was
+  RETIRED at Session 57 and STATEMENT_TYPES.md was updated to reflect that. But the code
+  audit found it alive and active in four files — meaning either the code never implemented
+  Item 22's decision, or a later session re-introduced it without updating the spec. This
+  is not just an undocumented field — it is a DECISION REVERSAL question. Before the
+  consolidation session touches STATEMENT_TYPES.md, Jeremy must decide: (a) honor Item 22
+  — migrate the four read sites to `role`, stop writing `list_role`, remove it from code;
+  or (b) reverse Item 22 — document `list_role` in §6 as a for_each display-only field
+  and keep it. Option (a) is cleaner (it's a duplicate of `role`), touches four files;
+  option (b) is one spec line. Either way, the decision drives both the spec consolidation
+  AND the B-2 residue sweep — do not run B-2 until this is settled.
   Files: wizard-loops.js, editor.js, status.js, wizard-core.js, wizard-statement.js,
-  STATEMENT_TYPES.md.
+  STATEMENT_TYPES.md, MISSING_SPECS.md (Item 22).
 - **GAP-S69-6:** Remove dead `Editor.getDeviceMap()` export (editor.js ~1385). grep for callers
   first; if any exist they're using retired v1 thinking and need review.
 - **GAP-S69-7:** `_sel = JSON.parse(JSON.stringify(editNode))` (wizard-core.js ~515) lets legacy

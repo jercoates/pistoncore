@@ -537,6 +537,35 @@ function _saveLocationCmd(addMore) {
   }
 }
 
+async function _findCommandDomain(command, tokens, _getGroupedEntityIdsForTokens) {
+  if (!command || !tokens?.length || !_getGroupedEntityIdsForTokens) return null;
+  const groups = _getGroupedEntityIdsForTokens(tokens);
+  if (!groups.length) return null;
+
+  const domainSets = [];
+  for (const entityIds of groups) {
+    const domains = new Set();
+    for (const id of entityIds) {
+      if (!id || id.startsWith('__')) continue;
+      try {
+        const data = await API.getServices(id);
+        const services = Array.isArray(data) ? data : (data.services || []);
+        if (services.some(s => s?.service === command)) {
+          const domain = id.includes('.') ? id.split('.')[0] : null;
+          if (domain) domains.add(domain);
+        }
+      } catch (e) {
+        // ignore failures; fallback will use first resolved entity domain
+      }
+    }
+    if (!domains.size) return null;
+    domainSets.push(domains);
+  }
+
+  const commonDomains = [...domainSets[0]].filter(d => domainSets.slice(1).every(set => set.has(d)));
+  return commonDomains.length ? commonDomains[0] : null;
+}
+
 // Command picker — fetches services for each selected device and intersects
 // so only commands every selected device supports are shown.
 // Uses _getGroupedEntityIdsForTokens (not _getFlatEntityIds) so device variables resolve
@@ -747,8 +776,8 @@ function _renderCmdParams(service, services) {
 //              the correct rows in the picker.
 // entity_ids:  the resolved flat entity_ids that actually support the chosen command.
 //              Only ids whose domain can perform this service are included.
-function _saveDeviceCmd(addMore) {
-  const { _newId, _taskId, close, _getFlatEntityIds } = WizardCore;
+async function _saveDeviceCmd(addMore) {
+  const { _newId, _taskId, close, _getFlatEntityIds, _getGroupedEntityIdsForTokens } = WizardCore;
   const _sel = WizardCore.sel;
   const command = document.getElementById('wiz-cmd')?.value || _sel.command;
   if (!command) return;
@@ -776,7 +805,8 @@ function _saveDeviceCmd(addMore) {
   // Derive domain from the command value (ha_service will be domain.command).
   // command is already the bare service name; domain comes from the primary entity.
   const firstId    = allIds[0] || '';
-  const domain     = firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant';
+  const commandDomain = await _findCommandDomain(command, _sel.tokens || [], _getGroupedEntityIdsForTokens);
+  const domain     = commandDomain || (firstId.includes('.') ? firstId.split('.')[0] : 'homeassistant');
   // Filter to only entity_ids matching the command's domain.
   // If nothing matches (shouldn't happen normally), fall back to all ids.
   const domainIds  = allIds.filter(id => id.startsWith(domain + '.'));

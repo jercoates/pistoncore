@@ -177,32 +177,6 @@ exception: a *fact* about frozen code may be cited when it informs a LIVE decisi
 `device`-vs-`devices` decision) — cite it as evidence, do not propose touching the frozen
 code.
 
-## 📋 PARKED UNTIL STAGE B — Live research docs, add to them, don't build from them yet
-
-These are NOT frozen — they are active, growing documents that feed D-S6 (the compiler
-rewrite and backend/add-on phase). They are parked only because STAGE B is blocked behind
-the wizard round-trip. Add to them opportunistically as research happens. Do NOT edit the
-frozen compiler specs above — add backend decisions HERE instead.
-
-- **BACKEND_SPEC_PROTO.md** — backend INFRASTRUCTURE research: add-on packaging, HA client
-  plumbing, Dockerfile patterns, WebSocket API, file write and reload patterns. This is
-  HOW PistonCore talks to HA and deploys as an add-on. Sourced from verified real code
-  (Shortumation, HA docs). §6 has an open research queue still to pull. Add verified
-  findings here as they come in. DO NOT build from it yet — promote items to a definitive
-  spec only when about to code them at STAGE B.
-
-- **COMPILER_DECISIONS_HOLDING.md** — compiler BEHAVIORAL decisions: what the compiler must
-  DO and WHY — Speak/Notify resolution chain, volume as separate step, engine resolved at
-  compile time, stable notify target reference, Jinja2 everywhere. These are the decisions
-  that currently live only in SPEAK_ACTION_SPEC.md and NOTIFY_ACTION_SPEC.md and must
-  survive into the D-S6 rewrite. Add behavioral decisions here as they are made. Authoritative
-  source for its decisions is always the action specs — this doc is a faithful pointer, not
-  a replacement. Retire at D-S6 when its contents are folded into the real compiler specs.
-
-These two are complementary, not redundant — BACKEND_SPEC_PROTO is infrastructure (how to
-build and deploy), COMPILER_DECISIONS_HOLDING is behavior (what to compile and how). Keep
-them separate.
-
 ## Authority Order & Key Files
 
 CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files. Code is the source of truth for
@@ -211,12 +185,6 @@ CLAUDE_SESSION_PROMPT.md → DESIGN.md → spec files. Code is the source of tru
 - **TASKS.md** — all open gaps, grouped into session bundles. The ONLY status file.
 - **PISTON_FORMAT.md** (data model) + **STATEMENT_TYPES.md** (per-statement schemas) +
   **WITH_BLOCK_TASK_FRAMEWORK.md** (task container) — authoritative for JSON shape.
-- **SPEAK_ACTION_SPEC.md** + **NOTIFY_ACTION_SPEC.md** — authoritative for their action
-  types; override any conflicting general spec text for Speak/Notify.
-- **BACKEND_SPEC_PROTO.md** — live backend infrastructure research (STAGE B). Add to it;
-  don't build from it yet. See "PARKED UNTIL STAGE B" above.
-- **COMPILER_DECISIONS_HOLDING.md** — live compiler behavioral decisions (STAGE B/D-S6).
-  Add to it; retire it when D-S6 folds it into the real compiler specs. See above.
 - **COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md** — INTENTIONALLY FROZEN/STALE
   (see "FROZEN ON PURPOSE" above). Directional only; do not update or trust examples.
 - **AI_PROMPT_SPEC.md** — INTENTIONALLY FROZEN/STALE (old device_map model; see above).

@@ -23,7 +23,7 @@ This is the single wizard spec. All wizard coding must reference this document.
 **Source:** WebCoRE piston.module.html, app.js, wizard-*.js files, PISTON_FORMAT.md v2.2,
 STATEMENT_TYPES.md v2.2, SESSION_54_FINDINGS.md.
 
-Read DESIGN.md and PISTON_FORMAT.md v2.2 before this document.
+Read DESIGN.md and PISTON_FORMAT.md v2.4 before this document.
 
 ---
 

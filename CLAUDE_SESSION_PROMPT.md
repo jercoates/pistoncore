@@ -26,11 +26,14 @@ This is the single most important contract and the hardest part of the project.
 
 Authoritative: PISTON_FORMAT.md "⭐ THE LOAD-BEARING RULE". Diff anchor: REFERENCE_PISTON_V2.json.
 
-**Code now obeys this rule for conditions/actions/for_each (W-S11 closed, Session 70).** Nodes
-carry the single attribute-bearing entity_id per device; the variable side stores names only.
-The fix was a set of commit-path defects, not just `_getFlatEntityIds` — see TASKS.md W-S11
-(closed) for the full diagnosis. Remaining verification: `_reResolveVariableUses` under a real
-variable edit (GAP-S70-1).
+**Code now obeys this rule for conditions and for_each only (W-S11 closed, Session 70).
+Actions are NOT yet obeying this rule — GAP-S74-2 (W-S15) found that `_saveDeviceCmd` writes
+ALL resolved entity_ids with no domain filter, and derives `domain` from `finalIds[0]` which
+can be wrong for multi-entity devices.** Nodes (conditions/for_each) carry the single
+attribute-bearing entity_id per device; the variable side stores names only. The fix was a
+set of commit-path defects, not just `_getFlatEntityIds` — see TASKS.md W-S11 (closed) for
+the full diagnosis. Remaining verification: `_reResolveVariableUses` under a real variable
+edit (GAP-S70-1).
 
 ## Non-Negotiable Rules
 - Specs before code. Read all listed files before writing anything.
@@ -535,8 +538,9 @@ can't remove a missing device) is a logged structural gap. See TASKS.md.**
 - STATEMENT_TYPES.md v2.3 (Session 73 — task schema device/virtual, wait/set_var duality)
 - WITH_BLOCK_TASK_FRAMEWORK.md v1.0 (NEW, Session 73 — authoritative task-container spec)
 - FRONTEND_SPEC.md v1.5
-- HA_LIMITATIONS.md — Section 3 corrected; command classification PENDING (separate research
-  vs current HA; `target-boundary.json` existence UNVERIFIED — confirm in code or create it)
+- HA_LIMITATIONS.md — Section 3 corrected; non-device command classification COMPLETE
+  (Session 73, vs HA 2026.6 — authoritative results in §10; `target-boundary.json` existence
+  UNVERIFIED — confirm in code or create it)
 - COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6; do not touch until v1 JSON locks)
 - PYSCRIPT_COMPILER_SPEC.md — FROZEN/STALE (rewrite in D-S6)
 - SAMPLE_PISTONS.md v1.0
@@ -544,9 +548,6 @@ can't remove a missing device) is a logged structural gap. See TASKS.md.**
 - REFERENCE_PISTON_V2.json — the v2 diff anchor
 - SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now answerable
   against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
-
-**Session 73 output files want a review pass before being treated as authoritative reference**
-(written end of a long, self-correcting session). Code files are syntax-checked.
 
 After B-1 and S3-1, audit all raw HTML insertions in editor.js and the wizard files to
 confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for

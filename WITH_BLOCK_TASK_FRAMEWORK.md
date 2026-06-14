@@ -317,7 +317,7 @@ tasks, item 3.4).
 
 ---
 
-## 4. Command routing — can HA cleanly reproduce it? (DECIDED policy; classification PENDING)
+## 4. Command routing — can HA cleanly reproduce it? (DECIDED policy; classification COMPLETE — see HA_LIMITATIONS.md §10, vs HA 2026.6)
 
 Per principle 4: each command is classified by **"can HA cleanly reproduce this action?"**
 Three outcomes — the first two STAY in the wizard, the third is CUT:
@@ -343,12 +343,8 @@ to the wizard if HA or an add-on later gains a clean way to reproduce it.
 > boundary is hardcoded, is NOT confirmed from the frontend code provided. The coding
 > session MUST check the backend and either extend it or create it. Do not assume it exists.
 
-**The full command classification is a SEPARATE research deliverable**, done per-command
-against CURRENT HA at classification time. Current HA moves monthly, so version-sensitive
-commands must be researched live, never classified from memory — and **what is
-hard-impossible is NOT predetermined here.** Do not bake an impossible-list into the spec.
-Known routing anchors verified from existing specs: `break`, `on_event`,
-`cancel_pending_tasks` → pyscript (they stay).
+**The full command classification is COMPLETE** (Session 73, vs HA 2026.6) — authoritative
+dated results are in HA_LIMITATIONS.md §10. Do not re-derive from memory; read §10.
 
 **This research was done for the non-device command set in Session 73 — the authoritative,
 dated results live in HA_LIMITATIONS.md §10 (verified against HA 2026.6).** Do not re-derive
@@ -514,12 +510,12 @@ In dependency order. Each item cites the code it touches.
    just literals (Section 5.3); needed for variable-duration Wait and variable Set Volume
    from Jeremy's pistons. Reuse the operand shape already in `_saveLocationCmd` (457–461).
 6. **Command classification + `target-boundary.json` verification** — SEPARATE deliverable
-   (Section 4). Verify the boundary file exists or create it; classify the full command
-   classify each by the reproduce-cleanly test (native / pyscript / add-on-state = stays;
-   no clean reproduction = cut from wizard); the dated results are in HA_LIMITATIONS.md §10
-   (done Session 73 vs HA 2026.6). Note: HSM and file I/O turned out REPRODUCIBLE and stay
-   (see §10) — the ONLY cuts are piston tiles and piston engine state. Research is complete;
-   LIFX, capture/restore, IFTTT, web request, file I/O, and set location mode all reproducible.
+   (Section 4). Verify the boundary file exists or create it; classify each command by the
+   reproduce-cleanly test (native / pyscript / add-on-state = stays; no clean reproduction =
+   cut from wizard); the dated results are in HA_LIMITATIONS.md §10 (done Session 73 vs HA
+   2026.6). Note: HSM and file I/O turned out REPRODUCIBLE and stay (see §10) — the ONLY cuts
+   are piston tiles and piston engine state. Research is complete; LIFX, capture/restore,
+   IFTTT, web request, file I/O, and set location mode all reproducible.
 
 Items 1–5 are the with-block framework and make Jeremy's pistons buildable. Item 6 is the
 routing/classification that tells the compiler what each task becomes.
@@ -534,8 +530,6 @@ routing/classification that tells the compiler what each task becomes.
 - Whether a zero-task action node is removed or kept (Section 3.3) — needs Jeremy.
 - Whether standalone `wait`/`set_variable`/`log` get top-level statement-picker cards to
   match WebCoRE's Execution group (Section 5.1) — ASSUMED gap.
-- The full reproduce-cleanly classification (Section 4 / item 6) — separate
-  research deliverable against current HA; not done here.
 - `emulated` device commands (Section 5.2 group 2) — flagged not-v1, not decided.
 - Form-layout pixel fidelity of each task editor vs WebCoRE's `dialog-edit-task` — the JSON
   contract here does not depend on it; match the layout at coding time from webcore3.txt.

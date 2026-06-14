@@ -319,7 +319,7 @@ an equivalent for. Cut from the wizard; logged here.
 | WebCoRE command | Why no clean HA reproduction |
 |---|---|
 | Piston tiles (set tile, tile colors/footer/text/title/mouseover, clear tile) | WebCoRE-dashboard-specific UI construct; HA has no piston-tile concept. (HIGH confidence — pure WebCoRE UI.) |
-| Set piston state / Pause piston / Resume piston | Operate on the WebCoRE engine's own run state; no HA analog to a "piston" runtime to pause/resume. (HIGH confidence.) |
+| Set piston state / Pause piston / Resume piston | Operate on the WebCoRE engine's own run state; no HA analog to a "piston" runtime to pause/resume. `automation.turn_off`/`turn_on` disables future triggers but cannot pause a mid-run execution — WebCoRE pause/resume preserved mid-run state, resuming from the paused point. These are fundamentally different behaviors. (ASSUMED — reasoning from HA automation behavior, not verified by end-to-end test. HIGH confidence the distinction is real.) |
 
 ### 10.3 EMULATED group — not v1 (unchanged)
 

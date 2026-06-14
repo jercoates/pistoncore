@@ -422,7 +422,6 @@ Never show "Running..." indefinitely.
 │  Folder: [Outdoor Lighting ▼]                       │
 │  Mode: [Single ▼]                                   │
 │  [● Enabled]              [Simple / Advanced]       │
-│  Compile target: [Native HA Script] ← updates live  │
 ├─────────────────────────────────────────────────────┤
 │  ▼ PISTON VARIABLES              [+ Add] (Adv only) │
 ├─────────────────────────────────────────────────────┤
@@ -434,7 +433,10 @@ Never show "Running..." indefinitely.
 │  [condition statements]                             │
 │  + add a new condition                              │
 ├─────────────────────────────────────────────────────┤
-│  ▼ ACTIONS                                          │
+│  only when                                          │
+│  [restriction statements]                           │
+│  + add a new restriction                            │
+├─────────────────────────────────────────────────────┤
 │  execute                                            │
 │  [action tree — indented]                           │
 │  + add a new statement                              │
@@ -446,6 +448,8 @@ Never show "Running..." indefinitely.
 │  Compile status: [Compiled ✓]                       │
 └─────────────────────────────────────────────────────┘
 ```
+
+**Compile target** is not shown in the editor. It is a compiler-owned value set automatically on every save and is shown only on the Test Compile / debug page. The editor shows a PyScript notification only when a statement forces PyScript (see PyScript Requirement Indicator below).
 
 ### editor-doc div
 
@@ -477,17 +481,9 @@ Mode preference saved to localStorage (`pc_simpleMode`).
 
 Switching modes never destroys data.
 
-### Compile Target Indicator
-
-Shows the current compile target based on auto-detection. Updates live as the user adds statements. If the target changes from Native HA Script to PyScript mid-build:
-
-*"This piston now requires PyScript compilation."*
-
-This indicator is always visible in the editor header area.
-
 ### PyScript Requirement Indicator
 
-If the current piston is complex (PyScript required) and PyScript is not detected in HA:
+If the current piston requires PyScript (because a PyScript-only statement was added) and PyScript is not detected in HA:
 
 - Show a subtle warning below the compile target indicator
 - Text: "PyScript not detected in HA — required before deploying this piston"
@@ -580,6 +576,32 @@ At every valid insertion point, ghost text appears inline in a muted color. Ghos
 - `+ add a new restriction` — after an `only when` line
 
 Clicking any ghost text opens the wizard modal for that insertion point.
+
+### With-Block / Task Model
+
+A `with {devices}` block in the action tree is an `action` node containing an ordered `tasks[]` array. The editor renders each task as its own clickable line inside the block. This matches WebCoRE's visual exactly:
+
+```
+with {Announcement Sonos}
+do
+    Set Volume to 70;
+    Speak text "{Message}";
+    + add a new task
+end with;
+```
+
+**What is implemented (coded, unverified — GAP-S72-1, Session 73):**
+- The action node shape (`type: "action"`, `entity_ids`, `tasks[]`) is correct and the editor renders multiple tasks.
+- Each task line carries its own `task.id` and is independently clickable.
+- The append seam (`insertStatement('task', ...)`) pushes or replaces tasks by id.
+- "Add more" is coded to append tasks rather than overwrite — untestable until the picker resolves devices (GAP-S73-2).
+
+**What is not yet built:**
+- Per-task delete (removes one task, preserves siblings — see WITH_BLOCK_TASK_FRAMEWORK.md §3.3).
+- Virtual tasks (Wait, Set variable, etc.) inside a device with-block (BUG C in WITH_BLOCK_TASK_FRAMEWORK.md).
+- Device picker pre-fill when adding a task to an existing block (GAP-S72-1b).
+
+**Task order is load-bearing** — tasks execute top to bottom in array order. Round-trip must preserve order exactly. See WITH_BLOCK_TASK_FRAMEWORK.md for the full task-container contract.
 
 ### Simple Mode Rendering
 

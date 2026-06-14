@@ -677,10 +677,10 @@ contradicts this table, this table wins and the other spec needs updating.
 | Field | Written by | Read by | On Snapshot export |
 |---|---|---|---|
 | `role` | Wizard at commit time. Generated from selected row labels (count-based for multi). | Editor for display only. Never read by compiler. | Kept — used as the placeholder label in Snapshot format. |
-| `role_tokens` | Wizard at commit time. Stores the raw tokens the user selected (entity_ids, variable names, `@globals`). | Editor on re-open for edit — restores `sel.tokens` from this field to re-highlight correct rows. | Stripped — Snapshot format has no concept of tokens. |
-| `entity_ids` | Wizard at commit time via `_getFlatEntityIds(sel.tokens)`. Also updated by `_reResolveVariableUses` when a device variable is edited. | Compiler reads this directly. Editor does not re-resolve — it trusts what is on the node. | Stripped — Snapshot format uses role placeholders, not entity IDs. |
+| `role_tokens` | Wizard at commit time. Stores the raw tokens the user selected (entity_ids, variable names, `@globals`). | Editor on re-open for edit — restores `sel.tokens` from this field to re-highlight correct rows. | Intended to be stripped — but verify before implementing: stripping `role_tokens` may erase variable names and authored content (e.g. message text in Speak tasks) that the user needs to survive import. Only resolved device identity data should be stripped, not authored content. See GAP-S74-4 / S2-3. |
+| `entity_ids` | Wizard at commit time via `_getFlatEntityIds(sel.tokens)`. Also updated by `_reResolveVariableUses` when a device variable is edited. | Compiler reads this directly. Editor does not re-resolve — it trusts what is on the node. | Stripped — Snapshot format uses role placeholders, not entity IDs. Not yet implemented correctly; see GAP-S74-4 / S2-3. |
 | `display_value` | Wizard at commit time. Friendly label for binary values (e.g. `"Open"`). | Editor for display only. Never read by compiler. | Kept — helps the AI mapper understand what the condition means. |
-| `compiled_value` | Wizard at commit time. The raw HA state string (e.g. `"on"`). | Compiler reads this. Editor uses it for numeric condition pre-fill to avoid unit suffix rejection. | Stripped — Snapshot format does not include compiled values. |
+| `compiled_value` | Wizard at commit time. The raw HA state string (e.g. `"on"`). | Compiler reads this. Editor uses it for numeric condition pre-fill to avoid unit suffix rejection. | Stripped — Snapshot format does not include compiled values. Not yet implemented correctly; see GAP-S74-4 / S2-3. |
 | `aggregation` | Wizard at commit time. `"any"` / `"all"` / `"none"`. Single-device nodes always get `"any"`. | Compiler reads this to decide trigger/condition template expansion. Editor displays it in the aggregation bar on re-open. | Kept — relevant to the Snapshot mapping step. |
 
 **Resolution rule:** Token-to-entity-id resolution at wizard commit time goes through
@@ -716,7 +716,9 @@ Used in conditions, set_variable, for loop bounds, and anywhere a value is neede
 
 ## Complete Minimal Example
 
-A simple single-trigger piston with one action:
+A simple single-trigger piston with one action. Note that the trigger lives in the top-level
+`triggers` array — NOT nested inside an `if` block in `statements`. The `conditions` and
+`restrictions` arrays are required even when empty.
 
 ```json
 {
@@ -732,49 +734,38 @@ A simple single-trigger piston with one action:
   "created_at": "2026-05-01T08:00:00Z",
   "modified_at": "2026-05-03T14:22:00Z",
   "variables": [],
+  "triggers": [
+    {
+      "id": "cond_001",
+      "is_trigger": true,
+      "role": "time",
+      "role_tokens": [],
+      "entity_ids": [],
+      "operator": "happens daily at",
+      "value": { "preset": "sunset", "offset": 0, "offset_unit": "minutes", "offset_direction": "+" },
+      "group_operator": "and"
+    }
+  ],
+  "conditions": [],
+  "restrictions": [],
   "statements": [
     {
-      "id": "stmt_001",
-      "type": "if",
+      "id": "stmt_002",
+      "type": "action",
       "async": false,
-      "conditions": [
+      "role": "Driveway Light",
+      "role_tokens": ["light.driveway_main"],
+      "entity_ids": ["light.driveway_main"],
+      "tasks": [
         {
-          "id": "cond_001",
-          "is_trigger": true,
-          "role": "time",
-          "role_tokens": [],
-          "entity_ids": [],
-          "subject": "time",
-          "operator": "happens daily at",
-          "value": { "preset": "sunset", "offset": 0, "offset_unit": "minutes", "offset_direction": "+" },
-          "group_operator": "and"
+          "id": "task_001",
+          "command": "turn_on",
+          "domain": "light",
+          "ha_service": "light.turn_on",
+          "parameters": { "brightness_pct": 100 },
+          "description": null
         }
       ],
-      "condition_operator": "and",
-      "then": [
-        {
-          "id": "stmt_002",
-          "type": "action",
-          "async": false,
-          "role": "Driveway Light",
-          "role_tokens": ["light.driveway_main"],
-          "entity_ids": ["light.driveway_main"],
-          "tasks": [
-            {
-              "id": "task_001",
-              "command": "turn_on",
-              "domain": "light",
-              "ha_service": "light.turn_on",
-              "parameters": { "brightness_pct": 100 },
-              "description": null
-            }
-          ],
-          "description": null,
-          "disabled": false
-        }
-      ],
-      "else_ifs": [],
-      "else": [],
       "description": null,
       "disabled": false
     }
@@ -801,5 +792,5 @@ This document must stay in sync with:
 - **FRONTEND_SPEC.md** — how the editor renders and wizard writes this format
 - **WIZARD_SPEC.md** — operator and value lists that appear in condition objects
 
-If any field is added, removed, or changed, update all four documents and bump
+If any field is added, removed, or changed, update all five documents and bump
 `logic_version` or `ui_version` as appropriate.

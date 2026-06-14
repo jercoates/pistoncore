@@ -953,7 +953,7 @@ Global variable:
 }
 ```
 
-**`duration_unit` values:** `"ms"`, `"s"`, `"m"`, `"h"`, `"d"`, `"w"`
+**`duration_unit` values:** `"milliseconds"`, `"seconds"`, `"minutes"`, `"hours"`, `"days"`, `"weeks"` — full words, matching what the code writes. Do not use abbreviations.
 
 ### Editor Render
 
@@ -1185,11 +1185,18 @@ The same schema is used for both triggers (`is_trigger: true`) and conditions
 
 ### Time Condition
 
+The code commits time conditions with `role: "time"` and flat `value_from`/`value_to` fields.
+The `subject` field is NOT written by the wizard commit path (GAP-S74-5 — the spec previously
+showed `subject: "time"` but the code does not write it and the hydration code mis-routes
+a spec-shaped time condition as a device condition). Use this shape:
+
 ```json
 {
   "id": "cond_002",
   "is_trigger": false,
-  "subject": "time",
+  "role": "time",
+  "role_tokens": [],
+  "entity_ids": [],
   "operator": "is between",
   "value_from": "08:00:00",
   "value_to": "23:00:00",
@@ -1197,6 +1204,8 @@ The same schema is used for both triggers (`is_trigger: true`) and conditions
   "group_operator": "and"
 }
 ```
+
+`only_on_days` uses ISO weekday numbers: 1=Monday through 7=Sunday.
 
 ### Condition Group
 

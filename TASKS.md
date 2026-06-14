@@ -425,24 +425,13 @@ Small, low-risk items grouped so they don't each burn a session.
   (wizard-loops.js ~352, `value="${i}"`). Pin ISO 1–7 everywhere (one-character fix in
   wizard-loops + hydrate compatibility for any existing `every` nodes) so the compiler gets
   one encoding. Files: wizard-loops.js, STATEMENT_TYPES.md (§9 every).
-- **GAP-S74-7 (decision reversal — LOW, NEW Session 74):** `list_role` is NOT retired v1
-  residue — it is actively written on every new for_each (wizard-loops.js ~136, ~146,
-  alongside `role`/`role_tokens`) and READ by the editor render (editor.js ~390–393),
-  status.js (~201), the edit hydrate (wizard-core.js ~684), and seeded by
-  wizard-statement.js (~98). STATEMENT_TYPES §6 omits it entirely.
-  **MISSING_SPECS Item 22 context (Session 74 finding):** Item 22 says `list_role` was
-  RETIRED at Session 57 and STATEMENT_TYPES.md was updated to reflect that. But the code
-  audit found it alive and active in four files — meaning either the code never implemented
-  Item 22's decision, or a later session re-introduced it without updating the spec. This
-  is not just an undocumented field — it is a DECISION REVERSAL question. Before the
-  consolidation session touches STATEMENT_TYPES.md, Jeremy must decide: (a) honor Item 22
-  — migrate the four read sites to `role`, stop writing `list_role`, remove it from code;
-  or (b) reverse Item 22 — document `list_role` in §6 as a for_each display-only field
-  and keep it. Option (a) is cleaner (it's a duplicate of `role`), touches four files;
-  option (b) is one spec line. Either way, the decision drives both the spec consolidation
-  AND the B-2 residue sweep — do not run B-2 until this is settled.
-  Files: wizard-loops.js, editor.js, status.js, wizard-core.js, wizard-statement.js,
-  STATEMENT_TYPES.md, MISSING_SPECS.md (Item 22).
+- **GAP-S74-7 (decision made D-S5d session) — RETIRE `list_role`:** Jeremy chose Option (a):
+  honor the original Session 57 retirement. `list_role` is a duplicate of `role` and will be
+  removed. The four active code sites (wizard-loops.js ~136/~146, editor.js ~390–393,
+  status.js ~201, wizard-core.js ~684, wizard-statement.js ~98) must migrate to `role`.
+  B-2 residue sweep should treat `list_role` as genuine residue. STATEMENT_TYPES.md §6
+  already correctly omits it (no spec change needed — spec was right all along).
+  Files: wizard-loops.js, editor.js, status.js, wizard-core.js, wizard-statement.js.
 - **GAP-S69-6:** Remove dead `Editor.getDeviceMap()` export (editor.js ~1385). grep for callers
   first; if any exist they're using retired v1 thinking and need review.
 - **GAP-S69-7:** `_sel = JSON.parse(JSON.stringify(editNode))` (wizard-core.js ~515) lets legacy
@@ -450,6 +439,12 @@ Small, low-risk items grouped so they don't each burn a session.
   Fix: build the commit output node from scratch using only spec-defined fields for the node type.
 - **GAP-S69-8 (low):** `_groupDevices` uses "shortest friendly_name wins" — non-deterministic
   for equal-length names.
+- **GAP-D5d-1 (INVESTIGATE — unassigned):** After a user saves a device define variable,
+  nodes that reference that variable should update their entity_ids automatically without
+  requiring the user to reopen and re-commit each wizard. `_reResolveVariableUses` may
+  already handle this — investigate before coding anything. If it doesn't work correctly,
+  the fix lives in editor.js / wizard-core.js. Assign to whichever coding session loads
+  those files.
 
 ---
 
@@ -562,10 +557,14 @@ editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
 ## STAGE D — Spec (remaining)
 
 ### D-S5c: Leftover Audit Findings (spec cleanup — not yet applied)
-- **Finding 7:** DESIGN.md bare "do not re-open" markers — replace with "re-open only if [condition]".
+- **Finding 7 ✅ CONFIRMED APPLIED (Session 69c, verified D-S5d):** DESIGN.md v1.8 contains
+  the four reopen criteria — confirmed against the actual file this session. D-S5c was wrong
+  to list it as not yet applied.
 - **Finding 12:** `compile_target` is a cache, not a user preference — document in PISTON_FORMAT.md.
 - **Finding 15:** Test button always fires real actions — deferred v2 dry-run feature, recorded.
-- **Pattern B:** DESIGN.md superseded-section cascade — add preamble, reduce 6.2/6.3 to pointers.
+- **Pattern B ✅ CONFIRMED APPLIED (Session 69c, verified D-S5d):** DESIGN.md v1.8 contains
+  the authoritative preamble at Section 6 with 6.2/6.3 as confirmed pointers. D-S5c was wrong
+  to list it as not yet applied.
 - **§10-a ✅ RESOLVED (Session 73):** "Set location mode → input_select" researched live and
   confirmed (input_select.select_option + state-trigger); now in §10.1 as verified.
 - **§10-b ✅ RESOLVED (Session 73):** §10.1 now has a column-meaning note distinguishing
@@ -581,63 +580,21 @@ editor.js, CLAUDE_SESSION_PROMPT.md, TASKS.md
   the §10.1 mappings, which belongs in Stage 3, not here.
 **Files:** DESIGN.md, PISTON_FORMAT.md, HA_LIMITATIONS.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
-### D-S5d: Spec Corrections from the Session 74 Audit (spec-only session — no code)
-The Session 74 code↔spec audit found spec CLAIMS that are wrong against code, plus the
-spec-file contradiction sweep from the same review. One housekeeping session applies all:
-1. **CLAUDE_SESSION_PROMPT.md — downgrade two claims:** (a) "Code now obeys this rule for
-   conditions/actions/for_each (W-S11 closed)" → conditions + for_each only; actions are
-   GAP-S74-2. (b) "Triggers/conditions/restrictions are top-level wrapper arrays
-   (Researched — confirmed against editor.js)" → confirmed for RENDER and DELETE only; the
-   wizard cannot write them until W-S18. Also remove the stale "Session 73 output files
-   want a review pass" note (review completed — TASKS.md is current) and sync the
-   spec-versions block.
-2. **PENDING vs COMPLETE sweep (command classification):** truth is COMPLETE for the
-   non-device set per HA_LIMITATIONS §10. Still saying PENDING: CLAUDE_SESSION_PROMPT (×2),
-   this file's spec-versions block (fixed Session 74), WITH_BLOCK_TASK_FRAMEWORK §4 heading,
-   §5.4 blockquote, §7, §8 (the §4 body and §6 item 6 were patched; the rest weren't).
-   Also fix the garbled sentence in framework §6 item 6 ("classify the full command
-   classify each by...").
-3. **PISTON_FORMAT.md:** fix the "Complete Minimal Example" — it omits the Required
-   top-level `triggers`/`conditions`/`restrictions` arrays and embeds the trigger inside an
-   `if` (the retired model) in the single source-of-truth doc. Also: document the
-   location-action node shape (`devices:['Location']`, no role/role_tokens/entity_ids —
-   what `_saveLocationCmd` actually writes) or mark it transitional-until-virtual-tasks;
-   pin ONE `duration_unit` vocabulary (code writes full words everywhere — fix
-   STATEMENT_TYPES §14's `ms/s/m/h/d/w` list to match); fix "update all four documents"
-   (lists five); decide the time-condition schema with GAP-S74-5.
-4. **SAMPLE_PISTONS.md:** all three pistons are old-format (nested `is_trigger` in if
-   blocks, no top-level arrays, no `role_tokens`) — valid-looking files that compile to
-   ZERO triggers under the current model. Add a FROZEN/STALE notice now; regenerate at
-   D-S6 (ideally from real wizard output once W-S18 lands).
-5. **S3-1 checklist:** item 1 references the (stale) first SAMPLE piston; item 5 references
-   "hand-verified YAML in COMPILER_SPEC.md," which is FROZEN/STALE by our own decision.
-   Reword both (done in this file, Session 74) — the spec-side mirror is updating any other
-   doc that repeats the checklist.
-6. **FRONTEND_SPEC.md (v1.5):** add a staleness header — it still shows the removed
-   compile-target badge, has no RESTRICTIONS section in the editor layout (PISTON_FORMAT
-   cites it for exactly that layout — dangling cross-ref), and predates the Session 73 task
-   model. Point readers to WITH_BLOCK_TASK_FRAMEWORK.md + current code for those areas.
-7. **Housekeeping:** retire PROGRESS_TRACKER.md (Session-12 fossil that contradicts current
-   state — move to /reference; salvage the deploy-time visual checklist into a current doc
-   if wanted); delete COMPILER_SPEC_STALE_NOTICE.md (the notice is already pasted into both
-   compiler specs — verified); fix the notice's dangling "Data Preservation Invariant"
-   reference (no such section — it's the Load-Bearing Rule / Field Lifecycle Rules);
-   refresh stale version pins (WIZARD_SPEC header cites PISTON_FORMAT/STATEMENT_TYPES v2.2;
-   prefer section-name anchors over line-number refs like "lines 200-272").
-8. **PISTON_FORMAT Field Lifecycle table:** mark the Snapshot "Stripped" rows as TARGET
-   until GAP-S74-4 / S2-3 implements them (or land the fix first and leave the table).
-9. **D-S5c stale items:** DESIGN.md v1.8's header says Finding 7 and Pattern B were applied
-   in Session 69c, but D-S5c still lists both as "not yet applied." Verify in DESIGN.md and
-   close whichever is true.
-10. **HA_LIMITATIONS §10.2 second look (question, not a verdict):** "Pause/Resume piston"
-   is cut as having no HA analog — but §10.1 maps Execute piston to `automation.trigger`/
-   `script.turn_on`, i.e. the compiled piston IS an addressable HA entity, and
-   `automation.turn_off`/`turn_on` against it arguably reproduces pause/resume by the
-   reproduce-the-result test (semantics differ from WebCoRE's mid-run pause — Jeremy
-   decides). Piston tiles / set-piston-state remain genuine cuts.
-**Files:** CLAUDE_SESSION_PROMPT.md, PISTON_FORMAT.md, STATEMENT_TYPES.md,
-SAMPLE_PISTONS.md, FRONTEND_SPEC.md, WITH_BLOCK_TASK_FRAMEWORK.md, HA_LIMITATIONS.md,
-DESIGN.md, PROGRESS_TRACKER.md, COMPILER_SPEC_STALE_NOTICE.md, TASKS.md
+### D-S5d: Spec Corrections from the Session 74 Audit ✅ COMPLETE (D-S5d session)
+
+All ten items worked through and applied. Summary of what was done:
+1. CLAUDE_SESSION_PROMPT.md — W-S11 claim downgraded to conditions/for_each only (GAP-S74-2 is the actions gap); Session 73 review note removed; command classification updated to COMPLETE.
+2. PENDING→COMPLETE sweep applied: CLAUDE_SESSION_PROMPT.md, WITH_BLOCK_TASK_FRAMEWORK.md §4 heading/blockquote/§7; garbled §6 item 6 sentence fixed.
+3. PISTON_FORMAT.md — Complete Minimal Example fixed (trigger in top-level `triggers[]`, not nested in if); "four→five documents" fixed; Field Lifecycle table notes added for Snapshot strip behavior (verify before implementing — role_tokens strip may erase authored content). STATEMENT_TYPES.md §14 duration_unit fixed to full words; time condition schema fixed to match code's flat shape (role:"time", no subject field, GAP-S74-5).
+4. SAMPLE_PISTONS.md — **STILL NEEDS NOTICE** (file not uploaded this session). Add prominent FROZEN/STALE notice at top manually or upload next spec session. Content stays untouched; regenerate at D-S6.
+5. S3-1 checklist — already fixed in TASKS.md Session 74; checklist only lives here, no other docs to update.
+6. FRONTEND_SPEC.md — compile target removed from editor layout entirely (debug page only); "only when" restrictions section added between CONDITIONS and execute, matching WebCoRE; with-block task model section added reflecting coded-but-unverified state.
+7. Housekeeping — PROGRESS_TRACKER.md and COMPILER_SPEC_STALE_NOTICE.md confirmed deleted. WIZARD_SPEC.md version pin updated v2.2→v2.4.
+8. PISTON_FORMAT.md Field Lifecycle table — verification notes added to role_tokens, entity_ids, compiled_value Snapshot rows; strip behavior flagged as needing verification before implementation.
+9. D-S5c Finding 7 and Pattern B — confirmed applied in Session 69c; D-S5c corrected.
+10. HA_LIMITATIONS.md §10.2 — clarifying note added explaining why automation.turn_off/on doesn't qualify as pause/resume (ASSUMED — mid-run state distinction).
+
+**New gap filed this session:** Investigate whether `_reResolveVariableUses` handles rehydration of node entity_ids after a define variable is saved, without requiring the user to reopen and re-commit each wizard. Assign to whichever coding session loads `_reResolveVariableUses` and editor.js.
 
 ### D-S6: Compiler Spec Rewrite (after JSON structure is final)
 COMPILER_SPEC.md and PYSCRIPT_COMPILER_SPEC.md intentionally FROZEN/STALE. Rewrite after

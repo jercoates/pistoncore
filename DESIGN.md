@@ -1,18 +1,31 @@
 # PistonCore Design Document
 
-**Version:** 1.8
+**Version:** 1.9
 **Status:** Authoritative — All architecture decisions locked for v1 development
-**Last Updated:** May 2026 (Session 69c — DESIGN.md full reconciliation: Section 10.3 trigger
-  storage corrected to TOP-LEVEL arrays (was wrongly "inside if blocks"); Section 6.4 wrapper
-  adds triggers/conditions/restrictions rows + v2.3 ref + v1-retired note; Section 6.5 compiler
-  reads top-level arrays; Section 8 load-bearing device-data rule added; Finding 7 — four
-  "do not re-open" markers given reopen criteria; Pattern B — authoritative preamble added to
-  Section 6, 6.2/6.3 confirmed as pointers; AI_PROMPT_SPEC.md marked intentionally frozen.
-  Prior Session 69/D-S5b — PISTON_FORMAT.md reference updated
-  to v2.2; render invariant "100%" language softened; role_tokens added to render
-  example (Section 6.6); Snapshot node rules updated to note role_tokens is stripped
-  on export; compiler spec freeze notice added; open item 11 closed; Grok frontend
-  audit findings logged in Section 34)
+**Last Updated:** June 2026 (D-S5d consolidation session — spec set consolidated. The
+  data model now lives in a single document (PISTON_FORMAT.md, which absorbed the former
+  STATEMENT_TYPES.md). The wizard and editor now live in a single document (WIZARD_SPEC.md,
+  which absorbed WITH_BLOCK_TASK_FRAMEWORK.md and the editor-rendering rules formerly in
+  FRONTEND_SPEC.md). FRONTEND_SPEC.md now covers screens and chrome only. Stale version pins
+  removed from this document's cross-references. WebCoRE-matching scope clarified across the
+  wizard/frontend specs: what matches WebCoRE is the rendered piston the user sees on screen
+  and the wizard that builds it — not the JSON beneath it, and not PistonCore's own screens.
+  Prior: Session 69c — trigger/condition/restriction storage corrected to top-level arrays
+  (Section 10.3, 6.4, 6.5); load-bearing device-data rule added (Section 8); Section 6
+  authoritative-preamble pattern established. Session 69/D-S5b — role_tokens added throughout;
+  render invariant softened to malformed-node-placeholder behavior; compiler specs frozen
+  pending JSON stabilization.)
+
+**Current spec set (read these as authority):**
+- **DESIGN.md** (this document) — architecture, philosophy, the why behind decisions
+- **PISTON_FORMAT.md** — the data model: piston JSON wrapper, every statement type schema, condition/operand schemas, field lifecycle (absorbed STATEMENT_TYPES.md)
+- **WIZARD_SPEC.md** — the wizard and editor: build flows, device picker, condition builder, editor rendering rules, with-block/task model (absorbed WITH_BLOCK_TASK_FRAMEWORK.md)
+- **FRONTEND_SPEC.md** — screens and chrome: navigation, piston list, status page, settings, WebSocket protocol, error states, import/export
+- **HA_LIMITATIONS.md** — what HA can and cannot reproduce vs WebCoRE (§10 command research)
+- **SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md** — action-specific specs (stay separate until D-S6)
+- **WEBCORE_WIZARD_MAP.md** — verified extraction of WebCoRE's wizard surface (reference baseline)
+- **Frozen until D-S6:** COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md, AI_PROMPT_SPEC.md
+- **Retired to /reference:** STATEMENT_TYPES.md (→ PISTON_FORMAT.md), WITH_BLOCK_TASK_FRAMEWORK.md (→ WIZARD_SPEC.md), PROGRESS_TRACKER.md, COMPILER_SPEC_STALE_NOTICE.md
 
 ---
 
@@ -255,7 +268,7 @@ PistonCore automatically decides what to compile to based on what your piston do
 > **What's authoritative in this section.** Sections 6.2 and 6.3 are SHORT POINTERS to the
 > current full specs in 6.10 (Snapshot format) and 6.11 (Import flow). Do not treat 6.2/6.3
 > as authoritative on their own. For the canonical field reference, schemas, the device→entity
-> load-bearing rule, and a hand-written example, see **PISTON_FORMAT.md v2.3** and
+> load-bearing rule, and a hand-written example, see **PISTON_FORMAT.md** and
 > **REFERENCE_PISTON_V2.json**. Where this section and PISTON_FORMAT.md ever disagree,
 > PISTON_FORMAT.md wins.
 
@@ -277,7 +290,7 @@ The internal piston file contains a wrapper plus a `statements` array of structu
 
 **The `statements` array is what the compiler reads. The editor renders display text from it. Nothing is ever parsed from display text during normal operation.**
 
-For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md v2.3.
+For the complete wrapper schema, field reference, and a hand-written example see PISTON_FORMAT.md.
 
 ---
 
@@ -302,7 +315,7 @@ Summary: PistonCore detects Snapshot vs Backup by checking whether entity_ids ar
 
 ### 6.4 Wrapper Fields
 
-The authoritative wrapper field reference is in PISTON_FORMAT.md v2.3.
+The authoritative wrapper field reference is in PISTON_FORMAT.md.
 
 Current wrapper fields (logic_version 2):
 
@@ -413,7 +426,7 @@ JSON directly with entity_ids stripped from nodes.
 
 #### Snapshot Wrapper
 
-Identical to the internal format wrapper (PISTON_FORMAT.md v2.3) with two differences:
+Identical to the internal format wrapper (PISTON_FORMAT.md) with two differences:
 - A new `id` is assigned on import (not preserved from the Snapshot)
 - No `entity_ids` on any node (stripped on export)
 
@@ -1203,11 +1216,11 @@ Mode preference saved to localStorage (`pc_simpleMode`). Switching modes never d
 
 ### Compile Target / Complexity Indicator
 
-The editor shows the current compile target (Native HA Script or PyScript) based on auto-detection. Updates live as the user adds statements. If the target changes from Native HA Script to PyScript mid-build, show an inline notification:
+The compile target (Native HA Script or PyScript) is a compiler-owned value set automatically on every save — the user never sets or sees it as an editable field. It is shown on the Test Compile / debug page, not in the editor. The editor shows only a PyScript *requirement* notification: when a statement is added that forces PyScript, an inline notification explains why:
 
 *"This piston now requires PyScript compilation."*
 
-For Docker users building complex pistons: show a subtle indicator that PyScript must be installed via HACS for deployment. Informational only — does not block building.
+For Docker users building complex pistons: show a subtle indicator that PyScript must be installed via HACS for deployment. Informational only — does not block building. (Decided D-S5d: the live compile-target badge was removed from the editor; only the PyScript-required notification remains there.)
 
 ### Addon vs Docker Feature Flags
 
@@ -1455,7 +1468,7 @@ piston_text is retired as a v1 format — see Section 6.10 (Snapshot format).
 
 WebCoRE's `renderComparison()` and `renderTask()` functions in `piston.module.html` are the reference implementation for how this works. PistonCore's render functions follow the same concept adapted for HA and the PistonCore statement type list.
 
-The complete statement type list and their required render patterns are defined in WIZARD_SPEC.md.
+The complete statement type schemas are defined in PISTON_FORMAT.md; their required render patterns are in WIZARD_SPEC.md.
 
 ---
 
@@ -1990,7 +2003,7 @@ Defined now so the v2 runtime is designed with defined behavior from the start:
 If Block, With/Do block, Only When restrictions, Wait (fixed duration or until time), Wait for state with timeout, Set variable, Repeat loop, For Each loop, While loop, Switch, Do Block, On Event (PyScript only), For Loop, Break (PyScript only), Cancel All Pending Tasks (PyScript only), Log message, Call another piston, Control another piston / HA automation, Stop
 
 **Editor features:**
-Structured document editor, inline ghost text insertion, WebCoRE-matching keywords, execute/end execute rendering wrapper, define/end define block for piston variables, drag and drop block reordering (within block only), Global Variables drawer, Simple/Advanced mode toggle (default Advanced), compile target indicator (updates live), complexity indicator for PyScript requirement, per-statement cog in wizard (TEP/TCP/Execution Method), Snapshot and Backup export, duplicate piston, import from JSON/URL/file, status page with Test Compile button, save returns to status page, run log with plain English detail, log level per piston, log message action, trace mode via WebSocket, test required before trace, test always labeled Live Fire ⚠ with confirmation dialog, pause/resume, versioned Jinja2 compiler templates (user-replaceable), device picker with type-to-filter search, unknown device fallback define screen, dynamic capability-driven multi-step wizard, full operator set (see WIZARD_SPEC.md), copy AI prompt button, automatic validation on save, pre-deploy validation pipeline (yamllint + py_compile + HA reload validation), file signature and hash system, failure notification toggle, My Device Definitions screen, BASE_URL frontend standard, PyScript detection with setup prompt, background compile with status indicator
+Structured document editor, inline ghost text insertion, WebCoRE-matching keywords, execute/end execute rendering wrapper, define/end define block for piston variables, drag and drop block reordering (within block only), Global Variables drawer, Simple/Advanced mode toggle (default Advanced), PyScript-required notification in editor (compile target shown on debug page), complexity indicator for PyScript requirement, per-statement cog in wizard (TEP/TCP/Execution Method), Snapshot and Backup export, duplicate piston, import from JSON/URL/file, status page with Test Compile button, save returns to status page, run log with plain English detail, log level per piston, log message action, trace mode via WebSocket, test required before trace, test always labeled Live Fire ⚠ with confirmation dialog, pause/resume, versioned Jinja2 compiler templates (user-replaceable), device picker with type-to-filter search, unknown device fallback define screen, dynamic capability-driven multi-step wizard, full operator set (see WIZARD_SPEC.md), copy AI prompt button, automatic validation on save, pre-deploy validation pipeline (yamllint + py_compile + HA reload validation), file signature and hash system, failure notification toggle, My Device Definitions screen, BASE_URL frontend standard, PyScript detection with setup prompt, background compile with status indicator
 
 ---
 
@@ -2124,8 +2137,9 @@ produced false confidence and wasted session time. The decision: let the JSON fo
 fully stabilize, then do one authoritative compiler spec rewrite in D-S6.
 
 **Treat all COMPILER_SPEC.md content as directionally correct but not authoritative.**
-The JSON schemas in PISTON_FORMAT.md v2.3 and STATEMENT_TYPES.md v2.2 are the
-current truth. Compiler coding proceeds against those documents, not COMPILER_SPEC.md.
+The JSON schemas in PISTON_FORMAT.md (which now contains all statement type schemas formerly
+in STATEMENT_TYPES.md) are the current truth. Compiler coding proceeds against that document,
+not COMPILER_SPEC.md.
 
 ---
 
@@ -2142,7 +2156,7 @@ current truth. Compiler coding proceeds against those documents, not COMPILER_SP
    chasing a moving format is what the freeze prevents. Tracked as GAP-S57-3 / D-S6-adjacent.
 5. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step.
 6. **Timer statement** — evaluate overlap with HA scheduler before including in v1.
-7. **on_event wizard warning** — wizard must display blocking behavior warning when user adds on_event block. See STATEMENT_TYPES.md Section 10.
+7. **on_event wizard warning** — wizard must display blocking behavior warning when user adds on_event block. See PISTON_FORMAT.md §10 (on_event).
 8. **on_event user documentation** — "PistonCore can't do this because HA can't do it" section needed in user docs covering on_event async limitation.
 9. **STATEMENT_TYPES.md action schema** — CLOSED Session 57 / D-S2. action schema updated to role+entity_ids. Condition schema Section 19 updated with entity_ids field.
 10. **MISSING_SPECS.md Items 7 and 8** — CLOSED (Session 58 / D-S3). Both updated to entity_state_cache and MISSING_ENTITY model.
@@ -2250,7 +2264,7 @@ Full spec hardening pass across 6 documents. No code written.
 Live code review (editor.js, wizard-core/action/condition/variable/loops.js, api.js).
 Reconciled specs to actual code; code is authoritative where they disagreed.
 - **Triggers/conditions/restrictions confirmed as top-level wrapper arrays** (editor.js), not
-  nested `is_trigger` nodes. PISTON_FORMAT.md v2.3 + DESIGN.md 6.4/10.3 updated to match.
+  nested `is_trigger` nodes. PISTON_FORMAT.md + DESIGN.md 6.4/10.3 updated to match.
 - **Variable schema corrected** to actual field names `var_type` / `initial_value` (not
   `type` / `default_value`). `initial_device_names` is NOT written by code — `initial_value`
   holds friendly names for both data and display.

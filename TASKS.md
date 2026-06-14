@@ -235,9 +235,22 @@ multi-task with-block foundation) is done in code; Speak rides on it.
   legacy entity_id→name conversion (~242–253) silently DROPS unresolvable entries from the
   selection while leaving them in the stored value, so old-format globals show a misleading
   count. Fix per GAP_global_editor_missing_device_removal.md: render stored-but-unresolvable
-  entries as flagged removable rows ("⚠ <value> — not found in HA"); make Deselect All clear
-  the entire selection set unconditionally, not just visible rows.
-  Files: globals.js (primary).
+  entries as `⚠ Sonos Bedroom` (⚠ flag immediately before the stored friendly name) as
+  flagged removable rows; make Deselect All clear the entire selection set unconditionally,
+  not just visible rows. Flagged rows survive open/close untouched — they resolve
+  automatically if the device comes back. Only deliberate user action (clicking to deselect
+  or Deselect All) removes them. Same ⚠ treatment applies to the piston define variable
+  picker (wizard-variable.js) for device/devices type variables — same root cause, same fix.
+  **Scope note:** This is the only structural missing-device problem. Entity_ids stored
+  directly on condition/action/for_each nodes are stable HA identifiers — a device going
+  offline does not change its entity_id, it just becomes unavailable. HA handles unavailable
+  entities gracefully at runtime and won't crash on deploy.
+  **Deploy warning (add to debug/compile page):** At compile/deploy time, if any entity_id
+  on any node is not currently found in HA state, show a passive informational notice on the
+  debug screen — not a block: "This piston references one or more devices currently
+  unavailable in HA. It will not fire correctly until those devices are restored or replaced."
+  Name the specific nodes and stored values. Deploy succeeds regardless — HA won't error.
+  Files: globals.js (primary), wizard-variable.js (define picker, same fix), debug page.
 
 - **GAP-S45-1 (cosmetic):** set_variable wizard doesn't normalize `$` prefix.
 

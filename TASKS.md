@@ -596,11 +596,18 @@ All ten items worked through and applied. Summary of what was done:
 
 **New gap filed this session:** Investigate whether `_reResolveVariableUses` handles rehydration of node entity_ids after a define variable is saved, without requiring the user to reopen and re-commit each wizard. Assign to whichever coding session loads `_reResolveVariableUses` and editor.js.
 
+**Spec consolidation completed this session (Goal 2):**
+- PISTON_FORMAT.md v2.5 — absorbs STATEMENT_TYPES.md v2.3; single source of truth for all piston JSON schemas. STATEMENT_TYPES.md retired to /reference.
+- WIZARD_SPEC.md v2.8 — absorbs WITH_BLOCK_TASK_FRAMEWORK.md + editor rendering rules from FRONTEND_SPEC.md. WITH_BLOCK_TASK_FRAMEWORK.md retired to /reference.
+- FRONTEND_SPEC.md v1.6 — editor/wizard content removed; now covers screens/chrome only.
+- WEBCORE_WIZARD_MAP.md added to repo — verified extraction of WebCoRE wizard surface from source (June 2026). Not yet fully incorporated into WIZARD_SPEC.md — statement picker cards, dialog-edit-task layout, operand allow/deny logic, and comparison widget structure are the priority items to land in a future spec session.
+- SAMPLE_PISTONS.md FROZEN/STALE notice — **still needs to be added manually**.
+
 ### D-S6: Compiler Spec Rewrite (after JSON structure is final)
 COMPILER_SPEC.md and PYSCRIPT_COMPILER_SPEC.md intentionally FROZEN/STALE. Rewrite after
 W-S11 + B-1 prove the round-trip and JSON format stops moving.
 **Files:** COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md, HA_LIMITATIONS.md, PISTON_FORMAT.md,
-STATEMENT_TYPES.md, REFERENCE_PISTON_V2.json, CLAUDE_SESSION_PROMPT.md, TASKS.md
+REFERENCE_PISTON_V2.json, CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 

@@ -1,16 +1,33 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.5
-**Status:** Authoritative — For Developer Use
-**Last Updated:** May 2026 (Session 69 / D-S5b — role_tokens awareness note added to
-  Import Dialog; Snapshot export updated to note role_tokens stripped; Grok frontend
-  audit findings documented)
+**Version:** 1.6
+**Status:** Authoritative — Screen layouts, navigation, and chrome only
+**Last Updated:** June 2026 (D-S5d consolidation session — editor/wizard rendering content
+  moved to WIZARD_SPEC.md; this document now covers screen layouts, navigation, WebSocket
+  protocol, error states, import/export, settings, and folder management only.
+  Prior: May 2026 Session 69 / D-S5b — role_tokens awareness note added to Import Dialog.)
 
-This document is written for the frontend developer. It defines exactly what to build.
-Read DESIGN.md first for background and philosophy. This document is the concrete implementation spec.
+This document covers what the screens look like and how pages connect. It does NOT describe
+what the editor renders or how the wizard behaves — those are in WIZARD_SPEC.md.
 
-**Guiding rule:** When in doubt about any UI or terminology decision, match WebCoRE exactly.
-Deviation from WebCoRE requires a specific documented reason.
+Read DESIGN.md first for background and philosophy.
+
+**Guiding rule:** What matches WebCoRE is **what the user sees on screen and the wizard that
+builds it** — the rendered piston as displayed (the statement tree, keyword styling,
+indentation, how each statement reads on screen) and the statement-building flow (condition
+builder, pickers, operand widget, step sequence). A WebCoRE user should recognize the rendered
+piston and the building flow immediately. The match is at the glass — the visible output —
+and says nothing about the JSON behind it: the render function reads PistonCore JSON
+(PISTON_FORMAT.md) and draws WebCoRE-familiar text. The **page furniture around the code** —
+piston-name field, header, button placement, save/deploy buttons, folder dropdown, surrounding
+layout — is PistonCore's own and does not need to match WebCoRE. PistonCore's own areas
+(dark-mode theme, font, the piston-list and status/debug/log screens, globals-from-the-top-bar)
+are first-class choices, not deviations needing justification.
+
+**Scope boundary:** If it lives on the editor canvas (action tree, ghost text, statement
+rendering, wizard modal, device picker, condition builder) → WIZARD_SPEC.md. If it is
+navigation, a screen layout, a button on a page header, an error message, a protocol
+message, or a settings field → this document.
 
 ---
 
@@ -38,7 +55,7 @@ projection from that structure. This rule has no exceptions.**
 
 The editor never stores display text. It never reads display text. It renders display
 text from structured JSON on every paint using render functions defined in
-STATEMENT_TYPES.md. The same render functions produce the Snapshot preview on export —
+PISTON_FORMAT.md (statement type schemas) and WIZARD_SPEC.md (editor rendering rules). The same render functions produce the Snapshot preview on export —
 guaranteeing the preview always matches exactly what the editor shows. The Snapshot
 export format is structured JSON, not piston_text. piston_text is not a v1 format.
 
@@ -541,234 +558,17 @@ If the WebSocket connection to HA drops:
 
 ---
 
-## The Action Tree — Document Rendering
-
-This is the core of the editor. It renders the piston's action tree as a structured document.
-
-The entire action tree is wrapped in `execute / end execute;` — rendered automatically by the frontend. **execute and end execute are not data nodes in the JSON.** The JSON `statements` array is the execute body.
-
-### Visual Rules — Match WebCoRE Exactly
-
-- Keywords in a distinct highlight color: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`, `execute`, `end execute;`, `define`, `end define;`, `settings`, `end settings;`
-- Indentation increases with nesting depth — each level adds one indent stop (suggest 2rem per level)
-- Curly braces `{` and `}` mark branch boundaries in editor display — styled same as keywords
-- `end if;` closes every if block at the same indent level as the opening `if`
-- `else if` and `else` appear at the same indent level as the opening `if`
-- `when true` and `when false` label branches in **editor display**
-- `then` and `end if;` are used in the **status page read-only view** and export format
-- `and` and `or` between conditions appear at the **same indent level as the conditions**
-- `until` in a repeat block appears at the **bottom** of the block, before `end repeat;`
-- Statement numbers appear on the left side (used by Trace mode)
-- Line numbers are NOT shown — trace uses statement numbers, not line numbers
-
-### Vertical Structure Lines
-
-Vertical structure lines (connecting parent blocks to their children visually) are **not yet implemented.** Do not add them until this is scheduled for a specific session.
-
-### Ghost Text — Primary Insertion Method
-
-At every valid insertion point, ghost text appears inline in a muted color. Ghost text is always visible at valid insertion points — not only on hover.
-
-- `+ add a new statement` — at the top level and inside blocks
-- `+ add a new task` — inside a with/do block
-- `+ add a new trigger` — in the triggers section
-- `+ add a new condition` — in the conditions section
-- `+ add a new restriction` — after an `only when` line
-
-Clicking any ghost text opens the wizard modal for that insertion point.
-
-### With-Block / Task Model
-
-A `with {devices}` block in the action tree is an `action` node containing an ordered `tasks[]` array. The editor renders each task as its own clickable line inside the block. This matches WebCoRE's visual exactly:
-
-```
-with {Announcement Sonos}
-do
-    Set Volume to 70;
-    Speak text "{Message}";
-    + add a new task
-end with;
-```
-
-**What is implemented (coded, unverified — GAP-S72-1, Session 73):**
-- The action node shape (`type: "action"`, `entity_ids`, `tasks[]`) is correct and the editor renders multiple tasks.
-- Each task line carries its own `task.id` and is independently clickable.
-- The append seam (`insertStatement('task', ...)`) pushes or replaces tasks by id.
-- "Add more" is coded to append tasks rather than overwrite — untestable until the picker resolves devices (GAP-S73-2).
-
-**What is not yet built:**
-- Per-task delete (removes one task, preserves siblings — see WITH_BLOCK_TASK_FRAMEWORK.md §3.3).
-- Virtual tasks (Wait, Set variable, etc.) inside a device with-block (BUG C in WITH_BLOCK_TASK_FRAMEWORK.md).
-- Device picker pre-fill when adding a task to an existing block (GAP-S72-1b).
-
-**Task order is load-bearing** — tasks execute top to bottom in array order. Round-trip must preserve order exactly. See WITH_BLOCK_TASK_FRAMEWORK.md for the full task-container contract.
-
-### Simple Mode Rendering
-
-Simple mode shows:
-- Comment header block
-- `settings / end settings` (if non-empty)
-- `define` block — **ALWAYS shown in both Simple and Advanced** (users define variables constantly)
-- `execute` block with `· add a new statement`
-- NO `only when` blocks unless they have content
-
-Advanced mode shows everything including `only when` blocks with ghost text.
-
-### Right-Click Context Menu
-
-Right-clicking any statement node shows:
-- Copy selected statement
-- Duplicate selected statement
-- Cut selected statement
-- Delete selected statement
-- Clear clipboard (if clipboard has content)
-
-Paste is triggered by clicking a ghost text insertion point when the clipboard has a copied/cut statement. Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
-
-### Within-Block Drag to Reorder
-
-Statements can be dragged to reorder within their containing block only. Dragging across block boundaries is not supported in v1 — use cut and paste for that. No undo for drag operations in v1.
-
----
-
-## The Wizard Modal
-
-Opens when the user clicks any ghost text or clicks to edit an existing statement.
-
-### Behavior
-
-- Opens as a modal overlay on top of the editor
-- **Backdrop is transparent** — no dark overlay. Modal is centered, floats over the document.
-- **Modal size: 720px wide, fills most of screen height.** wiz-body scrolls, modal does not grow.
-- The wizard builds a plain English sentence at the top as the user progresses
-- Each step's options are fetched live from the backend
-- Clicking Back goes to the previous step without losing selections
-- Clicking Cancel closes the wizard with no changes
-- Clicking Done (final step) closes the wizard and inserts or updates the statement
-- **Never two modals open at once**
-
-### Device Picker
-
-Opens as an inline panel **below** the device row — not a separate modal. The panel includes a search field. Selecting a device closes the panel and populates the row.
-
-### Condition Builder Layout
-
-One screen — everything visible at once:
-- Row: `[Physical device(s) ▾]` `[device picker button]` `[attribute ▾]`
-- Device picker opens inline panel below the row with search
-- "Which interaction" row always visible (not conditional on device selection)
-- Operator dropdown below that (Triggers first ⚡, then Conditions)
-- Value row appears below operator when needed — textarea for free text types
-
-### Aggregation — Any of (Device Subject Conditions)
-
-When the subject of a condition is a device (or device group), the **"Any of"** aggregation selector is **always shown**, regardless of how many devices are selected. Do not hide it for single-device selections. This matches WebCoRE behavior.
-
-### Operator Order
-
-Triggers appear **first** with ⚡ prefix. Conditions appear second. This order is non-negotiable.
-
-### Value Inputs
-
-- Binary/enum attributes → dropdown of actual values
-- Numeric attributes → number input with unit
-- Free text (Value/Variable/Expression/Argument) → textarea that wraps
-
-### if_block Unified Mechanism
-
-Adding an if_block goes to the condition builder first. Only inserts the if_block after the condition is completed. Uses `_extra['block-id']` exclusively as the unified mechanism.
-
-### First Step — Condition or Group
-
-When adding to CONDITIONS section or inside an if_block condition, the first step presents:
-
-**Condition** — *"a single comparison between two or more operands"*
-`[Add a condition]`
-
-**Group** — *"a collection of conditions with a logical operator between them"*
-`[Add a group]`
-
-This first step does not apply when adding triggers — triggers go directly to the device/event picker.
-
-### Cog Icon — Advanced Options
-
-Every wizard modal has a cog icon (bottom right, tooltip: "Show/Hide advanced options") expanding:
-- Task Execution Policy (TEP)
-- Task Cancellation Policy (TCP)
-- Execution Method (Synchronous / Asynchronous)
-
-Always present, hidden until clicked. If set on a native-script-bound piston: show note *"These options only apply to PyScript pistons."*
-
-### Call Another Piston — Warning Before Target Selection
-
-If the piston is native-script-bound and the user adds a Call Another Piston with wait-for-completion, show **before** the target piston picker:
-
-*"Waiting for a called piston to finish requires converting this piston to PyScript."*
-`[Convert and continue]` `[Use fire-and-forget]` `[Cancel]`
-
-This must appear BEFORE the user picks the target piston, not after.
-
-### Loading State
-
-If capability data is being fetched: show a loading spinner. Never show an empty dropdown.
-If capability data fails to load: show error with a Retry button.
-
----
-
-## Wizard JavaScript Architecture
-
-The wizard is split into six files. Each file owns a distinct concern. All wizard files are loaded together; there is no dynamic import.
-
-| File | Responsibility |
-|---|---|
-| `wizard-core.js` | Modal lifecycle, step navigation, sentence builder, Done/Cancel/Back, shared state |
-| `wizard-statement.js` | Statement type picker (first step for action insertion) |
-| `wizard-condition.js` | Condition builder, operator list, value input, group builder |
-| `wizard-loops.js` | Repeat, For Each, While, For Loop step flows |
-| `wizard-action.js` | With block, service call, set variable, log, call piston, break, exit |
-| `wizard-variable.js` | Variable define step (used when adding entries to the define block) |
-
-### Shared State — window.WizardCore
-
-Wizard state that must be shared across files is exposed via `window.WizardCore` with explicit getter and setter properties. Files must never reach into another file's internal variables directly.
-
-```javascript
-// wizard-core.js sets up:
-window.WizardCore = {
-  get currentStep() { ... },
-  set currentStep(v) { ... },
-  get selections() { ... },
-  set selections(v) { ... },
-  // ... other shared properties
-};
-```
-
-Accessing shared wizard state from any other wizard file:
-```javascript
-// Correct
-const step = window.WizardCore.currentStep;
-window.WizardCore.selections = newSelections;
-
-// Wrong — never reach into another file's scope directly
-```
-
----
-
-## define Block — Variable Display Rules
-
-Variable entries in the `define` block follow these display rules:
-
-- **Local variables (non-device):** Show name and current value. Example: `myCounter = 0`
-- **Device variables:** Show name only. **Never show `= value` for device variables.** The value of a device variable is a live entity reference, not a scalar — displaying it as `= value` is misleading and must never occur.
-
-Example of correct define block rendering:
-```
-define
-  myCounter = 0
-  motionSensor           ← device variable, no = value
-  frontDoorLock          ← device variable, no = value
-end define;
-```
+## Editor and Wizard — See WIZARD_SPEC.md
+
+All editor rendering behavior (action tree visual rules, keyword highlighting, ghost text,
+simple/advanced mode, right-click context menu, drag to reorder, with-block/task rendering,
+define block display rules, role label display, aggregation display, inline validation
+warnings, global variable visual distinction) and all wizard modal behavior (modal lifecycle,
+device picker, condition builder, operator order, aggregation selector, wizard JavaScript
+architecture, shared state) are specified in **WIZARD_SPEC.md**.
+
+This document covers screen layouts and chrome only. Anything the editor canvas renders
+belongs in WIZARD_SPEC.md, not here.
 
 ---
 
@@ -803,11 +603,14 @@ The capability map (which operators are valid for which attribute types) lives i
 
 ## Visual Style Notes
 
-Match WebCoRE's visual language as closely as possible:
+The editor's visual language is PistonCore's own dark-mode theme — not a WebCoRE
+reproduction. What is borrowed from WebCoRE is the *structural* presentation of the
+action tree (keyword highlighting, indentation, statement numbering) so the document reads
+the way WebCoRE users expect; the colors, theme, and font are PistonCore's choices.
 
-- Dark background editor area
-- Keywords in a distinct highlight color (teal or similar — match WebCoRE)
-- Folder section headers in teal or the same keyword color
+- Dark background editor area (PistonCore's theme)
+- Keywords in a distinct highlight color — PistonCore's palette (teal-family works well)
+- Folder section headers in the keyword color
 - Ghost text in a muted/gray color — clearly secondary
 - Indentation uses consistent spacing (suggest 2rem per level)
 - Curly braces `{` and `}` styled the same as keywords
@@ -818,116 +621,9 @@ Match WebCoRE's visual language as closely as possible:
 
 ---
 
-## Role Label Display Rules
+## Editor Rendering Rules — See WIZARD_SPEC.md
 
-Every condition, action, and for_each node has a `role` string (display label)
-and an `entity_ids` array. The editor always renders from these fields.
-
-### Generating the Role Label (Wizard Commit Time)
-
-When the user commits a device selection in the wizard, the role string is
-generated as follows:
-
-- **Single device:** Use the device's friendly name. `role: "Front Door"`
-- **Two devices:** Join with " and ". `role: "Front Door and Back Door"`
-- **Three devices:** Join first two with ", " and last with " and ". `role: "Front Door, Back Door and Garage Door"`
-- **Four or more:** First name + count of remaining. `role: "Front Door +3"`
-- **Single global variable:** Use the global's display name with @ prefix. `role: "@Door_Contacts_Exterior"`
-- **Mixed (physical + global):** Resolve all entity_ids from the global at commit time, merge into one flat array. Role label uses first device name + total count remaining. `role: "Front Door +4"`
-
-The role label is generated once at commit time and stored. Never regenerated
-from entity_ids at render time.
-
-### Rendering the Role in the Editor
-
-Role labels appear in curly braces in condition and action lines:
-
-```
-⚡ Any of {Front Door and Back Door}'s contact changes to Open
-   with {Downstairs Lights}
-     do Turn on;
-   end with;
-   for each ($device in {Smoke Detectors})
-```
-
-Global variable roles render with @ prefix inside the braces:
-```
-⚡ Any of {@Door_Contacts_Exterior}'s contact changes to Open
-```
-
-This visually distinguishes a global-sourced role from a manually picked
-multi-device role. Same curly brace treatment, @ prefix is the signal.
-
----
-
-## Aggregation Display Rules
-
-Every device condition node has an `aggregation` field: `"any"` / `"all"` / `"none"`.
-
-### Editor Rendering
-
-| aggregation | Rendered prefix |
-|---|---|
-| `"any"` | `Any of {role}` |
-| `"all"` | `All of {role}` |
-| `"none"` | `None of {role}` |
-
-Single-device nodes always show `Any of` regardless of aggregation value.
-The aggregation bar in the wizard is always visible when more than one entity_id
-is present. Hidden for single-entity nodes.
-
-### Aggregation → Compiler → HA Output
-
-| aggregation | Native HA trigger | Native HA condition | PyScript trigger |
-|---|---|---|---|
-| `"any"` | entity_id array (HA fires on any) | Jinja2 `any()` template | One string per entity OR'd |
-| `"all"` | Template trigger (no native all-match) | Jinja2 `all()` template | All strings must match |
-| `"none"` | Template trigger | Jinja2 `none()` template | None of strings match |
-
-This table is authoritative. The compiler reads `aggregation` from the condition
-node and uses this table to determine output strategy.
-
----
-
-## Inline Validation Feedback
-
-The editor shows lightweight pre-compile warnings inline on statement rows.
-These are informational only — they never block editing or saving.
-
-| Condition | Warning shown |
-|---|---|
-| Action or condition node has `entity_ids: []` | ⚠ "No device mapped — edit to assign" |
-| for_each node has `entity_ids: []` | ⚠ "No devices in list — edit to assign" |
-| Piston variable type `devices` has empty entity_ids | ⚠ "No devices assigned" |
-| Condition node has no operator set | ⚠ "Incomplete condition" |
-
-Warnings appear as a small ⚠ icon on the right side of the statement row.
-Hovering shows tooltip text. Clicking the row opens the wizard to fix.
-
-Warnings never block saving, never auto-fix, never appear for nodes with valid
-entity_ids even if those entities are currently unavailable in HA.
-
-Pre-compile warnings are distinct from compile errors (MISSING_ENTITY etc.)
-which are returned by the backend after attempting compilation.
-
----
-
-## Global Variable Visual Distinction
-
-**In condition/action/for_each role labels:**
-`{@Door_Contacts_Exterior}` — @ prefix inside curly braces.
-
-**In the define block:**
-```
-define
-  @MyLights        ← global variable reference — @ prefix, no = value
-  myCounter = 0   ← local variable — name = value
-end define;
-```
-
-Global variable references never show `= value`. The @ prefix is sufficient
-visual distinction — no additional color treatment needed beyond the standard
-keyword color.
+Role label generation, role rendering in curly braces, aggregation display (Any of / All of / None of), aggregation→compiler→HA output table, inline validation feedback (⚠ warnings on statement rows), and global variable visual distinction (@prefix in labels) are all specified in **WIZARD_SPEC.md**.
 
 ---
 

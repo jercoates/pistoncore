@@ -531,23 +531,28 @@ can't remove a missing device) is a logged structural gap. See TASKS.md.**
 
 ---
 
-## Spec File Versions (after Session 73)
+## Spec File Versions (after D-S5d consolidation session)
+
+**Active specs:**
 - DESIGN.md v1.8
-- PISTON_FORMAT.md v2.4 (Session 73 — task model: device/virtual tasks, `kind` ASSUMED, order)
-- WIZARD_SPEC.md v2.7 (Session 73 — W-6 task append/edit/delete + virtual-in-block flows)
-- STATEMENT_TYPES.md v2.3 (Session 73 — task schema device/virtual, wait/set_var duality)
-- WITH_BLOCK_TASK_FRAMEWORK.md v1.0 (NEW, Session 73 — authoritative task-container spec)
-- FRONTEND_SPEC.md v1.5
-- HA_LIMITATIONS.md — Section 3 corrected; non-device command classification COMPLETE
-  (Session 73, vs HA 2026.6 — authoritative results in §10; `target-boundary.json` existence
-  UNVERIFIED — confirm in code or create it)
-- COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6; do not touch until v1 JSON locks)
+- PISTON_FORMAT.md v2.5 (D-S5d session — absorbs STATEMENT_TYPES.md v2.3; single source of truth for all piston JSON schemas and statement types; STATEMENT_TYPES.md retired to /reference)
+- WIZARD_SPEC.md v2.8 (D-S5d session — absorbs WITH_BLOCK_TASK_FRAMEWORK.md and editor rendering rules from FRONTEND_SPEC.md; WITH_BLOCK_TASK_FRAMEWORK.md retired to /reference)
+- FRONTEND_SPEC.md v1.6 (D-S5d session — editor/wizard rendering content moved to WIZARD_SPEC.md; now covers screen layouts, navigation, WebSocket protocol, error states, import/export, settings, folder management only)
+- HA_LIMITATIONS.md — §10 non-device command classification COMPLETE (Session 73, vs HA 2026.6); §10.2 pause/resume clarification added; `target-boundary.json` existence UNVERIFIED
+- SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; stay separate until D-S6
+- COMPILER_DECISIONS_HOLDING.md v1.0 — Speak/Notify compiler decisions; retire at D-S6
+- WEBCORE_WIZARD_MAP.md — verified extraction of WebCoRE wizard surface (June 2026, from source); reference for wizard UI behavior; not yet fully incorporated into WIZARD_SPEC.md
+
+**Frozen (do not touch until D-S6):**
+- COMPILER_SPEC.md v1.5 — FROZEN/STALE (rewrite in D-S6)
 - PYSCRIPT_COMPILER_SPEC.md — FROZEN/STALE (rewrite in D-S6)
-- SAMPLE_PISTONS.md v1.0
-- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model; FROZEN until v1 JSON locks)
+- AI_PROMPT_SPEC.md v2.0 — stale (old device_map model); FROZEN until v1 JSON locks
+
+**Other:**
+- SAMPLE_PISTONS.md v1.0 — **NEEDS FROZEN/STALE NOTICE ADDED MANUALLY** (old-format pistons compile to zero triggers under current model)
 - REFERENCE_PISTON_V2.json — the v2 diff anchor
-- SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now answerable
-  against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
+- STATEMENT_TYPES.md — RETIRED to /reference (content in PISTON_FORMAT.md v2.5)
+- WITH_BLOCK_TASK_FRAMEWORK.md — RETIRED to /reference (content in WIZARD_SPEC.md v2.8)
 
 After B-1 and S3-1, audit all raw HTML insertions in editor.js and the wizard files to
 confirm _esc() is applied everywhere. Also check Google Fonts import in style.css for

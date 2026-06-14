@@ -1,12 +1,16 @@
-# PistonCore Wizard Specification
+# PistonCore Wizard & Editor Specification
 
-**Version:** 2.7
-**Status:** Authoritative — supersedes both WIZARD_SPEC.md v0.6 and WIZARD_REBUILD_SPEC.md v1.0
-**Last Updated:** June 2026 (Session 73 — W-6 reconciled to code + WITH_BLOCK_TASK_FRAMEWORK.md:
-  "Add more" annotated with the VERIFIED GAP-S72-1 root cause (overwrite vs append); added
-  per-task edit-by-id, per-task delete, and virtual-tasks-inside-device-block flows that the
-  spec previously lacked. The with-block container, editor render, and append seam already
-  exist in code; the wizard commit/edit paths are the work. See WITH_BLOCK_TASK_FRAMEWORK.md.)
+**Version:** 2.8
+**Status:** Authoritative — covers all wizard modal behavior, editor canvas rendering,
+  with-block/task model, and JavaScript architecture. Absorbs WITH_BLOCK_TASK_FRAMEWORK.md
+  (retired) and editor rendering content moved from FRONTEND_SPEC.md v1.6.
+**Last Updated:** June 2026 (D-S5d consolidation session — editor rendering rules,
+  role label rules, aggregation display, inline validation, with-block/task model, and
+  wizard JS architecture absorbed from FRONTEND_SPEC.md; WITH_BLOCK_TASK_FRAMEWORK.md
+  content absorbed and that file retired. Verified WebCoRE Wizard Reference section added
+  from WEBCORE_WIZARD_MAP.md (source-verified June 2026).
+  Prior: Session 73 — W-6 reconciled to code; "Add more" annotated with GAP-S72-1 root
+  cause; per-task edit/delete/virtual-task flows added.)
 **Prior:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
   output examples; _reResolveVariableUses contract; globals cache model; UI/data
   separation rule; resolution path rule. Session 69b — CODE_FINDINGS reconciliation
@@ -29,11 +33,23 @@ Read DESIGN.md and PISTON_FORMAT.md v2.4 before this document.
 
 ## Guiding Rules
 
-- Match WebCoRE's wizard behavior exactly where possible. Deviation requires a specific documented reason.
-- **Intentional PistonCore differences from WebCoRE (do NOT revert):**
-  - Globals editable from any screen via top bar — WebCoRE was editor-only
-  - Main screen layout and debug/log screen — PistonCore design kept
-  - All other wizard dialogs: match WebCoRE exactly
+What matches WebCoRE is **the code and how it is built** — two things:
+
+1. **What the user sees on screen — the rendered piston** (the "code" as displayed). The statement tree exactly as it appears in the editor: `if` / `then` / `else` / `end if;`, `with` / `do` / `end with;`, `for each`, `only when`, the indentation, the keyword styling, how each statement type reads as a line on screen. This is the most important match in the whole project — a WebCoRE user should look at the rendered piston and recognize it immediately. The match is at the glass: the visible output. It says nothing about the JSON that produces that output — the render function reads PistonCore JSON (PISTON_FORMAT.md) and draws WebCoRE-familiar text. Same picture on screen, entirely different data underneath.
+
+2. **The wizard that builds those statements** — the flow and feel of assembling a statement: the condition builder, the device/command pickers, the operand widget, the step sequence, the running plain-English sentence. WebCoRE users know this flow; matching it is what makes PistonCore feel familiar.
+
+What does NOT need to match WebCoRE is the **page furniture around the code** — the piston-name field, the header area, button placement, the save/deploy buttons, the folder dropdown, the surrounding screen layout. That is all PistonCore's own. WebCoRE's arrangement of that furniture is irrelevant; only the code area and the wizard that builds it carry the WebCoRE-matching obligation.
+
+This is a visual/UX rule about the code and the wizard. It does NOT mean match WebCoRE's data structure — piston JSON is PistonCore's own (PISTON_FORMAT.md) and owes nothing to WebCoRE's internal format. The wizard makes statement-building feel like WebCoRE while producing PistonCore JSON that compiles to whatever HA needs. How a selection is stored and compiled is PistonCore's concern, driven by HA's capabilities.
+
+**PistonCore's own — first-class choices, not deviations, needing no justification against WebCoRE:**
+- Dark-mode theme, palette, and font — PistonCore's look.
+- Globals editable from any screen via the top bar — placement is PistonCore's call.
+- Piston-list main screen, the editor's surrounding chrome (name field, header, button bar) — PistonCore's layout.
+- Debug / test-compile / log screens — PistonCore's own; WebCoRE has no equivalent.
+
+In the code area and the statement-building wizard, a visible departure from WebCoRE is worth a documented reason so it's a deliberate choice, not an accident. Where HA cannot reproduce a WebCoRE behavior, the rendered statement may still read the same but the execution differs, or the feature is cut (see HA_LIMITATIONS.md).
 
 ---
 
@@ -47,7 +63,7 @@ The wizard's internal state object (selections, sentence, step) is transient UI 
 It exists only while the wizard is open. It is discarded on Cancel. It is never written
 to the piston JSON on Done — only the final typed output object is written.
 
-This matches DESIGN.md Section 2 and PISTON_FORMAT.md v2.2 exactly.
+This matches DESIGN.md Section 2 and PISTON_FORMAT.md exactly.
 
 **The wizard is the ONLY thing that writes piston JSON.**
 **The editor is the ONLY thing that reads and renders it.**
@@ -1587,6 +1603,370 @@ File system commands (Write to file, Read from file, etc.) — skip v1, Hubitat-
 
 ---
 
+## Editor Rendering Rules
+
+This section covers how the editor canvas renders piston JSON. The editor is not the wizard — the wizard is the modal that writes JSON; the editor renders it. Both live in this spec because both are part of what the frontend developer builds, and the rendering rules must be consistent with the wizard's output.
+
+### Visual Rules — Match WebCoRE Exactly
+
+- Keywords in a distinct highlight color: `if`, `when true`, `when false`, `else if`, `else`, `end if;`, `with`, `do`, `end with;`, `only when`, `repeat`, `for each`, `end repeat;`, `execute`, `end execute;`, `define`, `end define;`, `settings`, `end settings;`
+- Indentation increases with nesting depth — each level adds one indent stop (suggest 2rem per level)
+- Curly braces `{` and `}` mark branch boundaries in editor display — styled same as keywords
+- `end if;` closes every if block at the same indent level as the opening `if`
+- `else if` and `else` appear at the same indent level as the opening `if`
+- `when true` and `when false` label branches in **editor display**
+- `then` and `end if;` are used in the **status page read-only view** and export format
+- `and` and `or` between conditions appear at the **same indent level as the conditions**
+- `until` in a repeat block appears at the **bottom** of the block, before `end repeat;`
+- Statement numbers appear on the left side (used by Trace mode)
+- Line numbers are NOT shown — trace uses statement numbers, not line numbers
+
+Vertical structure lines are **not yet implemented.** Do not add them until scheduled.
+
+### Ghost Text — Primary Insertion Method
+
+At every valid insertion point, ghost text appears inline in a muted color. Ghost text is always visible at valid insertion points — not only on hover.
+
+- `+ add a new statement` — at the top level and inside blocks
+- `+ add a new task` — inside a with/do block
+- `+ add a new trigger` — in the triggers section
+- `+ add a new condition` — in the conditions section
+- `+ add a new restriction` — after an `only when` line
+
+Clicking any ghost text opens the wizard modal for that insertion point.
+
+### Simple Mode Rendering
+
+Simple mode shows:
+- Comment header block
+- `settings / end settings` (if non-empty)
+- `define` block — **ALWAYS shown in both Simple and Advanced** (users define variables constantly)
+- `execute` block with `+ add a new statement`
+- NO `only when` blocks unless they have content
+
+Advanced mode shows everything including `only when` blocks with ghost text.
+
+### Right-Click Context Menu
+
+Right-clicking any statement node shows:
+- Copy selected statement
+- Duplicate selected statement
+- Cut selected statement
+- Delete selected statement
+- Clear clipboard (if clipboard has content)
+
+Paste is triggered by clicking a ghost text insertion point when the clipboard has content. Cut statement is visually dimmed in place (50% opacity) until pasted or clipboard is cleared.
+
+### Within-Block Drag to Reorder
+
+Statements can be dragged to reorder within their containing block only. Dragging across block boundaries is not supported in v1 — use cut and paste. No undo for drag operations in v1.
+
+### define Block — Variable Display Rules
+
+- **Local variables (non-device):** Show name and current value. Example: `myCounter = 0`
+- **Device variables:** Show name only. **Never show `= value` for device variables.**
+
+```
+define
+  myCounter = 0
+  motionSensor           ← device variable, no = value
+  frontDoorLock          ← device variable, no = value
+end define;
+```
+
+### Role Label Display Rules
+
+Role labels appear in curly braces in condition and action lines:
+
+```
+⚡ Any of {Front Door and Back Door}'s contact changes to Open
+   with {Downstairs Lights}
+   for each ($device in {Smoke Detectors})
+```
+
+**Generating the role label (wizard commit time):**
+- Single device → friendly name: `"Front Door"`
+- Two devices → joined with " and ": `"Front Door and Back Door"`
+- Three devices → first two with ", ", last with " and ": `"Front Door, Back Door and Garage Door"`
+- Four or more → first name + count: `"Front Door +3"`
+- Single global variable → @ prefix: `"@Door_Contacts_Exterior"`
+- Mixed (physical + global) → resolve all, use first name + total count: `"Front Door +4"`
+
+Generated once at commit time. Never regenerated from entity_ids at render time.
+
+Global variable roles render with @ prefix inside the braces:
+```
+⚡ Any of {@Door_Contacts_Exterior}'s contact changes to Open
+```
+
+### Aggregation Display Rules
+
+| aggregation | Rendered prefix |
+|---|---|
+| `"any"` | `Any of {role}` |
+| `"all"` | `All of {role}` |
+| `"none"` | `None of {role}` |
+
+Single-device nodes always show `Any of` regardless of aggregation value. The aggregation bar in the wizard is always visible when more than one entity_id is present. Hidden for single-entity nodes.
+
+**Aggregation → Compiler → HA output** (authoritative — compiler reads `aggregation` and uses this):
+
+| aggregation | Native HA trigger | Native HA condition | PyScript trigger |
+|---|---|---|---|
+| `"any"` | entity_id array (HA fires on any) | Jinja2 `any()` template | One string per entity OR'd |
+| `"all"` | Template trigger (no native all-match) | Jinja2 `all()` template | All strings must match |
+| `"none"` | Template trigger | Jinja2 `none()` template | None of strings match |
+
+### Inline Validation Feedback
+
+Lightweight pre-compile warnings appear inline on statement rows. Informational only — never block editing or saving.
+
+| Condition | Warning shown |
+|---|---|
+| Action or condition node has `entity_ids: []` | ⚠ "No device mapped — edit to assign" |
+| for_each node has `entity_ids: []` | ⚠ "No devices in list — edit to assign" |
+| Piston variable type `devices` has empty entity_ids | ⚠ "No devices assigned" |
+| Condition node has no operator set | ⚠ "Incomplete condition" |
+
+Warnings appear as a small ⚠ icon on the right side of the statement row. Hovering shows tooltip text. Clicking the row opens the wizard to fix.
+
+### Global Variable Visual Distinction
+
+In condition/action/for_each role labels: `{@Door_Contacts_Exterior}` — @ prefix inside curly braces.
+
+In the define block:
+```
+define
+  @MyLights        ← global variable reference — @ prefix, no = value
+  myCounter = 0   ← local variable — name = value
+end define;
+```
+
+---
+
+## With-Block / Task Model
+
+A `with {devices}` block in the action tree is an `action` node containing an ordered `tasks[]` array. This section covers the wizard's responsibility for building and maintaining that array. For the JSON schema, see PISTON_FORMAT.md §1.
+
+### The Central Finding
+
+The `tasks[]` container already exists in the codebase. The wizard and editor don't fully drive it yet — specifically, multi-task stacking (append vs overwrite), per-task edit, per-task delete, and virtual tasks inside device blocks are the remaining gaps. The architecture is correct; the gaps are behavioral.
+
+### Governing Principles (DECIDED)
+
+1. A `with {devices}` block can hold MULTIPLE tasks — not one. This is the core WebCoRE behavior (Set Volume then Speak, for example).
+2. `tasks[]` is the universal ordered task container. Order = execution order. Round-trip must preserve it exactly.
+3. Device tasks (service calls against the block's entity_ids) and virtual tasks (Wait, Set variable, notify, log — non-device) can be interleaved in the same block.
+4. The wizard appends a new task to the existing array on "Add more." It does NOT overwrite the array.
+5. Editing a task replaces it by task.id. It does NOT rebuild the node.
+6. Per-task delete removes one task by task.id and preserves siblings.
+
+### Editor Render — Multi-Task Example
+
+```
+with {Announcement_Sonos}
+do
+    Set Volume to 70%;
+    Speak text "{Message}";
+    + add a new task
+end with;
+```
+
+### Wizard Behavior Contract
+
+**Adding first task to a block:**
+1. User clicks `+ add a new statement` → picks Action → picks devices → wizard commits the action node with `tasks: []`
+2. Wizard immediately continues to task picker (command picker)
+3. User picks command + parameters → wizard appends one task to `tasks[]` via `insertStatement('task', task, {blockId})`
+
+**Adding more tasks (Add more):**
+- "Add more" re-opens the command picker for the same block
+- Each completion appends one task to the existing `tasks[]`
+- Device picker is pre-filled with the block's existing devices (not shown again)
+
+**Editing a task:**
+- Clicking a task line opens the wizard hydrated with that task's data
+- On commit, wizard replaces the task by `task.id` — does not rebuild the node or overwrite siblings
+
+**Per-task delete:**
+- Delete button on a task line removes that task by `task.id`
+- If the last task is deleted: confirm whether to remove the action node entirely or leave it empty (open question — see TASKS.md GAP-S72-1 §3.3)
+
+### What Is Implemented (coded, unverified — GAP-S72-1, Session 73)
+
+- Action node shape (`type: "action"`, `entity_ids`, `tasks[]`) correct, editor renders multiple tasks
+- Each task line carries its own `task.id` and is independently clickable
+- Append seam (`insertStatement('task', ...)`) pushes or replaces tasks by id
+- "Add more" coded to append rather than overwrite — untestable until picker resolves devices (GAP-S73-2)
+
+### What Is Not Yet Built
+
+- Per-task delete (removes one task, preserves siblings)
+- Virtual tasks (Wait, Set variable, etc.) inside a device with-block (BUG C)
+- Device picker pre-fill when adding a task to an existing block (GAP-S72-1b)
+
+### Command Picker Vocabulary
+
+Three groups in the task picker, built dynamically (verified from WebCoRE source):
+
+**Common** — commands supported by ALL selected devices
+
+**Partial** — commands supported by only SOME of the selected devices
+
+**Virtual (Location commands)** — non-device commands available regardless of device selection
+
+Commands have a type badge: `device` / `emulated` / `custom` / `location`.
+
+Variable device resolution: if a device variable is selected instead of a specific device, the wizard attempts to resolve the variable's current value to get the device list; if empty/unknown, falls back to the full physical command DB.
+
+### Virtual Tasks Inside a Device Block
+
+The virtual command list (non-device tasks available inside a `with` block) maps to the Location virtual device commands from WebCoRE. These are commands that have no `r` (required capability) requirement — available to all blocks regardless of device. See the Location Virtual Device Commands section of this spec.
+
+---
+
+## Wizard JavaScript Architecture
+
+The wizard is split into six files. Each file owns a distinct concern. All wizard files are loaded together; there is no dynamic import.
+
+| File | Responsibility |
+|---|---|
+| `wizard-core.js` | Modal lifecycle, step navigation, sentence builder, Done/Cancel/Back, shared state |
+| `wizard-statement.js` | Statement type picker (first step for action insertion) |
+| `wizard-condition.js` | Condition builder, operator list, value input, group builder |
+| `wizard-loops.js` | Repeat, For Each, While, For Loop step flows |
+| `wizard-action.js` | With block, service call, set variable, log, call piston, break, exit |
+| `wizard-variable.js` | Variable define step (used when adding entries to the define block) |
+
+### Shared State — window.WizardCore
+
+Wizard state that must be shared across files is exposed via `window.WizardCore` with explicit getter and setter properties. Files must never reach into another file's internal variables directly.
+
+```javascript
+window.WizardCore = {
+  get currentStep() { ... },
+  set currentStep(v) { ... },
+  get selections() { ... },
+  set selections(v) { ... },
+};
+
+// Correct
+const step = window.WizardCore.currentStep;
+window.WizardCore.selections = newSelections;
+
+// Wrong — never reach into another file's scope directly
+```
+
+---
+
+## Verified WebCoRE Wizard Reference
+
+**Source:** `ady624/webCoRE` — `dashboard/html/modules/piston.module.html` and `piston.js` (master branch, fetched June 2026). Extracted directly from template HTML and JS source, no assumptions. Full extraction in WEBCORE_WIZARD_MAP.md.
+
+**What "match WebCoRE" means here — read this first.** PistonCore matches WebCoRE's **visuals and UI**: what the editor canvas looks like, how the dialogs are laid out, the wizard step sequences, the operand picker's appearance, the card names and descriptions, the section render order. PistonCore does **NOT** match WebCoRE's data structure. The piston JSON is entirely PistonCore's own (defined in PISTON_FORMAT.md) and owes nothing to WebCoRE's internal format. Any WebCoRE field names that appear in WEBCORE_WIZARD_MAP.md (`lo`, `k`, `s`, `co`, `ro`, etc.) are WebCoRE's storage and are **never** a guide for how PistonCore stores anything.
+
+So when this section says "match WebCoRE," it means *make the screen look and behave like that for the user*. How the resulting selection is stored, and how it compiles, is PistonCore's own concern — and is driven by what HA can actually do, not by what WebCoRE did. Where HA cannot reproduce a WebCoRE behavior, the visual may still match but the underlying execution differs (or the feature is cut). Everything below is VERIFIED from the cited source as a description of WebCoRE's UI; treat it as the visual baseline to adapt from, not a structural or behavioral contract.
+
+### Statement Picker — WebCoRE's Card Set (VERIFIED)
+
+WebCoRE shows 3 "simple" cards always, 9 "advanced" cards behind a toggle. PistonCore groups its statement picker differently (Execution / Control Flow / Loops / Advanced — see W-1), which is a deliberate design choice; the card *content* below is the verified WebCoRE reference for names, descriptions, and the simple/advanced split.
+
+**Simple (always visible):**
+- **If Block** — "An if block allows the piston to execute different actions depending on the truth result of a comparison or set of comparisons"
+- **Action** — "An action allows the piston to control devices and execute tasks"
+- **Timer** (our `every`) — "A timer will trigger execution of the piston at set time intervals"
+
+**Advanced (behind toggle):**
+- **Switch** — "compares an operand against a set of values and executes statements corresponding to those matches"
+- **Do Block** — "can help organize several statements into a single block"
+- **On event** (our `on_event`) — "executes its statements only when certain events happen"
+- **For Loop** — "executes the same statements for a set number of iteration cycles"
+- **For Each Loop** (our `for_each`) — "executes the same statements for each device in a device list"
+- **While Loop** — "executes the same statements for as long as a condition is met"
+- **Repeat Loop** — "executes the same statements until a condition is met"
+- **Break** — "allows the interruption of the inner most switch, for loop, for each loop, while loop, or repeat loop"
+- **Exit** — "interrupts the piston execution and exits immediately"
+
+Total: 12 statement types. PistonCore's set matches these 12 (note: PistonCore type keys differ from WebCoRE's internal keys — PistonCore uses `for_each`/`on_event` where WebCoRE uses `each`/`on`).
+
+### Statement Properties Panel (VERIFIED)
+
+Per-statement properties WebCoRE exposes, and which statement types they apply to. PistonCore surfaces these through the cog/advanced-options area. Applicability may shift where HA's execution model differs:
+
+| Property | Applies to | Options |
+|---|---|---|
+| Case Traversal Policy | switch only | Safe (auto-break) / Fall-through |
+| Description | all | free text |
+| Disabled | all | Yes / No |
+| Execution Method | all except on, every | Synchronous / Asynchronous |
+| Subscription Method | conditions, switch with `ct=='c'` | Auto / Always / Never |
+| Task Cancellation Policy | all except on | Never / On condition state / On piston state / On condition or piston state |
+| Task Execution Policy | all except on | Always / On condition state / On piston state / On condition or piston state |
+| Task Scheduling Policy | action only | Override / Allow multiple |
+
+Many of these are WebCoRE/Hubitat scheduling concepts. Which ones map cleanly to HA's automation/script model is a per-property question for the compiler work — treat applicability as flexible until verified against HA.
+
+### dialog-edit-task Layout (VERIFIED)
+
+WebCoRE's task dialog (the picker for a command inside an `action` with-block) is a single page containing, in order:
+- **Header context** — shows the current device list for the block
+- **Existing tasks preview** — tasks already in the with-block shown above and below the insertion point, clickable to reposition where the new task lands
+- **"Do..." command picker** — three optgroups: "Commands available to all devices" (common), "Commands available to only some devices" (partial), "Location commands (non-device)" (virtual). Live search enabled.
+- **Parameters** — rendered dynamically per selected command
+- **"Only during these modes"** — multi-select, shown once a command is selected
+- **Advanced** — description textarea
+
+The **existing-tasks-preview with repositionable insertion point** is a WebCoRE behavior PistonCore's W-6 does not yet specify — worth adopting for multi-task blocks so the user can insert a task between two existing tasks, not only append. This supports the load-bearing task-order requirement.
+
+### Operand Widget Input Types (VERIFIED)
+
+WebCoRE's universal value picker offers these input types via a left dropdown, shown conditionally based on the operand's data type and context:
+
+| Key | Type | Notes |
+|---|---|---|
+| `d` | Physical device(s), variable form | device operands, for-each lists |
+| `p` | Physical device(s) with attribute | the standard device condition picker |
+| `v` | Virtual device | Location, time, etc. |
+| `s` | Preset | sunrise/noon/sunset/midnight for time; color presets for color |
+| `c` | Value (constant) | plain input or dropdown by data type |
+| `x` | Variable | local / global / system |
+| `e` | Expression | textarea with autocomplete |
+| `u` | Argument | plain text |
+
+Visibility rules (VERIFIED, abbreviated — full logic in WEBCORE_WIZARD_MAP.md Part 23):
+- Physical-device-with-attribute (`p`) is hidden for datetime/date/time/device/variable/duration data types
+- Preset (`s`) appears only for datetime/time/color
+- Constant (`c`) is hidden for device and variable data types
+- Expression (`e`) is hidden for variable, strict-boolean, and event contexts
+- In "constants only" mode (editing a local var, global var, or every-timer): only constant (`c`) or device-list (`d`) are offered
+
+A **duration unit selector** (milliseconds / seconds / minutes / hours / days / weeks / months / years) is appended whenever the operand's data type is `duration`. PistonCore writes duration units as full words (see PISTON_FORMAT.md §14) — this matches the WebCoRE selector labels.
+
+PistonCore's condition builder (W-4) and operand handling should offer this same set where the data type allows it. Which input types are actually reachable depends on what HA can express — treat the visibility rules as the WebCoRE baseline, adjusted where HA differs.
+
+### comparison Widget — Three-Step Structure (VERIFIED)
+
+WebCoRE's comparison widget (used in conditions, events, restrictions) is three steps:
+1. **What to compare** (or "What event to expect" for events) — full operand widget for the left side
+2. **What kind of comparison** — operator dropdown, grouped by category; not shown for events
+3. **Compare to / Between** — right operand shown when the operator takes one parameter; a second right operand shown for range operators (two parameters)
+
+Time-specific affordances appear when the left operand is the `time` virtual device: day-of-week / day-of-month / week-of-month / month-of-year multi-select filters, and offset fields for non-constant time values. Timed comparisons (`was` / `stays`) add an "In the last..." or "For..." duration operand. PistonCore's W-4 follows this structure; HA's trigger/condition model determines which operators and affordances are actually available (the operator lists themselves are PistonCore-defined — see below).
+
+### Restriction Dialog Warning (VERIFIED)
+
+WebCoRE's restriction dialog (`only when` blocks) carries a specific warning PistonCore should reproduce, because it captures a real semantic distinction: **"Restrictions DO NOT subscribe to events and will not cause the piston to run."** A restriction gates execution but never triggers it. This warning should appear when adding or editing a restriction.
+
+### Piston-Level Render Order (VERIFIED)
+
+WebCoRE's code editor renders piston sections in this order: comment header → settings → define (local variables) → only when (restrictions) → execute (main statements) → end execute. This matches the editor layout in FRONTEND_SPEC.md (define, then only when, then execute). Verified consistent.
+
+### The Comparison Operator Lists Are PistonCore's to Define (VERIFIED gap)
+
+The one piece of wizard vocabulary WebCoRE does NOT expose in its frontend source: the comparison operator lists themselves (`db.comparisons.conditions` and `db.comparisons.triggers` — "is", "is not", "was", "stays", "changes to", etc.). In WebCoRE these are served from the Hubitat/SmartThings backend. PistonCore must define its own operator vocabulary, mapping each operator to the appropriate HA trigger or condition type. PistonCore's operator list lives in the Complete Operator Reference section of this spec — that list is the PistonCore-defined equivalent, not a WebCoRE extraction.
+
+---
+
 ## Open Items
 
 1. **Which-interaction step feasibility** — requires sandbox validation. PyScript context tracking needs to be confirmed as reliable.
@@ -1594,6 +1974,7 @@ File system commands (Write to file, Read from file, etc.) — skip v1, Hubitat-
 3. **Collapse/expand for individual conditions inside an if block** — WebCoRE supported this. Include in v1 or defer?
 4. **System variable availability in native script pistons** — confirm which system variables are expressible in native YAML templates.
 5. **Expression editor** — v2.
+6. **Insert-between for multi-task blocks** — WebCoRE's task dialog lets the user position a new task between existing tasks via the existing-tasks preview. PistonCore W-6 currently only appends. Adopt insert-at-position for multi-task blocks.
 
 ---
 
@@ -1601,7 +1982,8 @@ File system commands (Write to file, Read from file, etc.) — skip v1, Hubitat-
 
 WIZARD_SPEC.md, wizard-core.js, wizard-condition.js, wizard-action.js,
 wizard-statement.js, wizard-loops.js, wizard-variable.js, editor.js,
-DESIGN.md, PISTON_FORMAT.md, CLAUDE_SESSION_PROMPT.md, TASKS.md
+DESIGN.md, PISTON_FORMAT.md, FRONTEND_SPEC.md, WEBCORE_WIZARD_MAP.md,
+CLAUDE_SESSION_PROMPT.md, TASKS.md
 
 ---
 

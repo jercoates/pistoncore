@@ -1094,7 +1094,9 @@ triggers (`is_trigger: true`) and conditions (`is_trigger: false`).
   "duration": null,
   "duration_unit": null,
   "group_operator": "and",
-  "interaction": "any"
+  "interaction": "any",
+  "when_true": [],
+  "when_false": []
 }
 ```
 
@@ -1119,6 +1121,8 @@ triggers (`is_trigger: true`) and conditions (`is_trigger: false`).
 | `duration_unit` | string | No | `"seconds"` / `"minutes"` / `"hours"`. |
 | `group_operator` | string | Yes | `"and"` / `"or"`. Connects this condition to the next. |
 | `interaction` | string | No | `"any"` / `"physical"` / `"programmatic"`. Defaults to `"any"`. |
+| `when_true` | array | No | **SCAFFOLD — v1 not functional.** Statements that fire when this condition evaluates true, before the parent branch runs. Always `[]` in v1. Editor shows locked UI. Compiler skips silently. See TASKS.md SCAFFOLD-1. |
+| `when_false` | array | No | **SCAFFOLD — v1 not functional.** Statements that fire when this condition evaluates false. Always `[]` in v1. Same treatment as `when_true`. |
 
 **The compiler reads `entity_ids` directly. It never looks up a role name.**
 

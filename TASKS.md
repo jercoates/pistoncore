@@ -670,6 +670,67 @@ Success = all seven checklist items at top of file.
 
 ---
 
+## JSON SCAFFOLD DECISIONS — Forward Compatibility
+
+These are features cut from v1 that are deliberately scaffolded into the JSON now so future
+versions require no migration. The data structure is locked; only the UI gate and compiler
+path need to be built later.
+
+**Standing design principle (D-S5d continuation session):** For any feature cut from v1,
+the preferred pattern is: scaffold the JSON field(s) now (empty arrays / null defaults),
+show the UI element in the editor but locked/grayed with a clear "not available in v1"
+label, block insertion via a modal notice rather than hiding the UI entirely, and emit a
+passive informational notice on the debug/compile page if the field is non-empty. This
+keeps the JSON stable, gives users visibility into what's coming, and makes v2
+implementation a matter of removing the gate — not restructuring anything.
+
+### SCAFFOLD-1: when_true / when_false on condition nodes
+
+**Decision (D-S5d continuation session):** WebCoRE supports `when true` / `when false`
+inline statement blocks on individual conditions — a list of actions that fire immediately
+when that specific condition evaluates, before the parent if/then/else continues. This is
+a power-user feature with no native HA Script equivalent (PyScript only). Cut from v1
+wizard and compiler. Scaffolded now for forward compatibility.
+
+**JSON scaffold:** Every condition node gets two optional arrays:
+```json
+{
+  "when_true": [],
+  "when_false": []
+}
+```
+Default: empty arrays. Written by the wizard as empty on every new condition node.
+Compiler silently skips empty arrays. Round-trip preserves them.
+
+**Editor behavior (v1):**
+- Render `when true` and `when false` as collapsible blocks below each condition line,
+  matching WebCoRE's visual exactly — but with a lock icon and grayed appearance.
+- Clicking `+ add a statement` inside either block shows a modal:
+  "When True / When False blocks are not available in v1 — planned for a future release."
+  No statement is added. Block collapses back. JSON field stays empty.
+- If a future imported piston somehow has non-empty `when_true`/`when_false` arrays,
+  render the statements as grayed/locked rows so they are visible but clearly inactive.
+
+**Debug/compile page (v1):**
+- If either array is non-empty, show a passive informational banner (not an error):
+  "This piston contains When True / When False blocks. These will not execute until a
+  future version enables them."
+- Only shown when non-empty — silent for all v1-built pistons.
+
+**Release documentation note:** `when_true` / `when_false` are intentionally present in
+the JSON schema as forward-compatibility scaffolding. They are visible in the editor but
+not functional in v1. This is a deliberate design choice so existing pistons require no
+migration when the feature is enabled in a future release.
+
+**Implementation scope when ready (future session):**
+- Remove the modal gate in the editor
+- Wire the `+ add a statement` ghost text to the existing statement insertion path
+- Add compiler handling (PyScript only — forces PyScript compile target)
+- Update HA_LIMITATIONS.md and COMPILER_SPEC.md
+- Files: editor.js, PISTON_FORMAT.md (already scaffolded), COMPILER_SPEC.md, HA_LIMITATIONS.md
+
+---
+
 ## Session 74 Notes — Code↔Spec Audit (what was checked and confirmed GOOD)
 
 So the next session doesn't re-verify what's already traced:

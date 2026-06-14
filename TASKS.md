@@ -344,6 +344,14 @@ discriminator (the picker already knows it at selection time). GAP-S72-1 is also
 Specced in WITH_BLOCK_TASK_FRAMEWORK.md; coded in W-S15. Remaining: the per-task DELETE
 path (framework spec §3.3) and the picker pre-fill (GAP-S72-1b). Verify once picker works.
 
+### Aggregation bar — v1 scope decision (D-S5d continuation session)
+WebCoRE's aggregation picker has 12 options: Any, All, Average, Count, Least, Max, Median,
+Min, Most, Stdev, Sum, Variance (VERIFIED — WEBCORE_WIZARD_MAP.md Part 8). PistonCore v1
+implements Any / All / None only — the extended numeric aggregations (Average, Min, Max,
+Count, etc.) are deferred to v2. This is a deliberate scope cut, documented in WIZARD_SPEC.md
+v2.9. When v2 numeric aggregation is built, the compiler will need Jinja2 template equivalents
+for each aggregation function against the entity_ids array.
+
 ### Wait (GAP-S72-2)
 `wait` must be buildable as a first-class duration, including variable duration
 (`Wait {integer_Lock_Confirm_Wait} seconds`). STATEMENT_TYPES §14 now flags wait-duration
@@ -600,7 +608,7 @@ All ten items worked through and applied. Summary of what was done:
 - PISTON_FORMAT.md v2.5 — absorbs STATEMENT_TYPES.md v2.3; single source of truth for all piston JSON schemas. STATEMENT_TYPES.md retired to /reference.
 - WIZARD_SPEC.md v2.8 — absorbs WITH_BLOCK_TASK_FRAMEWORK.md + editor rendering rules from FRONTEND_SPEC.md. WITH_BLOCK_TASK_FRAMEWORK.md retired to /reference.
 - FRONTEND_SPEC.md v1.6 — editor/wizard content removed; now covers screens/chrome only.
-- WEBCORE_WIZARD_MAP.md added to repo — verified extraction of WebCoRE wizard surface from source (June 2026). Not yet fully incorporated into WIZARD_SPEC.md — statement picker cards, dialog-edit-task layout, operand allow/deny logic, and comparison widget structure are the priority items to land in a future spec session.
+- WEBCORE_WIZARD_MAP.md added to repo — verified extraction of WebCoRE wizard surface from source (June 2026). Incorporated into WIZARD_SPEC.md as the "Verified WebCoRE Wizard Reference" section (statement card set, properties panel, dialog-edit-task layout, operand widget input types + visibility, comparison widget structure, restriction warning, render order, operator-list gap). WEBCORE_WIZARD_MAP.md retained in repo as the full-detail source. Flexible language used throughout — WebCoRE is the baseline PistonCore adapts from, not a rigid contract.
 - SAMPLE_PISTONS.md FROZEN/STALE notice — **still needs to be added manually**.
 
 ### D-S6: Compiler Spec Rewrite (after JSON structure is final)

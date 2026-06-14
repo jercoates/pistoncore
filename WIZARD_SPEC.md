@@ -1,14 +1,19 @@
 # PistonCore Wizard & Editor Specification
 
-**Version:** 2.8
+**Version:** 2.9
 **Status:** Authoritative — covers all wizard modal behavior, editor canvas rendering,
   with-block/task model, and JavaScript architecture. Absorbs WITH_BLOCK_TASK_FRAMEWORK.md
   (retired) and editor rendering content moved from FRONTEND_SPEC.md v1.6.
-**Last Updated:** June 2026 (D-S5d consolidation session — editor rendering rules,
-  role label rules, aggregation display, inline validation, with-block/task model, and
-  wizard JS architecture absorbed from FRONTEND_SPEC.md; WITH_BLOCK_TASK_FRAMEWORK.md
-  content absorbed and that file retired. Verified WebCoRE Wizard Reference section added
-  from WEBCORE_WIZARD_MAP.md (source-verified June 2026).
+**Last Updated:** June 2026 (D-S5d continuation — ASSUMED→VERIFIED pass against
+  WEBCORE_WIZARD_MAP.md: command picker grouping algorithm, W-2 dialog fields, W-3/W-3b
+  layout, W-7 layout and types, Advanced Options, aggregation bar scope decision (v1=Any/All/None,
+  full 12-option set deferred to v2), footer button patterns, restriction dialog warning.
+  Time condition JSON corrected to remove stale `subject` field (GAP-S74-5 — missed in D-S5d
+  WIZARD_SPEC.md pass). WEBCORE_HA_BEHAVIOR_MAP.md noted as D-S6 compiler reference.
+  Prior: D-S5d consolidation session — editor rendering rules, role label rules, aggregation
+  display, inline validation, with-block/task model, and wizard JS architecture absorbed from
+  FRONTEND_SPEC.md; WITH_BLOCK_TASK_FRAMEWORK.md content absorbed and that file retired.
+  Verified WebCoRE Wizard Reference section added from WEBCORE_WIZARD_MAP.md.
   Prior: Session 73 — W-6 reconciled to code; "Add more" annotated with GAP-S72-1 root
   cause; per-task edit/delete/virtual-task flows added.)
 **Prior:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
@@ -258,6 +263,8 @@ Sub-entity IDs (non-primary entities in a group) are not searched. Empty query s
 - System variables: single-select
 
 **The aggregation bar** appears whenever more than one physical device group or variable is selected. The user picks any/all/none before committing.
+
+**Aggregation options — v1 scope decision:** PistonCore v1 implements Any / All / None. WebCoRE's full aggregation list has 12 options (Any, All, Average, Count, Least, Max, Median, Min, Most, Stdev, Sum, Variance — VERIFIED from WEBCORE_WIZARD_MAP.md Part 8). The extended set (Average, Min, Max, Count, etc.) has meaningful HA equivalents via Jinja2 templates but is deferred to v2. This is a deliberate v1 scope cut, not an oversight.
 
 ---
 
@@ -609,7 +616,7 @@ The compiler reads `entity_ids` directly from each condition and action node. It
 
 **WebCoRE source:** `dialog-edit-statement` page 1, type `for`
 
-Fields: Start value, End value, Step value, Counter variable (optional)
+Fields (VERIFIED — WEBCORE_WIZARD_MAP.md Part 3): Start value, End value, Step value, Counter variable (optional)
 
 Footer: `← Back` | `Add a statement` (inserts node, closes)
 
@@ -631,7 +638,7 @@ JSON output:
 
 ### W-2-foreach: For Each Loop Detail
 
-Fields:
+Fields (VERIFIED — WEBCORE_WIZARD_MAP.md Part 3):
 - **Loop variable** — text input with `$` prefix enforced (e.g. `$device`). Default: `$device`
 - **Devices to loop over** — full device picker (same as W-5, multi-select). User can select any combination of physical devices and/or global Devices variables. If a global Devices variable is selected, its entity_ids are resolved from live HA data at commit time and written directly to the node — not stored as a reference.
 
@@ -657,7 +664,7 @@ JSON output:
 
 ### W-2-exit: Exit Detail
 
-Fields: New piston state — operand (optional return value)
+Fields (VERIFIED — WEBCORE_WIZARD_MAP.md Part 3): New piston state — operand (optional return value)
 
 Footer: `← Back` | `Add` (inserts node, closes)
 
@@ -681,7 +688,9 @@ JSON output:
 
 Triggers go directly to W-4 (skip W-3 — triggers are never wrapped in a group first).
 
-### Layout — Two cards side by side
+**Restriction context (VERIFIED — WEBCORE_WIZARD_MAP.md Part 11):** When context is `restriction`, the same two-card layout appears but with a warning prepended: "Restrictions DO NOT subscribe to events and will not cause the piston to run." This warning must appear on both the picker page and the condition-builder page when adding/editing a restriction.
+
+### Layout — Two cards side by side (VERIFIED — WEBCORE_WIZARD_MAP.md Part 4)
 
 **Condition card (blue)**
 - Title: "Condition"
@@ -702,7 +711,7 @@ Triggers go directly to W-4 (skip W-3 — triggers are never wrapped in a group 
 
 **WebCoRE source:** `dialog-edit-condition-group`
 
-Fields: Logical Operator (AND | OR | XOR | Followed by), Whole group negation (Not negated | Negated)
+Fields (VERIFIED — WEBCORE_WIZARD_MAP.md Part 4 + Part 9): Logical Operator (AND | OR | XOR | Followed by), Whole group negation (Not negated | Negated)
 
 Footer: `Cancel` | `Add` (inserts group node)
 
@@ -790,6 +799,8 @@ Written to `group_operator` on this condition node.
 ### Footer (edit existing condition)
 `Cancel` | `Delete` | ⚙ | `Save`
 
+**Footer button set (VERIFIED — WEBCORE_WIZARD_MAP.md Parts 3 + 5): new dialogs show Add + Add more; edit dialogs show Save + Delete. The Add more button keeps the wizard open for another entry of the same type.**
+
 ### Add behavior — CRITICAL FLOW
 
 **Path A: First condition on a new if block**
@@ -861,7 +872,7 @@ Use `"any"` for single-device conditions.
 open→on, closed→off, detected→on, clear→off, active→on, inactive→off,
 wet→on, dry→off, home→on, away→off, locked→off, unlocked→on, on→on, off→off
 
-**Time condition:**
+**Time condition (corrected — GAP-S74-5, D-S5d):**
 ```json
 {
   "id": "cond_xxxxxxxx",
@@ -869,7 +880,6 @@ wet→on, dry→off, home→on, away→off, locked→off, unlocked→on, on→on
   "role": "time",
   "role_tokens": [],
   "entity_ids": [],
-  "subject": "time",
   "operator": "is between",
   "value_from": "08:00:00",
   "value_to": "23:00:00",
@@ -877,6 +887,8 @@ wet→on, dry→off, home→on, away→off, locked→off, unlocked→on, on→on
   "group_operator": "and"
 }
 ```
+
+Note: the `subject` field is NOT written by the wizard commit path. Earlier versions of this spec showed `"subject": "time"` but the code does not write it and the hydration code mis-routes a spec-shaped time condition as a device condition. Use `role: "time"` with flat `value_from`/`value_to` fields.
 
 ---
 
@@ -1000,6 +1012,13 @@ Multiple: `{Living Room Light}, {Kitchen Light}`
 ### Command select
 Populated from `API.getServices(entity_id)`.
 Default if API returns nothing: turn_on, turn_off, toggle.
+
+**Command picker grouping algorithm (VERIFIED — WEBCORE_WIZARD_MAP.md Part 30):**
+- **Common** optgroup — commands supported by ALL selected devices
+- **Partial** optgroup — commands supported by only SOME selected devices
+- **Location commands (non-device)** optgroup — virtual commands available regardless of device selection
+
+Commands have a type badge: `device` / `emulated` / `custom` / `location`. Live search is enabled across all three groups.
 
 ### Parameter fields
 Each field from service definition:
@@ -1141,11 +1160,11 @@ Variable/global example — role_tokens differs from entity_ids:
 **When:** Context is `variable`
 **WebCoRE source:** `dialog-edit-variable`
 
-### Layout — Single screen
+### Layout — Single screen (VERIFIED — WEBCORE_WIZARD_MAP.md Part 12)
 - Type selector (~25%) + Name input (~75%) on same row
 - Initial value section below — widget adapts based on var_type (see below)
 
-### Type options
+### Type options (VERIFIED — WEBCORE_WIZARD_MAP.md Part 12)
 
 **Basic:** Dynamic, String (text), Boolean (true/false), Number (integer),
 Number (decimal), Large number (long), Date and Time, Date (date only),
@@ -1302,7 +1321,7 @@ Both fields required for correct rendering and compilation.
 
 ## Advanced Options (Gear Button)
 
-Available under ⚙ on every statement and condition dialog:
+Available under ⚙ on every statement and condition dialog (VERIFIED — WEBCORE_WIZARD_MAP.md Parts 3 + 4):
 - Description (optional text)
 - Disable statement (yes/no)
 - Execution Method: Synchronous (default) | Asynchronous (except `every` and `on_event`)
@@ -1984,6 +2003,11 @@ WIZARD_SPEC.md, wizard-core.js, wizard-condition.js, wizard-action.js,
 wizard-statement.js, wizard-loops.js, wizard-variable.js, editor.js,
 DESIGN.md, PISTON_FORMAT.md, FRONTEND_SPEC.md, WEBCORE_WIZARD_MAP.md,
 CLAUDE_SESSION_PROMPT.md, TASKS.md
+
+**Also available — upload when relevant:**
+WEBCORE_HA_BEHAVIOR_MAP.md — compiler behavioral reference (HA equivalents for every
+WebCoRE statement and operator). Not needed for wizard coding; required for D-S6
+(compiler spec rewrite). Add to D-S6 upload list.
 
 ---
 

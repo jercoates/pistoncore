@@ -627,6 +627,10 @@ All ten items worked through and applied. Summary of what was done:
 ### D-S6: Compiler Spec Rewrite (after JSON structure is final)
 COMPILER_SPEC.md and PYSCRIPT_COMPILER_SPEC.md intentionally FROZEN/STALE. Rewrite after
 W-S11 + B-1 prove the round-trip and JSON format stops moving.
+**Also produce DEBUG_SPEC.md** — HA trace API capabilities, PyScript execution traceability,
+live config validation path, mapping HA trace data back to piston statement nodes. Research
+queue: HA `/api/trace/automation/{id}`, WebSocket trace subscription, PyScript logging,
+`check_config` endpoint behavior. Feed Grok research gathered during editor/wizard phase.
 **Files:** COMPILER_SPEC.md, PYSCRIPT_COMPILER_SPEC.md, HA_LIMITATIONS.md, PISTON_FORMAT.md,
 REFERENCE_PISTON_V2.json, CLAUDE_SESSION_PROMPT.md, TASKS.md
 

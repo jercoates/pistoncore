@@ -1,6 +1,6 @@
 # PistonCore — Piston Data Model
 
-**Version:** 2.5 (consolidated — absorbs STATEMENT_TYPES.md v2.3)
+**Version:** 2.6 (June 2026 — PyScript routing additions: on_event timeout fields, every timer restriction fields, condition group XOR/followed_by operators, switch fallthrough note, exit value note, PyScript-only table expanded with full verified routing table. Verified against PyScript 2.0.1 + HA 2026.6.)
 **Status:** Authoritative — Single source of truth for piston data structure and all statement type schemas. STATEMENT_TYPES.md is retired; this file replaces both.
 **Last Updated:** June 2026 (D-S5d session — consolidated PISTON_FORMAT.md v2.4 +
   STATEMENT_TYPES.md v2.3 into one document. No content changed — deduplication only.
@@ -498,6 +498,7 @@ end switch;
 
 ### Compiler Output
 
+**`case_traversal_policy: "safe"` (native HA):**
 ```yaml
 - alias: "stmt_004"
   choose:
@@ -509,6 +510,8 @@ end switch;
   default:
     [compiled default statements]
 ```
+
+**`case_traversal_policy: "fallthrough"` (PyScript only):** Forces `compile_target: "pyscript"`. Native HA `choose` always exits after the first matching branch — fall-through is impossible. PyScript emits real Python `if/elif` blocks without early exit between branches. Compiler emits `PYSCRIPT_REQUIRED`.
 
 ---
 
@@ -701,8 +704,11 @@ end repeat;
   "interval_unit": "minutes",
   "at_minute": null,
   "at_time": null,
+  "only_on_minutes": [],
+  "only_on_hours": [],
   "only_on_days": [],
   "only_on_dom": [],
+  "only_on_wom": [],
   "only_on_months": [],
   "statements": [],
   "description": null,
@@ -712,7 +718,17 @@ end repeat;
 
 **`interval_unit` values:** `"ms"`, `"s"`, `"m"`, `"h"`, `"d"`, `"w"`, `"n"` (month), `"y"`
 
-`only_on_days` uses ISO weekday numbers: 1=Monday through 7=Sunday.
+**Field notes:**
+- `at_minute` — integer 0–59. Only meaningful when `interval_unit` is `"h"`. Fires at that minute past each matching hour.
+- `at_time` — time string `"HH:MM:SS"`. Used with day/week/month/year intervals to set the exact time of day to fire.
+- `only_on_minutes` — array of integers 0–59. Only fire during these minutes of the hour. Valid for `ms` and `s` intervals.
+- `only_on_hours` — array of integers 0–23. Only fire during these hours. Valid for `ms`, `s`, `m` intervals.
+- `only_on_days` — array of ISO weekday integers 1–7 (1=Monday, 7=Sunday). Only fire on these days of the week.
+- `only_on_dom` — array of integers 1–31 and/or -1 (last), -2 (second-last), -3 (third-last). Only fire on these days of the month. Mutually exclusive with `only_on_wom`.
+- `only_on_wom` — array of integers 1–5 and/or -1 (last), -2 (second-last), -3 (third-last). Only fire on these weeks of the month. Mutually exclusive with `only_on_dom`.
+- `only_on_months` — array of integers 1–12. Only fire in these months of the year.
+
+All restriction arrays default to `[]` (no restriction — fire on every matching interval).
 
 ### Editor Render
 
@@ -725,14 +741,21 @@ end every;
 
 ### Compiler Output
 
-Compiles as a trigger in the automation wrapper, not as a statement in the script body:
+Compiles as a trigger in the automation wrapper, not as a statement in the script body.
 
+**Native HA (`compile_target: "native_script"`):**
+
+`ms`, `s`, `m`, `h` intervals with no `only_on_dom`, `only_on_wom`, or `only_on_months` filters:
 ```yaml
 - trigger: time_pattern
   minutes: "/5"
 ```
 
-**Note:** Advanced scheduling (day/month filters) emits CompilerWarning.
+**PyScript forced when:** `interval_unit` is `"n"` or `"y"`, OR any of `only_on_dom`, `only_on_wom`, `only_on_months` is non-empty. Reason: native HA `time_pattern` has no day-of-month, week-of-month, or month fields.
+
+**PyScript output:** `@time_trigger("cron(min hr dom mon dow)")` using Linux crontab syntax. Restriction arrays map to comma-separated cron fields. `only_on_wom` has no direct cron equivalent and requires a runtime check inside the function body.
+
+**Routing rule:** If `interval_unit` is `"n"` or `"y"`, or `only_on_dom`/`only_on_wom`/`only_on_months` is non-empty → compiler emits `PYSCRIPT_REQUIRED` and routes to PyScript. All other cases compile natively.
 
 ---
 
@@ -759,11 +782,17 @@ be emitted when compiling an `on_event` statement.
   "type": "on_event",
   "conditions": [],
   "condition_operator": "and",
+  "timeout_seconds": null,
+  "continue_on_timeout": false,
   "statements": [],
   "description": null,
   "disabled": false
 }
 ```
+
+**Field notes:**
+- `timeout_seconds` — integer or null. How long to wait before giving up. `null` means wait indefinitely (use with caution — piston blocks forever if the event never fires).
+- `continue_on_timeout` — boolean. If `true`, execution continues after the timeout. If `false`, execution stops. Only meaningful when `timeout_seconds` is non-null.
 
 **System variables available inside `on_event` statements:**
 
@@ -833,10 +862,13 @@ exit true;
 
 ### Compiler Output
 
+**Native HA:** The `value` field is dropped — HA `stop:` has no piston-state concept.
 ```yaml
 - alias: "stmt_012"
   stop: "exit"
 ```
+
+**PyScript:** The `value` field can be written to a piston-state helper entity before stopping. **Design decision required at D-S6** — whether to implement this or emit `CompilerWarning: EXIT_VALUE_DROPPED` and drop it silently for both targets.
 
 ---
 
@@ -1057,16 +1089,45 @@ Compiler: PyScript only. Native HA raises CompilerError.
 
 ---
 
-## PyScript-Only Statement Types
+## PyScript-Only Statement Types and Features
 
-These statement types force PyScript compilation. Detected by target-boundary.json
-(existence of this file in the backend is UNVERIFIED — confirm in code or create it).
+These force PyScript compilation. The routing mechanism is referenced in specs as `target-boundary.json` — its existence in the backend is UNVERIFIED (confirm in code or create it at D-S6). Do not treat the routing mechanism as confirmed.
 
-| Type | Reason |
-|---|---|
-| `on_event` | No native HA script equivalent for event-conditional blocks inside running script |
-| `break` | No native HA script equivalent for mid-loop interruption |
-| `cancel_pending_tasks` | No native HA script equivalent for cancelling async tasks |
+**Why the routing must go through a template, not hardcoded logic:** HA gains native capability over time (variable scoping went native in 2025.3, `continue_on_error` hit the UI in 2026.3). The routing template must be re-evaluated on each HA release. Native HA output is always preferred over PyScript when HA supports it cleanly. The template is the single place to update when HA catches up.
+
+**User notification:** When a piston compiles to PyScript, the debug/compile screen must display a clear notice: "This piston uses features that require PyScript. It will be deployed as a PyScript file, not a native HA automation. PyScript must be installed via HACS." This notice must be prominent — not a footnote.
+
+### Statement types that force PyScript
+
+| Type | Reason | Verified |
+|---|---|---|
+| `on_event` | No native HA script equivalent for event-conditional blocks inside a running script | Re-verified vs HA 2026.6 |
+| `break` | Native HA `stop` only ends the current sequence block / repeat iteration — not a true loop break | Re-verified vs HA 2026.6 |
+| `cancel_pending_tasks` | No native HA equivalent for cancelling async tasks | Re-verified vs HA 2026.6 |
+
+### Condition features that force PyScript
+
+| Feature | Where it appears | Reason | Verified |
+|---|---|---|---|
+| `condition_operator: "xor"` on any statement | `if`, `while`, `repeat` | No native HA XOR — PyScript emits Python expression `sum([cond1, cond2, ...]) == 1` | Verified June 2026 |
+| `operator: "followed_by"` on a condition group | Condition group `operator` field | No native HA sequential event chaining — PyScript uses chained `task.wait_until()` with shared deadline | Verified June 2026 |
+
+### `every` intervals that force PyScript
+
+| `interval_unit` / field | Reason | Verified |
+|---|---|---|
+| `"n"` (month) or `"y"` (year) | Native `time_pattern` has no month/year fields — PyScript uses `cron()` | Verified June 2026 |
+| Non-empty `only_on_dom` | Native `time_pattern` has no day-of-month field | Verified June 2026 |
+| Non-empty `only_on_wom` | No cron equivalent — PyScript uses runtime check in function body | Verified June 2026 |
+| Non-empty `only_on_months` | Native `time_pattern` has no month field | Verified June 2026 |
+
+### `switch` fall-through
+
+`case_traversal_policy: "fallthrough"` forces PyScript. Native HA `choose` always exits after the first matching branch. PyScript emits real Python `if/elif` without early return between branches.
+
+### `exit` value
+
+The `value` field on `exit` has no native HA equivalent — `stop:` drops it. PyScript can write the value to a piston-state helper entity. **Design decision required at D-S6:** whether to implement this or always drop the value silently with a CompilerWarning.
 
 ---
 
@@ -1119,7 +1180,7 @@ triggers (`is_trigger: true`) and conditions (`is_trigger: false`).
 | `value_to` | string | No | Second value for `"is between"` / `"is not between"`. Null if not used. |
 | `duration` | number | No | For `"stays for"` operators. Duration value. |
 | `duration_unit` | string | No | `"seconds"` / `"minutes"` / `"hours"`. |
-| `group_operator` | string | Yes | `"and"` / `"or"`. Connects this condition to the next. |
+| `group_operator` | string | Yes | `"and"` / `"or"` / `"xor"` / `"followed_by"`. Connects this condition to the next within the group. `"xor"` and `"followed_by"` force PyScript compilation. |
 | `interaction` | string | No | `"any"` / `"physical"` / `"programmatic"`. Defaults to `"any"`. |
 | `when_true` | array | No | **SCAFFOLD — v1 not functional.** Statements that fire when this condition evaluates true, before the parent branch runs. Always `[]` in v1. Editor shows locked UI. Compiler skips silently. See TASKS.md SCAFFOLD-1. |
 | `when_false` | array | No | **SCAFFOLD — v1 not functional.** Statements that fire when this condition evaluates false. Always `[]` in v1. Same treatment as `when_true`. |
@@ -1182,12 +1243,21 @@ mis-routes a spec-shaped time condition as a device condition). Use this shape:
   "operator": "and",
   "negated": false,
   "conditions": [ { ... }, { ... } ],
+  "followed_by_seconds": null,
   "group_operator": "and"
 }
 ```
 
-Groups can contain other groups — nesting is unlimited. The renderer and compiler detect
-groups by checking for `"type": "group"`.
+**`operator` values:** `"and"` / `"or"` / `"xor"` / `"followed_by"`
+
+- `"and"` — all conditions must be true (native HA)
+- `"or"` — any condition must be true (native HA)
+- `"xor"` — exactly one condition must be true (PyScript only — forces `compile_target: "pyscript"`)
+- `"followed_by"` — conditions must occur in sequence within the time window (PyScript only — forces `compile_target: "pyscript"`)
+
+**`followed_by_seconds`** — integer or null. Required when `operator` is `"followed_by"`. The time window in seconds within which all conditions in the group must fire in sequence. Null and ignored for all other operators.
+
+Groups can contain other groups — nesting is unlimited. The renderer and compiler detect groups by checking for `"type": "group"`.
 
 ### Condition Render Examples
 

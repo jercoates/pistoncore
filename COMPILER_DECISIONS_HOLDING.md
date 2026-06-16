@@ -1,6 +1,6 @@
 # PistonCore — Compiler Decisions Holding Doc
 
-**Version:** 1.0 (NEW — Session 73 consolidation)
+**Version:** 1.1 (June 2026 — added Section E: PyScript routing decisions, verified June 2026 against PyScript 2.0.1 + HA 2026.6)
 **Status:** Holding doc. Captures compiler-relevant decisions that currently live ONLY in
 the standalone action specs (SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md) so they survive
 into the compiler rewrite (D-S6). When D-S6 happens, fold these into COMPILER_SPEC.md /
@@ -200,10 +200,104 @@ against the live Companion App docs.
 
 ---
 
-## E. Retirement
+## E. PYSCRIPT ROUTING — Verified decisions for the compiler (June 2026)
 
-When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–C
-verbatim-faithful from SPEAK_ACTION_SPEC.md and NOTIFY_ACTION_SPEC.md into COMPILER_SPEC.md /
-PYSCRIPT_COMPILER_SPEC.md, resolve the Section D open items against the backend code, then
-delete this holding doc. Until then, this file is the single place those compiler decisions
-are collected outside the (frozen) compiler specs.
+These decisions were researched against PyScript 2.0.1 and HA 2026.6 and are now locked.
+They belong in COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md at D-S6. Until then, this is
+the authoritative holding location. Sources: PyScript official docs (hacs-pyscript.readthedocs.io),
+HA script-syntax docs 2026.6.3, WebCoRE wizard source (piston.module.html + piston.js,
+pulled June 2026).
+
+### E1. Routing goes through a backend template — never hardcoded, never in the frontend (LOAD-BEARING)
+
+HA gains native capability over time. The routing mechanism must be a data-driven template
+that the backend reads — not a hardcoded list, and NOT in the frontend. When HA adds native
+support for a feature that currently forces PyScript, ONLY the routing table file changes.
+Stored pistons, the wizard, the JSON schema, and the frontend are all untouched.
+
+**Backend owns the routing decision.** The flow on every save:
+1. Frontend sends piston JSON to backend via `POST /api/piston/{id}/save`
+2. Backend reads the piston JSON and scans it against the routing table file
+3. Backend sets `compile_target` (`"native_script"` or `"pyscript"`) on the piston wrapper
+4. Backend writes the piston to disk with `compile_target` set
+5. Backend returns the saved piston (with `compile_target` now populated) to the frontend
+6. Frontend reads `compile_target` off the wrapper — if `"pyscript"`, shows the notice on the debug/compile screen
+
+The frontend NEVER determines what forces PyScript. It only reads `compile_target` and
+displays accordingly. This means the routing can be updated (a feature goes native in HA,
+or a new PyScript feature is discovered) by editing the routing table file and redeploying —
+no frontend change, no spec change, no coding session required for the routing logic itself.
+
+**The routing table file** (`routing_table.json`) lives in the backend. It maps JSON field
+signatures to required compile targets. The backend reads it at startup (or on each save
+request if hot-reload is desired). Format: to be determined at D-S6 — must be simple enough
+that Jeremy can read and update it without a coding session.
+
+**`compile_target` is a backend-set cache, not a user preference.** It is never shown in
+the editor as an editable field. It is shown read-only in the Quick Facts panel on the
+status page and as a label in the Test Compile panel header.
+
+**The help system (`pyscript.md`)** is the user-facing companion to the routing table.
+When a user sees the PyScript notice on the debug screen, the `[Learn more →]` link opens
+the help file that explains what PyScript is, why their piston needs it, and how to install
+it. This file is also backend-served markdown — editable without a coding session.
+See FRONTEND_SPEC.md Help System section for the full spec.
+
+### E2. Full verified PyScript routing table (as of June 2026)
+
+The following JSON fields/values force `compile_target: "pyscript"`. Verified against
+PyScript 2.0.1 docs and HA 2026.6 native script syntax docs.
+
+| JSON field / value | PyScript mechanism | Native HA status |
+|---|---|---|
+| `type: "on_event"` | `task.wait_until()` | No equivalent |
+| `type: "break"` | Python `break` | Native `stop` only ends current block — not a loop break |
+| `type: "cancel_pending_tasks"` | `task.unique()` | No equivalent |
+| `condition_operator: "xor"` on any statement | Python expression `sum([...]) == 1` | No native XOR |
+| `operator: "followed_by"` on condition group | Chained `task.wait_until()` with shared deadline | No sequential event chaining |
+| `case_traversal_policy: "fallthrough"` on switch | Python `if/elif` without early exit | `choose` always exits first match |
+| `interval_unit: "n"` or `"y"` on every | `@time_trigger("cron(...)")` | `time_pattern` has no dom/month fields |
+| Non-empty `only_on_dom` on every | cron `dom` field | `time_pattern` has no dom field |
+| Non-empty `only_on_months` on every | cron `mon` field | `time_pattern` has no month field |
+| Non-empty `only_on_wom` on every | Runtime check in function body | No cron equivalent |
+
+### E3. User notification requirement (BEHAVIORAL — must not be dropped)
+
+When any piston compiles to PyScript, the compiler must surface a prominent notice on
+the debug/compile screen: "This piston uses features that require PyScript. It will be
+deployed as a PyScript file, not a native HA automation. PyScript must be installed via
+HACS." This is not optional — users who haven't installed PyScript will have silently
+non-functional pistons. The notice must be at the top of the debug output, not inline.
+
+### E4. `on_event` timeout fields (BEHAVIORAL)
+
+`on_event` JSON schema now carries `timeout_seconds` (integer or null) and
+`continue_on_timeout` (boolean, default false). The compiler must:
+- If `timeout_seconds` is null → emit `task.wait_until(...)` with no timeout and emit
+  `CompilerWarning: ON_EVENT_BLOCKING` (existing requirement, unchanged).
+- If `timeout_seconds` is set → emit `task.wait_until(..., timeout=N)` and respect
+  `continue_on_timeout` to either continue or stop after timeout.
+
+### E5. `exit` value — open decision
+
+`exit` `value` field: native HA `stop:` drops it silently. PyScript can write the value
+to a piston-state helper entity before stopping. **Decision required at D-S6:** implement
+the PyScript path or emit `CompilerWarning: EXIT_VALUE_DROPPED` for both targets and
+document it. Do not silently drop without at least the warning.
+
+### E6. `every` `only_on_wom` — runtime check pattern
+
+`only_on_wom` (weeks of month) has no direct cron equivalent. The PyScript compiler must
+emit a cron that fires on the correct days of the month (via `dom`), then add an early-
+exit `if` check inside the function body to guard against wrong weeks. The exact Python
+expression for "Nth week of month" must be confirmed at D-S6 against real HA behavior.
+
+---
+
+## F. Retirement
+
+When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–E
+verbatim-faithful from SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md, and this file into
+COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md, resolve the Section D open items against
+the backend code, then delete this holding doc. Until then, this file is the single place
+those compiler decisions are collected outside the (frozen) compiler specs.

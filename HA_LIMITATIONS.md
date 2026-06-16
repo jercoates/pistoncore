@@ -1,7 +1,7 @@
 # PistonCore — HA Limitations & Gotchas Reference
 
 **Status:** Living document — add to this whenever a new HA limitation is discovered.
-**Last Updated:** June 2026 (Session 73 — live-researched the WebCoRE non-device command set against current HA docs; added Section 10 "Non-Device Command Reproducibility"; current stable is **2026.6**, not 2026.4 as previously logged. break/stop nuance re-verified against 2026.6 docs.)
+**Last Updated:** June 2026 (Research session — PyScript routing table expanded: XOR, followed_by, switch fallthrough, monthly/yearly scheduling all confirmed PyScript-capable and routed there, not cut. Section 1 table and Section 6 updated with full verified routing table and user notification requirement. Prior: Session 73 — live-researched WebCoRE non-device command set against current HA docs; added Section 10; current stable is **2026.6**.)
 
 This document captures Home Assistant limitations that affect PistonCore design and
 implementation. It exists because the gap between Hubitat/WebCoRE and HA is significant
@@ -19,6 +19,7 @@ For wizard-specific handling, see WIZARD_SPEC.md.
 |---|---|---|
 | HA 2026.4 (current stable) | May 2026 | Variable scoping fixed in 2025.3. `continue_on_error` added to UI editor in 2026.3. `break`/`on_event`/`cancel_pending_tasks` still PyScript-only. No other limitations resolved. |
 | HA 2026.6 (current stable) | June 2026 (Session 73) | Stable is now **2026.6** (prior log said 2026.4 — stale). Re-verified loop control against live 2026.6 script-syntax docs: HA's native `stop` action only ends the current sequence block / current repeat iteration / current choose — it is **not** a true WebCoRE `break` (exit loop, continue after it). So `break` stays PyScript **for now**. Live-researched the WebCoRE non-device (location/emulated) command set for reproducibility — results recorded in new Section 10. NOTE: this is the line as of 2026.6 — HA gains native capability over time, so Section 10 must be re-reviewed periodically, not treated as permanent. |
+| PyScript 2.0.1 + HA 2026.6 | June 2026 (Research session) | Full PyScript routing table researched and verified. XOR, followed_by, switch fall-through, monthly/yearly scheduling all confirmed PyScript-capable — moved from "unknown/cut" to routed-to-PyScript. Full routing table now in Section 6. User notification requirement established. `on_event` timeout fields added to JSON schema. `every` restriction fields (`only_on_hours`, `only_on_minutes`, `only_on_wom`) added to JSON schema. |
 
 ---
 
@@ -29,23 +30,34 @@ For wizard-specific handling, see WIZARD_SPEC.md.
 Hubitat/WebCoRE had a full scripting runtime. HA native scripts are declarative YAML
 with significant restrictions:
 
-| Feature | Hubitat/WebCoRE | HA Native Script | Handled by |
-|---|---|---|---|
-| break out of loop | Yes | No | PyScript only — target-boundary.json |
-| on_event inside running script | Yes | No | PyScript only — target-boundary.json |
-| cancel async tasks | Yes | No | PyScript only — target-boundary.json |
-| Variable scoping across loops | Clean | Fixed (HA 2025.3+) | Was unreliable; now correct — see note below |
-| Context tracking ($currentEventDevice) | Yes | No | PyScript only |
-| Physical vs programmatic interaction | Yes | PyScript only | Wizard prompts conversion |
+| Feature | Hubitat/WebCoRE | HA Native Script | PyScript | Handled by |
+|---|---|---|---|---|
+| break out of loop | Yes | No | Yes — real Python break | PyScript only — routing mechanism (UNVERIFIED in code) |
+| on_event inside running script | Yes | No | Yes — `task.wait_until()` | PyScript only — routing mechanism (UNVERIFIED in code) |
+| cancel async tasks | Yes | No | Yes — `task.unique()` | PyScript only — routing mechanism (UNVERIFIED in code) |
+| Variable scoping across loops | Clean | Fixed (HA 2025.3+) | N/A | Was unreliable; now correct — see note below |
+| Context tracking ($currentEventDevice) | Yes | No | Yes | PyScript only |
+| Physical vs programmatic interaction | Yes | No | PyScript only | Wizard prompts conversion — deferred, needs sandbox validation |
+| XOR logic in conditions | Yes | No — template only | Yes — Python expression | PyScript only — `condition_operator: "xor"` forces PyScript (verified June 2026) |
+| Followed-by sequential events | Yes | No | Yes — chained `task.wait_until()` | PyScript only — `operator: "followed_by"` on condition group forces PyScript (verified June 2026) |
+| Switch fall-through | Yes | No — `choose` always exits first match | Yes — real Python if/elif | PyScript only — `case_traversal_policy: "fallthrough"` forces PyScript (verified June 2026) |
+| Monthly/yearly scheduling | Yes | No — `time_pattern` has no dom/month fields | Yes — cron syntax | PyScript only for `interval_unit: "n"/"y"` or non-empty `only_on_dom`/`only_on_wom`/`only_on_months` (verified June 2026) |
+| Exit with value (piston state) | Yes | No — `stop:` drops value | Partial — can write to helper entity | Design decision required at D-S6 |
 
-> **`break`/`on_event`/`cancel` re-verified June 2026 (HA 2026.6):** the *capability* claims
-> above still hold — HA's native `stop` action only ends the current sequence block / repeat
-> iteration / choose, so there is still no true WebCoRE `break` natively; these stay PyScript
-> **for now** (re-review each HA release — this is a moving target). **However**, the
-> `target-boundary.json` mechanism named above is referenced by the specs but its existence
+> **PyScript routing re-verified June 2026 (HA 2026.6 + PyScript 2.0.1):** The features
+> now confirmed PyScript-capable (and the conditions that force routing) are documented in
+> PISTON_FORMAT_MERGED.md "PyScript-Only Statement Types and Features" section. The list is
+> larger than previously documented — XOR, followed_by, switch fall-through, and monthly/
+> yearly scheduling now confirmed as PyScript-capable and routed there (not cut).
+>
+> **The routing must go through a template, not hardcoded logic.** HA gains native capability
+> over time. The routing template is the single place to update when HA catches up. Native is
+> always preferred over PyScript when HA supports it cleanly.
+>
+> **`target-boundary.json` mechanism:** referenced in specs as the routing file. Its existence
 > in the backend was NOT confirmed from code — a coding session must verify whether it exists
-> or the boundary is hardcoded, and extend/create it accordingly. Do not treat the
-> `target-boundary.json` column as verified.
+> or the boundary is hardcoded, and extend/create it to cover the full routing table above.
+> Do not treat it as confirmed.
 **Variable scoping fix (HA 2025.3):** The long-standing bug where variables set inside a loop or parallel sequence body didn't update the outer scope was fixed in HA 2025.3 (PR #138883). The `wait` and `response_variable` scoping bugs were also fixed. General variable mutation across nested sequence blocks now works correctly. The `repeat` variable (available inside loop body as `repeat.index`, `repeat.first`, `repeat.last`) is still intentionally local to the loop — that hasn't changed. If PistonCore targets HA 2025.3+ (which it does — minimum is 2023.1), the old compiler warning about variable scoping can be downgraded or removed for most patterns. **Exception:** string accumulation across loop iterations using `variables:` still has subtle scope behavior that should be tested — the PyScript fallback for `loop_string_accumulation` remains correct.
 
 ### Long-Running Pistons
@@ -192,6 +204,32 @@ but is not an official HA project. If it stops being maintained, Docker users
 **Mitigation:** Docker native runtime option is planned (see DESIGN.md Section 3.1).
 Route the compiler's output target logic to accommodate this from the start.
 
+### PyScript Routing — Full Verified Feature Table
+
+The following features are confirmed PyScript-capable as of June 2026 (PyScript 2.0.1,
+HA 2026.6). This table is the authoritative routing reference until D-S6 locks the
+compiler spec. Re-verify on major HA releases — native is always preferred.
+
+| Feature | JSON field(s) that trigger routing | PyScript mechanism |
+|---|---|---|
+| `on_event` statement | `type: "on_event"` | `task.wait_until()` with optional timeout |
+| `break` statement | `type: "break"` | Python `break` |
+| `cancel_pending_tasks` statement | `type: "cancel_pending_tasks"` | `task.unique()` |
+| XOR conditions | `condition_operator: "xor"` on any statement | Python expression `sum([...]) == 1` |
+| Followed-by sequential events | `operator: "followed_by"` on condition group | Chained `task.wait_until()` with shared deadline |
+| Switch fall-through | `case_traversal_policy: "fallthrough"` | Python `if/elif` without early exit |
+| Monthly scheduling | `interval_unit: "n"` | `@time_trigger("cron(0 H D * *)")` |
+| Yearly scheduling | `interval_unit: "y"` | `@time_trigger("cron(0 H D M *)")` |
+| Day-of-month restriction | Non-empty `only_on_dom` on `every` | cron `dom` field |
+| Month restriction | Non-empty `only_on_months` on `every` | cron `mon` field |
+| Week-of-month restriction | Non-empty `only_on_wom` on `every` | Runtime check in function body (no cron equivalent) |
+
+**User notification requirement:** When any piston compiles to PyScript, the debug/compile
+screen must display a prominent notice: "This piston uses features that require PyScript.
+It will be deployed as a PyScript file, not a native HA automation. PyScript must be
+installed via HACS." This is not optional — users who haven't installed PyScript will
+have silently non-functional pistons without it.
+
 ### PyScript Context Tracking Feasibility
 
 Physical vs programmatic interaction detection (`context.id`, `context.parent_id`)
@@ -224,9 +262,7 @@ but behave differently in edge cases. Users migrating from Hubitat may be surpri
 These limitations were discovered and designed around. Listed here so they are
 not re-litigated:
 
-- **No HA native break/on_event/cancel** → PyScript fallback (routing mechanism the specs
-  call `target-boundary.json` — capability re-verified vs HA 2026.6, but the file's existence
-  in code is UNVERIFIED; see Section 1 note) ⚠
+- **PyScript routing** — Full verified feature table now in Section 6. Routing mechanism (`target-boundary.json`) referenced in specs but UNVERIFIED in backend code — confirm or create at D-S6. ⚠
 - **Binary sensors always report on/off** → Friendly label system in wizard,
   compiled_value always "on"/"off" ✅
 - **Entity IDs are compile-time** → entity_ids baked at wizard commit time, static in JSON ✅

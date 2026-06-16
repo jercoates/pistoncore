@@ -1,11 +1,13 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.6
-**Status:** Authoritative — Screen layouts, navigation, and chrome only
-**Last Updated:** June 2026 (D-S5d consolidation session — editor/wizard rendering content
-  moved to WIZARD_SPEC.md; this document now covers screen layouts, navigation, WebSocket
-  protocol, error states, import/export, settings, and folder management only.
-  Prior: May 2026 Session 69 / D-S5b — role_tokens awareness note added to Import Dialog.)
+**Version:** 1.7
+**Status:** Authoritative — Screen layouts, navigation, chrome, help system, and AI prompt system
+**Last Updated:** June 2026 (Help system fully specced: backend-served markdown help files,
+  compiler template customization files, AI write-a-piston prompt file, help modal with tabs,
+  help button on piston list, help links on debug/compile panel, PyScript notice spec,
+  API endpoints for help and prompts. Open Items list trimmed — AI prompt feature now specced,
+  timer statement moved to covered by every statement type. W-S19 spec-check approach documented.
+  Prior: D-S5d — editor/wizard content moved to WIZARD_SPEC.md.)
 
 This document covers what the screens look like and how pages connect. It does NOT describe
 what the editor renders or how the wizard behaves — those are in WIZARD_SPEC.md.
@@ -300,10 +302,106 @@ The AI Help button on the main menu opens a modal with user-facing AI prompts. v
 - Prompt text area is read-only and scrollable — user cannot edit it
 - `[Copy to Clipboard]` copies the full prompt text, button changes to `[Copied ✓]` for 2 seconds
 - `[Close]` or `[✕]` closes with no action
-- Prompt content is fetched from `GET /api/prompts/write-a-piston` — backend serves the file from `pistoncore/prompts/write-a-piston.md`
+- Prompt content is fetched from `GET /api/prompts/write-a-piston` — backend serves the file content; where it is stored is a backend implementation detail
 - If the fetch fails, show: *"Prompt unavailable — check your connection and try again."*
 
 **Future prompt options** (not v1 scope) will appear as tabs or a dropdown inside this same modal. Do not build the tab structure until a second prompt exists.
+
+---
+
+## Help System
+
+PistonCore help content is served from backend-managed markdown files. The frontend fetches and renders them wherever help is needed. To update any help content — correct a description, add a newly-discovered PyScript requirement, note that HA now handles something natively — edit a markdown file and redeploy. No code change, no frontend update required.
+
+### Help and Prompt Files
+
+All help and prompt files are backend-managed. Where they are stored on disk is a backend implementation detail — not specced here. The frontend only cares about the API endpoints.
+
+**Help files served via `GET /api/help/{filename}`:**
+- `overview` — what PistonCore is, how it relates to WebCoRE and HA
+- `getting_started` — building a first piston; the AI-assisted path
+- `statements` — what each statement type does in plain English
+- `conditions` — operators, triggers vs conditions, was vs stays
+- `variables` — piston variables vs globals, how they work
+- `pyscript` — what PyScript is, why some pistons need it, how to install via HACS, which features require it, how to update the routing table
+- `compiler` — what compile means, native vs PyScript, reading the debug screen
+- `template_customization` — where the compiler templates live, how to edit them, that an AI-UPDATE-GUIDE.md file lives next to the templates to help with edits
+- `troubleshooting` — common problems and fixes
+
+**Prompt file served via `GET /api/prompts/{filename}`:**
+- `write_a_piston` — the AI prompt for generating automation logic as importable JSON with role placeholders and empty entity_ids
+
+**These files ship with default content** that can be updated without a coding session. Where they live is up to the backend implementation.
+
+### Help API Endpoints
+
+```
+GET /api/help/{filename}     — returns markdown content for the named help file
+GET /api/prompts/{filename}  — returns markdown content for the named prompt file
+```
+
+Both return file content as plain text. The frontend renders it as HTML. If the file does not exist, returns 404 and the frontend shows: *"Content unavailable."*
+
+### Help Button — Piston List
+
+A `[? Help]` button appears in the piston list header alongside `[+ New]`. Clicking it opens the Help modal.
+
+### Help Modal
+
+```
+┌─────────────────────────────────────────────────────┐
+│  PistonCore Help                               [✕]  │
+├─────────────────────────────────────────────────────┤
+│  [Overview] [Getting Started] [Statements]          │
+│  [Conditions] [Variables] [PyScript] [Compiler]     │
+│  [Templates] [Troubleshooting]                      │
+├─────────────────────────────────────────────────────┤
+│  [rendered markdown content — scrollable]           │
+│                                                     │
+│                                                     │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+- Opens centered with a backdrop
+- Tab bar at the top — one tab per help file
+- Selected tab fetches its markdown file and renders it
+- Default tab on open: Overview
+- `[✕]` closes the modal
+- If a fetch fails: show *"Help content unavailable — check your connection."*
+- Markdown is rendered as standard HTML (headings, paragraphs, lists, code blocks, bold, italic)
+
+### AI Help Modal — Write a Piston
+
+The `[AI Help]` button on the piston list opens the AI Help modal (existing spec). The prompt content is fetched from `GET /api/prompts/write_a_piston`. The prompt generates automation logic as importable JSON with role placeholders and empty entity_ids. **The AI never generates device data.** The user imports the JSON and the role-mapping picker handles all device binding against live HA. This is the correct path — the picker is the authoritative source for entity_ids, not an AI.
+
+The `getting_started.md` help file walks the full AI-assisted path: use the AI prompt → import JSON → map devices with the picker → done. This gives users who find the editor intimidating a complete working path.
+
+### Help Links from the Debug/Compile Panel
+
+The Test Compile panel on the status page includes a `[? Help]` link at the top right. This opens the Help modal directly to the `compiler.md` tab.
+
+When the PyScript notice is shown (see below), it includes an inline link: *"[Learn more about PyScript →]"* that opens the Help modal directly to the `pyscript.md` tab.
+
+### PyScript Notice on Debug/Compile Panel
+
+When `compile_target` is `"pyscript"` on the saved piston, the Test Compile panel shows a prominent notice **above** the compiled output:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ⚠  This piston requires PyScript                   │
+│  It will be deployed as a Python file, not a native │
+│  HA automation. PyScript must be installed via HACS │
+│  before deploying.                                  │
+│  [Learn more about PyScript →]                      │
+└─────────────────────────────────────────────────────┘
+```
+
+- This notice is set by the backend on save — the frontend reads `compile_target` off the piston wrapper and shows the notice if it is `"pyscript"`
+- The frontend does NOT determine what forces PyScript — that is the backend's job
+- On Docker: always shown when `compile_target` is `"pyscript"`
+- On Addon v2+: suppressed (native runtime replaces PyScript)
+- The `[Learn more about PyScript →]` link opens the Help modal to the `pyscript.md` tab
 
 ---
 
@@ -500,11 +598,13 @@ Switching modes never destroys data.
 
 ### PyScript Requirement Indicator
 
-If the current piston requires PyScript (because a PyScript-only statement was added) and PyScript is not detected in HA:
+If the current piston requires PyScript (`compile_target` is `"pyscript"` on the saved piston wrapper) and PyScript is not detected in HA:
 
 - Show a subtle warning below the compile target indicator
-- Text: "PyScript not detected in HA — required before deploying this piston"
-- On Docker: always show this for complex pistons until PyScript is confirmed installed
+- Text: *"PyScript required — install via HACS before deploying. [Learn more →]"*
+- The `[Learn more →]` link opens the Help modal to the `pyscript.md` tab
+- `compile_target` is set by the **backend on save** — the editor reads it from the returned piston, it does not determine routing itself
+- On Docker: always shown when `compile_target` is `"pyscript"` until PyScript is confirmed installed
 - On Addon v2+: suppress this indicator entirely (native runtime replaces PyScript)
 
 ### Compile Status Indicator
@@ -579,6 +679,8 @@ The frontend never calls HA directly. All HA data comes from the FastAPI backend
 Backend endpoints the frontend uses:
 
 - `GET /api/config` — deployment type, ha_url, connection status
+- `GET /api/help/{filename}` — markdown help content (overview, getting_started, statements, conditions, variables, pyscript, compiler, template_customization, troubleshooting)
+- `GET /api/prompts/{filename}` — markdown prompt content (write_a_piston)
 - `GET /api/devices` — all devices with friendly names, areas, domains
 - `GET /api/device/{id}/capabilities` — capabilities with attribute_type and device_class
 - `GET /api/device/{id}/triggers` — valid triggers for a device
@@ -669,7 +771,7 @@ The frontend's job is: render the tree, let the user edit it, send it to the bac
 reuse. Full spec in MISSING_SPECS.md Item 26. Summary here for frontend developer:
 
 ### Clipboard Storage
-Clipboard is stored server-side at `/pistoncore-userdata/clipboard.json`.
+Clipboard is stored server-side (backend implementation detail — not specced here).
 One slot. Persists across browser sessions, piston navigation, and container
 restarts. Not localStorage — server-side only.
 
@@ -1016,7 +1118,7 @@ The panel is read-only and collapsible.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Compiled Output — Native HA Script          [✕]    │
+│  Compiled Output — Native HA Script    [? Help] [✕] │
 ├─────────────────────────────────────────────────────┤
 │  automation.yaml                                    │
 │  ──────────────────────────────────────────────     │
@@ -1028,7 +1130,9 @@ The panel is read-only and collapsible.
 └─────────────────────────────────────────────────────┘
 ```
 
-- Compile errors appear **above** the compiled output in a red box
+- `[? Help]` in the panel header opens the Help modal to the `compiler.md` tab
+- When `compile_target` is `"pyscript"`: a prominent PyScript notice appears **above** the compiled output — see Help System section above for full spec
+- Compile errors appear **above** the compiled output (and above the PyScript notice if present) in a red box
 - Warnings appear in an amber box below the compiled output
 - Panel closes when `[✕]` is clicked or `[Test Compile]` is clicked again (toggle)
 - The compiled output shown here is always freshly compiled on button click — not cached
@@ -1493,7 +1597,7 @@ Preserves all entity_ids intact. Not safe to share publicly.
 **Triggered from:** Settings page → `[Backup All Pistons]` button.
 
 **What happens:**
-1. Backend zips all piston JSON files from `/pistoncore-userdata/pistons/`.
+1. Backend zips all piston JSON files (backend implementation detail — not specced here).
 2. No stripping — full format for every piston.
 3. Browser downloads the zip.
 
@@ -1605,18 +1709,18 @@ work — none are blocking v1.
 
 ## Open Items — Not Yet Defined
 
-Do not implement these until they are decided:
+Do not implement these until they are decided. Everything else in this spec is fully defined
+and ready to build. The W-S19 session runs a code-vs-spec check to catch anything not yet
+built — use this spec as the checklist, not TASKS.md.
 
-1. **AI Prompt feature** — needs redesign before implementation. See DESIGN.md Section 31.
-2. **Exact backend API signatures** — to be confirmed with backend developer.
-3. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 31.
-4. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 31.
-5. **Timer statement** — evaluate overlap with HA scheduler before including in v1. See DESIGN.md Section 29.
-6. **Undo/Redo** — command pattern on piston JSON history stack. Not v1 scope — deferred.
-7. **Wizard draft state recovery** — browser refresh mid-edit behavior. Not v1 scope — deferred.
-8. **Deep nesting performance** — virtual rendering strategy for 10+ levels. Not v1 scope — monitor.
-9. **Keyboard navigation** — arrow keys, Enter to edit, Delete. Not v1 scope — deferred.
-10. **Mobile/tablet responsiveness** — desktop-first in v1. Deferred.
+1. **Exact backend API signatures** — to be confirmed with backend developer.
+2. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 31.
+3. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 31.
+4. **Undo/Redo** — command pattern on piston JSON history stack. Not v1 scope — deferred.
+5. **Wizard draft state recovery** — browser refresh mid-edit behavior. Not v1 scope — deferred.
+6. **Deep nesting performance** — virtual rendering strategy for 10+ levels. Not v1 scope — monitor.
+7. **Keyboard navigation** — arrow keys, Enter to edit, Delete. Not v1 scope — deferred.
+8. **Mobile/tablet responsiveness** — desktop-first in v1. Deferred.
 
 ---
 

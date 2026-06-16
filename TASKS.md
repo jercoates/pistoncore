@@ -340,6 +340,71 @@ fix or to verify (build a trigger, inspect the saved JSON). It DOES block S3-1 i
 
 ---
 
+## W-S19 — Frontend Missing Features (spec complete, ready to code)
+
+These are features that are fully specced but not yet built in the frontend. None are in the
+editor canvas (that is WIZARD_SPEC.md territory) — these are screen-level gaps.
+
+**Files:** editor.js, list.js, status.js, index.html, style.css, FRONTEND_SPEC.md, TASKS.md
+
+- **GAP-S75-1 (HIGH) — Help system not built:** `GET /api/help/{filename}` endpoint missing.
+  Help modal with tabbed markdown rendering not built. `[? Help]` button absent from piston
+  list header. Help links absent from debug/compile panel. Help files (`/pistoncore-userdata/help/*.md`)
+  not created with default content. Full spec: FRONTEND_SPEC.md Help System section.
+  Files: backend `api.py`, frontend `list.js`, `status.js`, `index.html`.
+
+- **GAP-S75-2 (HIGH) — PyScript notice on debug panel not built:** When `compile_target` is
+  `"pyscript"` on the saved piston wrapper, the Test Compile panel must show a prominent notice
+  above the compiled output. Currently nothing is shown. The notice must link to the `pyscript.md`
+  help tab. Full spec: FRONTEND_SPEC.md Help System → PyScript Notice section.
+  Files: `status.js`.
+
+- **GAP-S75-3 (MED) — PyScript indicator in editor not updated:** The editor's PyScript
+  Requirement Indicator currently detects PyScript-only statements by inspecting statement types
+  in the editor — this logic belongs in the backend. After W-S18 lands, the editor should read
+  `compile_target` off the returned piston wrapper (set by the backend on save) and show the
+  indicator from that field, not from its own statement-type inspection. Full spec:
+  FRONTEND_SPEC.md PyScript Requirement Indicator section. Files: `editor.js`.
+
+- **GAP-S75-4 (MED) — `[? Help]` link absent from Test Compile panel header:** Small addition —
+  `[? Help]` button in the Test Compile panel header that opens the Help modal to `compiler.md`.
+  Full spec: FRONTEND_SPEC.md Test Compile Panel section. Files: `status.js`.
+
+- **GAP-S75-5 (LOW) — location command field names wrong in `_saveLocationCmd`:** Four branches
+  write `devices: ['Location']` instead of `role: 'Location'`, `role_tokens: ['__location__']`,
+  `entity_ids: ['__location__']`. The schema is correct in PISTON_FORMAT.md — the code doesn't
+  match it. Compiler will fail silently for all location commands until this is fixed.
+  Files: `wizard-action.js`.
+
+**Ordering:** GAP-S75-1 and GAP-S75-2 can be coded together (same session — they share the
+help endpoint and the debug panel). GAP-S75-3 depends on W-S18 being done first (needs the
+backend to be setting `compile_target`). GAP-S75-4 folds into the same session as GAP-S75-1/2.
+GAP-S75-5 is small and can be done in any session that opens wizard-action.js.
+
+---
+
+## W-S20 — Help Content (writing session — no code)
+
+Write the default content for all help markdown files. This is a writing session, not a
+coding session. The files ship with PistonCore at the path `/pistoncore-userdata/help/`.
+
+**Files to write:**
+- `overview.md` — what PistonCore is, how it relates to WebCoRE and HA
+- `getting_started.md` — building your first piston, step by step
+- `statements.md` — what each statement type does (plain English, not spec language)
+- `conditions.md` — operators explained, triggers vs conditions, was vs stays
+- `variables.md` — piston variables vs global variables, how they work
+- `pyscript.md` — what PyScript is, why some pistons need it, how to install via HACS,
+  which features require it, what the user sees, how to update the threshold file
+- `compiler.md` — what compile means, native vs PyScript, the debug screen explained,
+  how to read compile output and warnings
+- `troubleshooting.md` — common problems and fixes
+
+**These files must be plain English — written for a non-technical home automation user,
+not for a developer.** Jeremy reviews and approves content before shipping.
+
+---
+
 ## W-S17 — Must-Work Wizard Features Spec  ← SPEC PARTIALLY DONE (Session 73)
 
 These are not nice-to-haves. They are core to real pistons. Walking the alarm piston

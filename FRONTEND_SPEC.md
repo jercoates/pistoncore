@@ -405,7 +405,63 @@ When `compile_target` is `"pyscript"` on the saved piston, the Test Compile pane
 
 ---
 
-## Page 2 — Piston Status Page
+## Built-in Piston Library
+
+PistonCore ships with a curated set of tested, ready-to-use pistons. These are stored in the backend (read-only, inside the container) and are not editable by the user. Importing one copies it into the user's piston storage with a fresh ID.
+
+The library is the primary way to give new users immediate value. The goal is to ship 20–50 tested pistons covering common HA use cases: lighting, security, routines, notifications, climate, presence, etc. These come from Jeremy's own working piston library — tested in production before inclusion.
+
+### Library API Endpoint
+
+```
+GET /api/library
+```
+
+Returns a list of library entries with metadata — name, description, category, and the piston JSON. The frontend renders the list and handles import. Where the backend stores the library files is a backend implementation detail.
+
+```
+POST /api/library/{id}/import
+```
+
+Copies the named library piston into user storage with a fresh UUID. Returns the new piston object. The imported piston lands in the user's piston list immediately, same as any other import.
+
+### Browse Library — Piston List
+
+A `[Browse Library]` button appears in the piston list header alongside `[+ New]` and `[? Help]`. Clicking it opens the Library modal.
+
+### Library Modal
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Built-in Library                              [✕]  │
+├─────────────────────────────────────────────────────┤
+│  [Lighting] [Security] [Routines] [Notifications]   │
+│  [Climate] [Presence] [Holiday] [All]               │
+├─────────────────────────────────────────────────────┤
+│  Driveway Lights at Sunset          [Import]        │
+│  Turns on driveway lights at sunset,                │
+│  off at midnight.                                   │
+│  ─────────────────────────────────────────────────  │
+│  Motion Light with Timeout          [Import]        │
+│  Lights on when motion detected,                    │
+│  off after N minutes of no motion.                  │
+│  ─────────────────────────────────────────────────  │
+│  ...                                                │
+└─────────────────────────────────────────────────────┘
+```
+
+- Category tabs filter the list
+- Each entry shows name and short description
+- `[Import]` copies the piston into user storage and closes the modal
+- After import the piston appears in the user's list immediately
+- Import goes through the standard role-mapping dialog — the user maps their real devices before the piston is saved
+- If the library fetch fails: show *"Library unavailable — check your connection."*
+
+### Library Piston Format
+
+Library pistons are Snapshot-format JSON — `entity_ids` contain role placeholders, `role` and `role_tokens` are intact, `variables` (defines) are preserved. This means the role-mapping dialog fires on import and the user maps their real devices through the picker before the piston is saved. The AI never generates these — they are Jeremy's own tested pistons exported as Snapshots.
+
+---
 
 The hub for every individual piston. Every action on a piston starts here.
 Saving in the editor always returns here.
@@ -584,17 +640,7 @@ Single global toggle. **Default is Advanced.**
 
 Mode preference saved to localStorage (`pc_simpleMode`).
 
-**Simple mode hides:**
-- Piston Variables section
-- Loop statement types (Repeat, For Each, While, For Loop)
-- Wait for State action
-- Call Another Piston action
-- Break, Cancel All Pending Tasks, On Event, Switch, Do Block
-- TEP/TCP options in wizard
-
-**Advanced mode shows everything.**
-
-Switching modes never destroys data.
+What each mode shows and hides is specified in **WIZARD_SPEC.md** (Simple vs Complex Mode section). Switching modes never destroys data.
 
 ### PyScript Requirement Indicator
 

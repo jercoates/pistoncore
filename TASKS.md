@@ -340,71 +340,6 @@ fix or to verify (build a trigger, inspect the saved JSON). It DOES block S3-1 i
 
 ---
 
-## W-S19 — Frontend Missing Features (spec complete, ready to code)
-
-These are features that are fully specced but not yet built in the frontend. None are in the
-editor canvas (that is WIZARD_SPEC.md territory) — these are screen-level gaps.
-
-**Files:** editor.js, list.js, status.js, index.html, style.css, FRONTEND_SPEC.md, TASKS.md
-
-- **GAP-S75-1 (HIGH) — Help system not built:** `GET /api/help/{filename}` endpoint missing.
-  Help modal with tabbed markdown rendering not built. `[? Help]` button absent from piston
-  list header. Help links absent from debug/compile panel. Help files (`/pistoncore-userdata/help/*.md`)
-  not created with default content. Full spec: FRONTEND_SPEC.md Help System section.
-  Files: backend `api.py`, frontend `list.js`, `status.js`, `index.html`.
-
-- **GAP-S75-2 (HIGH) — PyScript notice on debug panel not built:** When `compile_target` is
-  `"pyscript"` on the saved piston wrapper, the Test Compile panel must show a prominent notice
-  above the compiled output. Currently nothing is shown. The notice must link to the `pyscript.md`
-  help tab. Full spec: FRONTEND_SPEC.md Help System → PyScript Notice section.
-  Files: `status.js`.
-
-- **GAP-S75-3 (MED) — PyScript indicator in editor not updated:** The editor's PyScript
-  Requirement Indicator currently detects PyScript-only statements by inspecting statement types
-  in the editor — this logic belongs in the backend. After W-S18 lands, the editor should read
-  `compile_target` off the returned piston wrapper (set by the backend on save) and show the
-  indicator from that field, not from its own statement-type inspection. Full spec:
-  FRONTEND_SPEC.md PyScript Requirement Indicator section. Files: `editor.js`.
-
-- **GAP-S75-4 (MED) — `[? Help]` link absent from Test Compile panel header:** Small addition —
-  `[? Help]` button in the Test Compile panel header that opens the Help modal to `compiler.md`.
-  Full spec: FRONTEND_SPEC.md Test Compile Panel section. Files: `status.js`.
-
-- **GAP-S75-5 (LOW) — location command field names wrong in `_saveLocationCmd`:** Four branches
-  write `devices: ['Location']` instead of `role: 'Location'`, `role_tokens: ['__location__']`,
-  `entity_ids: ['__location__']`. The schema is correct in PISTON_FORMAT.md — the code doesn't
-  match it. Compiler will fail silently for all location commands until this is fixed.
-  Files: `wizard-action.js`.
-
-**Ordering:** GAP-S75-1 and GAP-S75-2 can be coded together (same session — they share the
-help endpoint and the debug panel). GAP-S75-3 depends on W-S18 being done first (needs the
-backend to be setting `compile_target`). GAP-S75-4 folds into the same session as GAP-S75-1/2.
-GAP-S75-5 is small and can be done in any session that opens wizard-action.js.
-
----
-
-## W-S20 — Help Content (writing session — no code)
-
-Write the default content for all help markdown files. This is a writing session, not a
-coding session. The files ship with PistonCore at the path `/pistoncore-userdata/help/`.
-
-**Files to write:**
-- `overview.md` — what PistonCore is, how it relates to WebCoRE and HA
-- `getting_started.md` — building your first piston, step by step
-- `statements.md` — what each statement type does (plain English, not spec language)
-- `conditions.md` — operators explained, triggers vs conditions, was vs stays
-- `variables.md` — piston variables vs global variables, how they work
-- `pyscript.md` — what PyScript is, why some pistons need it, how to install via HACS,
-  which features require it, what the user sees, how to update the threshold file
-- `compiler.md` — what compile means, native vs PyScript, the debug screen explained,
-  how to read compile output and warnings
-- `troubleshooting.md` — common problems and fixes
-
-**These files must be plain English — written for a non-technical home automation user,
-not for a developer.** Jeremy reviews and approves content before shipping.
-
----
-
 ## W-S17 — Must-Work Wizard Features Spec  ← SPEC PARTIALLY DONE (Session 73)
 
 These are not nice-to-haves. They are core to real pistons. Walking the alarm piston
@@ -744,6 +679,53 @@ Success = all seven checklist items at top of file.
 - **MISSING_SPECS Item 15:** before S4-10, write-a-piston.md prompt content.
 - **AI_PROMPT_SPEC.md** stale (old device_map model) — rewrite before any AI-import work.
 - **GAP-S70-1:** MOVED to W-S15 (Session 74) — verification done from code; it is a defect.
+
+---
+
+## W-S19 — Frontend Non-Editor Audit (after S3-1)
+
+When S3-1 passes, run one session that loads FRONTEND_SPEC.md and audits every screen and
+feature that is NOT the editor canvas or the wizard. Check what's scaffolded vs actually
+working. File a GAP for anything not working. Those gaps become the coding sessions.
+
+**Do not touch the editor, wizard, or compiler sections — those are covered by their own bundles.**
+
+The spec is the checklist. TASKS.md does not pre-list the gaps — the audit finds them.
+
+**Known going in:**
+- Help system not yet built (GET /api/help/, GET /api/prompts/, Help modal, [? Help] button)
+- PyScript notice on debug panel not yet built
+- Location command field names wrong in `_saveLocationCmd` (writes `devices:['Location']`
+  instead of `role`/`role_tokens`/`entity_ids`) — files: wizard-action.js
+
+---
+
+## W-S20 — Help and Prompt Content (writing session — after S3-1)
+
+Write default content for all help and prompt files. Run after S3-1 — content must describe
+the system as it actually works. Read working code and final specs, then write.
+
+**Help files (served via GET /api/help/):**
+- `overview` — what PistonCore is, how it relates to WebCoRE and HA
+- `getting_started` — building a first piston; the AI-assisted path (prompt → import → picker)
+- `statements` — what each statement type does in plain English
+- `conditions` — operators, triggers vs conditions, was vs stays explained
+- `variables` — piston variables vs globals, how they work
+- `pyscript` — what PyScript is, why some pistons need it, how to install via HACS,
+  which features require it, how to update the routing table when HA changes
+- `compiler` — what compile means, native vs PyScript, reading the debug screen and warnings
+- `template_customization` — where the compiler templates live (customize/compiler-templates/),
+  what AI-UPDATE-GUIDE.md is for, how to edit templates and redeploy
+- `troubleshooting` — common problems and fixes from real testing
+
+**Prompt file (served via GET /api/prompts/):**
+- `write_a_piston` — AI prompt for generating automation logic as importable JSON with role
+  placeholders and empty entity_ids. Must instruct the AI: use role names not entity_ids,
+  leave entity_ids empty, follow PISTON_FORMAT.md schema exactly, output only valid JSON.
+  User imports the result and the picker handles all device binding.
+
+All content must be plain English for a non-technical home automation user.
+Jeremy reviews and approves before shipping.
 - **GAP-S50-1:** carry-forward from W-S11.
 
 ---
@@ -841,29 +823,38 @@ So the next session doesn't re-verify what's already traced:
   response, preventing it from accumulating on `_piston` and leaking to disk).
 - **volume_set 0–100 vs HA 0.0–1.0:** conversion concern logged in W-S17 (GAP-S72-3).
 
-## Spec File Versions (after Session 73)
+## Spec File Versions (after Session 74 + Research Session June 2026)
 - DESIGN.md **v1.8**
-- PISTON_FORMAT.md **v2.4** (Session 73 — task model: device/non-device tasks, picker
-  category as discriminator (storage is a coding-time choice), order)
-- WIZARD_SPEC.md **v2.7** (Session 73 — W-6 task append/edit/delete + virtual-in-block flows)
-- STATEMENT_TYPES.md **v2.3** (Session 73 — task schema device/virtual, wait/set_var duality)
-- WITH_BLOCK_TASK_FRAMEWORK.md **v1.0 (NEW, Session 73)** — authoritative task-container spec
-- FRONTEND_SPEC.md **v1.5**
-- HA_LIMITATIONS.md — Section 3 corrected; **non-device command classification COMPLETE
-  (Session 73, §10, vs HA 2026.6)** — remaining work is real-HA behavior *testing* (Stage 3)
-  and `target-boundary.json` existence verification (UNVERIFIED — confirm in code or create)
-- COMPILER_SPEC.md **v1.5 — FROZEN/STALE** (see D-S6 — do not touch until v1 JSON locks)
+- PISTON_FORMAT.md **v2.6** (June 2026 research session — PyScript routing additions: on_event
+  timeout fields, every timer restriction fields, condition group XOR/followed_by operators,
+  switch fallthrough note, exit value note, PyScript-only table expanded with full verified
+  routing table. Verified vs PyScript 2.0.1 + HA 2026.6.)
+- WIZARD_SPEC.md **v2.7**
+- STATEMENT_TYPES.md **v2.3** (retired to /reference — absorbed into PISTON_FORMAT.md v2.5+)
+- WITH_BLOCK_TASK_FRAMEWORK.md **v1.0** (retired to /reference — absorbed into WIZARD_SPEC.md v2.8)
+- FRONTEND_SPEC.md **v1.7** (June 2026 — help system fully specced: backend-served markdown
+  help files, AI prompt file, compiler template reference, help modal, PyScript notice,
+  API endpoints. Hardcoded folder paths removed throughout.)
+- HA_LIMITATIONS.md — **updated June 2026** (PyScript routing table expanded: XOR, followed_by,
+  switch fallthrough, monthly/yearly scheduling all confirmed PyScript-capable. Full routing
+  table in Section 6. User notification requirement added.)
+- COMPILER_SPEC.md **v1.5 — FROZEN/STALE** (see D-S6)
 - PYSCRIPT_COMPILER_SPEC.md — **FROZEN/STALE** (see D-S6)
-- SAMPLE_PISTONS.md v1.0
-- AI_PROMPT_SPEC.md v2.0 (stale — old device_map model; FROZEN until v1 JSON locks)
+- COMPILER_DECISIONS_HOLDING.md **v1.1** (June 2026 — added Section E: PyScript routing
+  decisions including backend ownership of compile_target, save-time flow, full routing table,
+  user notification requirement, on_event timeout compiler behavior, exit value open decision,
+  only_on_wom runtime check pattern.)
+- WEBCORE_WIZARD_MAP.md — June 2026 verified extraction (in repo)
+- WEBCORE_HA_BEHAVIOR_MAP.md — **NEW June 2026** — behavioral pairing of all 12 WebCoRE
+  statement types and all comparison operators against HA 2026.6.3. Verified from live docs.
+- SAMPLE_PISTONS.md v1.0 — **STILL NEEDS FROZEN/STALE NOTICE** (add manually)
+- AI_PROMPT_SPEC.md v2.0 — stale (old device_map model); FROZEN until v1 JSON locks
 - REFERENCE_PISTON_V2.json — v2 diff anchor
 - SPEAK_ACTION_SPEC.md / NOTIFY_ACTION_SPEC.md — ledgered; PROPOSED field names now
   answerable against reconciled PISTON_FORMAT task schema (optional light reconciliation later)
-- COMPILER_DECISIONS_HOLDING.md **v1.0 (NEW, Session 73)** — holds the at-risk SPEAK/NOTIFY
-  compiler decisions until D-S6 folds them into COMPILER_SPEC; retire then
-- BACKEND_SPEC_PROTO.md **v0.1 (NEW, Session 73)** — PROTO research-gathering for the add-on/
-  backend phase (parked, builds when STAGE B unblocks). Verified findings so far: Shortumation
-  add-on config.yaml + Dockerfile + WebSocket HA client (`hass-websocket-client`, with
+- BACKEND_SPEC_PROTO.md **v0.1** — PROTO research-gathering for the add-on/backend phase
+  (parked, builds when STAGE B unblocks). Verified findings so far: Shortumation add-on
+  config.yaml + Dockerfile + WebSocket HA client (`hass-websocket-client`, with
   `fetch_services()` covering NOTIFY's service-registry need); issue-#115 file-vs-WS lesson.
   Research queue: HomeAssistantEditor, TimeMachine, addon-vscode, re-verify Shortumation vs
   current HA add-on docs.

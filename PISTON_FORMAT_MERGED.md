@@ -1,12 +1,8 @@
 # PistonCore — Piston Data Model
 
-**Version:** 2.6 (June 2026 — PyScript routing additions: on_event timeout fields, every timer restriction fields, condition group XOR/followed_by operators, switch fallthrough note, exit value note, PyScript-only table expanded with full verified routing table. Verified against PyScript 2.0.1 + HA 2026.6.)
+**Version:** 2.7
 **Status:** Authoritative — Single source of truth for piston data structure and all statement type schemas. STATEMENT_TYPES.md is retired; this file replaces both.
-**Last Updated:** June 2026 (D-S5d session — consolidated PISTON_FORMAT.md v2.4 +
-  STATEMENT_TYPES.md v2.3 into one document. No content changed — deduplication only.
-  Prior: Session 73 — task model reconciled to code. Session 74 D-S5d — Complete Minimal
-  Example fixed, duration_unit full-words, time condition schema corrected to code shape,
-  Field Lifecycle table notes added for Snapshot strip verification.)
+**Last Updated:** June 2026 (Spec audit session — Field Lifecycle table corrected: role_tokens kept on Snapshot export (never stripped), entity_ids replaced with __placeholder_<domain>__ not emptied, compiled_value correctly noted as stripped; list_role retirement note updated to reference GAP-S74-7 instead of vague B-2 sweep. Prior: June 2026 D-S5d — PyScript routing additions verified vs HA 2026.6; time condition schema corrected; Field Lifecycle table notes added.)
 
 This document defines the canonical internal JSON format for a PistonCore piston and
 every statement type schema the wizard writes, the editor renders from, and the compiler
@@ -583,8 +579,7 @@ end for;
 - `entity_ids` — array of real HA entity IDs to iterate over. Written at commit time from the live picker. The compiler uses this list directly.
 - `statements` — array of child statement objects embedded directly.
 
-**Note:** `list_role` is a legacy field being retired (decided D-S5d session). Do not write
-it in new code. The B-2 sweep will remove it from code. `role` is the correct field.
+**Note:** `list_role` is a legacy field that should not be written by new code. It was found still present in the code during Session 74 audit (GAP-S74-7). Use `role` instead. The code sweep to remove it is tracked in GAP-S74-7.
 
 ### Editor Render
 
@@ -1338,12 +1333,12 @@ contradicts this table, this table wins and the other spec needs updating.
 
 | Field | Written by | Read by | On Snapshot export |
 |---|---|---|---|
-| `role` | Wizard at commit time. Generated from selected row labels. | Editor for display only. Never read by compiler. | Kept — used as the placeholder label in Snapshot format. |
-| `role_tokens` | Wizard at commit time. Stores the raw tokens the user selected (entity_ids, variable names, `@globals`). | Editor on re-open for edit — restores `sel.tokens` to re-highlight correct rows. | Intended to be stripped — but verify before implementing: stripping `role_tokens` may erase variable names and authored content (e.g. message text in Speak tasks) that the user needs to survive import. Only resolved device identity data should be stripped, not authored content. See GAP-S74-4 / S2-3. |
-| `entity_ids` | Wizard at commit time via `_getFlatEntityIds(sel.tokens)`. Also updated by `_reResolveVariableUses` when a device variable is edited. | Compiler reads this directly. Editor does not re-resolve — it trusts what is on the node. | Stripped — Snapshot format uses role placeholders, not entity IDs. Not yet implemented correctly; see GAP-S74-4 / S2-3. |
-| `display_value` | Wizard at commit time. Friendly label for binary values (e.g. `"Open"`). | Editor for display only. Never read by compiler. | Kept — helps the AI mapper understand what the condition means. |
-| `compiled_value` | Wizard at commit time. The raw HA state string (e.g. `"on"`). | Compiler reads this. Editor uses it for numeric condition pre-fill. | Stripped — Snapshot format does not include compiled values. Not yet implemented correctly; see GAP-S74-4 / S2-3. |
-| `aggregation` | Wizard at commit time. `"any"` / `"all"` / `"none"`. Single-device nodes always get `"any"`. | Compiler reads this to decide trigger/condition template expansion. Editor displays it in the aggregation bar on re-open. | Kept — relevant to the Snapshot mapping step. |
+| `role` | Wizard at commit time. Generated from selected row labels. | Editor for display only. Never read by compiler. | **Kept** — used as the label in the import dialog to give the user context about what this node does. |
+| `role_tokens` | Wizard at commit time. Stores the raw tokens the user selected (entity_ids for physical rows, variable names, `@globals`). | Editor on re-open for edit — restores `sel.tokens` to re-highlight correct rows. Import wizard reads this to route each node to the correct mapping step (variable fill / global match / direct device pick). | **Kept** — the import wizard depends on this to know what type of thing was selected. Never strip. |
+| `entity_ids` | Wizard at commit time via `_getFlatEntityIds(sel.tokens)`. Also updated by `_reResolveVariableUses` when a device variable is edited. | Compiler reads this directly. Editor does not re-resolve — it trusts what is on the node. | **Replaced with placeholder** — `["__placeholder_<domain>__"]` where domain is derived from the first entity_id's domain prefix. If the array was already empty (unfinished node), write `["__placeholder_unknown__"]`. Time conditions and other non-device nodes with permanently empty entity_ids are left as `[]`. One placeholder per node regardless of how many original entity_ids there were. Implementation tracked in GAP-S74-4 / S2-3. Full placeholder format spec: DESIGN.md §6.10. |
+| `display_value` | Wizard at commit time. Friendly label for binary values (e.g. `"Open"`). | Editor for display only. Never read by compiler. | **Kept** — helps the import wizard and AI understand what the condition means. |
+| `compiled_value` | Wizard at commit time. The raw HA state string (e.g. `"on"`). | Compiler reads this. Editor uses it for numeric condition pre-fill. | **Stripped** — installation-specific HA state strings have no meaning in a shared Snapshot. |
+| `aggregation` | Wizard at commit time. `"any"` / `"all"` / `"none"`. Single-device nodes always get `"any"`. | Compiler reads this to decide trigger/condition template expansion. Editor displays it in the aggregation bar on re-open. | **Kept** — relevant to the import mapping step and re-resolution. |
 
 **Resolution rule:** Token-to-entity-id resolution at wizard commit time goes through
 `_getFlatEntityIds` only. Read-side walks of `entity_ids` on already-committed nodes

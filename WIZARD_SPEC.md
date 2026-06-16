@@ -1,21 +1,10 @@
 # PistonCore Wizard & Editor Specification
 
-**Version:** 2.9
+**Version:** 3.0
 **Status:** Authoritative — covers all wizard modal behavior, editor canvas rendering,
   with-block/task model, and JavaScript architecture. Absorbs WITH_BLOCK_TASK_FRAMEWORK.md
   (retired) and editor rendering content moved from FRONTEND_SPEC.md v1.6.
-**Last Updated:** June 2026 (D-S5d continuation — ASSUMED→VERIFIED pass against
-  WEBCORE_WIZARD_MAP.md: command picker grouping algorithm, W-2 dialog fields, W-3/W-3b
-  layout, W-7 layout and types, Advanced Options, aggregation bar scope decision (v1=Any/All/None,
-  full 12-option set deferred to v2), footer button patterns, restriction dialog warning.
-  Time condition JSON corrected to remove stale `subject` field (GAP-S74-5 — missed in D-S5d
-  WIZARD_SPEC.md pass). WEBCORE_HA_BEHAVIOR_MAP.md noted as D-S6 compiler reference.
-  Prior: D-S5d consolidation session — editor rendering rules, role label rules, aggregation
-  display, inline validation, with-block/task model, and wizard JS architecture absorbed from
-  FRONTEND_SPEC.md; WITH_BLOCK_TASK_FRAMEWORK.md content absorbed and that file retired.
-  Verified WebCoRE Wizard Reference section added from WEBCORE_WIZARD_MAP.md.
-  Prior: Session 73 — W-6 reconciled to code; "Add more" annotated with GAP-S72-1 root
-  cause; per-task edit/delete/virtual-task flows added.)
+**Last Updated:** June 2026 (Spec audit session — _reResolveVariableUses contract tightened: explicit enumeration of all required walk targets added including node.tasks[], node.else_ifs[n].statements, node.else_ifs[n].conditions, node.cases[n].statements; missing any target causes silent stale entity_ids. Prior: D-S5d continuation — ASSUMED→VERIFIED pass against WEBCORE_WIZARD_MAP.md; time condition JSON corrected to remove stale subject field.)
 **Prior:** May 2026 (Session 69 / D-S5 + D-S5b — role_tokens added to all JSON
   output examples; _reResolveVariableUses contract; globals cache model; UI/data
   separation rule; resolution path rule. Session 69b — CODE_FINDINGS reconciliation
@@ -512,18 +501,25 @@ differ by attribute.
 Called in editor.js after any device variable (define) is saved by the user.
 
 **What it does:**
-1. Walks the entire piston tree recursively (statements, triggers, conditions, restrictions)
-2. Finds every node where `role_tokens` contains the variable name (for local vars) or `@name` (for globals)
-3. Re-resolves `entity_ids` on those nodes by: reading the variable's current device-name list, asking HA for each device's entities, and selecting the entity that carries the node's existing `attribute` — one per device. (Resolution is name → live HA entities → attribute-bearing entity. It does NOT read entity IDs out of the variable, because the variable has none.)
-4. Other tokens in the same node (other variables, globals, physical devices) are preserved — only the changed variable's contribution is updated
-5. Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`); a global's `value` is also a device-name list, resolved the same way
+1. Walks the entire piston tree recursively. The walk must cover every possible node location — missing any one causes silent stale entity_ids. Required walk targets in full:
+   - Top-level arrays: `_piston.triggers`, `_piston.conditions`, `_piston.restrictions`, `_piston.statements`
+   - On every node recursively: `node.then`, `node.else`, `node.statements`, `node.default`, `node.conditions`, `node.until_conditions`
+   - `node.else_ifs[]` — each else-if branch's `node.else_ifs[n].statements` and `node.else_ifs[n].conditions`
+   - `node.cases[]` — each case's `node.cases[n].statements`
+   - `node.tasks[]` — task objects inside action nodes (tasks can be device tasks and must be reached)
+2. For every node reached: checks whether `role_tokens` contains the variable name (for local vars) or `@name` (for globals). If it does, re-resolves `entity_ids` on that node.
+3. Re-resolution reads the variable's current device-name list, asks HA for each device's entities, and selects the entity that carries the node's existing `attribute` — one per device. (Resolution is name → live HA entities → attribute-bearing entity. It does NOT read entity IDs out of the variable, because the variable has none.)
+4. Other tokens in the same node (other variables, globals, physical devices) are preserved — only the changed variable's contribution is updated.
+5. Globals resolve from `_piston._globalsCache` (loaded at editor open via `API.getGlobals()`); a global's `value` is also a device-name list, resolved the same way.
 
 **What it does NOT do:**
-- It does not update nodes that do not reference the changed variable in `role_tokens`
-- It does not update nodes where `role_tokens` is absent (those nodes used physical devices only and do not need updating)
+- It does not update nodes that do not reference the changed variable in `role_tokens`.
+- It does not update nodes where `role_tokens` is absent (those nodes used physical devices only and do not need updating).
 - It does not handle HA-side entity list changes (e.g. a new entity added to a device in HA). That requires the user to re-open and recommit the node.
 
 **When `role_tokens` is absent on a node:** Fall back to treating `entity_ids` as tokens for the re-resolution check. If none of the entity_ids in the node match what the variable resolves to, skip the node — it does not reference this variable.
+
+**After all nodes are patched:** Call `_markUnsaved(true)` and re-render.
 
 ### Globals Cache Model
 

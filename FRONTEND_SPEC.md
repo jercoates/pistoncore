@@ -1,13 +1,8 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.7
+**Version:** 1.8
 **Status:** Authoritative — Screen layouts, navigation, chrome, help system, and AI prompt system
-**Last Updated:** June 2026 (Help system fully specced: backend-served markdown help files,
-  compiler template customization files, AI write-a-piston prompt file, help modal with tabs,
-  help button on piston list, help links on debug/compile panel, PyScript notice spec,
-  API endpoints for help and prompts. Open Items list trimmed — AI prompt feature now specced,
-  timer statement moved to covered by every statement type. W-S19 spec-check approach documented.
-  Prior: D-S5d — editor/wizard content moved to WIZARD_SPEC.md.)
+**Last Updated:** June 2026 (Spec audit session — Import Dialog completely rewritten to match three-case import flow (piston variable fill / global match / direct device map) per DESIGN.md §6.11; format detection corrected to use placeholder presence not empty entity_ids; stale role_tokens-stripped claim removed; Snapshot Export section rewritten: entity_ids replaced with placeholders not emptied, role_tokens kept not stripped, compiled_value stripped, device variable initial_value gets __fill_devices__ marker, GAP-S74-4 not-yet-implemented notice added; Global Variables Drawer "not yet implemented" note removed (implemented Sessions 48-50); piston list wireframe updated to include [? Help] and [Browse Library] buttons. Prior: June 2026 — Help system fully specced, Built-in Library specced, editor/wizard content moved to WIZARD_SPEC.md.)
 
 This document covers what the screens look like and how pages connect. It does NOT describe
 what the editor renders or how the wizard behaves — those are in WIZARD_SPEC.md.
@@ -100,59 +95,98 @@ same as Tab 1.
 
 ### Format Detection
 
-PistonCore detects whether the pasted JSON is a Snapshot or Backup by checking
-whether any condition or action node has a non-empty `entity_ids` array:
+PistonCore detects whether the pasted JSON is a Snapshot or Backup by checking whether any condition, action, or for_each node has a placeholder in `entity_ids` (any entry matching `__placeholder_*`):
 
-- **All nodes have entity_ids populated** → Backup format. Skip role mapping,
-  assign new ID (or preserve original for restore), open in editor.
-- **Any node has empty entity_ids** → Snapshot format. Proceed to role mapping.
+- **Placeholders found** → Snapshot format. Proceed to import wizard.
+- **All nodes have real entity_ids** → Backup format. Show ID-handling dialog, skip import wizard.
 
-**`role_tokens` and format detection:** `role_tokens` is present on internal/Backup
-nodes and absent on Snapshot nodes (stripped on export). Format detection uses
-`entity_ids` only — do not use presence or absence of `role_tokens` as a detection
-signal. This keeps the detection logic simple and correct for both formats.
+Format detection uses `entity_ids` content only. Do not use presence or absence of `role_tokens` as a detection signal.
 
-### Role Mapping Step (Snapshot Import Only)
+### Import Wizard (Snapshot Import Only)
 
-The role mapping dialog walks the entire `statements` tree and collects every
-unique `role` value from condition and action nodes where `entity_ids` is empty.
-Roles are presented one at a time in order of first appearance.
+The full import wizard logic is defined in DESIGN.md §6.11. This section covers the screen layout only.
+
+The wizard handles three separate mapping cases in sequence. Order of presentation within a case does not matter — all items in each list are presented before moving to the next case.
+
+**Case A — Fill piston variables**
+
+For each device-type variable (`var_type: "device"` or `"devices"`) whose `initial_value` is `["__fill_devices__"]`:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Map your devices — Step 1 of 2                [✕] │
+│  Fill variable $Motion_Sensors          [✕ Skip]    │
 ├─────────────────────────────────────────────────────┤
-│  Role: "Doors"                                      │
-│  Used as: trigger (changes to Open),                │
-│           condition (is Open)                       │
+│  Pick the devices for this variable.                │
+│  Used in 3 places in this piston.                   │
 │                                                     │
 │  [Device picker — search and multi-select]          │
-│  Selected: [front door ×] [back door ×]             │
+│  (soft-filtered by most common attribute;           │
+│   full list always accessible)                      │
 │                                                     │
 │            [Skip]        [← Back]  [Next →]         │
 └─────────────────────────────────────────────────────┘
 ```
 
-- Each role shows where it is used (trigger, condition, action) for context
-- Multi-select is always available — user decides how many devices fill the role
-- **Skip** — leaves entity_ids empty on that role's nodes. Piston imports with
-  unmapped roles. User can fix later in editor.
-- **Back** — returns to previous role
-- **Next** — advances to next role or completes import if last role
+**Case B — Match global references**
 
-On completion, PistonCore writes the selected entity_ids to every node whose
-`role` matches the mapped role. Same role name = same entity_ids on all nodes.
-This is intentional — role name is the mapping key.
+For each unique `@name` found in `role_tokens` across all nodes:
 
-New UUID assigned on import. `created_at` and `modified_at` set to now.
-Piston opens in editor after import completes.
+```
+┌─────────────────────────────────────────────────────┐
+│  Match global @Speakers_All             [✕ Skip]    │
+├─────────────────────────────────────────────────────┤
+│  This piston uses @Speakers_All.                    │
+│  Match it to one of your globals:                   │
+│                                                     │
+│  [@my_speakers                          ▼]          │
+│  (all your globals — no type filtering)             │
+│                                                     │
+│  + Create new global "@Speakers_All"                │
+│                                                     │
+│            [Skip]        [← Back]  [Next →]         │
+└─────────────────────────────────────────────────────┘
+```
 
-**Import button is disabled** until the user has acted on every role
-(mapped or skipped). Skipped roles show a ⚠ indicator in the editor.
+**Case C — Map direct device nodes**
 
-**There is no piston_text parser.** `piston_text` is not a v1 format.
-Any reference to piston_text parsing in this codebase is from an earlier
-design and must be removed.
+For each unique `role` where the node used a direct physical device pick (no variable or global in `role_tokens`):
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Map devices — "Front Door"             [✕ Skip]    │
+├─────────────────────────────────────────────────────┤
+│  Used as: trigger (changes to Open)                 │
+│  Device type: binary_sensor                         │
+│                                                     │
+│  [Device picker — filtered to binary_sensor]        │
+│  Selected: [front door ×]                           │
+│                                                     │
+│            [Skip]        [← Back]  [Next →]         │
+└─────────────────────────────────────────────────────┘
+```
+
+After all cases:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Ready to import                                    │
+├─────────────────────────────────────────────────────┤
+│  ✓ $Motion_Sensors — 2 devices selected             │
+│  ✓ @Speakers_All → matched to @my_speakers          │
+│  ✓ Front Door — mapped                              │
+│  ⚠ Back Door — skipped (fix later in editor)        │
+│                                                     │
+│                         [← Back]  [Import]          │
+└─────────────────────────────────────────────────────┘
+```
+
+- **Skip** on any step — that item imports with placeholder still in place. Editor shows ⚠ on affected nodes.
+- **Back** — returns to the previous step within the wizard.
+- **Import** — available only after every item has been acted on (mapped or explicitly skipped).
+
+New UUID assigned on import. `created_at` and `modified_at` set to now. Piston opens in editor after import completes.
+
+**There is no piston_text parser.** `piston_text` is not a v1 format. Any reference to piston_text parsing in this codebase is from an earlier design and must be removed.
 
 ---
 
@@ -223,7 +257,7 @@ with a piston count. There is no folder sidebar column.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  PistonCore            [Copy AI Prompt]  [+ New]    │
+│  PistonCore   [Global Variables] [? Help]  [+ New]  │
 │  [Search pistons...]                                │
 ├─────────────────────────────────────────────────────┤
 │  Outdoor Lighting (3)                               │
@@ -241,7 +275,7 @@ with a piston count. There is no folder sidebar column.
 │  ─────────────────────────────────────────────────  │
 │  ● Test Piston                        —   Never     │
 │                                                     │
-│                              [+ New Folder] [Import]│
+│             [+ New Folder] [Browse Library] [Import]│
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -264,7 +298,7 @@ Each piston shows on a single row:
 
 ### Global Variables Drawer
 
-A `[Global Variables]` button is present in the header area. **This button exists but the drawer is not yet implemented.** Clicking it has no effect in v1. Do not build the slide-out panel until this is scheduled for implementation.
+A `[Global Variables]` button is present in the header area. Clicking it opens the globals drawer panel implemented in Sessions 48–50.
 
 ### Buttons
 
@@ -1606,22 +1640,28 @@ Two export types exist. They use different buttons, different file names, and se
 
 ### Snapshot Export — Safe to Share
 
-Strips all entity_ids, preserves role placeholders. Safe to post publicly.
+Replaces entity IDs with domain placeholders. Keeps all structure and context. Safe to post publicly.
 
 **Triggered from:** Status page `[📷 Snapshot]` button, or Editor `[📷 Snapshot]` button.
 
 **What happens:**
-1. Backend walks the piston's statement tree and sets `entity_ids: []` on every condition, action, and for_each node.
-2. `role_tokens` is stripped from every node — it contains entity_ids and variable names that are installation-specific and have no meaning in a shared Snapshot.
-3. `role` values are preserved as placeholders.
-4. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
-5. Browser downloads the file immediately. No confirmation dialog needed.
+1. Backend walks the piston's full tree (triggers, conditions, restrictions, statements recursively).
+2. On every condition, action, and for_each node: replaces `entity_ids` with `["__placeholder_<domain>__"]` where domain is derived from the first entity_id's domain prefix. If entity_ids was already empty, writes `["__placeholder_unknown__"]`. Time conditions (role: "time") and other non-device nodes with permanently empty entity_ids are left as `[]`.
+3. `role_tokens` is **kept intact** on every node — the import wizard depends on it.
+4. `compiled_value` is stripped from every condition node — installation-specific HA state strings.
+5. For device-type variables (`var_type: "device"` or `"devices"`): `initial_value` is replaced with `["__fill_devices__"]`. All other variable fields kept.
+6. Runtime fields stripped: `id` (piston wrapper), `log`, `last_ran`, `last_result`, `last_variables`, `compile_check`, `stale`, `deployed`.
+7. All other fields kept: `role`, `display_value`, `attribute`, `attribute_type`, `device_class`, `operator`, `aggregation`, `group_operator`, all statement structure, all non-device variable data.
+8. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
+9. Browser downloads the file immediately. No confirmation dialog needed.
+
+Implementation tracked in GAP-S74-4 / S2-3. Current code only empties device_map (v1 field). Full implementation required.
 
 **File naming:** `{slugified-piston-name}-snapshot.json`
 - Slug rules: lowercase, spaces → hyphens, strip all non-alphanumeric except hyphens
 - Example: "Front Door Chime" → `front-door-chime-snapshot.json`
 
-**Button appearance:** Green label — `[📷 Snapshot]` with tooltip: *"Share-safe export — entity IDs are removed."*
+**Button appearance:** Green label — `[📷 Snapshot]` with tooltip: *"Share-safe export — device IDs are replaced with placeholders."*
 
 ### Backup Export — Personal Use Only
 
@@ -1760,8 +1800,8 @@ and ready to build. The W-S19 session runs a code-vs-spec check to catch anythin
 built — use this spec as the checklist, not TASKS.md.
 
 1. **Exact backend API signatures** — to be confirmed with backend developer.
-2. **settings / end settings block contents** — do not implement until defined. See DESIGN.md Section 31.
-3. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md Section 31.
+2. **settings / end settings block contents** — do not implement until defined. See DESIGN.md §32.
+3. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md §32.
 4. **Undo/Redo** — command pattern on piston JSON history stack. Not v1 scope — deferred.
 5. **Wizard draft state recovery** — browser refresh mid-edit behavior. Not v1 scope — deferred.
 6. **Deep nesting performance** — virtual rendering strategy for 10+ levels. Not v1 scope — monitor.

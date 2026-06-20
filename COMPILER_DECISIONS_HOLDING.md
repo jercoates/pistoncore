@@ -1,6 +1,6 @@
 # PistonCore — Compiler Decisions Holding Doc
 
-**Version:** 1.1 (June 2026 — added Section E: PyScript routing decisions, verified June 2026 against PyScript 2.0.1 + HA 2026.6)
+**Version:** 1.2 (June 2026 — added Section G: unverified per-statement compile-output sketches, salvaged from retired PISTON_FORMAT_MERGED.md so they are not lost. v1.1 added Section E: PyScript routing, verified vs PyScript 2.0.1 + HA 2026.6)
 **Status:** Holding doc. Captures compiler-relevant decisions that currently live ONLY in
 the standalone action specs (SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md) so they survive
 into the compiler rewrite (D-S6). When D-S6 happens, fold these into COMPILER_SPEC.md /
@@ -294,6 +294,273 @@ expression for "Nth week of month" must be confirmed at D-S6 against real HA beh
 
 ---
 
+## G. Per-statement compile-output SKETCHES — UNVERIFIED examples
+
+**Status of this section:** LOWER confidence than A–E. These are illustrative YAML output
+sketches pulled verbatim from the retired PISTON_FORMAT_MERGED.md when it was decomposed
+(this session). They are NOT verified against a working compiler (the compiler is frozen
+until D-S6). Several contain placeholders like `[compiled statements]`. They show the
+*intended shape* of native HA output per statement type — a starting reference for the D-S6
+compiler work, not a decision and not a contract. At D-S6, validate each against actual HA
+behavior; do not lift verbatim. Field names reconcile against the Structure Map at coding time.
+
+Source: PISTON_FORMAT_MERGED.md `### Compiler Output` blocks (now retired). PyScript-routed
+types (on_event, break, cancel_pending_tasks, switch fallthrough) — see Section E for the
+verified routing; the sketches below show only the native-target shape where one exists.
+
+### action
+
+```yaml
+- alias: "stmt_001"
+  action: light.turn_on
+  target:
+    entity_id:
+      - light.living_room
+  data:
+    brightness_pct: 75
+  continue_on_error: true
+```
+
+---
+
+### do
+
+```yaml
+- alias: "stmt_002"
+  sequence:
+    [compiled statements]
+```
+
+---
+
+### if
+
+```yaml
+- alias: "stmt_003"
+  if:
+    - condition: template
+      value_template: "[compiled condition]"
+  then:
+    [compiled then statements]
+  else:
+    [compiled else statements]
+```
+
+---
+
+### switch
+
+**`case_traversal_policy: "safe"` (native HA):**
+```yaml
+- alias: "stmt_004"
+  choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ states('input_number.pistoncore_count') | int == 1 }}"
+      sequence:
+        [compiled case statements]
+  default:
+    [compiled default statements]
+```
+
+**`case_traversal_policy: "fallthrough"` (PyScript only):** Forces `compile_target: "pyscript"`. Native HA `choose` always exits after the first matching branch — fall-through is impossible. PyScript emits real Python `if/elif` blocks without early exit between branches. Compiler emits `PYSCRIPT_REQUIRED`.
+
+---
+
+### for
+
+```yaml
+- alias: "stmt_005"
+  repeat:
+    count: 10
+    sequence:
+      [compiled statements]
+```
+
+**Note:** Emits CompilerWarning if start != 1 or step != 1.
+
+---
+
+### for_each
+
+```yaml
+- alias: "stmt_006"
+  repeat:
+    for_each:
+      - sensor.smoke_detector_basement
+      - sensor.smoke_detector_kitchen
+    sequence:
+      [compiled statements — actions use target.entity_id: "{{ repeat.item }}"]
+```
+
+---
+
+### while
+
+```yaml
+- alias: "stmt_007"
+  repeat:
+    while:
+      - condition: template
+        value_template: "[compiled condition]"
+    sequence:
+      [compiled statements]
+```
+
+---
+
+### repeat
+
+```yaml
+- alias: "stmt_008"
+  repeat:
+    sequence:
+      [compiled statements]
+    until:
+      - condition: template
+        value_template: "[compiled until condition]"
+```
+
+---
+
+### every
+
+Compiles as a trigger in the automation wrapper, not as a statement in the script body.
+
+**Native HA (`compile_target: "native_script"`):**
+
+`ms`, `s`, `m`, `h` intervals with no `only_on_dom`, `only_on_wom`, or `only_on_months` filters:
+```yaml
+- trigger: time_pattern
+  minutes: "/5"
+```
+
+**PyScript forced when:** `interval_unit` is `"n"` or `"y"`, OR any of `only_on_dom`, `only_on_wom`, `only_on_months` is non-empty. Reason: native HA `time_pattern` has no day-of-month, week-of-month, or month fields.
+
+**PyScript output:** `@time_trigger("cron(min hr dom mon dow)")` using Linux crontab syntax. Restriction arrays map to comma-separated cron fields. `only_on_wom` has no direct cron equivalent and requires a runtime check inside the function body.
+
+**Routing rule:** If `interval_unit` is `"n"` or `"y"`, or `only_on_dom`/`only_on_wom`/`only_on_months` is non-empty → compiler emits `PYSCRIPT_REQUIRED` and routes to PyScript. All other cases compile natively.
+
+---
+
+### on_event
+
+PyScript only. Forces PyScript compilation via target-boundary.json.
+Native HA script compilation raises CompilerError with code `PYSCRIPT_REQUIRED`.
+
+---
+
+### break
+_(merged spec also had editor-render notes here — not compiler content)_
+
+Editor: `break;`
+Compiler: PyScript only. Native HA raises CompilerError.
+
+---
+
+### exit
+
+**Native HA:** The `value` field is dropped — HA `stop:` has no piston-state concept.
+```yaml
+- alias: "stmt_012"
+  stop: "exit"
+```
+
+**PyScript:** The `value` field can be written to a piston-state helper entity before stopping. **Design decision required at D-S6** — whether to implement this or emit `CompilerWarning: EXIT_VALUE_DROPPED` and drop it silently for both targets.
+
+---
+
+### set_variable
+
+Piston variable:
+```yaml
+- alias: "stmt_013"
+  variables:
+    message: "Hello"
+```
+
+Global variable:
+```yaml
+- alias: "stmt_013"
+  action: input_text.set_value
+  target:
+    entity_id: input_text.pistoncore_message
+  data:
+    value: "Hello"
+```
+
+---
+
+### wait_duration
+_(merged spec also had editor-render notes here — not compiler content)_
+
+Editor: `do Wait 5 minutes;`
+
+```yaml
+- alias: "stmt_014"
+  delay:
+    minutes: 5
+```
+
+---
+
+### wait_until
+_(merged spec also had editor-render notes here — not compiler content)_
+
+Editor: `do Wait until 11:00 PM;`
+
+```yaml
+- alias: "stmt_015"
+  wait_for_trigger:
+    - trigger: time
+      at: "23:00:00"
+  timeout:
+    minutes: 60
+  continue_on_timeout: true
+```
+
+Always emits CompilerWarning. `timeout` defaults to 1 hour.
+
+---
+
+### wait_for_state
+
+```yaml
+- alias: "stmt_015b"
+  wait_template: "[compiled condition template]"
+  timeout:
+    seconds: 300
+  continue_on_timeout: true
+```
+
+---
+
+### log_message
+
+```yaml
+- alias: "stmt_016"
+  event: PISTONCORE_LOG
+  event_data:
+    piston_id: "a3f8c2d1"
+    message: "Piston ran successfully"
+    level: "info"
+```
+
+---
+
+### call_piston
+
+```yaml
+- alias: "stmt_017"
+  action: script.pistoncore_b7e2a1f4
+```
+
+If `wait_for_completion: true` with native script target → CompilerError.
+
+---
+
+---
+
 ## F. Retirement
 
 When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–E
@@ -301,3 +568,5 @@ verbatim-faithful from SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md, and this fil
 COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md, resolve the Section D open items against
 the backend code, then delete this holding doc. Until then, this file is the single place
 those compiler decisions are collected outside the (frozen) compiler specs.
+
+**Section G (compile-output sketches)** is reference only — at D-S6, validate each sketch against real HA output and the Structure Map; do not carry any sketch forward unverified. It is the lowest-confidence content in this file.

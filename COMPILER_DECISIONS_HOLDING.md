@@ -48,6 +48,29 @@ compiler, debug-page errors, Jinja2-everywhere). Field names are NOT preserved a
    compiler may pull live HA at compile time (engine selection, device compatibility,
    target resolution) to make its hidden translation correct, but those lookups only shape
    what it emits.
+6. **Entity resolution happens at COMPILE, with a prior-YAML grep fallback for devices that
+   are dark at compile time.** Under the name+capability storage model, the JSON stores
+   `role` (friendly name) + `attribute` (capability) + `role_tokens`, NEVER a resolved
+   `entity_id`. The compiler resolves token+capability → live entity at compile:
+   - **Happy path:** resolve against live HA (`get_states`). HA is queried every compile and
+     is the source of truth for the resolution.
+   - **Fallback (offline/unavailable device — e.g. dead battery, Zigbee dropout, integration
+     reloading):** if a device in the node does NOT resolve live *this* run, the compiler
+     greps the EXISTING deployed YAML/PyScript for the `entity_id` previously written for that
+     name+capability, and reuses it — BEFORE overwriting the file. The ID lives durably in the
+     compiled artifact (where execution detail belongs), not in the JSON. A temporarily-dark
+     device keeps the ID it already had and the piston still compiles whole.
+   - This does NOT violate A1/read-only: the grep reads the prior *output artifact* for an ID
+     to carry forward, and writes the ID into the *new YAML only*. The intent JSON is never
+     written to. (Earlier worry that this "couples compile to prior output" was wrong — it's
+     ID continuity in the execution artifact, which is exactly where IDs are supposed to live.)
+   - **No silent drop, no placeholder, no partial output.** If a device resolves neither live
+     NOR from the prior YAML (genuinely new device never compiled, or first compile with the
+     device dark), that's a real unresolvable error → A2 debug-page error naming the device.
+   - Edit-side counterpart (wizard, not compiler): on edit the device list re-populates from
+     `role_tokens` and a token persists regardless of live availability — an offline device is
+     never pruned from a node by editing; only explicit user removal drops it. This is what
+     guarantees the token (and thus the prior-YAML ID) is still there for the grep on recompile.
 
 ---
 

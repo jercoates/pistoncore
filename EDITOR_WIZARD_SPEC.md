@@ -102,8 +102,8 @@ Footer shows: `Compiling...` / `Compiled ✓` / `Error ✗` (click to view). Bac
 `[VERIFIED: FRONTEND_SPEC.md — Compile Status Indicator]`
 
 ### §1.7 PyScript Requirement Indicator
-If `compile_target` is `"pyscript"` on the saved piston and PyScript is not detected in HA, show a subtle warning: *"PyScript required — install via HACS before deploying. [Learn more →]"*
-The editor reads `compile_target` from the backend-returned piston. **The editor does NOT determine what forces PyScript — that is the backend's job.**
+If the backend returns `compile_target` as `"pyscript"` in the API response and PyScript is not detected in HA, show a subtle warning: *"PyScript required — install via HACS before deploying. [Learn more →]"*
+The editor reads `compile_target` from the backend API response — it is computed on demand, not stored in the piston JSON. **The editor does NOT determine what forces PyScript — that is the backend's job.**
 `[VERIFIED: FRONTEND_SPEC.md — PyScript Requirement Indicator]`
 
 ### §1.8 Corrupt / Invalid Piston Loading

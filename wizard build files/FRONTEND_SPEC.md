@@ -1,11 +1,10 @@
 # PistonCore Frontend Specification
 
-**Version:** 1.8
-**Status:** Authoritative — Screen layouts, navigation, chrome, help system, and AI prompt system
-**Last Updated:** June 2026 (Spec audit session — Import Dialog completely rewritten to match three-case import flow (piston variable fill / global match / direct device map) per DESIGN.md §6.11; format detection corrected to use placeholder presence not empty entity_ids; stale role_tokens-stripped claim removed; Snapshot Export section rewritten: entity_ids replaced with placeholders not emptied, role_tokens kept not stripped, compiled_value stripped, device variable initial_value gets __fill_devices__ marker, GAP-S74-4 not-yet-implemented notice added; Global Variables Drawer "not yet implemented" note removed (implemented Sessions 48-50); piston list wireframe updated to include [? Help] and [Browse Library] buttons. Prior: June 2026 — Help system fully specced, Built-in Library specced, editor/wizard content moved to WIZARD_SPEC.md.)
+**Version:** 1.9
+**Status:** Authoritative — screen layouts, navigation, chrome, help system, AI prompt system
 
 This document covers what the screens look like and how pages connect. It does NOT describe
-what the editor renders or how the wizard behaves — those are in WIZARD_SPEC.md.
+what the editor renders or how the wizard behaves — those are in EDITOR_WIZARD_SPEC.md.
 
 Read DESIGN.md first for background and philosophy.
 
@@ -15,14 +14,14 @@ indentation, how each statement reads on screen) and the statement-building flow
 builder, pickers, operand widget, step sequence). A WebCoRE user should recognize the rendered
 piston and the building flow immediately. The match is at the glass — the visible output —
 and says nothing about the JSON behind it: the render function reads PistonCore JSON
-(PISTON_FORMAT.md) and draws WebCoRE-familiar text. The **page furniture around the code** —
+(PISTON_JSON_STRUCTURE_MAP.md) and draws WebCoRE-familiar text. The **page furniture around the code** —
 piston-name field, header, button placement, save/deploy buttons, folder dropdown, surrounding
 layout — is PistonCore's own and does not need to match WebCoRE. PistonCore's own areas
 (dark-mode theme, font, the piston-list and status/debug/log screens, globals-from-the-top-bar)
 are first-class choices, not deviations needing justification.
 
 **Scope boundary:** If it lives on the editor canvas (action tree, ghost text, statement
-rendering, wizard modal, device picker, condition builder) → WIZARD_SPEC.md. If it is
+rendering, wizard modal, device picker, condition builder) → EDITOR_WIZARD_SPEC.md. If it is
 navigation, a screen layout, a button on a page header, an error message, a protocol
 message, or a settings field → this document.
 
@@ -52,7 +51,7 @@ projection from that structure. This rule has no exceptions.**
 
 The editor never stores display text. It never reads display text. It renders display
 text from structured JSON on every paint using render functions defined in
-PISTON_FORMAT.md (statement type schemas) and WIZARD_SPEC.md (editor rendering rules). The same render functions produce the Snapshot preview on export —
+PISTON_JSON_STRUCTURE_MAP.md (statement type schemas) and EDITOR_WIZARD_SPEC.md (editor rendering rules). The same render functions produce the Snapshot preview on export —
 guaranteeing the preview always matches exactly what the editor shows. The Snapshot
 export format is structured JSON, not piston_text. piston_text is not a v1 format.
 
@@ -298,48 +297,44 @@ Each piston shows on a single row:
 
 ### Global Variables Drawer
 
-A `[Global Variables]` button is present in the header area. Clicking it opens the globals drawer panel implemented in Sessions 48–50.
+A `[Global Variables]` button is present in the header area. Clicking it opens the globals drawer panel.
 
 ### Buttons
 
 - `[+ New]` — creates a new blank piston and navigates to its Status Page. Lands in Uncategorized.
 - `[+ New Folder]` — opens inline text input at the bottom of the list
 - `[Import]` — opens import dialog (paste JSON, paste URL, or upload .piston file)
-- `[AI Help]` — opens the AI Help modal (see below)
+- `[Copy AI Prompt]` — copies the write_a_piston prompt to the clipboard (see AI Prompt below). Button changes to `[Copied ✓]` for 2 seconds.
+- `[? Help]` — opens the Help modal (see Help System below). **Not yet built.**
+- `[Browse Library]` — opens the Built-in Library modal (see Built-in Piston Library below). **Not yet built.**
 
-### AI Help Modal
+### AI Prompt — Copy a Piston-Writing Prompt
 
-The AI Help button on the main menu opens a modal with user-facing AI prompts. v1 contains one prompt: **Write a Piston**.
+PistonCore provides an AI prompt the user can copy and paste into any AI assistant
+(ChatGPT, Claude, Gemini, etc.) to generate a piston from a plain-English description.
+The AI returns importable JSON with role placeholders and empty entity_ids; the user
+loads it through the Import dialog, and the role-mapping picker binds real devices. **The
+AI never generates device data** — the picker is the authoritative source for entity_ids,
+not an AI.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  AI Help — Write a Piston                       [✕] │
-├─────────────────────────────────────────────────────┤
-│  Copy this prompt and paste it into any AI          │
-│  assistant (ChatGPT, Claude, Gemini, etc.).         │
-│  Then describe what you want your piston to do.     │
-│  When the AI gives you JSON, come back and use      │
-│  the Import button on this page to load it.         │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐   │
-│  │ [prompt text — read only, scrollable]       │   │
-│  │                                             │   │
-│  │                                             │   │
-│  └─────────────────────────────────────────────┘   │
-│                                                     │
-│                        [Copy to Clipboard] [Close]  │
-└─────────────────────────────────────────────────────┘
-```
+**The presentation mechanism is not yet designed.** The current build surfaces this as a
+`[Copy AI Prompt]` button in the piston-list header (one-click copy, button changes to
+`[Copied ✓]` for 2 seconds). Whether the final design is a one-click copy, a modal with a
+read-only prompt area, or something else is **an open design decision — do not treat the
+current button as the locked design.**
 
-**Behavior:**
-- Modal opens centered, backdrop transparent (matches wizard style)
-- Prompt text area is read-only and scrollable — user cannot edit it
-- `[Copy to Clipboard]` copies the full prompt text, button changes to `[Copied ✓]` for 2 seconds
-- `[Close]` or `[✕]` closes with no action
-- Prompt content is fetched from `GET /api/prompts/write-a-piston` — backend serves the file content; where it is stored is a backend implementation detail
-- If the fetch fails, show: *"Prompt unavailable — check your connection and try again."*
+**What is decided (stable regardless of presentation):**
+- Prompt content is fetched from `GET /api/prompts/write_a_piston` — backend serves the
+  file content; where it is stored is a backend implementation detail.
+- The copied/displayed prompt text is read-only — the user never edits it in PistonCore.
+- On copy success: confirmation feedback (e.g. `[Copied ✓]`) for ~2 seconds.
+- On fetch failure: *"Prompt unavailable — check your connection and try again."*
 
-**Future prompt options** (not v1 scope) will appear as tabs or a dropdown inside this same modal. Do not build the tab structure until a second prompt exists.
+**Future prompt options** (not v1 scope): additional prompts beyond write_a_piston are
+anticipated (see HELP_AND_DEVIATIONS_PROTO.md — the `→ AI PROMPT` entries seed these).
+How multiple prompts are presented (tabs, dropdown, list) is **part of the same
+undesigned mechanism above** — do not build a multi-prompt structure until both a second
+prompt exists and the presentation is designed.
 
 ---
 
@@ -405,11 +400,13 @@ A `[? Help]` button appears in the piston list header alongside `[+ New]`. Click
 - If a fetch fails: show *"Help content unavailable — check your connection."*
 - Markdown is rendered as standard HTML (headings, paragraphs, lists, code blocks, bold, italic)
 
-### AI Help Modal — Write a Piston
+### AI Prompt in the Getting-Started Path
 
-The `[AI Help]` button on the piston list opens the AI Help modal (existing spec). The prompt content is fetched from `GET /api/prompts/write_a_piston`. The prompt generates automation logic as importable JSON with role placeholders and empty entity_ids. **The AI never generates device data.** The user imports the JSON and the role-mapping picker handles all device binding against live HA. This is the correct path — the picker is the authoritative source for entity_ids, not an AI.
-
-The `getting_started.md` help file walks the full AI-assisted path: use the AI prompt → import JSON → map devices with the picker → done. This gives users who find the editor intimidating a complete working path.
+The AI prompt (see AI Prompt — Copy a Piston-Writing Prompt above) is the entry point for
+users who find the editor intimidating. The `getting_started.md` help file walks the full
+AI-assisted path: copy the AI prompt → paste into any AI → import the returned JSON → map
+devices with the picker → done. This gives a complete working path that never requires the
+user to build a piston by hand.
 
 ### Help Links from the Debug/Compile Panel
 
@@ -674,7 +671,7 @@ Single global toggle. **Default is Advanced.**
 
 Mode preference saved to localStorage (`pc_simpleMode`).
 
-What each mode shows and hides is specified in **WIZARD_SPEC.md** (Simple vs Complex Mode section). Switching modes never destroys data.
+What each mode shows and hides is specified in **EDITOR_WIZARD_SPEC.md** (Simple vs Complex Mode section). Switching modes never destroys data.
 
 ### PyScript Requirement Indicator
 
@@ -738,17 +735,17 @@ If the WebSocket connection to HA drops:
 
 ---
 
-## Editor and Wizard — See WIZARD_SPEC.md
+## Editor and Wizard — See EDITOR_WIZARD_SPEC.md
 
 All editor rendering behavior (action tree visual rules, keyword highlighting, ghost text,
 simple/advanced mode, right-click context menu, drag to reorder, with-block/task rendering,
 define block display rules, role label display, aggregation display, inline validation
 warnings, global variable visual distinction) and all wizard modal behavior (modal lifecycle,
 device picker, condition builder, operator order, aggregation selector, wizard JavaScript
-architecture, shared state) are specified in **WIZARD_SPEC.md**.
+architecture, shared state) are specified in **EDITOR_WIZARD_SPEC.md**.
 
 This document covers screen layouts and chrome only. Anything the editor canvas renders
-belongs in WIZARD_SPEC.md, not here.
+belongs in EDITOR_WIZARD_SPEC.md, not here.
 
 ---
 
@@ -779,7 +776,7 @@ Backend endpoints the frontend uses:
 - `DELETE /api/clipboard` — clear clipboard
 - `WebSocket /ws` — live log updates, trace data, run status, deploy status events
 
-The capability map (which operators are valid for which attribute types) lives in the frontend. Binary sensor friendly labels come from the device_class lookup table in WIZARD_SPEC.md — not from HA. The backend provides raw HA data. The frontend applies the map.
+The capability map (which operators are valid for which attribute types) lives in the frontend. Binary sensor friendly labels come from the device_class lookup table in EDITOR_WIZARD_SPEC.md — not from HA. The backend provides raw HA data. The frontend applies the map.
 
 ---
 
@@ -803,9 +800,9 @@ the way WebCoRE users expect; the colors, theme, and font are PistonCore's choic
 
 ---
 
-## Editor Rendering Rules — See WIZARD_SPEC.md
+## Editor Rendering Rules — See EDITOR_WIZARD_SPEC.md
 
-Role label generation, role rendering in curly braces, aggregation display (Any of / All of / None of), aggregation→compiler→HA output table, inline validation feedback (⚠ warnings on statement rows), and global variable visual distinction (@prefix in labels) are all specified in **WIZARD_SPEC.md**.
+Role label generation, role rendering in curly braces, aggregation display (Any of / All of / None of), aggregation→compiler→HA output table, inline validation feedback (⚠ warnings on statement rows), and global variable visual distinction (@prefix in labels) are all specified in **EDITOR_WIZARD_SPEC.md**.
 
 ---
 
@@ -1051,7 +1048,7 @@ console for debugging only.
 Every piston row in the piston list has a state driven by the `piston_index.json` entry.
 Multiple state flags can coexist — the row shows the highest-priority indicator.
 
-Priority order (highest first): `orphaned` > `entity_missing` > `manually_edited` > `stale_globals` > `compile_error` > `disabled` > `never_deployed` > `healthy`
+Priority order (highest first): `orphaned` > `entity_missing` > `manually_edited` > `compile_error` > `disabled` > `never_deployed` > `healthy`
 
 ### State Definitions and Display
 
@@ -1074,13 +1071,6 @@ Priority order (highest first): `orphaned` > `entity_missing` > `manually_edited
 - Status column: `—`
 - Timestamp column: `Never` or last run time if it was previously enabled
 - Appended to name in muted text: `(disabled)`
-
-**stale_globals — a Device/Devices global this piston uses was changed**
-- Indicator: `⚠` (amber/orange)
-- Name unchanged
-- Tooltip: *"Device list outdated — global '[name]' was changed. Redeploy to update."*
-- `[Redeploy]` quick action button on row hover
-- This is distinct from entity_missing. The piston is running but with the old device list baked in.
 
 **entity_missing — one or more entity_ids no longer exist in HA**
 - Indicator: `⚠` (amber/orange)
@@ -1148,9 +1138,6 @@ Each banner has an `[✕]` to dismiss for the current session (they reappear on 
 
 **Manually edited banner**:
 *"⚠ This piston's compiled file was edited manually. PistonCore will overwrite it on next deploy."*
-
-**Stale globals banner**:
-*"⚠ Device list outdated — '[global name]' was changed. Redeploy to update."* `[Redeploy Now]`
 
 **Entity missing banner**:
 *"⚠ 'binary_sensor.front_door' (role: Front Door) no longer exists in Home Assistant. Edit to fix."* `[✎ Edit]`
@@ -1537,36 +1524,76 @@ My Device Definitions                    [+ Add Definition]
 
 ### Global Variables Section
 
+Globals are PistonCore variables shared across pistons. Unlike piston (local) variables —
+which belong to a single piston and live in that piston's JSON — globals live **outside the
+JSON as a shared list** (a global is used by many pistons, so it cannot belong to any one
+piston's JSON). Globals are reachable from any screen via the header `[Global Variables]`
+button (hardware/modal permitting), not only from Settings.
+
+At the picker and JSON level, **device globals behave identically to local device
+variables** — same picker, same handling of entity_ids written into the JSON. That
+mechanism is specified in EDITOR_WIZARD_SPEC.md and is not restated here.
+
+**Types use WebCoRE names.** The wizard presents WebCoRE's variable types (integer,
+decimal, string, boolean, datetime, device) — the same vocabulary used everywhere in
+PistonCore. **Translating a WebCoRE type to whatever Home Assistant needs is the
+compiler's job** (out of scope for this document) — the compiler makes HA match the
+piston's intent. This document never names HA input helpers or their entity-id formats;
+that is a compiler concern.
+
 ```
 Global Variables                              [+ New Global]
 ─────────────────────────────────────────────────────────────
-  @Exterior_Doors     Devices     3 entities    [✎] [🗑]
-  @Motion_Count       Number      12            [✎] [🗑]
-  @Night_Mode         Yes/No      off           [✎] [🗑]
+  @Exterior_Doors     device      3 entities    [✎] [🗑]
+  @Motion_Count       integer     12            [✎] [🗑]
+  @Night_Mode         boolean     off           [✎] [🗑]
 ```
 
-Columns: internal name (@ prefix), type, current value (or entity count for Device/Devices), edit, delete.
+Columns: internal name (@ prefix), WebCoRE type, current value (or entity count for device
+type), edit, delete.
 
 **[+ New Global]** opens an inline form:
 ```
 Name:    [@_______________]    (@ prefix always shown — user types the rest)
-Type:    [Number ▼]
+Type:    [integer ▼]            (WebCoRE type names)
 Default: [0              ]
          [Create Global]  [Cancel]
 ```
 
 - Name validation: lowercase, underscores only, no spaces. Error shown inline if violated.
-- `@ prefix` is always prepended — the user cannot create a global without the @ prefix
-- After create: the new global appears in the list immediately. For non-device types, HA input helper is created via REST API.
-- If HA is disconnected: block creation with message *"Can't create global — HA disconnected. Input helpers require a connection to HA."*
+- `@ prefix` is always prepended — the user cannot create a global without the @ prefix.
+- After create, the new global appears in the list immediately.
+- If HA is disconnected: block creation with message *"Can't create global — HA
+  disconnected. Try again when reconnected."*
 
-**[✎ Edit]** for a Device or Devices global opens the device picker inline — same picker as the wizard.
-**[✎ Edit]** for a non-device global opens an inline value field. Saving updates the HA helper.
-**Display name edit:** Display name is editable (separate from internal name). Click the name to edit inline. Display name changes do not affect the HA helper entity ID.
+**[✎ Edit]** for a device global opens the device picker inline — same picker as the wizard.
+**[✎ Edit]** for a non-device global opens an inline value field.
+**Display name edit:** Display name is editable (separate from internal name). Click the
+name to edit inline.
+
+**On save — deploy choice.** Because a global is used by multiple pistons, editing one can
+affect every piston that references it. When the user saves a global edit, a prompt appears:
+
+```
+┌─────────────────────────────────────────────────┐
+│  '@Exterior_Doors' is used by 3 pistons.        │
+│  Update them now, or deploy each yourself later? │
+│                                                  │
+│        [Update all now]    [I'll deploy later]   │
+└─────────────────────────────────────────────────┘
+```
+
+- **[Update all now]** — auto-deploys every piston that references this global.
+- **[I'll deploy later]** — saves the global; the user deploys affected pistons manually.
+
+**Reference tracking** — each global tracks which pistons reference it, so the deploy
+prompt knows what is affected and updates can propagate. **OPEN — mechanism not yet
+decided:** how the reference list stays current when a piston starts or stops referencing a
+global (candidate approach: update the list at piston save). To be designed.
 
 **[🗑 Delete]:**
-- For Device/Devices globals: *"Delete '@Exterior_Doors'? 3 pistons reference it. Those pistons will need to be edited to remove the reference."* `[Delete]` `[Cancel]`
-- For non-device globals: same warning plus: *"The HA input helper 'input_number.pistoncore_[id]' will also be deleted from Home Assistant."*
+- *"Delete '@Exterior_Doors'? 3 pistons reference it. Those pistons will need to be edited
+  to remove the reference."* `[Delete]` `[Cancel]`
 
 ---
 
@@ -1693,7 +1720,7 @@ Preserves all entity_ids intact. Not safe to share publicly.
 
 ### Restore / Import
 
-Both Snapshot and Backup files import through the same Import dialog (FRONTEND_SPEC.md Import Dialog section). Format is auto-detected by checking whether any node has non-empty `entity_ids`.
+Both Snapshot and Backup files import through the same Import dialog (FRONTEND_SPEC.md Import Dialog section). Format is auto-detected by checking whether any node has a placeholder in `entity_ids` (any entry matching `__placeholder_*`) — see Format Detection above.
 
 **Backup restore — ID behavior:**
 When importing a Backup file, show a choice before saving:
@@ -1724,16 +1751,6 @@ Default selection is "Import as new copy" — safer for most scenarios.
 
 ---
 
-## Post-Implementation — Resolved Open Items
-
-These items from earlier versions of this spec are now implemented:
-
-- Vertical structure lines — implemented (Session 47)
-- GlobalsDrawer panel — implemented (Sessions 48-50)
-- Global variable management UI — implemented (Sessions 48-50)
-
----
-
 ## Future Spec — Fast Pre-Check Validation (Post-v1)
 
 **Status:** Deferred to post-v1. Not a v1 requirement. The compile-time MISSING_ENTITY
@@ -1757,56 +1774,40 @@ test (S3-1) has passed.
 
 ---
 
-## Grok Frontend Audit Findings — May 2026
+## Post-v1 Hardening
 
-Grok ran an in-depth analysis of the frontend codebase (Session 69). Overall assessment:
-frontend is impressively solid for vanilla JS of this complexity. Architecture is very
-AI-friendly. No structural changes recommended. All findings below are noted for future
-work — none are blocking v1.
-
-### Noted for Post-v1 (no action required now)
+Non-blocking for v1. Address before public release.
 
 - **_esc() consistency** — the _esc() sanitization helper exists but its usage is not
   100% consistent across all raw HTML insertions. Audit all innerHTML assignments
   before v1 public release.
-- **sessionStorage for API key** — acceptable for same-origin. Noted as an XSS
-  surface if the application is ever exposed to untrusted content. Not a concern
-  for the current local-only deployment model.
+- **sessionStorage for API key** — acceptable for same-origin. An XSS surface if the
+  application is ever exposed to untrusted content. Not a concern for the current
+  local-only deployment model.
 - **Full re-renders on editor operations** — _render() is called on many operations.
   Acceptable for v1 scale. Consider targeted partial re-renders for deeply nested
   pistons if lag becomes observable.
 - **Google Fonts import** — consider self-hosting or switching to system fonts for
-  offline/air-gapped HA installs. Not a v1 blocker.
-- **No CSP in index.html** — Content Security Policy would add a layer of XSS
-  protection. Noted for security hardening pass post-v1.
+  offline/air-gapped HA installs.
+- **No CSP in index.html** — Content Security Policy would add a layer of XSS protection.
 - **No ARIA labels** on many interactive elements (drag handles, context menus, wizard
   steps). Accessibility pass deferred to post-v1.
-- **No test suite** — Grok recommended a small set of golden sample pistons with a
-  basic compile-check script. Low effort, high value. Deferred but encouraged.
-
-### Already Handled / Not Applicable
-
-- Nested tree migration — confirmed solid per Grok.
-- _normalizePiston() — critical and present.
-- IIFE pattern + shared globals — intentional, works correctly at current scale.
-- All HA communication through backend — confirmed. Security invariant holds.
+- **No test suite** — a small set of golden sample pistons with a basic compile-check
+  script. Low effort, high value.
 
 ---
 
 ## Open Items — Not Yet Defined
 
 Do not implement these until they are decided. Everything else in this spec is fully defined
-and ready to build. The W-S19 session runs a code-vs-spec check to catch anything not yet
-built — use this spec as the checklist, not TASKS.md.
+and ready to build.
 
 1. **Exact backend API signatures** — to be confirmed with backend developer.
-2. **settings / end settings block contents** — do not implement until defined. See DESIGN.md §32.
-3. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step. See DESIGN.md §32.
-4. **Undo/Redo** — command pattern on piston JSON history stack. Not v1 scope — deferred.
-5. **Wizard draft state recovery** — browser refresh mid-edit behavior. Not v1 scope — deferred.
-6. **Deep nesting performance** — virtual rendering strategy for 10+ levels. Not v1 scope — monitor.
-7. **Keyboard navigation** — arrow keys, Enter to edit, Delete. Not v1 scope — deferred.
-8. **Mobile/tablet responsiveness** — desktop-first in v1. Deferred.
+2. **Undo/Redo** — command pattern on piston JSON history stack. Not v1 scope — deferred.
+3. **Wizard draft state recovery** — browser refresh mid-edit behavior. Not v1 scope — deferred.
+4. **Deep nesting performance** — virtual rendering strategy for 10+ levels. Not v1 scope — monitor.
+5. **Keyboard navigation** — arrow keys, Enter to edit, Delete. Not v1 scope — deferred.
+6. **Mobile/tablet responsiveness** — desktop-first in v1. Deferred.
 
 ---
 

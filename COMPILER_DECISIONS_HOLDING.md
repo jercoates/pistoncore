@@ -1,6 +1,6 @@
 # PistonCore — Compiler Decisions Holding Doc
 
-**Version:** 1.2 (June 2026 — added Section G: unverified per-statement compile-output sketches, salvaged from retired PISTON_FORMAT_MERGED.md so they are not lost. v1.1 added Section E: PyScript routing, verified vs PyScript 2.0.1 + HA 2026.6)
+**Version:** 1.3 (June 2026 — added Section C-TYPES: WebCoRE variable type → HA storage translation reference, for the compiler's type-translation job. v1.2 added Section G: unverified per-statement compile-output sketches, salvaged from retired PISTON_FORMAT_MERGED.md so they are not lost. v1.1 added Section E: PyScript routing, verified vs PyScript 2.0.1 + HA 2026.6)
 **Status:** Holding doc. Captures compiler-relevant decisions that currently live ONLY in
 the standalone action specs (SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md) so they survive
 into the compiler rewrite (D-S6). When D-S6 happens, fold these into COMPILER_SPEC.md /
@@ -191,7 +191,47 @@ against the live Companion App docs.
 
 ---
 
+## C-TYPES. GLOBAL / VARIABLE TYPE TRANSLATION — WebCoRE type → HA storage (compiler reference)
+
+The wizard presents WebCoRE's variable type names (the vocabulary the user works in).
+Translating a WebCoRE type to whatever Home Assistant actually needs is the compiler's
+job — the compiler makes HA match the piston's intent. This section is the behavior map
+for that translation. **Map by behavior, NOT by name — WebCoRE and HA names do not
+reliably match.** This applies to globals and to local variables alike (same types; globals
+just live in the shared external list instead of the piston JSON).
+
+| WebCoRE type (user-facing, what value it holds) | HA storage by behavior | Name-mismatch caution |
+|---|---|---|
+| integer (whole numbers; decimals floored) | `input_number` | HA has ONE numeric helper — no separate integer/decimal. Use mode/min/max/step. |
+| decimal / float (fractional numbers) | `input_number` | Same single HA helper as integer — WebCoRE's two numeric types collapse to one. |
+| string / text | `input_text` | — |
+| boolean (true/false) | `input_boolean` | HA values are `on`/`off`, NOT `true`/`false`. Do not map by the word "boolean." |
+| datetime / date / time (three WebCoRE types) | `input_datetime` | ONE HA helper with `has_date` / `has_time` flags covers all three. |
+| device (list of device IDs) | NOT an input helper | Picker / entity-id-in-JSON path — identical to local device variables (see EDITOR_WIZARD_SPEC.md). HA has no "device variable" helper. |
+
+**Key points:**
+- WebCoRE's ~7 value types collapse to **4 HA input helpers + the device-picker path**.
+- The three traps that break name-based mapping: boolean → on/off (not true/false);
+  date/time/datetime → one `input_datetime` (not three); integer+decimal → one
+  `input_number` (not two).
+- Device globals are NOT input helpers — they use the existing picker/entity-id mechanism,
+  identical to local device variables. (See Section A6 for entity resolution.)
+- Globals are any of these types with an `@` prefix, shared across pistons. WebCoRE also
+  has superglobals (`@@` prefix) shared across instances — note for future scope, not v1
+  (PistonCore collapses the broker to a single local HA instance, so cross-instance
+  superglobals have no v1 role).
+- The `set_variable` compile sketch in Section G shows the global-write shape
+  (`input_text.set_value` against `input_text.pistoncore_*`) — that example's helper choice
+  must agree with this table at D-S6 (a string global → `input_text`).
+
+**Source:** WebCoRE variable data types confirmed from wiki.webcore.co (Variable_data_types,
+Variable, Functions) and the ady624/webCoRE Groovy source; HA helper behavior from HA helper
+documentation. Verify live at D-S6 — HA helper capabilities move over time.
+
+---
+
 ## D. OPEN — not decided, do not treat as settled at D-S6
+
 
 - **NOTIFY target_ref vs task-parameters placement.** WITH_BLOCK_TASK_FRAMEWORK.md §4 leans
   toward putting the target in task parameters with empty entity_ids, but this was NOT
@@ -319,7 +359,7 @@ expression for "Nth week of month" must be confirmed at D-S6 against real HA beh
 
 ## G. Per-statement compile-output SKETCHES — UNVERIFIED examples
 
-**Status of this section:** LOWER confidence than A–E. These are illustrative YAML output
+**Status of this section:** LOWER confidence than A–E and C-TYPES. These are illustrative YAML output
 sketches pulled verbatim from the retired PISTON_FORMAT_MERGED.md when it was decomposed
 (this session). They are NOT verified against a working compiler (the compiler is frozen
 until D-S6). Several contain placeholders like `[compiled statements]`. They show the
@@ -586,7 +626,7 @@ If `wait_for_completion: true` with native script target → CompilerError.
 
 ## F. Retirement
 
-When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–E
+When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–E (and C-TYPES)
 verbatim-faithful from SPEAK_ACTION_SPEC.md, NOTIFY_ACTION_SPEC.md, and this file into
 COMPILER_SPEC.md / PYSCRIPT_COMPILER_SPEC.md, resolve the Section D open items against
 the backend code, then delete this holding doc. Until then, this file is the single place

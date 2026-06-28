@@ -29,7 +29,7 @@ and propose the fix rather than silently coding around it.
 This set will GROW as we work through the code. More spec files will be added; when one is,
 it joins this list as authoritative. The current live set:
 
-- **DESIGN.md** — background, philosophy, the why. Read first for context.
+- **DESIGN.md** — background, philosophy, the why. Read first for context. **Known to contain errors — never treat it as technical authority on specifics. Any claim from DESIGN.md must be verified against the other specs before acting on it.**
 - **PISTON_JSON_STRUCTURE_MAP.md** — the locked data dictionary for the piston JSON.
   What the JSON stores and how it's shaped. This is the authority for JSON shape; do not
   guess at structure, look it up here.

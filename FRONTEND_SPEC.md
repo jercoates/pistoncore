@@ -429,7 +429,7 @@ When `compile_target` is `"pyscript"` on the saved piston, the Test Compile pane
 └─────────────────────────────────────────────────────┘
 ```
 
-- This notice is set by the backend on save — the frontend reads `compile_target` off the piston wrapper and shows the notice if it is `"pyscript"`
+- The backend computes `compile_target` from the piston's statement types and returns it in the API response — the frontend reads it from there and shows the notice if it is `"pyscript"`
 - The frontend does NOT determine what forces PyScript — that is the backend's job
 - On Docker: always shown when `compile_target` is `"pyscript"`
 - On Addon v2+: suppressed (native runtime replaces PyScript)
@@ -727,7 +727,7 @@ Never show "Running..." indefinitely.
 └─────────────────────────────────────────────────────┘
 ```
 
-**Compile target** is not shown in the editor. It is a compiler-owned value set automatically on every save and is shown only on the Test Compile / debug page. The editor shows a PyScript notification only when a statement forces PyScript (see PyScript Requirement Indicator below).
+**Compile target** is not shown in the editor. It is computed on demand by the backend routing analysis from the piston's statement types — not stored in the piston JSON. The backend returns it as a computed field in API responses. The editor shows a PyScript notification only when a statement forces PyScript (see PyScript Requirement Indicator below).
 
 ### editor-doc div
 
@@ -756,7 +756,7 @@ If the current piston requires PyScript (`compile_target` is `"pyscript"` on the
 - Show a subtle warning below the compile target indicator
 - Text: *"PyScript required — install via HACS before deploying. [Learn more →]"*
 - The `[Learn more →]` link opens the Help modal to the `pyscript.md` tab
-- `compile_target` is set by the **backend on save** — the editor reads it from the returned piston, it does not determine routing itself
+- `compile_target` is computed on demand by the backend — the editor reads it from the API response, it does not determine routing itself
 - On Docker: always shown when `compile_target` is `"pyscript"` until PyScript is confirmed installed
 - On Addon v2+: suppress this indicator entirely (native runtime replaces PyScript)
 

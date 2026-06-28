@@ -40,14 +40,17 @@ Top-level container. Not a statement node.
 {
   "id": "uuid", "name": "string", "description": "string|null", "folder": "string|null",
   "mode": "single", "enabled": true, "logic_version": 2, "ui_version": 1,
-  "compile_target": "native_script", "created_at": "ISO8601", "modified_at": "ISO8601",
+  "created_at": "ISO8601", "modified_at": "ISO8601",
   "variables": [], "triggers": [], "conditions": [], "restrictions": [], "statements": []
 }
 ```
 `[VERIFIED: editor.js _normalizePiston, _renderDocument; sample pistons]`
 
-Note: `compile_target` is written by the compiler, never the user. It is stored here but
-its *value* is a compiler decision. `[VERIFIED: PISTON_FORMAT line 121]`
+Note: `compile_target` is **NOT stored in the piston JSON.** It is computed on demand by
+the backend routing analysis from the piston's statement types. The backend returns it as
+a computed field in API responses where the frontend needs it (status page, editor PyScript
+indicator) but never writes it into the stored piston file. `[DECISION: Jeremy — removed
+from storage; derived data does not belong in the source JSON]`
 
 Array order:
 - `variables[]` — **ordered: YES** — declaration/initialization sequence. `[VERIFIED: editor.js renders variables first]` `[ASSUMED: init ordering significant, RISK low]`

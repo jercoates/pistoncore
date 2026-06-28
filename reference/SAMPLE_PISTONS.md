@@ -31,7 +31,6 @@ These three examples cover the patterns most likely to surface compiler bugs:
   "enabled": true,
   "logic_version": 2,
   "ui_version": 1,
-  "compile_target": "native_script",
   "created_at": "2026-05-01T00:00:00Z",
   "modified_at": "2026-05-01T00:00:00Z",
   "variables": [],
@@ -171,7 +170,6 @@ pistoncore_aa000001:
   "enabled": true,
   "logic_version": 2,
   "ui_version": 1,
-  "compile_target": "native_script",
   "created_at": "2026-05-01T00:00:00Z",
   "modified_at": "2026-05-01T00:00:00Z",
   "variables": [],
@@ -327,7 +325,6 @@ service to all entities simultaneously. Neither is expanded into multiple blocks
   "enabled": true,
   "logic_version": 2,
   "ui_version": 1,
-  "compile_target": "pyscript",
   "created_at": "2026-05-01T00:00:00Z",
   "modified_at": "2026-05-01T00:00:00Z",
   "variables": [

@@ -7,7 +7,6 @@
   "enabled": true,
   "logic_version": 2,
   "ui_version": 1,
-  "compile_target": "native_script",
   "created_at": "2026-05-30T00:00:00Z",
   "modified_at": "2026-05-30T00:00:00Z",
   "variables": [

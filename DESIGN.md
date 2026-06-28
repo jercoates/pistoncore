@@ -713,7 +713,8 @@ This model was a deliberate decision. Device globals being compile-time eliminat
 
 PistonCore tracks which pistons reference each Device or Devices global via
 `/pistoncore-userdata/globals_index.json` — a map of global variable ID to the list
-of piston IDs that reference it. Updated on every successful compile.
+of piston IDs that reference it. Updated at piston save — backend scans `role_tokens`
+for @-prefixed entries and updates the index.
 
 ### Global Variables — Maintenance Strategy
 
@@ -1802,7 +1803,7 @@ Full export — no changes to any field. Labeled clearly: *"For your own restore
   pistoncore.db               SQLite database — run log, entity state cache, compile index
   device-definitions/         custom device definitions
   config.json                 PistonCore settings (ha_url, ha_token, deployment_type,
-                              entity_check_interval_minutes)
+                              entity_check_interval_minutes, alarm_panel, tts_engine)
   pending_cleanup.json        queued orphan cleanup operations
   clipboard.json              persistent statement clipboard — one slot, survives
                               browser sessions and restarts
@@ -1983,16 +1984,10 @@ COMPILER_SPEC.md is **intentionally not kept in sync** while the piston JSON for
 
 ---
 
-## 32. Open Items Blocking Coding
+## 32. Intentionally Frozen — Not Yet Ready to Start
 
-1. **settings / end settings block contents** — research WebCoRE behavior, define before implementing.
-2. **AI Prompt feature** — AI_PROMPT_SPEC.md is intentionally frozen/stale (written against the old device_map model). Rewrite for logic_version 2 only after the JSON format is final. `write-a-piston.md` and `migrate-from-webcore.md` cannot be written until that rewrite. Do not update piecemeal.
-3. **Which-interaction step feasibility** — evaluate PyScript context tracking in sandbox before building the wizard step.
-4. **on_event wizard warning** — wizard must display the blocking-behavior warning when the user adds an on_event block. See PISTON_JSON_STRUCTURE_MAP.md §9 (on_event) and HA_LIMITATIONS.md.
-5. **on_event user documentation** — a "PistonCore can't do this because HA can't do it" section covering the on_event async limitation.
-6. **COMPILER_SPEC.md — intentionally frozen.** Directionally correct, not authoritative during JSON stabilization. Rewrite once the piston JSON format is final.
-7. **Sample pistons** — any old-format sample pistons need a frozen/stale notice; they compile to zero triggers under the current model. Do not use as test vehicles until regenerated.
-8. **target-boundary.json existence** — unverified in the backend; confirm and create if needed.
+1. **AI Prompt feature** — AI_PROMPT_SPEC.md is intentionally frozen/stale (written against the old device_map model). Rewrite for logic_version 2 only after the JSON format is final. `write-a-piston.md` and `migrate-from-webcore.md` cannot be written until that rewrite. Do not update piecemeal.
+2. **COMPILER_SPEC.md — intentionally frozen.** Directionally correct, not authoritative during JSON stabilization. Rewrite once the piston JSON format is final.
 
 ---
 

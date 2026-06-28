@@ -62,5 +62,5 @@ Covers ONLY: dragging statements/tasks/conditions to reorder or re-parent, and c
 1. Confirm library name (or that it's vendored/custom).
 2. Read the `drag()` handler body in `app_js.txt` — confirm splice-out behavior.
 3. Read the `copyVariable`/copy handler body — confirm clone behavior.
-4. Confirm PistonCore JSON field names (`statements`/`then`/`else`/`else_ifs`/`tasks`) against live JSON.
+4. ~~Confirm PistonCore JSON field names (`statements`/`then`/`else`/`else_ifs`/`tasks`) against live JSON.~~ **CONFIRMED** — verified against PISTON_JSON_STRUCTURE_MAP.md: `statements[]` (do/while/repeat/every/for/for_each/on_event/else_if/case), `then[]`/`else_ifs[]`/`else[]` (if branches), `tasks[]` (action). Items 1–3 are WebCoRE-side checks — irrelevant for PistonCore vanilla JS build.
 5. Confirm the re-id-on-clone requirement against the editor's id-based find/replace/remove.

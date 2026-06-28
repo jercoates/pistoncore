@@ -2550,10 +2550,10 @@
       ]
     },
     "setAlarmSystemStatus": {
-      "n": "Set Smart Home Monitor status...",
+      "n": "Set alarm panel status...",
       "a": true,
       "i": "",
-      "d": "Set Smart Home Monitor status to {0}",
+      "d": "Set alarm panel status to {0}",
       "p": [
         {
           "n": "Status",
@@ -3004,9 +3004,9 @@
       ]
     },
     "iftttMaker": {
-      "n": "Send an IFTTT Maker event...",
+      "n": "Send a webhook...",
       "a": true,
-      "d": "Send the {0} IFTTT Maker event{1}{2}{3}",
+      "d": "Send webhook '{0}'{1}{2}{3}",
       "p": [
         {
           "n": "Event",

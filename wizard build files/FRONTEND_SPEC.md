@@ -234,13 +234,14 @@ Feature flags are informational — the editor never blocks building based on de
 
 ## Three Pages
 
-Navigation flow: **List → Status Page → Editor → Status Page**
+Navigation flows (single-page app — JS shows/hides sections, no URL changes):
 
-The browser never navigates to a new URL for these transitions — this is a single-page app.
-Page transitions are handled by showing and hiding sections in JS.
+**Existing piston:** `List → Status Page → Editor → Status Page`
+
+**New piston:** `List → Editor (directly, skipping Status Page) → Status Page` (on save) or `List` (on discard)
 
 1. **Piston List** — the home screen
-2. **Piston Status Page** — the hub for a specific piston
+2. **Piston Status Page** — the hub for a specific piston. This is where save results are shown (validation banner), compile output is shown (Test Compile), and HA tests are run (Test — Live Fire). Every save from the editor returns here. Opening an existing piston always lands here first.
 3. **Piston Editor** — where the piston is built
 
 There is no fourth page. The wizard is a modal that opens on top of the editor.
@@ -301,7 +302,7 @@ A `[Global Variables]` button is present in the header area. Clicking it opens t
 
 ### Buttons
 
-- `[+ New]` — creates a new blank piston and navigates to its Status Page. Lands in Uncategorized.
+- `[+ New]` — creates a new blank piston and opens the editor directly (skips Status Page — nothing to show there yet). Lands in Uncategorized.
 - `[+ New Folder]` — opens inline text input at the bottom of the list
 - `[Import]` — opens import dialog (paste JSON, paste URL, or upload .piston file)
 - `[Copy AI Prompt]` — copies the write_a_piston prompt to the clipboard (see AI Prompt below). Button changes to `[Copied ✓]` for 2 seconds.
@@ -723,6 +724,11 @@ The status page shows: *"Unsaved changes — deploy to update HA."* when the sav
 
 If the user navigates away with unsaved changes:
 *"You have unsaved changes. Save, Discard, or Cancel?"*
+
+- **Save** — saves and navigates to the status page
+- **Discard (existing piston)** — discards changes and returns to the status page
+- **Discard (new piston, never saved)** — discards the blank piston entirely and returns to the piston list; no piston record is kept
+- **Cancel** — closes the prompt and stays in the editor
 
 ### WebSocket Drop While in Editor
 
@@ -1455,6 +1461,9 @@ to the piston list.
 │  ▼ PISTONCORE                                       │
 │  (version and deployment type)                      │
 ├─────────────────────────────────────────────────────┤
+│  ▼ INTEGRATIONS                                     │
+│  (HA entities/services for specific commands)       │
+├─────────────────────────────────────────────────────┤
 │  ▼ MY DEVICE DEFINITIONS                            │
 │  (custom device definitions)                        │
 ├─────────────────────────────────────────────────────┤
@@ -1505,6 +1514,64 @@ PistonCore version: 1.0.0
 ```
 
 Read-only. No user actions available.
+
+### Integrations Section
+
+Some wizard commands map to HA entities or services that vary by user setup — different alarm integrations, different TTS engines, etc. Rather than the compiler guessing, the user configures the target once here. The wizard menu always shows the generic name (e.g. "Alarm Panel", "Speak text"); the compiler reads the user's selection to know which entity or service to call.
+
+Each row shows the command name, a description of what it targets, and a dropdown populated from live HA data. If HA is disconnected the dropdowns are disabled and show *"(HA disconnected)"*.
+
+```
+INTEGRATIONS
+──────────────────────────────────────────────────────
+  Alarm Panel
+  Which alarm_control_panel entity to use for
+  "Set alarm panel status" commands.
+  [ alarm_control_panel.home              ▼ ]
+
+  Text-to-Speech (Speak text)
+  Which TTS service to use for "Speak text" commands.
+  [ tts.google_cloud_tts                  ▼ ]
+```
+
+**Population — how dropdowns are filled:**
+When the Integrations section opens (or the user presses `[↻ Refresh]`), the frontend calls `GET /api/integrations/available`. The backend queries HA via the standard state and service APIs and returns two lists:
+- `alarm_panels` — all `alarm_control_panel.*` entities from HA's state API (`GET /api/states`, filtered by domain)
+- `tts_engines` — all services under the `tts` domain from HA's service API (`GET /api/services`, filtered to domain `tts`). PistonCore targets current HA only (minimum version enforced); the compiler always calls `tts.speak` with the engine id — no old-style `tts.X_say` calls.
+
+Each list entry carries the entity/service id and the friendly name for display.
+
+**Default selection — first open:**
+On first open (no saved selection), PistonCore auto-selects:
+- Alarm Panel: `alarm_control_panel.home` if present; otherwise the first entity alphabetically
+- TTS Engine: first TTS engine alphabetically
+
+Defaults are saved automatically on first open so the compiler always has a value.
+
+**Alarm Panel picker:**
+- Dropdown populated from `alarm_panels` list
+- If none found: shows *"No alarm panel found in HA — install an alarm integration first"* (picker disabled)
+- Stored: entity id (e.g. `alarm_control_panel.home`)
+- Used by: compiler only — wizard does not need this setting
+
+**Text-to-Speech picker:**
+- Dropdown populated from `tts_engines` list (e.g. `tts.cloud`, `tts.google_translate`, `tts.piper`)
+- If none found: shows *"No TTS engine found in HA — install a TTS integration first"* (picker disabled)
+- Stored: engine id (e.g. `tts.cloud`)
+- Used by: wizard (pre-fills the Speak task, no per-command engine picker needed) AND compiler (generates `tts.speak` call with this engine id)
+
+**Stale selection warning:**
+If the saved entity/service id is no longer present in the list returned by HA, the picker shows a warning next to the current value: *"⚠ Not found in HA — pick a replacement."* The saved value is not auto-cleared (the user may be temporarily offline or the integration may be reloading).
+
+**`[↻ Refresh]` button:**
+Re-queries HA and repopulates both lists. Does not change saved selections unless the user picks a new value. Useful after installing a new TTS integration or alarm panel without reloading PistonCore.
+
+**Extensibility:** additional integrations follow this same pattern — one row per command that needs a user-configured HA target, populated from HA on open, stored id read by wizard and/or compiler.
+
+`[DECISION: integration targets are user-configured here, not hardcoded — compiler stays generic; TTS engine pre-loaded into wizard at editor open so no per-command picker is needed; alarm panel compiler-only]`
+`[VERIFIED: HA state API GET /api/states for alarm_control_panel domain; HA service API GET /api/services for tts domain — standard HA REST API, available on all supported versions]`
+
+---
 
 ### My Device Definitions Section
 
@@ -1586,10 +1653,15 @@ affect every piston that references it. When the user saves a global edit, a pro
 - **[Update all now]** — auto-deploys every piston that references this global.
 - **[I'll deploy later]** — saves the global; the user deploys affected pistons manually.
 
-**Reference tracking** — each global tracks which pistons reference it, so the deploy
-prompt knows what is affected and updates can propagate. **OPEN — mechanism not yet
-decided:** how the reference list stays current when a piston starts or stops referencing a
-global (candidate approach: update the list at piston save). To be designed.
+**Reference tracking** — each global object carries a `used_by` field: an array of objects, each holding a piston's UUID and display name (e.g. `[{uuid:"abc123", name:"Alarm Check"}, ...]`). This list powers the "3 pistons reference it" count in the deploy prompt and the Update-all-now redeploy path.
+
+**How the list stays current — backend scan at piston save.** The frontend save call already sends the full piston JSON to the backend. When the backend receives a save, it scans every `role_tokens` array in the piston JSON for entries beginning with `@` — those are global variable references. For each found `@GlobalName`, it ensures `{uuid, name}` for this piston is present in that global's `used_by`. For any global that previously listed this piston but is no longer referenced in the scan, it removes the entry. No extra data needs to be sent from the frontend — the backend derives the complete reference set from the saved JSON.
+
+**Piston delete cleanup.** When a piston is deleted, the backend removes that piston's UUID from `used_by` on every global object.
+
+**Drift healing — Recalculate button.** The globals page has a `[Recalculate References]` button (low-prominence, e.g. small text link below the list). Clicking it triggers a backend full-scan: walk every saved piston JSON, rebuild all `used_by` lists from scratch. This is a safety net for cases where the list drifts out of sync (e.g. after a manual file edit or a failed save). It does not change any piston or global value — only the `used_by` lists.
+
+`[DECISION: scan at piston save — backend-side; @-prefix in role_tokens is the discriminator; uuid+name pair stored on global for deploy prompt; full-scan recalculate as safety net]`
 
 **[🗑 Delete]:**
 - *"Delete '@Exterior_Doors'? 3 pistons reference it. Those pistons will need to be edited
@@ -1682,8 +1754,6 @@ Replaces entity IDs with domain placeholders. Keeps all structure and context. S
 8. Result is the Snapshot JSON format per DESIGN.md Section 6.10.
 9. Browser downloads the file immediately. No confirmation dialog needed.
 
-Implementation tracked in GAP-S74-4 / S2-3. Current code only empties device_map (v1 field). Full implementation required.
-
 **File naming:** `{slugified-piston-name}-snapshot.json`
 - Slug rules: lowercase, spaces → hyphens, strip all non-alphanumeric except hyphens
 - Example: "Front Door Chime" → `front-door-chime-snapshot.json`
@@ -1751,6 +1821,52 @@ Default selection is "Import as new copy" — safer for most scenarios.
 
 ---
 
+## Integration Settings API
+
+Two endpoints for the Integrations section of the Settings page.
+
+**`GET /api/integrations/available`**
+Queries HA and returns the current lists of available alarm panels and TTS engines.
+Called when the Integrations section opens or the user presses `[↻ Refresh]`.
+
+Response shape:
+```json
+{
+  "alarm_panels": [
+    { "entity_id": "alarm_control_panel.home", "name": "Home Alarm" }
+  ],
+  "tts_engines": [
+    { "engine_id": "tts.cloud", "name": "Home Assistant Cloud" },
+    { "engine_id": "tts.piper", "name": "Piper" }
+  ]
+}
+```
+- `alarm_panels` — from HA state API, domain `alarm_control_panel`, includes entity_id and `friendly_name`
+- `tts_engines` — from HA service API, domain `tts`, service name becomes the engine_id
+- If HA is disconnected: returns `{"error": "ha_disconnected"}`
+
+**`GET /api/settings/integrations`**
+Returns the currently saved integration selections.
+
+Response shape:
+```json
+{
+  "alarm_panel": "alarm_control_panel.home",
+  "tts_engine": "tts.cloud"
+}
+```
+Both fields may be `null` if not yet configured.
+
+**`POST /api/settings/integrations`**
+Saves the user's selections. Body matches the GET response shape.
+Returns the saved object on success.
+
+Stored in PistonCore's settings JSON on the volume alongside other user settings.
+The editor loads integration settings at open time via `GET /api/settings/integrations`
+so the wizard has the TTS engine id available without a separate fetch.
+
+---
+
 ## Future Spec — Fast Pre-Check Validation (Post-v1)
 
 **Status:** Deferred to post-v1. Not a v1 requirement. The compile-time MISSING_ENTITY
@@ -1768,9 +1884,6 @@ When implemented, the behavior must be:
 - On the attribute selection step: validate that the selected attribute still exists
   on the entity using the capabilities API. Same pattern — warn, don't block.
 - Fast pre-check is always advisory — never blocking in the wizard.
-
-Do not implement until the compile-time MISSING_ENTITY check is working and the smoke
-test (S3-1) has passed.
 
 ---
 

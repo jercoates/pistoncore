@@ -248,6 +248,22 @@ There is no fourth page. The wizard is a modal that opens on top of the editor.
 
 ---
 
+## Persistent Header
+
+Every page — piston list, status page, editor — shares the same header bar. It never disappears.
+
+**Elements:**
+- **PistonCore logo / name** — left side, always visible. Clicking it navigates to the piston list (home).
+- **`[⚙ Settings]`** — right side. Navigates to the Settings page from anywhere.
+- **`[? Help]`** — right side. Opens the Help modal from anywhere.
+
+**Logo navigation — unsaved changes guard:**
+When the logo is clicked from the editor and there are unsaved changes, the standard unsaved changes dialog fires before navigating: *"You have unsaved changes. Save, Discard, or Cancel?"* (see Unsaved Changes under the Editor section). From any other page, the logo navigates home immediately with no confirmation.
+
+**The logo is an escape hatch — it must always work.** This feature was added after a backend error left the editor in a state with no working exit. Error banners, WebSocket drops, validation failures, and broken states must never disable or block the logo. It is the guaranteed way home from any page under any condition.
+
+---
+
 ## Page 1 — Piston List
 
 ### Layout
@@ -286,6 +302,10 @@ with a piston count. There is no folder sidebar column.
 - A horizontal rule or divider line below the header
 - Folders are sorted alphabetically; Uncategorized always appears last
 - `[+ New Folder]` at the bottom of the list — opens a simple inline text input
+
+### Search
+
+The search bar filters the piston list by name as the user types — no server call, no submit button. Matching is case-insensitive and searches piston name only. Folder sections that have no matching pistons disappear while a search is active. Clearing the search restores the full list. No-results state: show *"No pistons match your search."* below the search bar.
 
 ### Piston List Items
 

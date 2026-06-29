@@ -1,421 +1,747 @@
-// pistoncore/frontend/js/wizard-variable.js
-// Variable picker dialog — add/edit piston variables.
-// Depends on: wizard-core.js (WizardCore must be loaded first)
+// frontend/js/wizard-variable.js
 //
-// GAP-S46-1: Delete button added here. Wire to _deleteEditNode when _editNode is set.
-// G-2b: Device initial value stores array of entity_id strings.
-//       WizardCore.sel.initial_device_ids (array) replaces initial_device_id / initial_device_label.
-//       _goVarInitDevicePicker: checkboxes, SelectAll/DeselectAll, Confirm button.
-//       Three-section list: physical devices, local device variables, global device variables.
+// Three variable dialogs, all spec'd in EDITOR_WIZARD_SPEC.md §9.6:
+//
+//   WizardVariable.openAdd(context)             — add piston variable (edit-variable)
+//   WizardVariable.openEdit(varNode, context)   — edit piston variable (edit-variable)
+//   WizardVariable.openGlobalAdd(context)       — add global variable  (edit-global-variable)
+//   WizardVariable.openGlobalEdit(gv, context)  — edit global variable (edit-global-variable)
+//   WizardVariable.openLocalEdit(v, context)    — edit local var value (edit-local-variable)
+//
+// Node shape: PISTON_JSON_STRUCTURE_MAP.md §2
+// Variable names: stored WITHOUT $ prefix (e.g. "DoorsOpen"); the $ is the runtime-reference
+// prefix used in expressions, NOT part of the stored name.
 
-function _goVariablePicker() {
-  const { _esc, _render, _pushStep, _deleteEditNode, close, _newId } = WizardCore;
-  WizardCore.step = 'var';
-  _pushStep(_goVariablePicker);
-  const _sel     = WizardCore.sel;
-  const _editNode = WizardCore.editNode;
-  const initType = _sel.initial_value_type || 'nothing';
+const WizardVariable = (() => {
 
-  // Reverse map: internal var_type → display string for the type select
-  const VAR_TYPE_DISPLAY = {
-    'dynamic':'Dynamic','string':'String (text)','boolean':'Boolean (true/false)',
-    'integer':'Number (integer)','decimal':'Number (decimal)','long':'Large number (long)',
-    'datetime':'Date and Time','date':'Date (date only)','time':'Time (time only)','device':'Device',
-    'dynamic_list':'Dynamic list','string_list':'String list (text)','boolean_list':'Boolean list (true/false)',
-    'integer_list':'Number list (integer)','decimal_list':'Number list (decimal)',
-    'long_list':'Large number list (long)','datetime_list':'Date and Time list',
-    'date_list':'Date list (date only)','time_list':'Time list (time only)',
-  };
-  // Normalize _sel.var_type to display string so the select pre-selects correctly on edit
-  if (_sel.var_type && VAR_TYPE_DISPLAY[_sel.var_type]) {
-    _sel.var_type = VAR_TYPE_DISPLAY[_sel.var_type];
+  // ─────────────────────────────────────────────────────────────────────────
+  // Type definitions — drives the type picker.
+  // Labels come from the designer; var_type is what the node stores.
+  // ─────────────────────────────────────────────────────────────────────────
+  const PISTON_VAR_TYPES = [
+    { key: 'dynamic',   label: 'Dynamic',       varType: 'dynamic'  },
+    { key: 'string',    label: 'Text (string)',  varType: 'string'   },
+    { key: 'boolean',   label: 'True/False (boolean)', varType: 'boolean' },
+    { key: 'integer',   label: 'Integer number', varType: 'number'   },
+    { key: 'decimal',   label: 'Decimal number', varType: 'number'   },
+    { key: 'datetime',  label: 'Date & Time',    varType: 'datetime' },
+    { key: 'device',    label: 'Device (single)', varType: 'device'  },
+    { key: 'devices',   label: 'Device (multiple)', varType: 'devices' },
+  ];
+
+  const GLOBAL_VAR_TYPES = [
+    { key: 'dynamic',   label: 'Dynamic',       varType: 'dynamic'  },
+    { key: 'string',    label: 'Text (string)',  varType: 'string'   },
+    { key: 'boolean',   label: 'True/False (boolean)', varType: 'boolean' },
+    { key: 'integer',   label: 'Integer number', varType: 'number'   },
+    { key: 'decimal',   label: 'Decimal number', varType: 'number'   },
+    { key: 'datetime',  label: 'Date & Time',    varType: 'datetime' },
+    { key: 'device',    label: 'Device (single)', varType: 'device'  },
+  ];
+
+  function _newId() {
+    return 'var_' + Math.random().toString(36).slice(2, 10);
   }
-  // initial_device_ids is an array of friendly names — that is all that is stored.
-  // initial_value on a device variable IS the friendly names array.
-  if (initType === 'device' && !Array.isArray(_sel.initial_device_ids)) {
-    if (Array.isArray(_sel.initial_value)) {
-      _sel.initial_device_ids = _sel.initial_value;
-    } else if (_sel.initial_value && typeof _sel.initial_value === 'string') {
-      _sel.initial_device_ids = [_sel.initial_value];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open to add a new piston variable
+  // ─────────────────────────────────────────────────────────────────────────
+  function openAdd(context) {
+    const designer = _newVarDesigner(null);
+    WizardCore.openDialog(designer, null, null);
+    _renderVarDialog(designer, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open to edit an existing piston variable
+  // ─────────────────────────────────────────────────────────────────────────
+  function openEdit(varNode, context) {
+    const designer        = _newVarDesigner(varNode);
+    designer.name         = varNode.name || '';
+    designer.varType      = _nodeVarTypeToKey(varNode.var_type);
+    designer.initialValue = varNode.initial_value || '';
+    designer.description  = varNode.description || '';
+
+    WizardCore.openDialog(designer, null, null);
+    _renderVarDialog(designer, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open to add a new global variable
+  // ─────────────────────────────────────────────────────────────────────────
+  function openGlobalAdd(context) {
+    const designer     = _newGlobalDesigner(null);
+    WizardCore.openDialog(designer, null, null);
+    _renderGlobalDialog(designer, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open to edit an existing global variable
+  // ─────────────────────────────────────────────────────────────────────────
+  function openGlobalEdit(gv, context) {
+    const designer        = _newGlobalDesigner(gv);
+    designer.name         = gv.name || '';
+    designer.varType      = _nodeVarTypeToKey(gv.var_type);
+    designer.initialValue = gv.initial_value || '';
+
+    WizardCore.openDialog(designer, null, null);
+    _renderGlobalDialog(designer, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open inline value editor for an already-declared local variable.
+  // Name is read-only; user only sets the current value.
+  // §9.6: onlyAllowConstants — constant and device-list only, no expressions
+  // ─────────────────────────────────────────────────────────────────────────
+  function openLocalEdit(varNode, context) {
+    const designer        = _newLocalDesigner(varNode);
+    designer.name         = varNode.name || '';
+    designer.varType      = _nodeVarTypeToKey(varNode.var_type);
+    designer.currentValue = varNode.initial_value || '';
+
+    WizardCore.openDialog(designer, null, null);
+    _renderLocalDialog(designer, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Designer factories
+  // ─────────────────────────────────────────────────────────────────────────
+  function _newVarDesigner(varNode) {
+    return WizardCore.newDesigner({
+      $dialogType:  'var',
+      isNew:        !varNode,
+      $node:        varNode,
+      name:         '',
+      varType:      'dynamic',
+      initialValue: '',
+      assignment:   's',   // 's'=constant; 'd'=dynamic recalculate
+      description:  '',
+    });
+  }
+
+  function _newGlobalDesigner(gv) {
+    return WizardCore.newDesigner({
+      $dialogType:  'global',
+      isNew:        !gv,
+      $node:        gv,
+      name:         '',
+      varType:      'dynamic',
+      initialValue: '',
+    });
+  }
+
+  function _newLocalDesigner(varNode) {
+    return WizardCore.newDesigner({
+      $dialogType:  'local',
+      isNew:        false,
+      $node:        varNode,
+      name:         varNode ? (varNode.name || '') : '',
+      varType:      varNode ? _nodeVarTypeToKey(varNode.var_type) : 'dynamic',
+      currentValue: '',
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Map a stored var_type back to the designer type key
+  // ─────────────────────────────────────────────────────────────────────────
+  function _nodeVarTypeToKey(varType) {
+    const map = { dynamic:'dynamic', string:'string', boolean:'boolean',
+                  number:'integer', datetime:'datetime', device:'device', devices:'devices' };
+    return map[varType] || 'dynamic';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Map designer type key → stored var_type
+  // ─────────────────────────────────────────────────────────────────────────
+  function _keyToVarType(key) {
+    const map = { dynamic:'dynamic', string:'string', boolean:'boolean',
+                  integer:'number', decimal:'number', datetime:'datetime',
+                  device:'device', devices:'devices' };
+    return map[key] || 'dynamic';
+  }
+
+  function _isDeviceType(varType) {
+    return varType === 'device' || varType === 'devices';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── DIALOG 1: Piston Variable (edit-variable) ─────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  function _renderVarDialog(designer, context) {
+    const modal = WizardCore.getModalEl();
+    if (!modal) return;
+    modal.innerHTML = _buildVarHTML(designer);
+    _bindVarEvents(modal, designer, context);
+  }
+
+  function _buildVarHTML(designer) {
+    const isNew     = designer.isNew;
+    const isDevice  = _isDeviceType(designer.varType);
+    const valueHTML = _buildValueInputHTML(designer, false);
+    const assignHTML = !isDevice && designer.initialValue !== '' && designer.varType !== 'dynamic'
+      ? `
+        <div class="wv-assign-row">
+          <label>Assignment</label>
+          <select id="wv-assignment" class="form-select">
+            <option value="s" ${designer.assignment === 's' ? 'selected' : ''}>Constant — set once</option>
+            <option value="d" ${designer.assignment === 'd' ? 'selected' : ''}>Dynamic — evaluate each time</option>
+          </select>
+        </div>` : '';
+
+    const canCommit = !!designer.name.trim();
+
+    return `
+      <div class="wizard-dialog" id="wizard-variable-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">${isNew ? 'Add Piston Variable' : 'Edit Piston Variable'}</span>
+          <button class="wizard-close btn-icon" id="wv-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+
+          <div class="wc-section">
+            <label class="wc-section-label">Variable name</label>
+            <div class="wizard-row">
+              <span class="wv-prefix">$</span>
+              <input type="text" id="wv-name" class="form-input" placeholder="VariableName"
+                value="${_esc(designer.name)}"
+                pattern="[A-Za-z_][A-Za-z0-9_]*"
+                title="Letters, digits, underscores — no spaces">
+            </div>
+          </div>
+
+          <div class="wc-section">
+            <label class="wc-section-label">Type</label>
+            <select id="wv-type" class="form-select">
+              ${PISTON_VAR_TYPES.map(t =>
+                `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="wc-section" id="wv-value-section">
+            <label class="wc-section-label">Initial value</label>
+            ${valueHTML}
+            ${assignHTML}
+          </div>
+
+          <div class="wizard-advanced-toggle">
+            <button class="btn btn-sm btn-link" id="wv-adv-toggle">
+              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
+            </button>
+          </div>
+          <div id="wv-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
+            <label>Description (optional)</label>
+            <input type="text" id="wv-description" class="form-input"
+              placeholder="What this variable is for" value="${_esc(designer.description)}">
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn btn-sm btn-secondary" id="wv-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wv-commit"
+            ${canCommit ? '' : 'disabled'}>${isNew ? 'Add' : 'Save'}</button>
+          ${isNew ? `<button class="btn btn-sm btn-success" id="wv-add-more"
+            ${canCommit ? '' : 'disabled'}>Add more</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function _bindVarEvents(modal, designer, context) {
+    [modal.querySelector('#wv-cancel'), modal.querySelector('#wv-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    modal.querySelector('#wv-adv-toggle').addEventListener('click', () => {
+      designer.showAdvancedOptions = !designer.showAdvancedOptions;
+      const sec = modal.querySelector('#wv-advanced');
+      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
+      modal.querySelector('#wv-adv-toggle').textContent =
+        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
+    });
+
+    // Name input — live validation to enable/disable buttons
+    modal.querySelector('#wv-name').addEventListener('input', e => {
+      designer.name = e.target.value;
+      _updateVarButtons(modal, designer);
+    });
+
+    // Type change — re-render the value section
+    modal.querySelector('#wv-type').addEventListener('change', e => {
+      designer.varType      = e.target.value;
+      designer.initialValue = '';
+      _renderVarDialog(designer, context);
+    });
+
+    // Commit
+    const commitBtn  = modal.querySelector('#wv-commit');
+    const addMoreBtn = modal.querySelector('#wv-add-more');
+
+    if (commitBtn && !commitBtn.disabled) {
+      commitBtn.addEventListener('click', () => {
+        _readVarFields(modal, designer);
+        _commitVar(designer, context, false);
+      });
+    }
+    if (addMoreBtn && !addMoreBtn.disabled) {
+      addMoreBtn.addEventListener('click', () => {
+        _readVarFields(modal, designer);
+        _commitVar(designer, context, true);
+      });
+    }
+
+    _bindValueInputEvents(modal, designer, () => _updateVarButtons(modal, designer));
+  }
+
+  function _updateVarButtons(modal, designer) {
+    const canCommit = !!designer.name.trim();
+    const commit = modal.querySelector('#wv-commit');
+    const more   = modal.querySelector('#wv-add-more');
+    if (commit) commit.disabled = !canCommit;
+    if (more)   more.disabled   = !canCommit;
+  }
+
+  function _readVarFields(modal, designer) {
+    const nameEl = modal.querySelector('#wv-name');
+    if (nameEl) designer.name = nameEl.value.trim();
+
+    const typeEl = modal.querySelector('#wv-type');
+    if (typeEl) designer.varType = typeEl.value;
+
+    const descEl = modal.querySelector('#wv-description');
+    if (descEl) designer.description = descEl.value.trim();
+
+    const assignEl = modal.querySelector('#wv-assignment');
+    if (assignEl) designer.assignment = assignEl.value;
+
+    _readValueInputFields(modal, designer);
+  }
+
+  function _commitVar(designer, context, rearm) {
+    WizardCore.autoSave();  // §0.5: snapshot BEFORE writing to live tree
+
+    const pistonVars = WizardCore.getPistonVars() || [];
+
+    if (designer.isNew) {
+      const varNode = _buildVarNode(designer);
+      pistonVars.push(varNode);
+    } else if (designer.$node) {
+      _applyVarToNode(designer, designer.$node);
+    }
+
+    WizardCore.setPistonVars(pistonVars);
+
+    if (rearm) {
+      designer.name         = '';
+      designer.initialValue = '';
+      designer.description  = '';
+      designer.varType      = 'dynamic';
+      _renderVarDialog(designer, context);
     } else {
-      _sel.initial_device_ids = [];
+      WizardCore.closeDialog();
+    }
+
+    if (typeof Editor !== 'undefined' && Editor.refreshDisplay) {
+      Editor.refreshDisplay(context);
     }
   }
 
-  const BASIC_TYPES = ['Dynamic','String (text)','Boolean (true/false)','Number (integer)','Number (decimal)','Large number (long)','Date and Time','Date (date only)','Time (time only)','Device'];
-  const ADV_TYPES   = ['Dynamic list','String list (text)','Boolean list (true/false)','Number list (integer)','Number list (decimal)','Large number list (long)','Date and Time list','Date list (date only)','Time list (time only)'];
+  function _buildVarNode(designer) {
+    const varType     = _keyToVarType(designer.varType);
+    const isDeviceT   = _isDeviceType(designer.varType);
+    const initialVal  = isDeviceT
+      ? (Array.isArray(designer.initialValue) ? designer.initialValue : [designer.initialValue].filter(Boolean))
+      : designer.initialValue;
 
-  const warnIcon = initType !== 'nothing' ? '<span class="wiz-initval-warn">&#9650;</span>' : '';
+    const node = {
+      type:          'variable',
+      id:            _newId(),
+      name:          designer.name,
+      var_type:      varType,
+      initial_value: initialVal,
+    };
 
-  _render(
-    `${_editNode ? 'Edit' : 'Add a new'} variable`,
-    `<div class="wiz-compare-row">
-       <select id="wiz-vt" class="wiz-select-blue">
-         <optgroup label="Basic">${BASIC_TYPES.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
-         <optgroup label="Advanced lists">${ADV_TYPES.map(t=>`<option value="${_esc(t)}" ${_sel.var_type===t?'selected':''}>${_esc(t)}</option>`).join('')}</optgroup>
-       </select>
-       <input type="text" id="wiz-vname" class="wiz-value-input" placeholder="Variable name..." value="${_esc(_sel.name||'')}" />
-     </div>
+    if (isDeviceT) node.initial_value_type = 'device';
+    if (designer.description) node.description = designer.description;
 
-     <div class="wiz-row-label" style="margin-top:14px">Initial value (optional) ${warnIcon}</div>
-
-     <div class="wiz-initval-combined-row">
-       <select id="wiz-vinit-type" class="wiz-select-blue wiz-initval-type-sel">
-         <option value="nothing"    ${initType==='nothing'   ?'selected':''}>Nothing selected</option>
-         <option value="device"     ${initType==='device'    ?'selected':''}>Physical device(s)</option>
-         <option value="value"      ${initType==='value'     ?'selected':''}>Value</option>
-         <option value="variable"   ${initType==='variable'  ?'selected':''}>Variable</option>
-         <option value="expression" ${initType==='expression'?'selected':''}>Expression</option>
-         <option value="argument"   ${initType==='argument'  ?'selected':''}>Argument</option>
-       </select>
-       <div class="wiz-initval-right" id="wiz-vinit-sub">${_varInitSubHtml(initType)}</div>
-     </div>
-
-     <div class="wiz-var-initval-note">NOTE: By assigning an initial value to the variable, you are instructing the piston to initialize the variable on every run to that initial value. While you can change the value of the variable during a piston run, the variable will revert to its initial value on subsequent piston runs. If you plan on storing data in this variable that needs to persist between piston runs, leave the value as <em>Nothing selected</em>.</div>`,
-
-    `<button class="btn btn-ghost btn-sm" id="wiz-var-cancel">Cancel</button>
-     <div class="wiz-footer-right">
-       <button class="btn btn-ghost btn-sm" id="wiz-var-cog">⚙</button>
-       ${_editNode
-         ? `<button class="btn btn-danger btn-sm" id="wiz-var-delete">Delete</button>`
-         : `<button class="btn btn-primary btn-sm" id="wiz-var-add">Add more</button>`}
-       <button class="btn btn-primary btn-sm" id="wiz-var-done">${_editNode ? 'Save' : 'Add'}</button>
-     </div>`
-  );
-
-  document.getElementById('wiz-var-cancel')?.addEventListener('click', close);
-  document.getElementById('wiz-var-delete')?.addEventListener('click', _deleteEditNode);
-
-  document.getElementById('wiz-vinit-type')?.addEventListener('change', e => {
-    WizardCore.sel.initial_value_type = e.target.value;
-    WizardCore.sel.initial_value = '';
-    WizardCore.sel.initial_device_ids = [];
-    WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
-    WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
-    const sub = document.getElementById('wiz-vinit-sub');
-    if (sub) sub.innerHTML = _varInitSubHtml(e.target.value);
-    _wireVarInitSub(e.target.value);
-  });
-  _wireVarInitSub(initType);
-
-  const VAR_TYPE_MAP = {
-    'Dynamic':'dynamic','String (text)':'string','Boolean (true/false)':'boolean',
-    'Number (integer)':'integer','Number (decimal)':'decimal','Large number (long)':'long',
-    'Date and Time':'datetime','Date (date only)':'date','Time (time only)':'time','Device':'device',
-    'Dynamic list':'dynamic_list','String list (text)':'string_list','Boolean list (true/false)':'boolean_list',
-    'Number list (integer)':'integer_list','Number list (decimal)':'decimal_list',
-    'Large number list (long)':'long_list','Date and Time list':'datetime_list',
-    'Date list (date only)':'date_list','Time list (time only)':'time_list',
-  };
-
-  const save = () => {
-    const name = document.getElementById('wiz-vname')?.value.trim();
-    if (!name) { document.getElementById('wiz-vname')?.focus(); return null; }
-    const ivType = document.getElementById('wiz-vinit-type')?.value || 'nothing';
-    let initial_value;
-    if (ivType === 'nothing') {
-      initial_value = undefined;
-    } else if (ivType === 'device') {
-      // Store as array of friendly names. _getFlatEntityIds resolves these to
-      // all real entity_ids at picker time via live deviceData. No entity_ids stored here.
-      initial_value = Array.isArray(WizardCore.sel.initial_device_ids)
-        ? WizardCore.sel.initial_device_ids
-        : [];
-    } else if (ivType === 'variable') {
-      initial_value = WizardCore.sel.initial_variable || '';
-    } else {
-      initial_value = document.getElementById('wiz-vinit-val')?.value || '';
-    }
-    const rawType = document.getElementById('wiz-vt')?.value || 'Dynamic';
-    const node = { type:'variable', id:WizardCore.editNode?.id||_newId(), name,
-      var_type: VAR_TYPE_MAP[rawType] || rawType.toLowerCase(),
-      initial_value_type: ivType === 'nothing' ? undefined : ivType,
-      initial_value };
-    // initial_value IS the friendly names array for device variables.
-    // No separate initial_device_names needed — display and data are the same thing.
     return node;
-  };
+  }
 
-  document.getElementById('wiz-var-done')?.addEventListener('click', () => {
-    const n = save(); if (!n) return;
-    close();
-    Editor.insertStatement('variable', n);
-  });
-  document.getElementById('wiz-var-add')?.addEventListener('click', () => {
-    const n = save(); if (!n) return;
-    Editor.insertStatement('variable', n);
-    WizardCore.sel = {}; WizardCore.editNode = null;
-    _goVariablePicker();
-  });
-}
-
-function _varInitSubHtml(type) {
-  const { _esc } = WizardCore;
-  const _sel = WizardCore.sel;
-  if (type === 'nothing') return `<span class="wiz-initval-placeholder">(no value set)</span>`;
-  if (type === 'device') {
-    // initial_device_ids is now friendly names — display them directly.
-    const ids   = Array.isArray(_sel.initial_device_ids) ? _sel.initial_device_ids : [];
-    const names = ids; // friendly names ARE the ids now
-    const hasVal = ids.length > 0;
-    let label;
-    if (!hasVal) {
-      label = 'Select devices...';
-    } else if (names.length) {
-      if (names.length === 1) {
-        label = names[0];
-      } else if (names.length === 2) {
-        label = `${names[0]} and ${names[1]}`;
-      } else if (names.length === 3) {
-        label = `${names[0]}, ${names[1]} and ${names[2]}`;
-      } else {
-        label = `${names[0]} +${names.length - 1}`;
-      }
+  function _applyVarToNode(designer, node) {
+    const varType   = _keyToVarType(designer.varType);
+    const isDeviceT = _isDeviceType(designer.varType);
+    node.name        = designer.name;
+    node.var_type    = varType;
+    node.initial_value = isDeviceT
+      ? (Array.isArray(designer.initialValue) ? designer.initialValue : [designer.initialValue].filter(Boolean))
+      : designer.initialValue;
+    if (isDeviceT) {
+      node.initial_value_type = 'device';
     } else {
-      label = `${ids.length} device${ids.length !== 1 ? 's' : ''} selected`;
+      delete node.initial_value_type;
     }
-    return `<button class="wiz-device-pick-btn ${hasVal ? 'has-value' : ''}" id="wiz-vinit-devbtn">
-      ${hasVal ? `<span class="wiz-device-tag">device</span> ${_esc(label)}` : label}
-    </button>`;
+    if (designer.description) {
+      node.description = designer.description;
+    } else {
+      delete node.description;
+    }
   }
-  if (type === 'variable') {
-    const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-    return `<select id="wiz-vinit-varsel" class="wiz-select-blue" style="flex:1">
-      <option value="" style="display:none" disabled>Nothing selected</option>
-      ${vars.map(v=>`<option value="${_esc(v.name)}" ${_sel.initial_variable===v.name?'selected':''}>${_esc(v.name)}</option>`).join('')}
-    </select>`;
-  }
-  const ph = type === 'expression' ? 'Expression...' : type === 'argument' ? 'Argument...' : 'Value...';
-  return `<input type="text" id="wiz-vinit-val" class="wiz-value-input" style="flex:1" placeholder="${ph}" value="${_esc(_sel.initial_value||'')}" />`;
-}
 
-function _wireVarInitSub(type) {
-  if (type === 'device') {
-    document.getElementById('wiz-vinit-devbtn')?.addEventListener('click', () => {
-      // Snapshot current field values before navigating away
-      WizardCore.sel.var_type = document.getElementById('wiz-vt')?.value || WizardCore.sel.var_type;
-      WizardCore.sel.name     = document.getElementById('wiz-vname')?.value || WizardCore.sel.name;
-      _goVarInitDevicePicker();
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── DIALOG 2: Global Variable (edit-global-variable) ─────────────────
+  // Same structure as piston variable but onlyAllowConstants (§9.6),
+  // no assignment field, and validates name uniqueness.
+  // ─────────────────────────────────────────────────────────────────────────
+  function _renderGlobalDialog(designer, context) {
+    const modal = WizardCore.getModalEl();
+    if (!modal) return;
+    modal.innerHTML = _buildGlobalHTML(designer);
+    _bindGlobalEvents(modal, designer, context);
+  }
+
+  function _buildGlobalHTML(designer) {
+    const isNew    = designer.isNew;
+    const valueHTML = _buildValueInputHTML(designer, true);
+    const canCommit = _globalCanCommit(designer);
+
+    return `
+      <div class="wizard-dialog" id="wizard-global-variable-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">${isNew ? 'Add Global Variable' : 'Edit Global Variable'}</span>
+          <button class="wizard-close btn-icon" id="wgv-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+
+          <div class="wc-section">
+            <label class="wc-section-label">Variable name</label>
+            <div class="wizard-row">
+              <span class="wv-prefix">@</span>
+              <input type="text" id="wgv-name" class="form-input" placeholder="GlobalName"
+                value="${_esc(designer.name)}">
+            </div>
+            <div id="wgv-name-error" class="wc-error" style="display:none">
+              A global variable with that name already exists.
+            </div>
+          </div>
+
+          <div class="wc-section">
+            <label class="wc-section-label">Type</label>
+            <select id="wgv-type" class="form-select">
+              ${GLOBAL_VAR_TYPES.map(t =>
+                `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="wc-section">
+            <label class="wc-section-label">Value</label>
+            ${valueHTML}
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn btn-sm btn-secondary" id="wgv-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wgv-commit"
+            ${canCommit ? '' : 'disabled'}>${isNew ? 'Add' : 'Save'}</button>
+          ${isNew ? `<button class="btn btn-sm btn-success" id="wgv-add-more"
+            ${canCommit ? '' : 'disabled'}>Add more</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function _globalCanCommit(designer) {
+    if (!designer.name.trim()) return false;
+    // Name uniqueness check
+    const globals = WizardCore.getGlobalsData() || [];
+    const existing = globals.find(g => g.name === designer.name.trim() && g !== designer.$node);
+    if (existing) return false;
+    return true;
+  }
+
+  function _bindGlobalEvents(modal, designer, context) {
+    [modal.querySelector('#wgv-cancel'), modal.querySelector('#wgv-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    modal.querySelector('#wgv-name').addEventListener('input', e => {
+      designer.name = e.target.value;
+      const errEl = modal.querySelector('#wgv-name-error');
+      const globals = WizardCore.getGlobalsData() || [];
+      const dup = globals.find(g => g.name === designer.name.trim() && g !== designer.$node);
+      if (errEl) errEl.style.display = dup ? '' : 'none';
+      _updateGlobalButtons(modal, designer);
     });
-  }
-  if (type === 'variable') {
-    document.getElementById('wiz-vinit-varsel')?.addEventListener('change', e => {
-      WizardCore.sel.initial_variable = e.target.value;
+
+    modal.querySelector('#wgv-type').addEventListener('change', e => {
+      designer.varType      = e.target.value;
+      designer.initialValue = '';
+      _renderGlobalDialog(designer, context);
     });
-  }
-}
 
-// ── Device multi-select picker ───────────────────────────────────────────────
-// Three sections: physical devices, local device variables, global device variables.
-// Checkboxes + SelectAll/DeselectAll (physical devices only) + search + Confirm button.
-// WizardCore.sel.initial_device_ids holds the committed array of entity_id strings.
-// WizardCore.deviceData and WizardCore.globalsData are cached after first fetch.
+    const commitBtn  = modal.querySelector('#wgv-commit');
+    const addMoreBtn = modal.querySelector('#wgv-add-more');
 
-function _goVarInitDevicePicker() {
-  const { _esc, _render, _pushStep, _filterDevices } = WizardCore;
-  WizardCore.step = 'varinit_dev';
-  _pushStep(_goVarInitDevicePicker);
-
-  // Working copy of selection — committed only when user hits Confirm
-  const committed = Array.isArray(WizardCore.sel.initial_device_ids)
-    ? WizardCore.sel.initial_device_ids
-    : [];
-  const selected = new Set(committed);
-
-  _render('Select devices',
-    `<div class="wiz-varinit-dev-panel">
-       <input type="text" id="wiz-varinit-search" class="wiz-varinit-dev-filter"
-         placeholder="Search devices..." autocomplete="off" />
-       <div class="wiz-varinit-sel-actions">
-         <button class="btn-ghost wiz-varinit-sel-all" id="wiz-varinit-sel-all">Select All</button>
-         <button class="btn-ghost wiz-varinit-sel-none" id="wiz-varinit-sel-none">Deselect All</button>
-       </div>
-       <div class="wiz-device-list" id="wiz-varinit-devlist"></div>
-     </div>
-     <div class="wiz-varinit-summary" id="wiz-varinit-summary">${_devSummaryText(selected)}</div>`,
-    `<button class="btn btn-ghost btn-sm" id="wiz-varinit-back">← Back</button>
-     <div class="wiz-footer-right">
-       <button class="btn btn-primary btn-sm" id="wiz-varinit-confirm">Confirm</button>
-     </div>`
-  );
-
-  // Confirm — commit selection and return to variable picker.
-  // selected already holds friendly names — that is all we store.
-  document.getElementById('wiz-varinit-confirm')?.addEventListener('click', () => {
-    WizardCore.sel.initial_device_ids = Array.from(selected);
-    WizardCore.sel.initial_value_type = 'device';
-    _goVariablePicker();
-  });
-
-  // Back — discard changes
-  document.getElementById('wiz-varinit-back')?.addEventListener('click', () => {
-    _goVariablePicker();
-  });
-
-  // SelectAll / DeselectAll — physical devices only (not variables/globals)
-  document.getElementById('wiz-varinit-sel-all')?.addEventListener('click', () => {
-    const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => selected.add(d.friendly_name));
-    _renderRows(selected, q);
-    _updateSummary(selected);
-  });
-
-  document.getElementById('wiz-varinit-sel-none')?.addEventListener('click', () => {
-    const q = document.getElementById('wiz-varinit-search')?.value || '';
-    _physicalDevices(q).forEach(d => selected.delete(d.friendly_name));
-    _renderRows(selected, q);
-    _updateSummary(selected);
-  });
-
-  // Search
-  let ft = null;
-  document.getElementById('wiz-varinit-search')?.addEventListener('input', e => {
-    clearTimeout(ft);
-    ft = setTimeout(() => _renderRows(selected, e.target.value.trim()), 150);
-  });
-
-  // Load data then render — both devices and globals may need fetching
-  _ensureData().then(() => _renderRows(selected, ''));
-
-  // ── Helpers scoped to this picker ─────────────────────────
-
-  function _physicalDevices(query) {
-    const { _groupDevices, _filterGrouped } = WizardCore;
-    return _filterGrouped(_groupDevices(WizardCore.deviceData), query);
-  }
-
-  function _localDeviceVars(query) {
-    const lq = (query || '').toLowerCase();
-    const all = (Editor.getPistonVariables ? Editor.getPistonVariables() : [])
-      .filter(v => v.var_type === 'device');
-    if (!lq) return all;
-    return all.filter(v => v.name.toLowerCase().includes(lq));
-  }
-
-  function _globalDeviceVars(query) {
-    const lq = (query || '').toLowerCase();
-    const globals = WizardCore.globalsData || [];
-    const all = globals.filter(g => g.var_type === 'device');
-    if (!lq) return all;
-    return all.filter(g =>
-      (g.name || '').toLowerCase().includes(lq) ||
-      (`@${g.name}` || '').toLowerCase().includes(lq)
-    );
-  }
-
-  function _renderRows(selected, query) {
-    const { _esc } = WizardCore;
-    const list = document.getElementById('wiz-varinit-devlist');
-    if (!list) return;
-
-    const physical = _physicalDevices(query);
-    const locals   = _localDeviceVars(query);
-    const globals  = _globalDeviceVars(query);
-
-    if (!physical.length && !locals.length && !globals.length) {
-      list.innerHTML = `<div class="wiz-empty">No devices found.</div>`;
-      return;
+    if (commitBtn && !commitBtn.disabled) {
+      commitBtn.addEventListener('click', () => {
+        _readGlobalFields(modal, designer);
+        _commitGlobal(designer, context, false);
+      });
+    }
+    if (addMoreBtn && !addMoreBtn.disabled) {
+      addMoreBtn.addEventListener('click', () => {
+        _readGlobalFields(modal, designer);
+        _commitGlobal(designer, context, true);
+      });
     }
 
-    let html = '';
+    _bindValueInputEvents(modal, designer, () => _updateGlobalButtons(modal, designer));
+  }
 
-    if (physical.length) {
-      html += `<div class="wiz-device-group-header">Physical devices</div>`;
-      html += physical.slice(0, 150).map(d => {
-        // Track by friendly_name — that is what gets stored in initial_value.
-        // _getFlatEntityIds resolves friendly_name → all entity_ids via live deviceData at picker time.
-        const isSelected = selected.has(d.friendly_name);
-        return `<div class="wiz-varinit-dev-row ${isSelected ? 'selected' : ''}"
-          data-id="${_esc(d.friendly_name)}">
-          <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-          <span class="wiz-dev-check">${isSelected ? '✓' : ''}</span>
-        </div>`;
-      }).join('');
+  function _updateGlobalButtons(modal, designer) {
+    const ok     = _globalCanCommit(designer);
+    const commit = modal.querySelector('#wgv-commit');
+    const more   = modal.querySelector('#wgv-add-more');
+    if (commit) commit.disabled = !ok;
+    if (more)   more.disabled   = !ok;
+  }
+
+  function _readGlobalFields(modal, designer) {
+    const nameEl = modal.querySelector('#wgv-name');
+    if (nameEl) designer.name = nameEl.value.trim();
+
+    const typeEl = modal.querySelector('#wgv-type');
+    if (typeEl) designer.varType = typeEl.value;
+
+    _readValueInputFields(modal, designer);
+  }
+
+  function _commitGlobal(designer, context, rearm) {
+    WizardCore.autoSave();
+
+    const globals = WizardCore.getGlobalsData() || [];
+
+    if (designer.isNew) {
+      const gv = {
+        id:       _newId(),
+        name:     designer.name,
+        var_type: _keyToVarType(designer.varType),
+        initial_value: _isDeviceType(designer.varType)
+          ? (Array.isArray(designer.initialValue) ? designer.initialValue : [designer.initialValue].filter(Boolean))
+          : designer.initialValue,
+      };
+      if (_isDeviceType(designer.varType)) gv.initial_value_type = 'device';
+      globals.push(gv);
+    } else if (designer.$node) {
+      _applyVarToNode(designer, designer.$node);
     }
 
-    if (locals.length) {
-      html += `<div class="wiz-device-group-header">Local variables</div>`;
-      html += locals.map(v => {
-        const vid = _esc(v.name);
-        const sel = selected.has(v.name);
-        return `<div class="wiz-varinit-dev-row ${sel ? 'selected' : ''}" data-id="${vid}">
-          <span class="wiz-device-tag">device</span>
-          <span class="wiz-dev-label">${vid}</span>
-          <span class="wiz-dev-check">${sel ? '✓' : ''}</span>
-        </div>`;
-      }).join('');
+    WizardCore.setGlobalsData(globals);
+
+    if (rearm) {
+      designer.name         = '';
+      designer.initialValue = '';
+      designer.varType      = 'dynamic';
+      _renderGlobalDialog(designer, context);
+    } else {
+      WizardCore.closeDialog();
     }
 
-    if (globals.length) {
-      html += `<div class="wiz-device-group-header">Global variables</div>`;
-      html += globals.map(g => {
-        const gid = _esc(`@${g.name}`);
-        const sel = selected.has(`@${g.name}`);
-        return `<div class="wiz-varinit-dev-row ${sel ? 'selected' : ''}" data-id="${gid}">
-          <span class="wiz-device-tag">device</span>
-          <span class="wiz-dev-label">${gid}</span>
-          <span class="wiz-dev-check">${sel ? '✓' : ''}</span>
-        </div>`;
-      }).join('');
+    if (typeof Editor !== 'undefined' && Editor.refreshDisplay) {
+      Editor.refreshDisplay(context);
     }
+  }
 
-    list.innerHTML = html;
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── DIALOG 3: Local Variable Inline Edit (edit-local-variable) ────────
+  // Only sets the current value. Name read-only in header. onlyAllowConstants.
+  // ─────────────────────────────────────────────────────────────────────────
+  function _renderLocalDialog(designer, context) {
+    const modal = WizardCore.getModalEl();
+    if (!modal) return;
+    modal.innerHTML = _buildLocalHTML(designer);
+    _bindLocalEvents(modal, designer, context);
+  }
 
-    list.querySelectorAll('.wiz-varinit-dev-row').forEach(row => {
-      row.addEventListener('click', () => {
-        // Store only primary_entity_id per device (row.dataset.id).
-        const primaryId = row.dataset.id;
-        const isSelected = selected.has(primaryId);
-        if (isSelected) {
-          selected.delete(primaryId);
-          row.classList.remove('selected');
-          row.querySelector('.wiz-dev-check').textContent = '';
-        } else {
-          selected.add(primaryId);
-          row.classList.add('selected');
-          row.querySelector('.wiz-dev-check').textContent = '✓';
+  function _buildLocalHTML(designer) {
+    const valueHTML = _buildValueInputHTML(designer, true);
+
+    return `
+      <div class="wizard-dialog" id="wizard-local-variable-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">Edit variable: $${_esc(designer.name)}</span>
+          <button class="wizard-close btn-icon" id="wlv-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+          <div class="wc-section">
+            <label class="wc-section-label">Current value</label>
+            ${valueHTML}
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn btn-sm btn-secondary" id="wlv-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wlv-commit">Save</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function _bindLocalEvents(modal, designer, context) {
+    [modal.querySelector('#wlv-cancel'), modal.querySelector('#wlv-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    const commitBtn = modal.querySelector('#wlv-commit');
+    if (commitBtn) {
+      commitBtn.addEventListener('click', () => {
+        _readValueInputFields(modal, designer, 'currentValue');
+        WizardCore.autoSave();
+        if (designer.$node) {
+          designer.$node.initial_value = designer.currentValue;
         }
-        _updateSummary(selected);
+        WizardCore.closeDialog();
+        if (typeof Editor !== 'undefined' && Editor.refreshDisplay) {
+          Editor.refreshDisplay(context);
+        }
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── Shared value input widget (used in all three dialogs) ─────────────
+  //
+  // onlyConstants=true: only constant value or device picker allowed (§9.6)
+  // For device types: device picker with checkboxes
+  // For boolean: true/false dropdown
+  // For integer/decimal: number input
+  // For datetime: datetime-local input
+  // For string/dynamic and onlyConstants: plain text
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildValueInputHTML(designer, onlyConstants) {
+    const vt = designer.varType;
+
+    if (vt === 'device' || vt === 'devices') {
+      return _buildDevicePickerHTML(designer, vt === 'devices');
+    }
+
+    if (vt === 'boolean') {
+      const cur = String(designer.initialValue);
+      return `<select id="wv-value" class="form-select">
+        <option value="">— pick a value —</option>
+        <option value="true"  ${cur === 'true'  ? 'selected' : ''}>true</option>
+        <option value="false" ${cur === 'false' ? 'selected' : ''}>false</option>
+      </select>`;
+    }
+
+    if (vt === 'integer') {
+      return `<input type="number" id="wv-value" class="form-input" step="1"
+        value="${_esc(designer.initialValue)}" placeholder="0">`;
+    }
+
+    if (vt === 'decimal') {
+      return `<input type="number" id="wv-value" class="form-input" step="0.01"
+        value="${_esc(designer.initialValue)}" placeholder="0.0">`;
+    }
+
+    if (vt === 'datetime') {
+      // datetime-local input covers date and time
+      return `<input type="datetime-local" id="wv-value" class="form-input"
+        value="${_esc(designer.initialValue)}">`;
+    }
+
+    // string, dynamic — text input
+    return `<input type="text" id="wv-value" class="form-input"
+      placeholder="Initial value" value="${_esc(designer.initialValue)}">`;
+  }
+
+  function _buildDevicePickerHTML(designer, multiSelect) {
+    const deviceData = WizardCore.getDeviceData() || [];
+    const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
+    const selected   = Array.isArray(designer.initialValue)
+      ? designer.initialValue
+      : (designer.initialValue ? [designer.initialValue] : []);
+
+    if (deviceMap.size === 0) {
+      return '<p class="wizard-hint">No devices loaded yet.</p>';
+    }
+
+    const rows = [...deviceMap.entries()].map(([, dev]) => {
+      const label   = dev.label || 'Unknown device';
+      const checked = selected.includes(label);
+      return `<label class="wv-device-row">
+        <input type="${multiSelect ? 'checkbox' : 'radio'}" name="wv-device-pick"
+          class="wv-device-input" value="${_esc(label)}" ${checked ? 'checked' : ''}>
+        <span>${_esc(label)}</span>
+      </label>`;
+    }).join('');
+
+    return `<div class="wv-device-list">${rows}</div>`;
+  }
+
+  function _bindValueInputEvents(modal, designer, onChange) {
+    const simpleInput = modal.querySelector('#wv-value');
+    if (simpleInput) {
+      simpleInput.addEventListener('change', e => {
+        designer.initialValue = e.target.value;
+        if (onChange) onChange();
+      });
+      simpleInput.addEventListener('input', e => {
+        designer.initialValue = e.target.value;
+        if (onChange) onChange();
+      });
+    }
+
+    // Device radio/checkbox group
+    modal.querySelectorAll('.wv-device-input').forEach(el => {
+      el.addEventListener('change', () => {
+        if (el.type === 'radio') {
+          designer.initialValue = el.checked ? el.value : '';
+        } else {
+          const all = [...modal.querySelectorAll('.wv-device-input:checked')].map(c => c.value);
+          designer.initialValue = all;
+        }
+        if (onChange) onChange();
       });
     });
   }
 
-  function _updateSummary(selected) {
-    const el = document.getElementById('wiz-varinit-summary');
-    if (el) el.innerHTML = _devSummaryText(selected);
-  }
+  function _readValueInputFields(modal, designer, targetProp) {
+    const prop = targetProp || 'initialValue';
 
-  async function _ensureData() {
-    const list = document.getElementById('wiz-varinit-devlist');
-    if (list) list.innerHTML = `<div class="wiz-empty">Loading...</div>`;
-
-    const fetches = [];
-
-    if (!WizardCore.deviceData) {
-      fetches.push(
-        API.getDevices()
-          .then(data => { WizardCore.deviceData = data; })
-          .catch(() => { WizardCore.deviceData = []; })
-      );
+    const simpleInput = modal.querySelector('#wv-value');
+    if (simpleInput) {
+      designer[prop] = simpleInput.value;
+      return;
     }
 
-    if (!WizardCore.globalsData) {
-      fetches.push(
-        API.getGlobals()
-          .then(result => {
-            // Backend returns dict keyed by id — same as GlobalsDrawer
-            WizardCore.globalsData = Object.values(result || {});
-          })
-          .catch(() => { WizardCore.globalsData = []; })
-      );
+    // Device radio/checkbox group
+    const deviceInputs = [...modal.querySelectorAll('.wv-device-input')];
+    if (deviceInputs.length > 0) {
+      const checked = deviceInputs.filter(i => i.checked).map(i => i.value);
+      designer[prop] = deviceInputs[0].type === 'radio' ? (checked[0] || '') : checked;
     }
-
-    if (fetches.length) await Promise.all(fetches);
   }
-}
 
-function _devSummaryText(selected) {
-  const n = selected.size;
-  if (n === 0) return '<span class="wiz-initval-placeholder">No devices selected</span>';
-  return `<span class="wiz-device-tag">device</span> ${n} device${n !== 1 ? 's' : ''} selected`;
-}
+  // ─────────────────────────────────────────────────────────────────────────
+  // Utility
+  // ─────────────────────────────────────────────────────────────────────────
+  function _esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ─────────────────────────────────────────────────────────────────────────
+  return {
+    openAdd,
+    openEdit,
+    openGlobalAdd,
+    openGlobalEdit,
+    openLocalEdit,
+  };
+
+})();

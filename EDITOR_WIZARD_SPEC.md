@@ -42,7 +42,7 @@ The editor renders JSON → display text in one direction only. Display text is 
 `[DECISION: @-prefix in role_tokens is the global-reference discriminator used by the save-time reference tracking scan]`
 
 ### §0.4 Edit-Isolation Contract
-Every dialog edits a scratch buffer (`$scope.designer`), never the live node directly. Built fresh on open. Discarded on Cancel. Written back on commit (Save/Add).
+Every dialog edits a scratch buffer (`designer`), never the live node directly. Built fresh on open. Discarded on Cancel. Written back on commit (Save/Add).
 `[VERIFIED: WEBCORE_EDIT_STATE_MODEL.md §1, §2, §3]`
 
 ### §0.5 Commit Bracket
@@ -1096,7 +1096,7 @@ Offline ≠ removed. Removed ≠ blacklisted. The two triggers never cross.
 ## §9 Edit-Isolation Contract
 
 ### §9.1 Scratch Buffer
-Every dialog edits `$scope.designer` — built fresh from the live node on open, discarded or committed on close. Live tree not touched until explicit Save/Add. Cancel = discard, no rollback needed.
+Every dialog edits the local scratch buffer (`designer`) — built fresh from the live node on open, discarded or committed on close. Live tree not touched until explicit Save/Add. Cancel = discard, no rollback needed.
 `[VERIFIED: WEBCORE_EDIT_STATE_MODEL.md §1, §2, §3]`
 
 ### §9.2 Clone vs Reference

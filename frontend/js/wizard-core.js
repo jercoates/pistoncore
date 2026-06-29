@@ -1,840 +1,587 @@
-// pistoncore/frontend/js/wizard-core.js
-// Wizard infrastructure: shared state, constants, device data, open/close/route, modal shell, helpers.
+// frontend/js/wizard-core.js
 //
-// Load order in HTML:
-//   wizard-core.js       ← this file (must be first)
+// Shared wizard infrastructure. All three runtime JSON data files are loaded here
+// at startup; all operator lists, capability menus, attribute metadata, and command
+// display strings are derived from those files at runtime — nothing is hardcoded.
+//
+// Load order (HTML must preserve this):
+//   wizard-core.js         ← this file (first)
 //   wizard-statement.js
 //   wizard-condition.js
 //   wizard-loops.js
 //   wizard-action.js
 //   wizard-variable.js
 //
-// All wizard files share state through the WizardCore object defined here.
-// All helper functions (_esc, _newId, _render, _pushStep, _back, close, etc.)
-// are defined here and called directly by the other files — no imports needed
-// since all files load into the same global scope (vanilla JS, no modules).
-//
-// Public API (unchanged from monolithic wizard.js):
-//   Wizard.open(context, editNode, extra)
-//   Wizard.close()
+// Public namespace: WizardCore
+// Used by all other wizard files.
 
-const Wizard = (() => {
+const WizardCore = (() => {
 
-  // ── State ─────────────────────────────────────────────────
-  let _context   = null;
-  let _editNode  = null;
-  let _extra     = {};
-  let _step      = null;
-  let _sel       = {};
-  let _stepStack = [];
-  let _deviceData = null;
+  // ── Runtime data (populated by init()) ───────────────────────────────────
+  let _vocab     = null;   // webcore_vocab.json
+  let _capMap    = null;   // picker_capability_map.json
+  let _attrTrans = null;   // pistoncore_attribute_translation.json
+  let _ready     = false;
 
-  // ── WebCoRE operator lists ────────────────────────────────
-  const CONDITIONS = [
-    'is','is any of','is not','is not any of',
-    'is between','is not between','is even','is odd',
-    'was','was any of','was not','was not any of',
-    'changed','did not change',
-    'is equal to','is not equal to',
-    'is less than','is less than or equal to',
-    'is greater than','is greater than or equal to',
+  // ── Editor-supplied state (set at editor open) ────────────────────────────
+  let _deviceData      = null;   // raw HA entity list
+  let _globalsData     = null;   // global variable objects
+  let _pistonVars      = null;   // current piston's local variables
+  let _autoSaveFn      = null;   // registered autoSave() from editor.js
+
+  // ── Active dialog state (§0.4 Edit-Isolation Contract) ───────────────────
+  let _designer        = null;
+  let _onCommit        = null;
+  let _onCancel        = null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Statement types — structural list from PISTON_JSON_STRUCTURE_MAP.md §5–27
+  // These are the piston tree node types, not vocabulary data; they live in
+  // code because the spec defines them, not webcore_vocab.json.
+  // §5: ELSE_IF is excluded — added via "+ add else if" inside an IF block.
+  // ─────────────────────────────────────────────────────────────────────────
+  const STATEMENT_TYPES = [
+    { type: 'if',                   label: 'If Block',              desc: 'Execute different actions based on conditions you define' },
+    { type: 'action',               label: 'Action',                desc: 'A collection of tasks for devices to perform' },
+    { type: 'every',                label: 'Every (Timer)',          desc: 'Repeat statements at a regular interval' },
+    { type: 'switch',               label: 'Switch',                desc: 'Compare an expression against multiple possible values' },
+    { type: 'do',                   label: 'Do Block',              desc: 'Group statements into a single named block' },
+    { type: 'on_event',             label: 'On Event',              desc: 'Execute statements only when a specific event occurs' },
+    { type: 'for',                  label: 'For Loop',              desc: 'Repeat statements for a fixed number of iterations' },
+    { type: 'for_each',             label: 'For Each Loop',         desc: 'Repeat statements for each device in a list' },
+    { type: 'while',                label: 'While Loop',            desc: 'Repeat while a condition remains true' },
+    { type: 'repeat',               label: 'Repeat Loop',           desc: 'Repeat until a condition is met' },
+    { type: 'set_variable',         label: 'Set Variable',          desc: 'Assign a value to a piston variable' },
+    { type: 'wait',                 label: 'Wait',                  desc: 'Pause execution for a duration or until a condition' },
+    { type: 'wait_for_state',       label: 'Wait for State',        desc: 'Pause until device conditions are met' },
+    { type: 'log_message',          label: 'Log Message',           desc: 'Write a message to the log at a chosen level' },
+    { type: 'call_piston',          label: 'Call Piston',           desc: 'Execute another piston' },
+    { type: 'cancel_pending_tasks', label: 'Cancel Pending Tasks',  desc: 'Cancel all pending scheduled tasks in this piston' },
+    { type: 'break',                label: 'Break',                 desc: 'Exit the innermost loop or switch block' },
+    { type: 'exit',                 label: 'Exit',                  desc: 'End the piston run' },
   ];
 
-  const TRIGGERS = [
-    'changes','changes to','changes to any of',
-    'changes away from','changes away from any of',
-    'drops','drops below','drops to or below',
-    'rises','rises above','rises to or above',
-    'stays','stays equal to','stays any of',
-    'stays away from','stays away from any of','stays unchanged',
-    'gets','gets any','receives',
-    'happens daily at','event occurs',
-    'is any and stays any of','is away and stays away from',
-  ];
-
-  const NEEDS_VALUE = new Set([
-    'is','is any of','is not','is not any of','is between','is not between',
-    'was','was any of','was not','was not any of',
-    'is equal to','is not equal to','is less than','is less than or equal to',
-    'is greater than','is greater than or equal to',
-    'changes to','changes to any of','changes away from','changes away from any of',
-    'drops below','drops to or below','rises above','rises to or above',
-    'stays','stays equal to','stays any of','stays away from','stays away from any of',
-    'gets','receives','happens daily at',
-    'is any and stays any of','is away and stays away from',
-  ]);
-
-  const NEEDS_DURATION_INTHELAST = new Set([
-    'changed','did not change',
-    'was','was any of','was not','was not any of',
-  ]);
-
-  const NEEDS_DURATION_FOR = new Set([
-    'stays','stays equal to','stays any of',
-    'stays away from','stays away from any of','stays unchanged',
-    'is any and stays any of','is away and stays away from',
-  ]);
-
-  const NEEDS_TWO_VALUES = new Set(['is between','is not between']);
-
-  const isTrigger = op => TRIGGERS.includes(op);
-
-  function _durationLabel(op) {
-    if (NEEDS_DURATION_INTHELAST.has(op)) return 'In the last...';
-    if (NEEDS_DURATION_FOR.has(op))      return 'For...';
-    return '';
-  }
-
-  function _needsDuration(op) {
-    return NEEDS_DURATION_INTHELAST.has(op) || NEEDS_DURATION_FOR.has(op);
-  }
-
-  // ── Static capability map by HA domain ────────────────────
-  const DOMAIN_CAPS = {
-    light:         [
-      { name:'switch',      attribute_type:'binary',  values:['on','off'] },
-      { name:'brightness',  attribute_type:'numeric', min:0, max:255, unit:'%' },
-      { name:'color_temp',  attribute_type:'numeric', min:153, max:500, unit:'mireds' },
-      { name:'color_mode',  attribute_type:'enum',    values:['color_temp','rgb','brightness'] },
-      { name:'effect',      attribute_type:'enum',    values:[] },
-    ],
-    switch:        [
-      { name:'switch', attribute_type:'binary', values:['on','off'] },
-      { name:'power',  attribute_type:'numeric', unit:'W' },
-    ],
-    binary_sensor: [
-      { name:'state',    attribute_type:'binary',  values:['on','off'] },
-      { name:'motion',   attribute_type:'binary',  values:['active','inactive'] },
-      { name:'contact',  attribute_type:'binary',  values:['open','closed'] },
-      { name:'presence', attribute_type:'binary',  values:['home','away'] },
-      { name:'smoke',    attribute_type:'binary',  values:['detected','clear'] },
-      { name:'moisture', attribute_type:'binary',  values:['wet','dry'] },
-      { name:'battery',  attribute_type:'numeric', unit:'%' },
-    ],
-    sensor:        [
-      { name:'state',               attribute_type:'numeric', unit:'' },
-      { name:'battery',             attribute_type:'numeric', unit:'%' },
-      { name:'temperature',         attribute_type:'numeric', unit:'\u00b0F' },
-      { name:'humidity',            attribute_type:'numeric', unit:'%' },
-      { name:'illuminance',         attribute_type:'numeric', unit:'lx' },
-      { name:'unit_of_measurement', attribute_type:'enum',   values:[] },
-    ],
-    media_player:  [
-      { name:'state',           attribute_type:'enum',    values:['playing','paused','idle','off','standby'] },
-      { name:'volume_level',    attribute_type:'numeric', min:0, max:1 },
-      { name:'source',          attribute_type:'enum',    values:[] },
-      { name:'media_title',     attribute_type:'enum',    values:[] },
-      { name:'is_volume_muted', attribute_type:'binary',  values:['true','false'] },
-    ],
-    cover:         [
-      { name:'state',         attribute_type:'enum',    values:['open','closed','opening','closing'] },
-      { name:'position',      attribute_type:'numeric', min:0, max:100, unit:'%' },
-      { name:'tilt_position', attribute_type:'numeric', min:0, max:100, unit:'%' },
-    ],
-    climate:       [
-      { name:'hvac_mode',           attribute_type:'enum',    values:['off','heat','cool','auto','fan_only','dry'] },
-      { name:'temperature',         attribute_type:'numeric', unit:'\u00b0F' },
-      { name:'current_temperature', attribute_type:'numeric', unit:'\u00b0F' },
-      { name:'humidity',            attribute_type:'numeric', unit:'%' },
-      { name:'preset_mode',         attribute_type:'enum',    values:[] },
-    ],
-    fan:           [
-      { name:'switch',      attribute_type:'binary',  values:['on','off'] },
-      { name:'percentage',  attribute_type:'numeric', min:0, max:100, unit:'%' },
-      { name:'preset_mode', attribute_type:'enum',    values:[] },
-    ],
-    lock:          [
-      { name:'state', attribute_type:'enum', values:['locked','unlocked','locking','unlocking'] },
-    ],
-    input_boolean: [
-      { name:'state', attribute_type:'binary', values:['on','off'] },
-    ],
-    input_number:  [
-      { name:'state', attribute_type:'numeric', unit:'' },
-    ],
-    input_select:  [
-      { name:'state', attribute_type:'enum', values:[] },
-    ],
-    automation:    [
-      { name:'state', attribute_type:'enum', values:['on','off'] },
-    ],
-    person:        [
-      { name:'state',     attribute_type:'enum',    values:['home','not_home'] },
-      { name:'latitude',  attribute_type:'numeric', unit:'\u00b0' },
-      { name:'longitude', attribute_type:'numeric', unit:'\u00b0' },
-    ],
-    device_tracker:[
-      { name:'state', attribute_type:'enum', values:['home','not_home'] },
-    ],
-    alarm_control_panel:[
-      { name:'state', attribute_type:'enum', values:['disarmed','armed_home','armed_away','armed_night','triggered'] },
-    ],
-  };
-
-  const ALLOWED_DOMAINS = new Set([
-    'light','switch','binary_sensor','sensor','media_player','cover','climate',
-    'fan','lock','input_boolean','input_number','input_select','automation',
-    'person','device_tracker','alarm_control_panel',
-  ]);
-
-  function _filterDevices(raw) {
-    const seen = new Set();
-    return (raw || []).filter(d => {
-      const domain = (d.entity_id || '').split('.')[0];
-      if (!ALLOWED_DOMAINS.has(domain)) return false;
-      if (seen.has(d.entity_id)) return false;
-      seen.add(d.entity_id);
-      return true;
-    });
-  }
-
-  // _groupDevices: groups raw entity list into physical devices.
-  // Groups by HA device_id — entities sharing a device_id are the same physical device.
-  // Falls back to entity_id as group key when device_id is absent.
-  // Display label: shortest friendly_name in the group.
-  // primary_entity_id: chosen by domain priority.
-  const _DOMAIN_PRIORITY = [
-    'light','switch','cover','fan','climate','lock','media_player',
-    'input_boolean','input_number','input_select','automation',
-    'binary_sensor','sensor','person','device_tracker','alarm_control_panel',
-  ];
-  function _groupDevices(raw) {
-    const allowed = _filterDevices(raw);
-    const byDevice = new Map();
-    for (const d of allowed) {
-      const key = d.device_id || d.entity_id;
-      if (!byDevice.has(key)) byDevice.set(key, []);
-      byDevice.get(key).push(d);
-    }
-    const result = [];
-    for (const [, entities] of byDevice) {
-      const label = entities.reduce((shortest, d) =>
-        d.friendly_name.length < shortest.length ? d.friendly_name : shortest,
-        entities[0].friendly_name
-      );
-      let primary = entities[0].entity_id;
-      for (const domain of _DOMAIN_PRIORITY) {
-        const match = entities.find(d => d.entity_id.startsWith(domain + '.'));
-        if (match) { primary = match.entity_id; break; }
-      }
-      result.push({
-        friendly_name: label,
-        entity_ids: entities.map(d => d.entity_id),
-        primary_entity_id: primary,
-      });
-    }
-    result.sort((a, b) => a.friendly_name.toLowerCase().localeCompare(b.friendly_name.toLowerCase()));
-    return result;
-  }
-
-  // Filter grouped devices by query — match against display label only.
-  function _filterGrouped(grouped, query) {
-    if (!query) return grouped;
-    const lq = query.toLowerCase();
-    return grouped.filter(d =>
-      d.friendly_name.toLowerCase().includes(lq)
-    );
-  }
-
-  function _getCapsForDomain(entityIdOrList) {
-    const ids = Array.isArray(entityIdOrList)
-      ? entityIdOrList
-      : String(entityIdOrList||'').split(',').map(s=>s.trim()).filter(Boolean);
-    if (ids.length === 1) {
-      const domain = ids[0].split('.')[0];
-      return DOMAIN_CAPS[domain] || [];
-    }
-    const seen = new Map();
-    for (const id of ids) {
-      const domain = id.split('.')[0];
-      const caps = DOMAIN_CAPS[domain] || [];
-      for (const cap of caps) {
-        if (!seen.has(cap.name)) seen.set(cap.name, cap);
-      }
-    }
-    return [...seen.values()];
-  }
-
-  // ── _getFlatEntityIds ─────────────────────────────────────
-  // Used at NODE COMMIT TIME ONLY — writes entity_ids to action/condition nodes.
-  // Returns ALL entity_ids for ALL sub-entities of every selected device/variable.
-  // Do NOT use this for capability lookups — use _getGroupedEntityIdsForTokens instead.
-  //
-  // Tokens:
-  //   real HA entity_id (has '.')   → use as-is
-  //   piston variable name (no '.') → resolve initial_value (friendly names) → all entity_ids
-  //   @global token                 → resolve value (friendly names) → all entity_ids
-  function _getFlatEntityIds(tokens) {
-    const result = [];
-    const seen = new Set();
-    const add = id => { if (id && !seen.has(id) && !id.startsWith('__')) { seen.add(id); result.push(id); } };
-
-    function _friendlyNameToEntityIds(friendlyName) {
-      const grouped = _groupDevices(_deviceData || []);
-      const group = grouped.find(g => g.friendly_name === friendlyName);
-      return group ? group.entity_ids : [];
-    }
-
-    function _resolveNames(names) {
-      const ids = Array.isArray(names) ? names
-        : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
-      for (const name of ids) {
-        if (!name) continue;
-        if (name.includes('.')) {
-          add(name);
-        } else {
-          _friendlyNameToEntityIds(name).forEach(add);
-        }
-      }
-    }
-
-    for (const token of (tokens || [])) {
-      if (!token) continue;
-      if (token.startsWith('@')) {
-        const gname = token.slice(1);
-        const globals = (Editor.getGlobalsCache ? Editor.getGlobalsCache() : (_deviceData_globals || []));
-        const g = globals.find(g => g.name === gname);
-        const val = g?.value || g?.initial_value;
-        _resolveNames(val);
-      } else if (!token.includes('.')) {
-        const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-        const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        _resolveNames(v?.initial_value);
-      } else {
-        add(token);
-      }
-    }
-    return result;
-  }
-
-  // ── _getGroupedEntityIdsForTokens ────────────────────────
-  // Used for CAPABILITY AND SERVICE LOOKUP ONLY — never for writing nodes.
-  //
-  // Returns an array of entity_id arrays — one inner array per physical device group.
-  // Each inner array contains ALL entity_ids for that physical device.
-  // Friendly name → group → ALL entity_ids in group → fetch caps for all → union.
-  // Intersect the unioned cap sets across all selected physical devices.
-  //
-  // This means "Outdoor Motion" exposes motion + battery + illuminance + temperature,
-  // not just the dominant-domain entity's caps.
-  //
-  // Tokens:
-  //   real HA entity_id  → find its group → return all entity_ids in that group
-  //   piston variable    → friendly names in initial_value → groups → all entity_ids
-  //   @global token      → friendly names in value → groups → all entity_ids
-  //
-  // Read-only. Never modifies stored state.
-  function _getGroupedEntityIdsForTokens(tokens) {
-    const grouped = _groupDevices(_deviceData || []);
-    const seenGroups = new Set();
-    const result = [];
-
-    function _addGroup(group) {
-      if (!group || seenGroups.has(group.primary_entity_id)) return;
-      seenGroups.add(group.primary_entity_id);
-      const ids = (group.entity_ids || []).filter(id => id && !id.startsWith('__'));
-      if (ids.length) result.push(ids);
-    }
-
-    function _resolveNames(names) {
-      const vals = Array.isArray(names) ? names
-        : (typeof names === 'string' && names ? names.split(',').map(s => s.trim()).filter(Boolean) : []);
-      for (const val of vals) {
-        if (!val) continue;
-        if (val.includes('.')) {
-          _addGroup(grouped.find(g => g.entity_ids.includes(val)) || null);
-        } else {
-          _addGroup(grouped.find(g => g.friendly_name === val) || null);
-        }
-      }
-    }
-
-    for (const token of (tokens || [])) {
-      if (!token) continue;
-      if (token.startsWith('@')) {
-        const gname = token.slice(1);
-        const globals = (Editor.getGlobalsCache ? Editor.getGlobalsCache() : (_deviceData_globals || []));
-        const g = globals.find(g => g.name === gname);
-        _resolveNames(g?.value || g?.initial_value);
-      } else if (!token.includes('.')) {
-        const vars = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-        const v = vars.find(v => v.var_type === 'device' && v.name === token);
-        _resolveNames(v?.initial_value);
-      } else {
-        _addGroup(grouped.find(g => g.entity_ids.includes(token)) || null);
-      }
-    }
-    return result;
-  }
-
-
-    // Internal reference to globals
-  let _deviceData_globals = null;
-
-  // ── Demo devices (fallback when no HA connection) ─────────
-  const DEMO_DEVICES = [
-    {
-      entity_id: '__demo_light__',
-      friendly_name: 'Demo Light',
-      capabilities: [
-        { name: 'switch',      attribute_type: 'binary',  values: ['on','off'] },
-        { name: 'brightness',  attribute_type: 'numeric', min: 0, max: 100 },
-        { name: 'color_temp',  attribute_type: 'numeric', min: 153, max: 500 },
-      ],
-      services: ['turn_on','turn_off','toggle','set_brightness','set_color_temp'],
-    },
-    {
-      entity_id: '__demo_switch__',
-      friendly_name: 'Demo Switch',
-      capabilities: [
-        { name: 'switch', attribute_type: 'binary', values: ['on','off'] },
-      ],
-      services: ['turn_on','turn_off','toggle'],
-    },
-    {
-      entity_id: '__demo_contact__',
-      friendly_name: 'Demo Contact Sensor',
-      capabilities: [
-        { name: 'contact', attribute_type: 'binary', device_class: 'door', values: ['open','closed'] },
-      ],
-      services: [],
-    },
-    {
-      entity_id: '__demo_speaker__',
-      friendly_name: 'Demo Speaker',
-      capabilities: [
-        { name: 'media_player', attribute_type: 'enum',    values: ['playing','paused','idle','off'] },
-        { name: 'volume',       attribute_type: 'numeric', min: 0, max: 100 },
-        { name: 'source',       attribute_type: 'enum',    values: [] },
-      ],
-      services: ['media_play','media_pause','media_stop','volume_set','volume_up','volume_down','play_media'],
-    },
-    {
-      entity_id: '__demo_presence__',
-      friendly_name: 'Demo Presence Sensor',
-      capabilities: [
-        { name: 'presence', attribute_type: 'binary', device_class: 'presence', values: ['home','away'] },
-      ],
-      services: [],
-    },
-    {
-      entity_id: '__demo_lux__',
-      friendly_name: 'Demo Lux Sensor',
-      capabilities: [
-        { name: 'illuminance', attribute_type: 'numeric', min: 0, max: 100000, unit: 'lx' },
-      ],
-      services: [],
-    },
-    {
-      entity_id: '__demo_motion__',
-      friendly_name: 'Demo Motion Sensor',
-      capabilities: [
-        { name: 'motion', attribute_type: 'binary', device_class: 'motion', values: ['active','inactive'] },
-      ],
-      services: [],
-    },
-  ];
-
-  // ── Virtual / system devices ───────────────────────────────
-  const VIRTUAL_DEVICES = [
-    { entity_id:'__location__', friendly_name:'Location'     },
-    { entity_id:'__time__',     friendly_name:'Time'         },
-    { entity_id:'__date__',     friendly_name:'Date'         },
-    { entity_id:'__mode__',     friendly_name:'Mode'         },
-    { entity_id:'__system__',   friendly_name:'System Start' },
-  ];
-
-  const SYSTEM_VARS = [
-    '$currentEventDevice','$previousEventDevice','$device','$devices','$location',
-  ];
-
-  // ── Location (virtual) commands ────────────────────────────
-  const LOCATION_COMMANDS = [
-    { id:'set_variable',      label:'Set variable...'           },
-    { id:'execute_piston',    label:'Execute piston...'         },
-    { id:'wait',              label:'Wait...'                   },
-    { id:'send_notification', label:'Send push notification...' },
-    { id:'log',               label:'Log to console...'         },
-    { id:'http_request',      label:'Make an HTTP request...'   },
-    { id:'set_mode',          label:'Set HA mode...'            },
-    { id:'raise_event',       label:'Raise an event...'         },
-  ];
-
-  // ── Statement type cards ───────────────────────────────────
-  const STATEMENT_TYPES = {
-    basic: [
-      { type:'if_block',   label:'If Block',  desc:'Execute different actions depending on conditions you set',  btn:'Add an if block', cls:'btn-primary' },
-      { type:'action',     label:'Action',    desc:'Actions represent a collection of tasks devices have to perform', btn:'Add a task',   cls:'btn-green'   },
-      { type:'timer',      label:'Timer',     desc:'Timers trigger piston runs at regular intervals',            btn:'Add a timer',     cls:'btn-orange'  },
-    ],
-    advanced: [
-      { type:'switch',      label:'Switch',      desc:'A SWITCH block compares an expression against a list of possible values',  btn:'Add a switch',     cls:'btn-primary' },
-      { type:'do_block',    label:'Do Block',    desc:'Organize several statements into a single block',                          btn:'Add a do block',   cls:'btn-green'   },
-      { type:'on_event',    label:'On Event',    desc:'Execute statements only when certain events happen',                       btn:'Add an on event',  cls:'btn-orange'  },
-      { type:'for_loop',    label:'For Loop',    desc:'A FOR loop repeats statements for a preset number of iterations',          btn:'Add a for loop',   cls:'btn-orange'  },
-      { type:'for_each',    label:'For Each Loop',desc:'A FOR EACH loop repeats statements for each device in a device list',    btn:'Add a for each loop',cls:'btn-orange' },
-      { type:'while_loop',  label:'While Loop',  desc:'A WHILE loop executes statements while a condition is true',               btn:'Add a while loop', cls:'btn-orange'  },
-      { type:'repeat_loop', label:'Repeat Loop', desc:'A REPEAT loop executes statements until a condition is met',               btn:'Add a repeat loop',cls:'btn-orange'  },
-      { type:'break',       label:'Break',       desc:'Interrupt the inner most loop',                                            btn:'Add a break',      cls:'btn-red'     },
-      { type:'exit',        label:'Exit',        desc:'Return causes the piston to end the evaluation stage',                     btn:'Add an exit',      cls:'btn-red'     },
-    ],
-  };
-
+  // Calendar constants — standard, not from vocab
   const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-  function _injectComboCSS() {
-    if (document.getElementById('wiz-combo-css')) return;
-    const s = document.createElement('style');
-    s.id = 'wiz-combo-css';
-    s.textContent = `
-      .wiz-device-combo { position:static; flex:1; min-width:0; }
-      .wiz-device-search { width:100%; box-sizing:border-box; cursor:pointer !important; }
-      .wiz-device-dropdown {
-        position:fixed; z-index:99999;
-        background:var(--bg-raised,#1e2430);
-        border:1px solid var(--border-subtle,#333);
-        border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,.6);
-        min-width:260px; max-width:420px;
-      }
-      #wiz-device-list { max-height:400px; overflow-y:auto; }
-      .wiz-combo-row { display:flex; align-items:center; gap:6px; padding:7px 10px;
-        cursor:pointer; font-size:13px; color:var(--text-primary); }
-      .wiz-combo-row:hover, .wiz-combo-row.selected { background:var(--teal,#1abc9c); color:#fff; }
-      .wiz-combo-row .wiz-dev-prefix { font-size:10px; opacity:.7; }
-      .wiz-combo-row:hover .wiz-dev-prefix { opacity:.9; }
-    `;
-    document.head.appendChild(s);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Initialization — load all three runtime JSON data files
+  // All other wizard operations depend on these being loaded first.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async function init() {
+    const base = window.location.origin;
+    const [vocabRes, capMapRes, attrRes] = await Promise.all([
+      fetch(base + '/webcore_vocab.json'),
+      fetch(base + '/picker_capability_map.json'),
+      fetch(base + '/pistoncore_attribute_translation.json'),
+    ]);
+
+    if (!vocabRes.ok)    throw new Error('WizardCore: failed to load webcore_vocab.json');
+    if (!capMapRes.ok)   throw new Error('WizardCore: failed to load picker_capability_map.json');
+    if (!attrRes.ok)     throw new Error('WizardCore: failed to load pistoncore_attribute_translation.json');
+
+    _vocab     = await vocabRes.json();
+    _capMap    = await capMapRes.json();
+    _attrTrans = await attrRes.json();
+    _ready     = true;
   }
 
-  // ── Open / Close ──────────────────────────────────────────
-  function open(context, editNode, extra) {
-    _context  = context;
-    _editNode = editNode || null;
-    _extra    = extra || {};
-    _step     = null;
-    _stepStack = [];
-    _sel = editNode ? JSON.parse(JSON.stringify(editNode)) : {};
+  function isReady() { return _ready; }
 
-    _injectComboCSS();
-    const modal = document.getElementById('wizard-modal');
-    if (modal) modal.style.display = 'flex';
-    const bd = document.getElementById('wizard-backdrop');
-    if (bd) bd.style.display = 'block';
-    _route();
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Capability detection — picker_capability_map.json lookup algorithm
+  //
+  // Per §8.2 five-step pipeline and picker_capability_map.json _meta.usage:
+  //   (1) look up by domain
+  //   (2) apply sub-rules: always → by_device_class → by_supported_color_modes
+  //                        → by_supported_features → by_declaration_attr
+  //   (3) union keys within one device (across its entities)
+  //   (4) intersect keys across all selected devices
+  //   (5) menu is built from the resulting key set via webcore_vocab.json
+  //
+  // entityMeta fields the caller must supply (from backend HA entity data):
+  //   domain, device_class, supported_features (int), supported_color_modes (array),
+  //   state_attributes (object of attr names present on the entity), unit_of_measurement
+  // ─────────────────────────────────────────────────────────────────────────
 
-  function close() {
-    const modal = document.getElementById('wizard-modal');
-    if (modal) modal.style.display = 'none';
-    const bd = document.getElementById('wizard-backdrop');
-    if (bd) bd.style.display = 'none';
-    _context = null; _editNode = null; _sel = {}; _stepStack = [];
-  }
+  function _getCapKeysForEntityRaw(entityMeta) {
+    const keys = new Set();
+    if (!_capMap || !_capMap.domains) return keys;
 
-  function _pushStep(fn) {
-    const last = _stepStack[_stepStack.length - 1];
-    if (last !== fn) _stepStack.push(fn);
-  }
+    const domainRules = _capMap.domains[entityMeta.domain];
+    if (!domainRules) return keys;
 
-  function _back() {
-    _stepStack.pop();
-    const prev = _stepStack[_stepStack.length - 1];
-    if (prev) { _stepStack.pop(); prev(); }
-    else close();
-  }
+    // always rules
+    if (domainRules.always) {
+      for (const k of (domainRules.always.attributes || [])) keys.add(k);
+    }
 
-  // ── Routing ───────────────────────────────────────────────
-  function _route() {
-    const ctx = _context;
+    // by_device_class
+    if (domainRules.by_device_class && entityMeta.device_class) {
+      const rule = domainRules.by_device_class[entityMeta.device_class];
+      if (rule) for (const k of (rule.attributes || [])) keys.add(k);
+    }
 
-    if (_editNode) {
-      const t = _editNode.type;
-
-      if (t === 'trigger' || t === 'condition' || t === 'restriction' || ctx === 'edit_condition' || ctx === 'if_condition') {
-        if (_editNode.is_group || _editNode.type === 'group') {
-          _sel.group_condition_operator = _editNode.group_operator || _editNode.operator || 'and';
-          _goGroupBuilder();
-          return;
-        }
-        _sel.statement_class = 'condition';
-        if (_editNode.subject) {
-          _sel.subject_type   = _editNode.subject.type || 'device';
-          _sel.device_id      = _editNode.subject.entity_id || '';
-          _sel.device_label   = _editNode.subject.role || _editNode.subject.entity_id || '';
-          _sel.tokens         = [_sel.device_id].filter(Boolean);
-          _sel.attribute      = _editNode.subject.capability || '';
-          _sel.attribute_type = _editNode.subject.attribute_type || '';
-        } else if (_editNode.role || _editNode.attribute) {
-          const role = _editNode.role || '';
-          if (role === 'time') {
-            _sel.subject_type = 'time';
-            _sel.time_value   = _editNode.value_from || _editNode.value || '';
-          } else if (role === 'date') {
-            _sel.subject_type = 'date';
-            _sel.date_value   = _editNode.value || '';
-          } else if (role === 'mode') {
-            _sel.subject_type = 'mode';
-            _sel.mode_value   = _editNode.value || '';
-          } else {
-            _sel.subject_type   = 'device';
-            _sel.device_label   = role;
-            const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
-            const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
-            if (nodeTokens.length) {
-              _sel.tokens    = nodeTokens;
-              _sel.device_id = nodeTokens[0];
-            } else if (nodeIds.length) {
-              _sel.tokens    = nodeIds;
-              _sel.device_id = nodeIds[0];
-            } else if (role && !['time','date','mode'].includes(role)) {
-              _sel.tokens    = [role];
-              _sel.device_id = role;
-            } else {
-              _sel.tokens    = [];
-              _sel.device_id = '';
-            }
-            _sel.attribute      = _editNode.attribute || _editNode.capability || '';
-            _sel.attribute_type = _editNode.attribute_type || '';
-          }
-        }
-        _sel.operator        = _editNode.operator || '';
-        _sel.aggregation     = _editNode.aggregation || 'any';
-        // For numeric attributes, prefer compiled_value (clean number, no unit suffix like "800lux").
-        // display_value can contain unit suffixes that type="number" inputs silently reject.
-        // For all other types, prefer display_value (human-readable, e.g. "Active" not "on").
-        _sel.value           = (_editNode.attribute_type === 'numeric')
-          ? (_editNode.compiled_value || _editNode.display_value || _editNode.value || '')
-          : (_editNode.display_value  || _editNode.value || _editNode.compiled_value || '');
-        _sel.value2          = _editNode.value_to || '';
-        _sel.duration_amount = _editNode.duration || 1;
-        _sel.duration_unit   = _editNode.duration_unit || 'minutes';
-        _sel.interaction     = _editNode.interaction || 'any';
-        _sel.time_only_on_days   = _editNode.only_on_days   || [];
-        _sel.time_only_on_dom    = _editNode.only_on_dom    || [];
-        _sel.time_only_on_months = _editNode.only_on_months || [];
-        _goConditionBuilder();
-        return;
-      }
-
-      if (t === 'variable') { _goVariablePicker(); return; }
-
-      if (t === 'set_variable') { _goLocationCmd('set_variable'); return; }
-      if (t === 'wait')         { _goLocationCmd('wait');         return; }
-      if (t === 'log_message')  { _goLocationCmd('log');          return; }
-      if (t === 'call_piston')  { _goLocationCmd('execute_piston'); return; }
-
-      if (t === 'action') {
-        const nodeTokens = (_editNode.role_tokens || []).filter(Boolean);
-        const nodeIds    = (_editNode.entity_ids  || []).filter(id => id && !id.startsWith('__'));
-        const oldDevices = (_editNode.devices || []).filter(d => d && d !== 'Location');
-        if (nodeTokens.length) {
-          _sel.tokens = nodeTokens;
-        } else if (nodeIds.length) {
-          _sel.tokens = nodeIds;
-        } else if (oldDevices.length) {
-          _sel.tokens = oldDevices;
-        } else {
-          _sel.tokens = [];
-        }
-        _sel.device_id    = _sel.tokens[0] || '';
-        _sel.device_label = _editNode.role || _sel.device_id || '';
-        // Edit the SPECIFIC clicked task (task-id carried from the editor), not always
-        // tasks[0]. Falls back to tasks[0] when no task-id is present (older callers).
-        // edit_task_id is recorded so the save path replaces the right task by id.
-        // See WITH_BLOCK_TASK_FRAMEWORK.md BUG B.
-        const _editTaskId = _extra && _extra['task-id'] ? _extra['task-id'] : null;
-        const _tasks = _editNode.tasks || [];
-        const _targetTask = _editTaskId
-          ? (_tasks.find(t => t && t.id === _editTaskId) || _tasks[0])
-          : _tasks[0];
-        _sel.edit_task_id = (_targetTask && _targetTask.id) || _editTaskId || null;
-        if (_targetTask) {
-          _sel.command    = _targetTask.command || '';
-          _sel.parameters = _targetTask.parameters ? { ..._targetTask.parameters } : {};
-        }
-        const isLocation = _sel.device_id === '__location__' ||
-          (_editNode.entity_ids || []).includes('__location__') ||
-          (_editNode.devices || []).includes('Location');
-        if (isLocation) {
-          if (_targetTask) _sel.location_cmd = _targetTask.command || '';
-          _goLocationCmdPicker();
-        } else {
-          _goCommandPicker();
-        }
-        return;
-      }
-
-      if (t === 'if') { _goIfBlockEdit(); return; }
-
-      if (t === 'every') {
-        _sel.interval           = _editNode.interval || 5;
-        _sel.interval_unit      = _editNode.interval_unit || 'minutes';
-        _sel.at_minute          = _editNode.at_minute ?? null;
-        _sel.at_time            = _editNode.at_time ?? null;
-        _sel.only_on_days       = _editNode.only_on_days   || [];
-        _sel.only_on_dom        = _editNode.only_on_dom    || [];
-        _sel.only_on_months     = _editNode.only_on_months || [];
-        _goTimerPicker();
-        return;
-      }
-
-      if (t === 'for_each') {
-        _sel.variable  = _editNode.variable || '$device';
-        _sel.list_role = _editNode.list_role || '';
-        _goForEachPicker();
-        return;
-      }
-
-      if (t === 'for') {
-        _sel.for_start   = _editNode.start ?? 1;
-        _sel.for_end     = _editNode.end ?? 10;
-        _sel.for_step    = _editNode.step ?? 1;
-        _sel.for_counter = _editNode.counter_variable || '';
-        _goForPicker();
-        return;
-      }
-
-      if (t === 'switch') {
-        _sel.switch_expression = _editNode.expression || null;
-        _sel.switch_ctp        = _editNode.case_traversal_policy || 'safe';
-        _goSwitchPicker();
-        return;
-      }
-
-      if (t === 'while') {
-        _sel.statement_class = 'condition';
-        _context = 'if_condition';
-        _extra = { 'block-id': _editNode.id };
-        _goConditionBuilder();
-        return;
-      }
-
-      if (t === 'exit') { _goExitPicker(); return; }
-
-      if (t === 'repeat' || t === 'do' || t === 'on_event' || t === 'break') {
-        const labels = { repeat:'Repeat Loop', do:'Do Block', on_event:'On Event', break:'Break' };
-        const descs  = {
-          repeat: 'A REPEAT loop executes its statements until a condition is met.',
-          do:     'A DO block groups several statements into a single block.',
-          on_event: 'An ON EVENT block executes its statements only when certain events happen.',
-          break:  'A BREAK interrupts the innermost switch, for, each, while, or repeat loop.',
-        };
-        _render(`Edit: ${labels[t] || t}`,
-          `<div class="wiz-desc">${descs[t] || ''}</div>
-           <div class="wiz-desc" style="margin-top:10px;color:var(--text-muted)">This statement has no configurable settings. Use Delete to remove it.</div>`,
-          `<button class="btn btn-ghost btn-sm" id="wiz-simple-cancel">Cancel</button>
-           <div class="wiz-footer-right">
-             <button class="btn btn-danger btn-sm" id="wiz-simple-delete">Delete</button>
-           </div>`
-        );
-        document.getElementById('wiz-simple-cancel')?.addEventListener('click', close);
-        document.getElementById('wiz-simple-delete')?.addEventListener('click', _deleteEditNode);
-        return;
+    // by_supported_color_modes — primary detection for lights (HA 2022.5+)
+    if (domainRules.by_supported_color_modes && Array.isArray(entityMeta.supported_color_modes)) {
+      for (const mode of entityMeta.supported_color_modes) {
+        const rule = domainRules.by_supported_color_modes[mode];
+        if (rule) for (const k of (rule.attributes || [])) keys.add(k);
       }
     }
 
-    // ── New statement routing by context ──────────────────────
-    if (ctx === 'condition_operator') {
-      _goConditionOperatorEditor();
-    } else if (ctx === 'trigger_or_condition' || ctx === 'condition' || ctx === 'restriction') {
-      _goConditionOrGroup();
-    } else if (ctx === 'if_condition') {
-      _sel.statement_class = 'condition';
-      _goConditionBuilder();
-    } else if (ctx === 'variable') {
-      _goVariablePicker();
-    } else if (ctx === 'task') {
-      _goActionDevicePicker();
-    } else {
-      _goStatementTypePicker();
+    // by_supported_features — integer bitmask
+    if (domainRules.by_supported_features && entityMeta.supported_features != null) {
+      const bits = parseInt(entityMeta.supported_features, 10) || 0;
+      for (const rule of Object.values(domainRules.by_supported_features)) {
+        if (rule.bit && (bits & rule.bit)) {
+          for (const k of (rule.attributes || [])) keys.add(k);
+        }
+      }
     }
+
+    // by_declaration_attr — attribute name present in entity's state_attributes
+    if (domainRules.by_declaration_attr && entityMeta.state_attributes) {
+      for (const [attrName, rule] of Object.entries(domainRules.by_declaration_attr)) {
+        if (Object.prototype.hasOwnProperty.call(entityMeta.state_attributes, attrName)) {
+          for (const k of (rule.attributes || [])) keys.add(k);
+        }
+      }
+    }
+
+    // legacy_by_supported_features — only when supported_color_modes is absent (older HA)
+    if (domainRules.legacy_by_supported_features &&
+        !Array.isArray(entityMeta.supported_color_modes) &&
+        entityMeta.supported_features != null) {
+      const bits = parseInt(entityMeta.supported_features, 10) || 0;
+      for (const rule of Object.values(domainRules.legacy_by_supported_features)) {
+        if (rule.bit && (bits & rule.bit)) {
+          for (const k of (rule.attributes || [])) keys.add(k);
+        }
+      }
+    }
+
+    // by_unit_fallback — when device_class is null, match on unit_of_measurement
+    if (domainRules.by_unit_fallback &&
+        !entityMeta.device_class &&
+        entityMeta.unit_of_measurement) {
+      for (const rule of Object.values(domainRules.by_unit_fallback)) {
+        if (rule.unit_match && entityMeta.unit_of_measurement === rule.unit_match) {
+          for (const k of (rule.attributes || [])) keys.add(k);
+        }
+      }
+    }
+
+    return keys;  // may include 'speak_gate' — caller decides what to do with it
   }
 
-  // ── Modal shell ───────────────────────────────────────────
-  function _render(title, bodyHtml, footerHtml) {
-    const modal = document.getElementById('wizard-modal');
-    if (!modal) return;
-    modal.innerHTML = `
-      <div class="wiz-header">
-        <div class="wiz-title">${title ? _esc(title) : ''}</div>
-        <button class="wiz-x" id="wiz-x">✕</button>
-      </div>
-      <div class="wiz-body" id="wiz-body">${bodyHtml}</div>
-      <div class="wiz-footer" id="wiz-footer">${footerHtml}</div>
-    `;
-    document.getElementById('wiz-x')?.addEventListener('click', close);
-    document.getElementById('wizard-backdrop').onclick = e => {
-      if (e.target === document.getElementById('wizard-backdrop')) close();
-    };
+  // Union keys across all entities belonging to one physical device.
+  // Also detects the speak_gate signal for §7.5 (PLAY_MEDIA bit).
+  // Returns { keys: Set<string>, speakGate: boolean }
+  function _getCapKeysForDevice(entitiesMetaArray) {
+    const keys = new Set();
+    let speakGate = false;
+
+    for (const entityMeta of (entitiesMetaArray || [])) {
+      const raw = _getCapKeysForEntityRaw(entityMeta);
+      if (raw.has('speak_gate')) speakGate = true;
+      for (const k of raw) {
+        if (k !== 'speak_gate') keys.add(k);
+      }
+    }
+
+    return { keys, speakGate };
   }
 
-  function _deleteEditNode() {
-    if (!_editNode?.id) return;
-    const id = _editNode.id;
-    close();
-    App.confirm({
-      title: 'Delete statement',
-      message: 'Delete this statement? This cannot be undone.',
-      confirmLabel: 'Delete',
-      danger: true,
-      onConfirm: () => { Editor.deleteStatement(id); },
+  // Intersect capability keys across all selected devices.
+  // devicesArray: array of entity-meta arrays, one inner array per device.
+  // Returns { capKeys: Set<string>, speakGate: boolean }
+  // speakGate is true only when ALL devices signal PLAY_MEDIA (§7.5 intersection rule).
+  function intersectCapKeys(devicesArray) {
+    if (!Array.isArray(devicesArray) || devicesArray.length === 0) {
+      return { capKeys: new Set(), speakGate: false };
+    }
+
+    let resultKeys  = null;
+    let allSpeakGate = true;
+
+    for (const deviceEntities of devicesArray) {
+      const { keys, speakGate } = _getCapKeysForDevice(deviceEntities);
+      if (!speakGate) allSpeakGate = false;
+
+      if (resultKeys === null) {
+        resultKeys = new Set(keys);
+      } else {
+        for (const k of resultKeys) {
+          if (!keys.has(k)) resultKeys.delete(k);
+        }
+      }
+    }
+
+    return { capKeys: resultKeys || new Set(), speakGate: allSpeakGate };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Attribute metadata — pistoncore_attribute_translation.json
+  // Direction: WebCoRE attribute key → type, enum options, range, unit
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function getAttrMeta(attrKey) {
+    return (_attrTrans && _attrTrans.attributes && _attrTrans.attributes[attrKey]) || null;
+  }
+
+  // Maps attribute type string → operator group code used to filter comparisons.
+  // E.g. 'enum' → 's', 'integer' → 'di', 'boolean' → 'b', 'time' → 't'
+  // Source: pistoncore_attribute_translation.json attributeTypeToOperatorGroup section.
+  function getOperatorGroupForType(attrType) {
+    if (!_attrTrans || !_attrTrans.attributeTypeToOperatorGroup) return 's';
+    return _attrTrans.attributeTypeToOperatorGroup[attrType] || 's';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Operator lists — derived from webcore_vocab.json comparisons at runtime
+  //
+  // An operator appears for an attribute type when the operator's 'g' field
+  // contains at least one character that appears in the attribute type's
+  // operator group code (from attributeTypeToOperatorGroup).
+  //
+  // mode: 'conditions' | 'triggers'
+  // Returns array of { key, d, dd, g, p, t, m } objects.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function getOperatorsForAttrType(attrType, mode) {
+    if (!_vocab || !_vocab.comparisons) return [];
+    const group = getOperatorGroupForType(attrType);
+    const comparisons = _vocab.comparisons[mode] || {};
+
+    return Object.entries(comparisons)
+      .filter(([, op]) => {
+        if (!op.g) return false;
+        return group.split('').some(gc => op.g.includes(gc));
+      })
+      .map(([key, op]) => ({ key, ...op }));
+  }
+
+  // Returns metadata for a single operator key, or null if not found.
+  function getOperatorMeta(opKey, mode) {
+    if (!_vocab || !_vocab.comparisons) return null;
+    const op = (_vocab.comparisons[mode] || {})[opKey];
+    return op ? { key: opKey, ...op } : null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Capability and command lookup — webcore_vocab.json
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function getCapabilityInfo(capKey) {
+    return (_vocab && _vocab.capabilities && _vocab.capabilities[capKey]) || null;
+  }
+
+  // Get vocab attribute display metadata (from vocab.attributes, the display layer).
+  // Different from getAttrMeta() which reads the translation table (compiler direction).
+  function getVocabAttrInfo(attrKey) {
+    return (_vocab && _vocab.attributes && _vocab.attributes[attrKey]) || null;
+  }
+
+  // Returns the list of command keys advertised by a capability (cap.c array).
+  function getCommandKeysForCap(capKey) {
+    const cap = getCapabilityInfo(capKey);
+    return (cap && cap.c) ? cap.c : [];
+  }
+
+  // Intersect command keys across all capability keys.
+  // Only commands present for ALL capabilities are returned (per Deviation D-1 §7.2).
+  function intersectCommandKeys(capKeys) {
+    const arr = Array.isArray(capKeys) ? capKeys : [...capKeys];
+    if (arr.length === 0) return [];
+
+    let result = null;
+    for (const capKey of arr) {
+      const cmds = new Set(getCommandKeysForCap(capKey));
+      if (result === null) {
+        result = cmds;
+      } else {
+        for (const k of result) {
+          if (!cmds.has(k)) result.delete(k);
+        }
+      }
+    }
+    return result ? [...result] : [];
+  }
+
+  // Returns command metadata from vocab.commands or vocab.virtualCommands.
+  function getCommandMeta(cmdKey) {
+    if (!_vocab) return null;
+    return (_vocab.commands && _vocab.commands[cmdKey]) ||
+           (_vocab.virtualCommands && _vocab.virtualCommands[cmdKey]) || null;
+  }
+
+  // Returns all virtual commands as array of { key, n, d, p } — §5.1.
+  function getAllVirtualCommands() {
+    if (!_vocab || !_vocab.virtualCommands) return [];
+    return Object.entries(_vocab.virtualCommands).map(([key, meta]) => ({ key, ...meta }));
+  }
+
+  // Returns all physical commands as array of { key, n, d, p }.
+  function getAllCommands() {
+    if (!_vocab || !_vocab.commands) return [];
+    return Object.entries(_vocab.commands).map(([key, meta]) => ({ key, ...meta }));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Command display rendering — §2.2 renderTask
+  // Replaces {0}, {1}, {2}... placeholders with actual parameter values.
+  // Falls back to command.n when no d field, then to the key itself.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function renderTaskDisplay(cmdKey, paramValues) {
+    const meta = getCommandMeta(cmdKey);
+    if (!meta) return cmdKey;
+    if (!meta.d) return meta.n || cmdKey;
+    return meta.d.replace(/\{(\d+)\}/g, (_, idx) => {
+      const v = paramValues && paramValues[parseInt(idx, 10)];
+      return (v !== undefined && v !== null && v !== '') ? String(v) : '…';
     });
   }
 
-  function _newId() {
-    return 'stmt_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(16).padStart(2,'0')).join('');
+  // ─────────────────────────────────────────────────────────────────────────
+  // Operand helpers — §4.7 Operand Data Shape
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function newOperand(overrides) {
+    return Object.assign(
+      { t: '', a: '', c: '', v: '', e: '', x: '', d: [], g: 'any', f: 'l' },
+      overrides || {}
+    );
   }
 
-  function _taskId() {
-    return 'task_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(16).padStart(2,'0')).join('');
+  // ─────────────────────────────────────────────────────────────────────────
+  // Comparison template — §9.6 Comparison Template
+  // Used by edit-condition, edit-restriction, edit-event designer objects.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function newComparison() {
+    return {
+      left:           newOperand(),
+      operator:       '',
+      right:          newOperand(),
+      right2:         newOperand(),
+      time:           newOperand(),
+      time2:          newOperand(),
+      within:         newOperand(),
+      withinOpt:      'l',
+      parameterCount: 0,    // computed from operator.p
+      timed:          0,    // computed from operator.t
+      event:          false,
+      valid:          false,
+    };
   }
 
-  function _condId() {
-    return 'cond_' + Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(16).padStart(2,'0')).join('');
+  // Recompute parameterCount and timed on a comparison after operator changes.
+  // mode: 'conditions' | 'triggers'
+  function updateComparisonForOperator(comparison, mode) {
+    const opMeta = getOperatorMeta(comparison.operator, mode);
+    if (!opMeta) {
+      comparison.parameterCount = 0;
+      comparison.timed = 0;
+      return;
+    }
+    comparison.parameterCount = (opMeta.p != null) ? opMeta.p : 0;
+    comparison.timed           = (opMeta.t != null) ? opMeta.t : 0;
   }
 
-  function _esc(s) {
-    return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Set comparison.valid based on current state.
+  // Rules: left type must be chosen, operator must be set,
+  // and right type must be set when parameterCount > 0.
+  function validateComparison(comparison) {
+    const leftOk  = !!(comparison.left && comparison.left.t);
+    const opOk    = !!comparison.operator;
+    const rightOk = comparison.parameterCount === 0 || !!(comparison.right && comparison.right.t);
+    comparison.valid = leftOk && opOk && rightOk;
   }
 
-  // Public interface used by ALL other wizard-*.js files:
-  const WizardCore = {
-    get context()    { return _context; },
-    set context(v)   { _context = v; },
-    get editNode()   { return _editNode; },
-    set editNode(v)  { _editNode = v; },
-    get extra()      { return _extra; },
-    set extra(v)     { _extra = v; },
-    get step()       { return _step; },
-    set step(v)      { _step = v; },
-    get sel()        { return _sel; },
-    set sel(v)       { _sel = v; },
-    get stepStack()  { return _stepStack; },
-    set stepStack(v) { _stepStack = v; },
-    get deviceData() { return _deviceData; },
-    set deviceData(v){ _deviceData = v; },
-    get globalsData()  { return _deviceData_globals; },
-    set globalsData(v) { _deviceData_globals = v; },
+  // ─────────────────────────────────────────────────────────────────────────
+  // Designer scratch buffer — §0.4 Edit-Isolation Contract
+  // Dialogs edit a designer copy, never the live node.
+  // ─────────────────────────────────────────────────────────────────────────
 
-    CONDITIONS, TRIGGERS, NEEDS_VALUE, NEEDS_DURATION_INTHELAST, NEEDS_DURATION_FOR,
-    NEEDS_TWO_VALUES, DOMAIN_CAPS, ALLOWED_DOMAINS, DEMO_DEVICES, VIRTUAL_DEVICES,
-    SYSTEM_VARS, LOCATION_COMMANDS, STATEMENT_TYPES, WEEKDAYS, MONTHS,
+  function newDesigner(overrides) {
+    return Object.assign(
+      { isNew: true, page: 0, showAdvancedOptions: false, description: '' },
+      overrides || {}
+    );
+  }
 
-    isTrigger, _durationLabel, _needsDuration,
-    _filterDevices, _groupDevices, _filterGrouped, _getCapsForDomain,
-    _getFlatEntityIds, _getGroupedEntityIdsForTokens,
-    _esc, _newId, _taskId, _condId,
-    _render, _pushStep, _back, close,
-    _deleteEditNode,
-    _injectComboCSS,
+  function getDesigner()  { return _designer; }
+  function setDesigner(d) { _designer = d; }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // autoSave — §0.5 Commit Bracket
+  // Editor registers its autoSave function here. Every wizard commit calls
+  // WizardCore.autoSave() BEFORE writing to the live tree.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function registerAutoSave(fn) { _autoSaveFn = fn; }
+  function autoSave()           { if (_autoSaveFn) _autoSaveFn(); }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Editor-supplied state — set at editor open
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function setDeviceData(data)     { _deviceData = data; }
+  function setGlobalsData(data)    { _globalsData = data; }
+  function setPistonVars(vars)     { _pistonVars = vars; }
+
+  function getDeviceData()         { return _deviceData; }
+  function getGlobalsData()        { return _globalsData; }
+  function getPistonVars()         { return _pistonVars; }
+
+  // Group raw entity array into a Map<deviceKey, { label, entities[] }>.
+  // Keyed by device_id when present, otherwise by entity_id.
+  function groupEntitiesByDevice(rawEntities) {
+    const map = new Map();
+    for (const e of (rawEntities || [])) {
+      const key   = e.device_id || e.entity_id;
+      const label = e.friendly_name || e.entity_id;
+      if (!map.has(key)) map.set(key, { label, entities: [] });
+      map.get(key).entities.push(e);
+    }
+    return map;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Dialog management — single #wizard-modal container populated dynamically
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function getModalEl() {
+    return document.getElementById('wizard-modal');
+  }
+
+  function showWizard() {
+    const bd = document.getElementById('wizard-backdrop');
+    if (bd) bd.style.display = 'flex';
+  }
+
+  function hideWizard() {
+    const bd = document.getElementById('wizard-backdrop');
+    if (bd) bd.style.display = 'none';
+    const modal = document.getElementById('wizard-modal');
+    if (modal) modal.innerHTML = '';
+  }
+
+  // Each wizard file: (1) calls openDialog to register state, (2) injects HTML
+  // into getModalEl(), (3) calls showWizard().
+  function openDialog(designer, onCommit, onCancel) {
+    _designer = designer;
+    _onCommit = onCommit || null;
+    _onCancel = onCancel || null;
+  }
+
+  function closeDialog() {
+    _designer = null;
+    _onCommit = null;
+    _onCancel = null;
+    hideWizard();
+  }
+
+  function commitDialog(commitData) {
+    const cb = _onCommit;
+    closeDialog();
+    if (cb) cb(commitData);
+  }
+
+  function cancelDialog() {
+    const cb = _onCancel;
+    closeDialog();
+    if (cb) cb();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Utility: deep clone a plain object (for designer scratch buffers)
+  // ─────────────────────────────────────────────────────────────────────────
+  function deepClone(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return {
+    // Startup
+    init,
+    isReady,
+
+    // Raw data accessors (when a wizard file needs the full JSON)
+    getVocab:            () => _vocab,
+    getCapMap:           () => _capMap,
+    getAttrTranslation:  () => _attrTrans,
+
+    // Capability detection pipeline (§8.2)
+    intersectCapKeys,
+
+    // Attribute metadata (pistoncore_attribute_translation.json — compiler direction)
+    getAttrMeta,
+    getOperatorGroupForType,
+
+    // Operator lists (derived from webcore_vocab.json at runtime)
+    getOperatorsForAttrType,
+    getOperatorMeta,
+
+    // Capability and command lookup (webcore_vocab.json)
+    getCapabilityInfo,
+    getVocabAttrInfo,
+    getCommandKeysForCap,
+    intersectCommandKeys,
+    getCommandMeta,
+    getAllVirtualCommands,
+    getAllCommands,
+
+    // Command display
+    renderTaskDisplay,
+
+    // Operand / comparison helpers
+    newOperand,
+    newComparison,
+    updateComparisonForOperator,
+    validateComparison,
+
+    // Designer scratch buffer
+    newDesigner,
+    getDesigner,
+    setDesigner,
+
+    // autoSave (§0.5 Commit Bracket)
+    registerAutoSave,
+    autoSave,
+
+    // Editor-supplied runtime state
+    setDeviceData,
+    setGlobalsData,
+    setPistonVars,
+    getDeviceData,
+    getGlobalsData,
+    getPistonVars,
+    groupEntitiesByDevice,
+
+    // Dialog management
+    getModalEl,
+    showWizard,
+    hideWizard,
+    openDialog,
+    closeDialog,
+    commitDialog,
+    cancelDialog,
+
+    // Utilities
+    deepClone,
+
+    // Structural constants (spec-defined, not from vocab.json)
+    STATEMENT_TYPES,
+    WEEKDAYS,
+    MONTHS,
   };
-
-  window.WizardCore = WizardCore;
-
-  return { open, close };
 
 })();

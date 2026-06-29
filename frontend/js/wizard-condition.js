@@ -1,934 +1,1082 @@
-// pistoncore/frontend/js/wizard-condition.js
-// Condition builder, group builder, condition operator editor, commit logic.
-// Depends on: wizard-core.js (WizardCore must be loaded first)
+// frontend/js/wizard-condition.js
 //
-// sel.tokens — parallel to wizard-action.js: tracks what the user selected
-// (physical entity_ids, piston variable names, @global tokens).
-// Used to highlight correct rows on re-render and to build role_tokens on the node.
-// _getFlatEntityIds(sel.tokens) gives the real entity_ids for intersection.
+// Condition / Trigger / Restriction builder dialog.
+// All menus are driven by the three runtime JSON files via WizardCore —
+// no operator lists, enum options, attribute types, or ranges are hardcoded here.
+//
+// Entry points (called by editor.js):
+//   WizardCondition.openAdd(parentArray, context, mode)
+//   WizardCondition.openEdit(node, parentArray, context, mode)
+//   WizardCondition.openEditGroup(groupNode, parentArray, context)
+//
+// mode: 'condition' | 'trigger' | 'restriction'
+//
+// On commit:
+//   Calls Editor.insertCondition(parentArray, builtNode, context) for new nodes.
+//   For edits: writes directly to node and calls Editor.refreshDisplay(context).
+//
+// Node shape per PISTON_JSON_STRUCTURE_MAP.md §4.
 
-function _goConditionOrGroup() {
-  const { _esc, _render, _pushStep, close } = WizardCore;
-  WizardCore.step = 'cog';
-  _pushStep(_goConditionOrGroup);
-  _render(
-    'Add a new condition',
-    `<div class="wiz-desc">An IF block is the simplest decisional block available. It allows you to execute different actions depending on conditions you set.</div>
-     <div class="wiz-two-cards">
-       <div class="wiz-card-option" id="wiz-pick-cond">
-         <div class="wiz-card-option-title" style="color:var(--teal)">Condition</div>
-         <div class="wiz-card-option-desc">A condition is a single comparison between two or more operands, the basic building block of a decisional statement</div>
-         <button class="btn btn-primary btn-sm wiz-card-btn">Add a condition</button>
-       </div>
-       <div class="wiz-card-option" id="wiz-pick-group">
-         <div class="wiz-card-option-title" style="color:var(--orange)">Group</div>
-         <div class="wiz-card-option-desc">A group is a collection of conditions, with a logical operator between them, allowing for complex decisional statements</div>
-         <button class="btn btn-orange btn-sm wiz-card-btn">Add a group</button>
-       </div>
-     </div>`,
-    `<button class="btn btn-ghost btn-sm" id="wiz-cancel">Cancel</button>`
-  );
-  document.getElementById('wiz-cancel')?.addEventListener('click', close);
-  document.getElementById('wiz-pick-cond')?.addEventListener('click', () => {
-    WizardCore.sel.statement_class = 'condition';
-    _goConditionBuilder();
-  });
-  document.getElementById('wiz-pick-group')?.addEventListener('click', () => {
-    WizardCore.sel.statement_class = 'group';
-    _goGroupBuilder();
-  });
-}
+const WizardCondition = (() => {
 
-function _goConditionBuilder() {
-  const {
-    _esc, _render, _pushStep, close,
-    isTrigger, NEEDS_VALUE, NEEDS_TWO_VALUES, _needsDuration, _durationLabel,
-    CONDITIONS, TRIGGERS, WEEKDAYS, MONTHS,
-  } = WizardCore;
+  function _newId() {
+    return 'cond_' + Math.random().toString(36).slice(2, 10);
+  }
 
-  WizardCore.step = 'cond';
-  _pushStep(_goConditionBuilder);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open add dialog
+  // ─────────────────────────────────────────────────────────────────────────
+  function openAdd(parentArray, context, mode) {
+    mode = mode || 'condition';
+    const designer = WizardCore.newDesigner({
+      isNew:        true,
+      page:         0,
+      mode:         mode,
+      type:         '',       // 'condition' | 'group' — set by page 0 type picker
+      groupOperator: parentArray && parentArray.length > 0 ? 'and' : 'and',
 
-  const _sel = WizardCore.sel;
-  const op          = _sel.operator || '';
-  const hasDevice   = !!_sel.device_id;
-  const hasOp       = !!op;
-  const needsVal    = NEEDS_VALUE.has(op);
-  const needsDur    = _needsDuration(op);
-  const needsTwo    = NEEDS_TWO_VALUES.has(op);
-  const agg         = _sel.aggregation || 'any';
-  const attr        = _sel.attribute || '';
-  const interaction = _sel.interaction || 'any';
-  const subjType    = _sel.subject_type || 'device';
-  const isTimeSubj  = subjType === 'time';
-  // Device conditions require an attribute; other subject types have no attribute.
-  const hasAttr     = subjType !== 'device' || !!attr;
+      // Condition fields
+      comparison: WizardCore.newComparison(),
 
-  const backFn = (_sel.statement_class === 'condition' && WizardCore.context !== 'if_condition')
-    ? _goConditionOrGroup : null;
+      // Left operand device-picker state (built as user selects)
+      leftSourceType:    'device',  // 'device' | 'variable' | 'expression'
+      selectedDeviceKeys: [],       // device_id or entity_id keys from groupEntitiesByDevice
+      capKeys:           [],        // intersected capability/attribute keys
+      selectedAttrKey:   '',        // chosen WebCoRE attribute key
+      attrMeta:          null,      // from WizardCore.getAttrMeta(selectedAttrKey)
 
-  const showInteraction = subjType === 'device' && hasDevice && isTrigger(op);
+      // Right operand value(s) — type driven by attrMeta at runtime
+      rightValue:  '',
+      rightValue2: '',
 
-  const odw = _sel.time_only_on_days || [];
-  const omy = _sel.time_only_on_months || [];
+      // Duration — shown when operator t:1 or t:2
+      durationValue: '',
+      durationUnit:  's',
 
-  const daysCheckboxes = WEEKDAYS.map((d,i) =>
-    `<label class="wiz-check-label"><input type="checkbox" class="wiz-dow-cb" value="${i+1}" ${odw.includes(i+1)?'checked':''}> ${d}</label>`
-  ).join('');
-  const monthsCheckboxes = MONTHS.map((m,i) =>
-    `<label class="wiz-check-label"><input type="checkbox" class="wiz-moy-cb" value="${i+1}" ${omy.includes(i+1)?'checked':''}> ${m}</label>`
-  ).join('');
+      // Group type fields
+      groupOp:  'and',
+      groupNot: '0',
 
-  _render(
-    'Add a new condition',
-    `
-    <div class="wiz-desc">A condition allows for a single comparison to be made between two expressions.</div>
+      // Advanced
+      smode:       'auto',
+      description: '',
+    });
 
-    <div class="wiz-agg-bar" ${!hasDevice?'style="display:none"':''} id="wiz-agg-bar">
-      <select id="wiz-agg" class="wiz-agg-select">
-        <option value="any"  ${agg==='any'  ?'selected':''}>Any of the selected devices</option>
-        <option value="all"  ${agg==='all'  ?'selected':''}>All of the selected devices</option>
-        <option value="none" ${agg==='none' ?'selected':''}>None of the selected devices</option>
-      </select>
-    </div>
+    WizardCore.openDialog(designer, null, null);
+    _renderDialog(designer, parentArray, context);
+    WizardCore.showWizard();
+  }
 
-    <div class="wiz-row-label">What to compare</div>
-    <div class="wiz-compare-row">
-      <select id="wiz-subj-type" class="wiz-select-blue">
-        <option value="device"   ${subjType==='device'  ?'selected':''}>Physical device(s)</option>
-        <option value="variable" ${subjType==='variable'?'selected':''}>Variable</option>
-        <option value="time"     ${subjType==='time'    ?'selected':''}>Time</option>
-        <option value="date"     ${subjType==='date'    ?'selected':''}>Date</option>
-        <option value="mode"     ${subjType==='mode'    ?'selected':''}>Mode</option>
-      </select>
-      <button class="wiz-device-pick-btn ${hasDevice?'has-value':''}" id="wiz-open-devpicker"
-        style="flex:1;min-width:120px;${subjType!=='device'?'display:none':''}">
-        ${hasDevice ? `<span class="wiz-device-tag">device</span> ${_esc(_sel.device_label||_sel.device_id)}` : 'Nothing selected'}
-      </button>
-      <select id="wiz-attr-select" class="wiz-select-blue wiz-attr-select ${attr?'has-value':''}"
-        ${(!hasDevice || subjType!=='device')?'disabled':''}
-        style="${subjType!=='device'?'display:none':''}">
-        <option value="">attribute...</option>
-        ${(_sel._caps||[]).map(c=>`<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" ${attr===c.name?'selected':''}>${_esc(c.name)}</option>`).join('')}
-      </select>
-    </div>
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open edit dialog (existing condition or group)
+  // ─────────────────────────────────────────────────────────────────────────
+  function openEdit(node, parentArray, context, mode) {
+    mode = mode || 'condition';
 
-    ${subjType==='variable' ? `
-    <div style="margin-top:6px">
-      <select id="wiz-subj-var" class="wiz-select-blue wiz-select-full">
-        <option value="">Select a variable...</option>
-        ${(Editor.getPistonVariables ? Editor.getPistonVariables() : []).map(v=>
-          `<option value="${_esc(v.name)}" ${_sel.device_id===v.name?'selected':''}>${_esc(v.name)}</option>`
-        ).join('')}
-      </select>
-    </div>` : ''}
+    if (node.c) {
+      // It's a group — open the group editor
+      openEditGroup(node, parentArray, context);
+      return;
+    }
 
-    ${subjType==='time' ? `
-    <div style="margin-top:6px">
-      <input type="time" id="wiz-subj-time" class="wiz-value-input" value="${_esc(_sel.time_value||'')}" style="width:140px" />
-    </div>` : ''}
+    const designer = WizardCore.newDesigner({
+      isNew:        false,
+      page:         1,
+      mode:         mode,
+      type:         'condition',
+      $node:        node,
+      groupOperator: node.group_operator || 'and',
 
-    ${subjType==='date' ? `
-    <div style="margin-top:6px">
-      <input type="date" id="wiz-subj-date" class="wiz-value-input" value="${_esc(_sel.date_value||'')}" style="width:160px" />
-    </div>` : ''}
+      // Seed left operand display (role from node)
+      leftSourceType:    'device',
+      selectedDeviceKeys: [],
+      capKeys:           [],
+      selectedAttrKey:   node.attribute || '',
+      attrMeta:          node.attribute ? WizardCore.getAttrMeta(node.attribute) : null,
 
-    ${subjType==='mode' ? `
-    <div style="margin-top:6px">
-      <input type="text" id="wiz-subj-mode" class="wiz-value-input" placeholder="Mode name..." value="${_esc(_sel.mode_value||'')}" style="width:200px" />
-    </div>` : ''}
+      // Role info from node (for re-display)
+      role:        node.role        || '',
+      roleTokens:  (node.role_tokens || []).slice(),
+      entityIds:   (node.entity_ids  || []).slice(),
+      aggregation: node.aggregation  || 'any',
 
-    <div id="wiz-dev-panel" style="display:none;margin-top:4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg-raised)">
-      <div style="padding:6px 8px;border-bottom:1px solid var(--border-subtle)">
-        <input type="text" id="wiz-dev-panel-search" placeholder="Search devices..." autocomplete="off"
-          style="width:100%;background:transparent;border:none;color:var(--text-primary);font-size:13px;outline:none;padding:2px 0" />
-      </div>
-      <div id="wiz-dev-panel-list" style="max-height:260px;overflow-y:auto"></div>
-    </div>
+      // Right values from node
+      rightValue:  node.display_value || '',
+      rightValue2: node.value_to      || '',
 
-    <div class="wiz-interaction-row" id="wiz-int-row" style="${showInteraction?'':'display:none'}">
-      <span class="wiz-row-label-inline">Which interaction</span>
-      <select id="wiz-interaction" class="wiz-select-blue-sm">
-        <option value="any"          ${interaction==='any'          ?'selected':''}>Any interaction</option>
-        <option value="physical"     ${interaction==='physical'     ?'selected':''}>Physical</option>
-        <option value="programmatic" ${interaction==='programmatic' ?'selected':''}>Programmatic</option>
-      </select>
-    </div>
+      // Duration
+      durationValue: node.duration      != null ? String(node.duration) : '',
+      durationUnit:  node.duration_unit || 's',
 
-    <div class="wiz-row-label">What kind of comparison?</div>
-    <select id="wiz-operator" class="wiz-select-blue wiz-select-full ${op?'has-value':''} ${isTrigger(op)?'is-trigger':''}">
-      <option value="" style="display:none" disabled>Select a comparison...</option>
-      <optgroup label="⚡ Triggers — fire when this happens">
-        ${TRIGGERS.map(t=>`<option value="${_esc(t)}" ${op===t?'selected':''}>⚡ ${_esc(t)}</option>`).join('')}
-      </optgroup>
-      <optgroup label="Conditions — check current state">
-        ${CONDITIONS.map(c=>`<option value="${_esc(c)}" ${op===c?'selected':''}>${_esc(c)}</option>`).join('')}
-      </optgroup>
-    </select>
+      // Operator
+      comparison: _buildComparisonFromNode(node, mode),
 
-    <div id="wiz-value-row" class="${needsVal?'':'hidden'}">
-      <div class="wiz-row-label">${needsTwo ? 'Between...' : 'Compare to'}</div>
-      <div class="wiz-value-inputs" id="wiz-val-inputs">
-        <select id="wiz-val-type" class="wiz-select-blue-sm" style="align-self:flex-start">
-          <option value="value">Value</option>
-          <option value="variable">Variable</option>
-          <option value="expression">Expression</option>
-          <option value="argument">Argument</option>
-        </select>
-        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
-          <span id="wiz-val-widget" style="display:block;width:100%"></span>
-          ${needsTwo ? `<span class="wiz-between-and" id="wiz-between-and">...and...</span><span id="wiz-val-widget-2" style="display:block;width:100%"></span>` : ''}
+      // Advanced
+      smode:       node.smode       || 'auto',
+      description: node.description || '',
+    });
+
+    WizardCore.openDialog(designer, null, null);
+    _renderDialog(designer, parentArray, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public: open group editor (existing group node)
+  // ─────────────────────────────────────────────────────────────────────────
+  function openEditGroup(groupNode, parentArray, context) {
+    const designer = WizardCore.newDesigner({
+      isNew:    false,
+      page:     1,
+      mode:     'group',
+      type:     'group',
+      $node:    groupNode,
+      groupOp:  groupNode.o || 'and',
+      groupNot: groupNode.n ? '1' : '0',
+      description: groupNode.description || '',
+    });
+
+    WizardCore.openDialog(designer, null, null);
+    _renderGroupDialog(designer, parentArray, context);
+    WizardCore.showWizard();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Build a comparison object seeded from an existing condition node (edit mode)
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildComparisonFromNode(node, mode) {
+    const comp = WizardCore.newComparison();
+    comp.operator = node.operator || '';
+    if (comp.operator) {
+      WizardCore.updateComparisonForOperator(comp, mode === 'trigger' ? 'triggers' : 'conditions');
+    }
+    return comp;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render dispatcher
+  // ─────────────────────────────────────────────────────────────────────────
+  function _renderDialog(designer, parentArray, context) {
+    const modal = WizardCore.getModalEl();
+    if (!modal) return;
+
+    if (designer.page === 0) {
+      modal.innerHTML = _buildPage0HTML(designer);
+      _bindPage0Events(modal, designer, parentArray, context);
+    } else if (designer.type === 'group') {
+      _renderGroupDialog(designer, parentArray, context);
+    } else {
+      modal.innerHTML = _buildPage1HTML(designer);
+      _bindPage1Events(modal, designer, parentArray, context);
+    }
+  }
+
+  function _renderGroupDialog(designer, parentArray, context) {
+    const modal = WizardCore.getModalEl();
+    if (!modal) return;
+    modal.innerHTML = _buildGroupHTML(designer);
+    _bindGroupEvents(modal, designer, parentArray, context);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Page 0: type picker — Condition card | Group card
+  // Restrictions show a warning banner. Triggers show trigger note.
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildPage0HTML(designer) {
+    const mode    = designer.mode;
+    const isRestr = mode === 'restriction';
+    const isTrig  = mode === 'trigger';
+
+    const modeTitle = isTrig ? 'Add a Trigger' : isRestr ? 'Add a Restriction' : 'Add a Condition';
+
+    const restrWarning = isRestr ? `
+      <div class="wizard-warning">
+        ⚠ Restrictions do NOT subscribe to events — they only check current state.
+      </div>` : '';
+
+    const trigNote = isTrig ? `
+      <div class="wizard-info-note">
+        Triggers subscribe to HA state changes. Any trigger firing causes the piston to run.
+      </div>` : '';
+
+    return `
+      <div class="wizard-dialog" id="wizard-condition-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">${_esc(modeTitle)}</span>
+          <button class="wizard-close btn-icon" id="wc-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+          ${restrWarning}${trigNote}
+          <div class="wizard-type-grid">
+            <div class="wizard-type-card" data-type="condition">
+              <div class="wizard-type-card-label">${isTrig ? 'Trigger' : isRestr ? 'Restriction' : 'Condition'}</div>
+              <div class="wizard-type-card-desc">Compare a device attribute${isRestr ? ' (state only)' : ''}</div>
+              <button class="btn btn-sm btn-primary wizard-type-select" data-type="condition">Add</button>
+            </div>
+            ${!isTrig ? `
+            <div class="wizard-type-card" data-type="group">
+              <div class="wizard-type-card-label">Group</div>
+              <div class="wizard-type-card-desc">Nest conditions inside an All / Any / None group</div>
+              <button class="btn btn-sm btn-primary wizard-type-select" data-type="group">Add</button>
+            </div>` : ''}
+          </div>
         </div>
       </div>
-    </div>
+    `;
+  }
 
-    <div id="wiz-dur-row" class="${needsDur?'':'hidden'}">
-      <div class="wiz-row-label" id="wiz-dur-label">${_durationLabel(op)||'For...'}</div>
-      <div class="wiz-duration-inputs">
-        <input type="number" id="wiz-dur-amount" class="wiz-dur-number" value="${_sel.duration_amount||1}" min="1" />
-        <select id="wiz-dur-unit" class="wiz-select-blue-sm">
-          <option value="seconds" ${(_sel.duration_unit||'minutes')==='seconds'?'selected':''}>seconds</option>
-          <option value="minutes" ${(_sel.duration_unit||'minutes')==='minutes'?'selected':''}>minutes</option>
-          <option value="hours"   ${(_sel.duration_unit||'minutes')==='hours'  ?'selected':''}>hours</option>
-          <option value="days"    ${(_sel.duration_unit||'minutes')==='days'   ?'selected':''}>days</option>
+  function _bindPage0Events(modal, designer, parentArray, context) {
+    modal.querySelector('#wc-cancel')
+      .addEventListener('click', () => WizardCore.closeDialog());
+
+    modal.querySelectorAll('.wizard-type-select').forEach(btn => {
+      btn.addEventListener('click', () => {
+        designer.type = btn.dataset.type;
+        designer.page = 1;
+        _renderDialog(designer, parentArray, context);
+      });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Page 1: Condition form
+  // All menus are built from the three JSON files via WizardCore.
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildPage1HTML(designer) {
+    const isNew   = designer.isNew;
+    const mode    = designer.mode;
+    const isTrig  = mode === 'trigger';
+    const isRestr = mode === 'restriction';
+
+    const title = isTrig ? (isNew ? 'Add Trigger' : 'Edit Trigger')
+                : isRestr ? (isNew ? 'Add Restriction' : 'Edit Restriction')
+                : (isNew ? 'Add Condition' : 'Edit Condition');
+
+    const backBtn = isNew
+      ? `<button class="btn btn-sm btn-secondary" id="wc-back">← Back</button>`
+      : '';
+
+    // Group operator (connects this node to the PREVIOUS condition)
+    // Not shown for triggers (triggers are OR'd together automatically).
+    const groupOpHtml = !isTrig ? `
+      <div class="wc-section">
+        <label>Connect to previous with</label>
+        <select id="wc-group-operator" class="form-select form-select-sm" style="width:auto">
+          <option value="and" ${designer.groupOperator === 'and' ? 'selected' : ''}>AND (All)</option>
+          <option value="or"  ${designer.groupOperator === 'or'  ? 'selected' : ''}>OR (Any)</option>
+        </select>
+      </div>` : '';
+
+    // Left operand — source type toggle
+    const leftSourceHtml = _buildLeftSourceHTML(designer);
+
+    // Attribute picker — shown after device(s) selected
+    const attrHtml = _buildAttrPickerHTML(designer);
+
+    // Operator picker — shown after attribute selected
+    const opHtml = _buildOperatorHTML(designer, mode);
+
+    // Right value(s) — shown when operator.p > 0
+    const rightHtml = _buildRightValueHTML(designer);
+
+    // Duration — shown when operator.t > 0
+    const durHtml = _buildDurationHTML(designer);
+
+    // Advanced section
+    const advHtml = _buildAdvancedHTML(designer, isRestr);
+
+    return `
+      <div class="wizard-dialog" id="wizard-condition-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">${_esc(title)}</span>
+          <button class="wizard-close btn-icon" id="wc-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+          ${groupOpHtml}
+          <div class="wc-section">
+            <label class="wc-section-label">What to check</label>
+            ${leftSourceHtml}
+          </div>
+          <div class="wc-section" id="wc-attr-section" style="${designer.selectedAttrKey || designer.role ? '' : 'display:none'}">
+            <label class="wc-section-label">Attribute</label>
+            ${attrHtml}
+          </div>
+          <div class="wc-section" id="wc-op-section" style="${designer.selectedAttrKey ? '' : 'display:none'}">
+            <label class="wc-section-label">Operator</label>
+            ${opHtml}
+          </div>
+          <div class="wc-section" id="wc-right-section" style="${designer.selectedAttrKey && designer.comparison.parameterCount > 0 ? '' : 'display:none'}">
+            <label class="wc-section-label">Compare to</label>
+            ${rightHtml}
+          </div>
+          <div class="wc-section" id="wc-dur-section" style="${designer.comparison.timed > 0 ? '' : 'display:none'}">
+            ${durHtml}
+          </div>
+          <div class="wizard-advanced-toggle">
+            <button class="btn btn-sm btn-link" id="wc-adv-toggle">
+              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
+            </button>
+          </div>
+          <div id="wc-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
+            ${advHtml}
+          </div>
+        </div>
+        <div class="wizard-footer">
+          ${backBtn}
+          <button class="btn btn-sm btn-secondary" id="wc-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wc-commit">${isNew ? 'Add' : 'Save'}</button>
+          ${isNew ? `<button class="btn btn-sm btn-success" id="wc-add-more">Add more</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // Left source type — device picker, variable, or expression
+  function _buildLeftSourceHTML(designer) {
+    const src = designer.leftSourceType;
+    const deviceData = WizardCore.getDeviceData() || [];
+    const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
+
+    // Build device list HTML
+    const deviceRows = [...deviceMap.entries()].map(([key, dev]) => `
+      <label class="wc-device-row">
+        <input type="checkbox" class="wc-device-check" data-key="${_esc(key)}"
+          ${(designer.selectedDeviceKeys || []).includes(key) ? 'checked' : ''}>
+        <span>${_esc(dev.label)}</span>
+      </label>
+    `).join('');
+
+    const noDevices = deviceMap.size === 0
+      ? `<p class="wizard-hint">No HA devices loaded. Check your HA connection.</p>` : '';
+
+    // If editing and we have a role already set, show it
+    const existingRole = designer.role && !designer.isNew
+      ? `<div class="wc-existing-role">Currently: <strong>${_esc(designer.role)}</strong></div>`
+      : '';
+
+    return `
+      <div class="wc-source-tabs">
+        <button class="btn btn-sm ${src === 'device'     ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="device">Device</button>
+        <button class="btn btn-sm ${src === 'variable'   ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="variable">Variable</button>
+        <button class="btn btn-sm ${src === 'expression' ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="expression">Expression</button>
+      </div>
+      <div id="wc-src-device"  style="${src === 'device'     ? '' : 'display:none'}">
+        ${existingRole}
+        <div class="wc-device-list" id="wc-device-list" style="max-height:180px;overflow-y:auto">
+          ${noDevices}${deviceRows}
+        </div>
+        <div id="wc-aggregation-row" style="${(designer.selectedDeviceKeys||[]).length > 1 ? '' : 'display:none'}">
+          <label>Aggregation (multiple devices)</label>
+          <select id="wc-aggregation" class="form-select form-select-sm">
+            ${['any','all','avg','count','min','max'].map(a =>
+              `<option value="${a}" ${(designer.aggregation||'any') === a ? 'selected' : ''}>${a}</option>`
+            ).join('')}
+          </select>
+        </div>
+      </div>
+      <div id="wc-src-variable" style="${src === 'variable' ? '' : 'display:none'}">
+        <label>Variable name</label>
+        <select id="wc-var-select" class="form-select">
+          <option value="">— pick a variable —</option>
+          ${_buildVariableOptions(designer)}
         </select>
       </div>
-    </div>
+      <div id="wc-src-expression" style="${src === 'expression' ? '' : 'display:none'}">
+        <label>Expression</label>
+        <input type="text" id="wc-expression-input" class="form-input"
+          placeholder="e.g. $device.switch == 'on'"
+          value="${_esc(designer.expressionValue || '')}">
+      </div>
+    `;
+  }
 
-    ${isTimeSubj ? `
-    <div class="wiz-row-label" style="margin-top:10px">Only on these days of the week...</div>
-    <div class="wiz-check-group" id="wiz-dow-group">${daysCheckboxes}</div>
-    <div class="wiz-row-label" style="margin-top:8px">Only on these months of the year...</div>
-    <div class="wiz-check-group" id="wiz-moy-group">${monthsCheckboxes}</div>
-    ` : ''}
+  function _buildVariableOptions(designer) {
+    const vars    = WizardCore.getPistonVars()  || [];
+    const globals = WizardCore.getGlobalsData() || [];
+    const opts = [];
+    for (const v of vars)    opts.push(`<option value="${_esc(v.name)}">${_esc(v.name)} (local)</option>`);
+    for (const g of globals)  opts.push(`<option value="@${_esc(g.name)}">@${_esc(g.name)} (global)</option>`);
+    return opts.join('');
+  }
 
-    ${WizardCore.context === 'if_condition' ? `
-    <div class="wiz-row-label" style="margin-top:10px">Connect to previous condition with</div>
-    <select id="wiz-group-op-selector" class="wiz-select-blue wiz-select-full">
-      <option value="and" ${(_sel.group_operator||'and')==='and'?'selected':''}>AND — all conditions must be true</option>
-      <option value="or"  ${(_sel.group_operator||'and')==='or' ?'selected':''}>OR — any condition must be true</option>
-    </select>` : ''}
-    `,
-    `
-    <div class="wiz-footer-left">
-      <button class="btn btn-ghost btn-sm" id="wiz-back-btn">${backFn ? '← Back' : 'Cancel'}</button>
-      ${WizardCore.editNode ? '<button class="btn btn-danger btn-sm" id="wiz-cond-del">Delete</button>' : ''}
-    </div>
-    <div class="wiz-footer-right">
-      <button class="btn btn-ghost btn-sm" id="wiz-cog">⚙</button>
-      ${!WizardCore.editNode ? `<button class="btn btn-primary btn-sm" id="wiz-add-more" ${hasDevice&&hasOp&&hasAttr?'':'disabled'}>Add more</button>` : ''}
-      <button class="btn btn-primary btn-sm" id="wiz-add" ${hasDevice&&hasOp&&hasAttr?'':'disabled'}>${WizardCore.editNode ? 'Save' : 'Add'}</button>
-    </div>
-    `
-  );
+  // Attribute picker — built from intersected capKeys at runtime
+  // Display names come from WizardCore.getAttrMeta(key).n
+  function _buildAttrPickerHTML(designer) {
+    const capKeys = designer.capKeys || [];
+    if (capKeys.length === 0 && !designer.selectedAttrKey) {
+      return `<p class="wizard-hint" id="wc-attr-hint">Select device(s) above to see available attributes.</p>`;
+    }
 
-  if (needsVal) _renderValueWidget();
-  if (hasDevice && subjType === 'device') _loadCapsIntoSelect();
+    // Build options from capKeys using WizardCore (attrTrans at runtime)
+    const options = capKeys.map(key => {
+      const meta = WizardCore.getAttrMeta(key);
+      const label = meta ? meta.n : key;
+      return `<option value="${_esc(key)}" ${designer.selectedAttrKey === key ? 'selected' : ''}>${_esc(label)}</option>`;
+    });
 
-  document.getElementById('wiz-back-btn')?.addEventListener('click', backFn || close);
-  document.getElementById('wiz-cond-del')?.addEventListener('click', WizardCore._deleteEditNode);
+    // If editing with a pre-existing attribute not in current capKeys, still show it
+    if (designer.selectedAttrKey && !capKeys.includes(designer.selectedAttrKey)) {
+      const meta = WizardCore.getAttrMeta(designer.selectedAttrKey);
+      const label = meta ? meta.n : designer.selectedAttrKey;
+      options.unshift(`<option value="${_esc(designer.selectedAttrKey)}" selected>${_esc(label)}</option>`);
+    }
 
-  document.getElementById('wiz-subj-type')?.addEventListener('change', e => {
-    WizardCore.sel.subject_type = e.target.value;
-    _goConditionBuilder();
-  });
+    return `
+      <select id="wc-attr-select" class="form-select">
+        <option value="">— choose attribute —</option>
+        ${options.join('')}
+      </select>
+    `;
+  }
 
-  document.getElementById('wiz-subj-var')?.addEventListener('change', e => {
-    WizardCore.sel.device_id = e.target.value;
-    _refreshConditionRows();
-  });
+  // Operator picker — filtered from vocab.comparisons at runtime using attrMeta.t
+  function _buildOperatorHTML(designer, mode) {
+    if (!designer.selectedAttrKey || !designer.attrMeta) {
+      return `<p class="wizard-hint">Choose an attribute first.</p>`;
+    }
 
-  document.getElementById('wiz-subj-time')?.addEventListener('change', e => {
-    WizardCore.sel.time_value = e.target.value;
-    _refreshConditionRows();
-  });
+    const vocabMode = mode === 'trigger' ? 'triggers' : 'conditions';
+    const operators = WizardCore.getOperatorsForAttrType(designer.attrMeta.t, vocabMode);
 
-  document.getElementById('wiz-subj-date')?.addEventListener('change', e => {
-    WizardCore.sel.date_value = e.target.value;
-    _refreshConditionRows();
-  });
+    if (operators.length === 0) {
+      return `<p class="wizard-hint">No operators available for this attribute type.</p>`;
+    }
 
-  document.getElementById('wiz-subj-mode')?.addEventListener('input', e => {
-    WizardCore.sel.mode_value = e.target.value;
-    _refreshConditionRows();
-  });
+    const options = operators.map(op => {
+      const label = op.dd || op.d || op.key;
+      return `<option value="${_esc(op.key)}" ${designer.comparison.operator === op.key ? 'selected' : ''}>${_esc(label)}</option>`;
+    });
 
-  document.getElementById('wiz-open-devpicker')?.addEventListener('click', () => {
-    const panel = document.getElementById('wiz-dev-panel');
-    if (!panel) return;
-    const isOpen = panel.style.display !== 'none';
-    panel.style.display = isOpen ? 'none' : 'block';
-    if (!isOpen) {
-      const searchEl = document.getElementById('wiz-dev-panel-search');
-      if (searchEl) { searchEl.value = ''; searchEl.focus(); }
-      _renderDevPanelList('');
-      const fetches = [];
-      if (!WizardCore.deviceData) {
-        fetches.push(API.getDevices().then(data => { WizardCore.deviceData = data; }).catch(() => {}));
-      }
-      if (!WizardCore.globalsData) {
-        fetches.push(
-          API.getGlobals()
-            .then(result => { WizardCore.globalsData = Object.values(result || {}); })
-            .catch(() => { WizardCore.globalsData = []; })
-        );
-      }
-      if (fetches.length) {
-        Promise.all(fetches).then(() => {
-          _renderDevPanelList(document.getElementById('wiz-dev-panel-search')?.value || '');
-        });
-      }
-      let ft = null;
-      searchEl?.addEventListener('input', e => {
-        clearTimeout(ft);
-        ft = setTimeout(() => _renderDevPanelList(e.target.value.trim()), 150);
+    return `
+      <select id="wc-operator-select" class="form-select">
+        <option value="">— choose operator —</option>
+        ${options.join('')}
+      </select>
+    `;
+  }
+
+  // Right value widget — type and options driven entirely from attrMeta at runtime
+  function _buildRightValueHTML(designer) {
+    const meta = designer.attrMeta;
+    if (!meta) return '';
+
+    const val1 = _buildValueWidget('wc-right-val', designer.rightValue,  meta);
+    const pc   = designer.comparison.parameterCount;
+
+    if (pc === 2) {
+      const val2 = _buildValueWidget('wc-right-val2', designer.rightValue2, meta);
+      return `<div class="wizard-row">${val1}<span>and</span>${val2}</div>`;
+    }
+    return val1;
+  }
+
+  // Value widget — switches on attrMeta.t and attrMeta.o from the JSON
+  function _buildValueWidget(id, currentVal, meta) {
+    // Tier 1: enum — options from attrMeta.o (read from attrTrans.json at runtime)
+    if (meta.o && meta.o.length > 0) {
+      const opts = meta.o.map(opt =>
+        `<option value="${_esc(opt)}" ${currentVal === opt ? 'selected' : ''}>${_esc(opt)}</option>`
+      ).join('');
+      return `<select id="${id}" class="form-select"><option value="">— pick value —</option>${opts}</select>`;
+    }
+
+    // Tier 2: numeric — range from attrMeta.r, unit from attrMeta.u (from attrTrans.json)
+    if (meta.t === 'integer' || meta.t === 'decimal') {
+      const min = (meta.r && meta.r[0] != null) ? `min="${meta.r[0]}"` : '';
+      const max = (meta.r && meta.r[1] != null) ? `max="${meta.r[1]}"` : '';
+      const unit = meta.u ? `<span class="wc-unit">${_esc(meta.u)}</span>` : '';
+      const step = meta.t === 'decimal' ? 'step="0.1"' : '';
+      return `<div class="wizard-row"><input type="number" id="${id}" class="form-input" ${min} ${max} ${step} value="${_esc(currentVal)}">${unit}</div>`;
+    }
+
+    // Boolean (from attrMeta.t)
+    if (meta.t === 'boolean') {
+      return `<select id="${id}" class="form-select">
+        <option value="">— pick value —</option>
+        <option value="true"  ${currentVal === 'true'  ? 'selected' : ''}>true</option>
+        <option value="false" ${currentVal === 'false' ? 'selected' : ''}>false</option>
+      </select>`;
+    }
+
+    // Tier 3: free text fallback (string, color, expression, etc.)
+    return `<input type="text" id="${id}" class="form-input" placeholder="value" value="${_esc(currentVal)}">`;
+  }
+
+  // Duration widget — label and logic driven by operator.t flag from vocab
+  function _buildDurationHTML(designer) {
+    const timed = designer.comparison.timed;
+    if (!timed) return '';
+
+    const label = timed === 1 ? 'For at least...' : 'In the last...';
+    return `
+      <label>${_esc(label)}</label>
+      <div class="wizard-row">
+        <input type="number" id="wc-dur-val" class="form-input" min="0"
+          value="${_esc(designer.durationValue)}">
+        <select id="wc-dur-unit" class="form-select form-select-sm">
+          <option value="ms"      ${designer.durationUnit === 'ms'      ? 'selected' : ''}>ms</option>
+          <option value="s"       ${designer.durationUnit === 's'       ? 'selected' : ''}>seconds</option>
+          <option value="m"       ${designer.durationUnit === 'm'       ? 'selected' : ''}>minutes</option>
+          <option value="h"       ${designer.durationUnit === 'h'       ? 'selected' : ''}>hours</option>
+          <option value="days"    ${designer.durationUnit === 'days'    ? 'selected' : ''}>days</option>
+          <option value="weeks"   ${designer.durationUnit === 'weeks'   ? 'selected' : ''}>weeks</option>
+          <option value="months"  ${designer.durationUnit === 'months'  ? 'selected' : ''}>months</option>
+        </select>
+      </div>
+    `;
+  }
+
+  function _buildAdvancedHTML(designer, isRestriction) {
+    const smodeHtml = !isRestriction ? `
+      <label>Subscription mode</label>
+      <select id="wc-smode" class="form-select">
+        <option value="auto"   ${designer.smode === 'auto'   ? 'selected' : ''}>Auto</option>
+        <option value="always" ${designer.smode === 'always' ? 'selected' : ''}>Always</option>
+        <option value="never"  ${designer.smode === 'never'  ? 'selected' : ''}>Never</option>
+      </select>` : '';
+
+    return `
+      ${smodeHtml}
+      <label>Description (optional)</label>
+      <input type="text" id="wc-description" class="form-input"
+        placeholder="Description" value="${_esc(designer.description)}">
+    `;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Page 1 event binding
+  // ─────────────────────────────────────────────────────────────────────────
+  function _bindPage1Events(modal, designer, parentArray, context) {
+    // Cancel
+    [modal.querySelector('#wc-cancel'), modal.querySelector('#wc-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    // Back
+    const backBtn = modal.querySelector('#wc-back');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        designer.page = 0;
+        designer.type = '';
+        _renderDialog(designer, parentArray, context);
       });
     }
-  });
 
-  if (!WizardCore.deviceData) {
-    API.getDevices().then(data => { WizardCore.deviceData = data; }).catch(() => {});
-  }
-  if (!WizardCore.globalsData) {
-    API.getGlobals()
-      .then(result => { WizardCore.globalsData = Object.values(result || {}); })
-      .catch(() => { WizardCore.globalsData = []; });
-  }
-
-  document.getElementById('wiz-attr-select')?.addEventListener('change', e => {
-    const opt = e.target.selectedOptions[0];
-    WizardCore.sel.attribute      = e.target.value;
-    WizardCore.sel.attribute_type = opt?.dataset.type || '';
-    WizardCore.sel.device_class   = opt?.dataset.class || null;
-    _renderValueWidget();
-    // Re-evaluate Add/Add more — a device condition is only valid once an
-    // attribute is chosen, and the guard must flip the moment it is.
-    _refreshConditionRows();
-  });
-
-  document.getElementById('wiz-operator')?.addEventListener('change', e => {
-    WizardCore.sel.operator = e.target.value;
-    _refreshConditionRows();
-  });
-
-  document.getElementById('wiz-val-type')?.addEventListener('change', () => _renderValueWidget());
-  document.getElementById('wiz-add')?.addEventListener('click', _commitCondition);
-  document.getElementById('wiz-add-more')?.addEventListener('click', _commitConditionAndMore);
-}
-
-function _renderValueWidget() {
-  const { _esc, NEEDS_TWO_VALUES } = WizardCore;
-  const _sel = WizardCore.sel;
-  const widget = document.getElementById('wiz-val-widget');
-  if (!widget) return;
-  const valType  = document.getElementById('wiz-val-type')?.value || 'value';
-  const attrType = _sel.attribute_type || '';
-  const cap      = (_sel._caps||[]).find(c => c.name === _sel.attribute);
-  const needsTwo = NEEDS_TWO_VALUES.has(_sel.operator || '');
-
-  if (valType !== 'value') {
-    const ph = valType === 'expression' ? 'Expression...' : valType === 'argument' ? 'Argument...' : 'Variable...';
-    widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="${ph}" style="width:100%;min-height:100px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
-    const w2 = document.getElementById('wiz-val-widget-2');
-    if (w2) w2.innerHTML = `<textarea id="wiz-val-2" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:64px;resize:vertical;box-sizing:border-box">${_esc(_sel.value2||'')}</textarea>`;
-    return;
-  }
-
-  if (attrType === 'binary' && cap?.values?.length) {
-    widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue wiz-select-full">
-      ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
-    </select>`;
-  } else if (attrType === 'enum' && cap?.values?.length) {
-    widget.innerHTML = `<select id="wiz-val-1" class="wiz-select-blue wiz-select-full">
-      <option value="" style="display:none" disabled>Nothing selected</option>
-      ${cap.values.map(v => `<option value="${_esc(v)}" ${_sel.value===v?'selected':''}>${_esc(v)}</option>`).join('')}
-    </select>`;
-  } else if (attrType === 'numeric') {
-    const unit = cap?.unit || '';
-    widget.innerHTML = `<input type="number" id="wiz-val-1" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
-    const w2 = document.getElementById('wiz-val-widget-2');
-    if (w2) w2.innerHTML = `<input type="number" id="wiz-val-2" class="wiz-value-input wiz-dur-number" value="${_esc(_sel.value2||'')}" placeholder="0" />${unit ? `<span style="color:var(--text-muted);font-size:12px;padding-left:4px">${_esc(unit)}</span>` : ''}`;
-    return;
-  } else {
-    widget.innerHTML = `<textarea id="wiz-val-1" class="wiz-value-input wiz-expr-inline" placeholder="Value..." style="width:100%;min-height:100px;resize:vertical;box-sizing:border-box;display:block">${_esc(_sel.value||'')}</textarea>`;
-  }
-
-  const w2 = document.getElementById('wiz-val-widget-2');
-  if (w2) w2.innerHTML = `<input type="text" id="wiz-val-2" class="wiz-value-input" value="${_esc(_sel.value2||'')}" placeholder="Value..." />`;
-}
-
-function _refreshConditionRows() {
-  const { NEEDS_VALUE, NEEDS_TWO_VALUES, _needsDuration, _durationLabel, isTrigger } = WizardCore;
-  const op = document.getElementById('wiz-operator')?.value || '';
-  WizardCore.sel.operator = op;
-  const needsVal = NEEDS_VALUE.has(op);
-  const needsDur = _needsDuration(op);
-  const needsTwo = NEEDS_TWO_VALUES.has(op);
-
-  const subjType = WizardCore.sel.subject_type || 'device';
-  let hasSubject = false;
-  if (subjType === 'device') {
-    hasSubject = !!WizardCore.sel.device_id;
-  } else if (subjType === 'variable') {
-    hasSubject = !!(document.getElementById('wiz-subj-var')?.value || WizardCore.sel.device_id);
-  } else if (subjType === 'time') {
-    hasSubject = !!(document.getElementById('wiz-subj-time')?.value || WizardCore.sel.time_value);
-  } else if (subjType === 'date') {
-    hasSubject = !!(document.getElementById('wiz-subj-date')?.value || WizardCore.sel.date_value);
-  } else if (subjType === 'mode') {
-    hasSubject = !!(document.getElementById('wiz-subj-mode')?.value || WizardCore.sel.mode_value);
-  }
-
-  document.getElementById('wiz-value-row')?.classList.toggle('hidden', !needsVal);
-  document.getElementById('wiz-dur-row')?.classList.toggle('hidden', !needsDur);
-
-  const lbl = document.getElementById('wiz-dur-label');
-  if (lbl) lbl.textContent = _durationLabel(op) || 'For...';
-
-  const andSpan = document.getElementById('wiz-between-and');
-  const w2 = document.getElementById('wiz-val-widget-2');
-  if (andSpan) andSpan.style.display = needsTwo ? '' : 'none';
-  if (w2) w2.style.display = needsTwo ? '' : 'none';
-
-  document.getElementById('wiz-operator')?.classList.toggle('is-trigger', isTrigger(op));
-
-  // GAP-S67-1: interaction row only visible when a trigger operator is selected
-  const intRow = document.getElementById('wiz-int-row');
-  if (intRow) {
-    const subjType2 = WizardCore.sel.subject_type || 'device';
-    intRow.style.display = (subjType2 === 'device' && !!WizardCore.sel.device_id && isTrigger(op)) ? '' : 'none';
-  }
-
-  if (needsVal) _renderValueWidget();
-
-  // For a device subject, an attribute must be chosen too — otherwise the node
-  // commits with empty attribute and falls back to all entity_ids. Other subject
-  // types (variable/time/date/mode) have no attribute selector.
-  const attrChosen = subjType !== 'device'
-    || !!(document.getElementById('wiz-attr-select')?.value || WizardCore.sel.attribute);
-  const ok = hasSubject && !!op && attrChosen;
-  document.getElementById('wiz-add')?.toggleAttribute('disabled', !ok);
-  document.getElementById('wiz-add-more')?.toggleAttribute('disabled', !ok);
-}
-
-// GAP-S63-3: Condition device panel — accumulates multi-select like the action picker.
-// Also resolves pistonvar/global rows at click time for intersection.
-function _renderDevPanelList(query) {
-  const { _esc, _groupDevices, _filterGrouped, DEMO_DEVICES } = WizardCore;
-  const el = document.getElementById('wiz-dev-panel-list');
-  if (!el) return;
-  const q = query.toLowerCase();
-  const _sel = WizardCore.sel;
-
-  const grouped = _filterGrouped(_groupDevices(WizardCore.deviceData), query);
-  const allLocals = Editor.getPistonVariables ? Editor.getPistonVariables() : [];
-  const localDeviceVars = allLocals.filter(v =>
-    v.var_type === 'device' && (!q || v.name.toLowerCase().includes(q))
-  );
-  const globalDevVars = (WizardCore.globalsData || []).filter(g =>
-    g.var_type === 'device' && (!q || (g.name || '').toLowerCase().includes(q) || (`@${g.name}`).toLowerCase().includes(q))
-  );
-  const filteredDemos = DEMO_DEVICES.filter(d =>
-    !q || d.friendly_name.toLowerCase().includes(q)
-  );
-
-  // Use sel.tokens to determine which rows are highlighted
-  const selTokens = new Set(_sel.tokens || (_sel.device_id ? [_sel.device_id] : []));
-
-  let html = '';
-  if (grouped.length) {
-    html += `<div class="wiz-device-group-header">Physical devices</div>`;
-    html += grouped.slice(0, 150).map(d => {
-      const ids = d.entity_ids || [d.primary_entity_id];
-      const isSelected = ids.some(id => selTokens.has(id));
-      return `<div class="wiz-device-row ${isSelected ? 'selected' : ''}"
-        data-id="${_esc(ids.join(','))}"
-        data-label="${_esc(d.friendly_name)}"
-        data-row-type="physical">
-        <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-      </div>`;
-    }).join('');
-  }
-  if (localDeviceVars.length) {
-    html += `<div class="wiz-device-group-header">Piston variables</div>`;
-    html += localDeviceVars.map(v =>
-      `<div class="wiz-device-row ${selTokens.has(v.name) ? 'selected' : ''}"
-        data-id="${_esc(v.name)}"
-        data-label="${_esc(v.name)}"
-        data-row-type="pistonvar">
-        <span class="wiz-dev-prefix">device</span>
-        <span class="wiz-dev-label">${_esc(v.name)}</span>
-      </div>`
-    ).join('');
-  }
-  if (globalDevVars.length) {
-    html += `<div class="wiz-device-group-header">Global variables</div>`;
-    html += globalDevVars.map(g => {
-      const gtoken = `@${g.name}`;
-      return `<div class="wiz-device-row ${selTokens.has(gtoken) ? 'selected' : ''}"
-        data-id="${_esc(gtoken)}"
-        data-label="${_esc(gtoken)}"
-        data-row-type="global">
-        <span class="wiz-dev-prefix">global</span>
-        <span class="wiz-dev-label">${_esc(gtoken)}</span>
-      </div>`;
-    }).join('');
-  }
-  html += `<div class="wiz-device-group-header">Demo devices</div>`;
-  if (filteredDemos.length) {
-    html += filteredDemos.map(d =>
-      `<div class="wiz-device-row ${selTokens.has(d.entity_id) ? 'selected' : ''} wiz-demo-row"
-        data-id="${_esc(d.entity_id)}"
-        data-label="${_esc(d.friendly_name)}"
-        data-row-type="physical">
-        <span class="wiz-dev-label">${_esc(d.friendly_name)}</span>
-        <span class="wiz-demo-badge">demo</span>
-      </div>`
-    ).join('');
-  } else {
-    html += `<div class="wiz-empty" style="padding:4px 10px;font-size:12px;color:var(--text-muted)">No demo devices match.</div>`;
-  }
-  el.innerHTML = html || `<div class="wiz-empty" style="padding:8px 12px">No devices found.</div>`;
-
-  el.querySelectorAll('.wiz-device-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const label   = row.dataset.label;
-      // Physical rows carry all entity_ids for the device comma-separated.
-      // Variable and global rows carry a single token (name or @name).
-      const rowIds = row.dataset.id.split(',').filter(Boolean);
-
-      // GAP-S63-3: toggle-accumulate, not replace.
-      row.classList.toggle('selected');
-      const newTokens = new Set(WizardCore.sel.tokens || []);
-
-      if (row.classList.contains('selected')) {
-        rowIds.forEach(id => newTokens.add(id));
-      } else {
-        rowIds.forEach(id => newTokens.delete(id));
-      }
-
-      WizardCore.sel.tokens = [...newTokens];
-
-      // Collect labels from all selected rows
-      const allLabels = [...el.querySelectorAll('.wiz-device-row.selected')]
-        .map(r => r.dataset.label).filter(Boolean);
-
-      // device_label: friendly role string built from token labels (not entity count)
-      let deviceLabel;
-      if (allLabels.length === 0) {
-        deviceLabel = '';
-      } else if (allLabels.length === 1) {
-        deviceLabel = allLabels[0];
-      } else if (allLabels.length === 2) {
-        deviceLabel = `${allLabels[0]} and ${allLabels[1]}`;
-      } else if (allLabels.length === 3) {
-        deviceLabel = `${allLabels[0]}, ${allLabels[1]} and ${allLabels[2]}`;
-      } else {
-        deviceLabel = `${allLabels[0]} +${allLabels.length - 1}`;
-      }
-
-      WizardCore.sel.device_label = deviceLabel;
-      // Fix 4: explicitly clear device_id when nothing selected so
-      // _refreshConditionRows sees no subject and disables Add correctly.
-      WizardCore.sel.device_id    = WizardCore.sel.tokens.length ? WizardCore.sel.tokens[0] : '';
-      WizardCore.sel.attribute    = '';
-      WizardCore.sel.attribute_type = '';
-      WizardCore.sel._caps = [];
-
-      // Update the picker button label
-      // GAP-S67-4: show correct prefix tag based on what type of row is selected.
-      // Derive tag from the first selected row's data-row-type.
-      const btn = document.getElementById('wiz-open-devpicker');
-      if (btn) {
-        if (WizardCore.sel.tokens.length) {
-          const firstSelectedRow = el.querySelector('.wiz-device-row.selected');
-          const firstRowType = firstSelectedRow?.dataset.rowType || 'physical';
-          const tag = firstRowType === 'pistonvar' ? 'variable'
-                    : firstRowType === 'global'    ? 'global'
-                    : 'device';
-          btn.innerHTML = `<span class="wiz-device-tag">${tag}</span> ${_esc(deviceLabel)}`;
-          btn.classList.add('has-value');
-        } else {
-          btn.innerHTML = 'Nothing selected';
-          btn.classList.remove('has-value');
-        }
-      }
-
-      const aggBar = document.getElementById('wiz-agg-bar');
-      if (aggBar) aggBar.style.display = WizardCore.sel.tokens.length ? '' : 'none';
-
-      // GAP-S67-1: interaction row only visible when a trigger operator is selected
-      const intRow = document.getElementById('wiz-int-row');
-      if (intRow && (WizardCore.sel.subject_type || 'device') === 'device') {
-        const currentOp = document.getElementById('wiz-operator')?.value || WizardCore.sel.operator || '';
-        intRow.style.display = (WizardCore.sel.tokens.length && WizardCore.isTrigger(currentOp)) ? '' : 'none';
-      }
-
-      const attrSel = document.getElementById('wiz-attr-select');
-      if (attrSel) {
-        if (WizardCore.sel.tokens.length) {
-          attrSel.disabled = false;
-          attrSel.innerHTML = `<option value="">loading...</option>`;
-          _loadCapsIntoSelect();
-        } else {
-          attrSel.disabled = true;
-          attrSel.innerHTML = `<option value="">attribute...</option>`;
-        }
-      }
-
-      _refreshConditionRows();
+    // Advanced toggle
+    modal.querySelector('#wc-adv-toggle').addEventListener('click', () => {
+      designer.showAdvancedOptions = !designer.showAdvancedOptions;
+      const sec = modal.querySelector('#wc-advanced');
+      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
+      modal.querySelector('#wc-adv-toggle').textContent =
+        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
     });
-  });
-}
 
-// Capability lookup for condition picker.
-// Resolves sel.tokens → one array of entity_ids per physical device group.
-// For each group: fetches caps for ALL entity_ids, unions them.
-// When unioning, caps named "state" with a device_class get renamed to their
-// device_class so "illuminance", "temperature", "battery" appear as distinct
-// attributes instead of all collapsing into one "state" entry.
-// Then intersects the unioned cap sets across all selected physical devices.
-async function _loadCapsIntoSelect() {
-  const { _esc, DEMO_DEVICES, _getCapsForDomain, _getGroupedEntityIdsForTokens } = WizardCore;
-  const _sel = WizardCore.sel;
-  const sel = document.getElementById('wiz-attr-select');
-  if (!sel) return;
+    // Group operator (connect to previous)
+    const groupOpSel = modal.querySelector('#wc-group-operator');
+    if (groupOpSel) groupOpSel.addEventListener('change', () => {
+      designer.groupOperator = groupOpSel.value;
+    });
 
-  sel.innerHTML = '<option value="">loading...</option>';
-  sel.disabled = true;
+    // Left source type tabs
+    modal.querySelectorAll('.wc-src-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        designer.leftSourceType = tab.dataset.src;
+        designer.selectedDeviceKeys = [];
+        designer.capKeys = [];
+        designer.selectedAttrKey = '';
+        designer.attrMeta = null;
+        _rerenderLeft(modal, designer, parentArray, context);
+      });
+    });
 
-  let caps = [];
+    // Device checkboxes
+    modal.querySelector('#wc-device-list') &&
+      modal.querySelector('#wc-device-list').addEventListener('change', e => {
+        if (!e.target.classList.contains('wc-device-check')) return;
+        _onDeviceSelectionChange(modal, designer, parentArray, context);
+      });
 
-  if (!WizardCore.deviceData) {
-    try { WizardCore.deviceData = await API.getDevices(); } catch(e) {}
+    // Attribute select
+    const attrSel = modal.querySelector('#wc-attr-select');
+    if (attrSel) attrSel.addEventListener('change', () => {
+      designer.selectedAttrKey = attrSel.value;
+      designer.attrMeta = attrSel.value ? WizardCore.getAttrMeta(attrSel.value) : null;
+      designer.comparison.operator = '';
+      designer.comparison.parameterCount = 0;
+      designer.comparison.timed = 0;
+      designer.rightValue = '';
+      designer.rightValue2 = '';
+      designer.durationValue = '';
+      _rerenderOperatorAndBelow(modal, designer);
+    });
+
+    // Operator select
+    const opSel = modal.querySelector('#wc-operator-select');
+    if (opSel) opSel.addEventListener('change', () => {
+      designer.comparison.operator = opSel.value;
+      const vocabMode = designer.mode === 'trigger' ? 'triggers' : 'conditions';
+      WizardCore.updateComparisonForOperator(designer.comparison, vocabMode);
+      designer.rightValue = '';
+      designer.rightValue2 = '';
+      designer.durationValue = '';
+      _rerenderRightAndDuration(modal, designer);
+    });
+
+    // Commit and Add more
+    const commitBtn  = modal.querySelector('#wc-commit');
+    const addMoreBtn = modal.querySelector('#wc-add-more');
+
+    if (commitBtn) commitBtn.addEventListener('click', () => {
+      _readFields(modal, designer);
+      _commit(designer, parentArray, context, false);
+    });
+    if (addMoreBtn) addMoreBtn.addEventListener('click', () => {
+      _readFields(modal, designer);
+      _commit(designer, parentArray, context, true);
+    });
   }
 
-  const tokens = _sel.tokens || (_sel.device_id ? [_sel.device_id] : []);
-  const deviceGroups = _getGroupedEntityIdsForTokens(tokens);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Live re-render helpers (avoid full page rebuild on sub-field changes)
+  // ─────────────────────────────────────────────────────────────────────────
+  function _onDeviceSelectionChange(modal, designer, parentArray, context) {
+    const deviceMap = WizardCore.groupEntitiesByDevice(WizardCore.getDeviceData() || []);
+    const checked   = [...modal.querySelectorAll('.wc-device-check:checked')].map(cb => cb.dataset.key);
+    designer.selectedDeviceKeys = checked;
 
-  const demo = DEMO_DEVICES.find(d =>
-    deviceGroups.length === 1 && deviceGroups[0].includes(d.entity_id)
-  );
-  if (demo) {
-    caps = demo.capabilities;
+    // Show/hide aggregation row
+    const aggRow = modal.querySelector('#wc-aggregation-row');
+    if (aggRow) aggRow.style.display = checked.length > 1 ? '' : 'none';
 
-  } else if (!deviceGroups.length) {
-    WizardCore.sel._caps = [];
-    sel.innerHTML = '<option value="">No devices available — check variable assignments</option>';
-    sel.disabled = true;
-    return;
+    if (checked.length === 0) {
+      designer.capKeys = [];
+      designer.selectedAttrKey = '';
+      designer.attrMeta = null;
+      const attrSec = modal.querySelector('#wc-attr-section');
+      if (attrSec) attrSec.style.display = 'none';
+      _rerenderOperatorAndBelow(modal, designer);
+      return;
+    }
 
-  } else {
-    // For each physical device group: fetch caps for ALL entity_ids, union them.
-    // Caps named "state" with a device_class are stored under device_class key
-    // so illuminance/temperature/battery appear as distinct picker entries.
-    // source_entity_id is stored on each cap so commit time knows exactly which
-    // entity_id from this group carries that attribute — one per physical device.
-    const groupCapSets = await Promise.all(deviceGroups.map(async entityIds => {
-      const allCaps = await Promise.all(entityIds.map(async id => {
-        try {
-          const data = await API.getCapabilities(id);
-          return data.capabilities || [];
-        } catch(e) {
-          return _getCapsForDomain(id);
-        }
-      }));
-      // Union: key by device_class when name is "state" and device_class exists,
-      // otherwise key by name. This keeps illuminance/temperature/battery distinct.
-      // Record source_entity_id — the entity that produced this cap — so commit
-      // time can write exactly the right entity_id to the node, not the whole cluster.
-      const seen = new Map();
-      for (const [idx, capList] of allCaps.entries()) {
-        const sourceEntityId = entityIds[idx];
-        for (const cap of capList) {
-          const key = (cap.name === 'state' && cap.device_class) ? cap.device_class : cap.name;
-          if (!seen.has(key)) {
-            seen.set(key, {
-              ...cap,
-              name: key,
-              display_name: key,
-              source_entity_id: sourceEntityId,
-            });
-          }
-        }
+    // Build entity meta arrays per device for intersection
+    const devicesEntityArrays = checked.map(key => {
+      const dev = deviceMap.get(key);
+      if (!dev) return [];
+      return dev.entities.map(e => _entityToMeta(e));
+    });
+
+    const { capKeys } = WizardCore.intersectCapKeys(devicesEntityArrays);
+    designer.capKeys = [...capKeys];
+
+    // If previously selected attr is no longer in the intersection, clear it
+    if (designer.selectedAttrKey && !designer.capKeys.includes(designer.selectedAttrKey)) {
+      designer.selectedAttrKey = '';
+      designer.attrMeta = null;
+    }
+
+    // Re-render the attribute section
+    const attrSec = modal.querySelector('#wc-attr-section');
+    if (attrSec) {
+      attrSec.style.display = '';
+      attrSec.innerHTML = `<label class="wc-section-label">Attribute</label>${_buildAttrPickerHTML(designer)}`;
+
+      const attrSel = attrSec.querySelector('#wc-attr-select');
+      if (attrSel) attrSel.addEventListener('change', () => {
+        designer.selectedAttrKey = attrSel.value;
+        designer.attrMeta = attrSel.value ? WizardCore.getAttrMeta(attrSel.value) : null;
+        designer.comparison.operator = '';
+        designer.comparison.parameterCount = 0;
+        designer.comparison.timed = 0;
+        designer.rightValue = '';
+        designer.rightValue2 = '';
+        _rerenderOperatorAndBelow(modal, designer);
+      });
+    }
+
+    _rerenderOperatorAndBelow(modal, designer);
+  }
+
+  function _rerenderLeft(modal, designer, parentArray, context) {
+    const src = designer.leftSourceType;
+    ['device','variable','expression'].forEach(s => {
+      const el = modal.querySelector(`#wc-src-${s}`);
+      if (el) el.style.display = s === src ? '' : 'none';
+    });
+    modal.querySelectorAll('.wc-src-tab').forEach(tab => {
+      tab.className = `btn btn-sm ${tab.dataset.src === src ? 'btn-primary' : 'btn-secondary'} wc-src-tab`;
+    });
+
+    const attrSec = modal.querySelector('#wc-attr-section');
+    if (attrSec) attrSec.style.display = 'none';
+    _rerenderOperatorAndBelow(modal, designer);
+  }
+
+  function _rerenderOperatorAndBelow(modal, designer) {
+    const opSec = modal.querySelector('#wc-op-section');
+    if (opSec) {
+      opSec.style.display = designer.selectedAttrKey ? '' : 'none';
+      opSec.innerHTML = `<label class="wc-section-label">Operator</label>${_buildOperatorHTML(designer, designer.mode)}`;
+
+      const opSel = opSec.querySelector('#wc-operator-select');
+      if (opSel) opSel.addEventListener('change', () => {
+        designer.comparison.operator = opSel.value;
+        const vocabMode = designer.mode === 'trigger' ? 'triggers' : 'conditions';
+        WizardCore.updateComparisonForOperator(designer.comparison, vocabMode);
+        designer.rightValue = '';
+        designer.rightValue2 = '';
+        designer.durationValue = '';
+        _rerenderRightAndDuration(modal, designer);
+      });
+    }
+    _rerenderRightAndDuration(modal, designer);
+  }
+
+  function _rerenderRightAndDuration(modal, designer) {
+    const rightSec = modal.querySelector('#wc-right-section');
+    if (rightSec) {
+      const show = designer.selectedAttrKey && designer.comparison.parameterCount > 0;
+      rightSec.style.display = show ? '' : 'none';
+      if (show) {
+        rightSec.innerHTML = `<label class="wc-section-label">Compare to</label>${_buildRightValueHTML(designer)}`;
       }
-      return [...seen.values()];
-    }));
+    }
 
-    // Intersect across physical devices — only caps shared by ALL selected devices
-    if (groupCapSets.length === 1) {
-      caps = groupCapSets[0];
+    const durSec = modal.querySelector('#wc-dur-section');
+    if (durSec) {
+      const show = designer.comparison.timed > 0;
+      durSec.style.display = show ? '' : 'none';
+      if (show) {
+        durSec.innerHTML = _buildDurationHTML(designer);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Read fields from DOM back into designer
+  // ─────────────────────────────────────────────────────────────────────────
+  function _readFields(modal, designer) {
+    const gop = modal.querySelector('#wc-group-operator');
+    if (gop) designer.groupOperator = gop.value;
+
+    const aggSel = modal.querySelector('#wc-aggregation');
+    if (aggSel) designer.aggregation = aggSel.value;
+
+    const varSel = modal.querySelector('#wc-var-select');
+    if (varSel) designer.variableRef = varSel.value;
+
+    const exprIn = modal.querySelector('#wc-expression-input');
+    if (exprIn) designer.expressionValue = exprIn.value.trim();
+
+    const attrSel = modal.querySelector('#wc-attr-select');
+    if (attrSel && attrSel.value) {
+      designer.selectedAttrKey = attrSel.value;
+      designer.attrMeta = WizardCore.getAttrMeta(attrSel.value);
+    }
+
+    const opSel = modal.querySelector('#wc-operator-select');
+    if (opSel) {
+      designer.comparison.operator = opSel.value;
+      const vocabMode = designer.mode === 'trigger' ? 'triggers' : 'conditions';
+      WizardCore.updateComparisonForOperator(designer.comparison, vocabMode);
+    }
+
+    const rv1 = modal.querySelector('#wc-right-val');
+    if (rv1) designer.rightValue = rv1.value;
+
+    const rv2 = modal.querySelector('#wc-right-val2');
+    if (rv2) designer.rightValue2 = rv2.value;
+
+    const durVal  = modal.querySelector('#wc-dur-val');
+    const durUnit = modal.querySelector('#wc-dur-unit');
+    if (durVal)  designer.durationValue = durVal.value;
+    if (durUnit) designer.durationUnit  = durUnit.value;
+
+    const smode = modal.querySelector('#wc-smode');
+    if (smode) designer.smode = smode.value;
+
+    const desc = modal.querySelector('#wc-description');
+    if (desc) designer.description = desc.value.trim();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Group dialog HTML + events
+  // §6.1: surface All (and) / Any (or) / None (or+negate) only — no XOR
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildGroupHTML(designer) {
+    const isNew = designer.isNew;
+    // Map groupOp + groupNot to display choice
+    let displayChoice = 'all';
+    if (designer.groupOp === 'or' && designer.groupNot === '0')  displayChoice = 'any';
+    if (designer.groupOp === 'or' && designer.groupNot === '1')  displayChoice = 'none';
+    // 'all' = and + not=0; reverse-negate = and + not=1 (unusual, keep it)
+
+    return `
+      <div class="wizard-dialog" id="wizard-condition-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">${isNew ? 'Add' : 'Edit'} Condition Group</span>
+          <button class="wizard-close btn-icon" id="wc-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+          <label>Match logic</label>
+          <select id="wc-group-logic" class="form-select">
+            <option value="all"  ${displayChoice === 'all'  ? 'selected' : ''}>All (AND) — every condition must be true</option>
+            <option value="any"  ${displayChoice === 'any'  ? 'selected' : ''}>Any (OR) — at least one must be true</option>
+            <option value="none" ${displayChoice === 'none' ? 'selected' : ''}>None — not a single condition may be true</option>
+          </select>
+          <div class="wizard-advanced-toggle">
+            <button class="btn btn-sm btn-link" id="wc-adv-toggle">▼ Show advanced</button>
+          </div>
+          <div id="wc-advanced" style="display:none">
+            <label>Description (optional)</label>
+            <input type="text" id="wc-description" class="form-input"
+              placeholder="Description" value="${_esc(designer.description)}">
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn btn-sm btn-secondary" id="wc-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wc-commit">${isNew ? 'Add' : 'Save'}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function _bindGroupEvents(modal, designer, parentArray, context) {
+    [modal.querySelector('#wc-cancel'), modal.querySelector('#wc-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    modal.querySelector('#wc-adv-toggle').addEventListener('click', () => {
+      designer.showAdvancedOptions = !designer.showAdvancedOptions;
+      const sec = modal.querySelector('#wc-advanced');
+      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
+      modal.querySelector('#wc-adv-toggle').textContent =
+        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
+    });
+
+    modal.querySelector('#wc-commit').addEventListener('click', () => {
+      const logicSel = modal.querySelector('#wc-group-logic');
+      const logic = logicSel ? logicSel.value : 'all';
+      // Map display choice back to o + n (§6.1)
+      if (logic === 'all')  { designer.groupOp = 'and'; designer.groupNot = '0'; }
+      if (logic === 'any')  { designer.groupOp = 'or';  designer.groupNot = '0'; }
+      if (logic === 'none') { designer.groupOp = 'or';  designer.groupNot = '1'; }
+
+      const desc = modal.querySelector('#wc-description');
+      if (desc) designer.description = desc.value.trim();
+
+      _commitGroup(designer, parentArray, context);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Commit — §9.4 Commit Sequence
+  // ─────────────────────────────────────────────────────────────────────────
+  function _commit(designer, parentArray, context, rearm) {
+    WizardCore.autoSave();  // §0.5: snapshot BEFORE writing to live tree
+
+    const node = designer.isNew
+      ? _buildConditionNode(designer)
+      : _applyToNode(designer);
+
+    node.$$html = null;
+
+    if (designer.isNew) {
+      parentArray.push(node);
+    }
+
+    if (rearm) {
+      // Add more: rebuild blank designer, keep dialog open
+      designer.comparison    = WizardCore.newComparison();
+      designer.rightValue    = '';
+      designer.rightValue2   = '';
+      designer.durationValue = '';
+      designer.selectedAttrKey  = '';
+      designer.attrMeta         = null;
+      designer.selectedDeviceKeys = [];
+      designer.capKeys          = [];
+      _renderDialog(designer, parentArray, context);
     } else {
-      let intersectedNames = new Set(groupCapSets[0].map(c => c.name));
-      for (let i = 1; i < groupCapSets.length; i++) {
-        const thisSet = new Set(groupCapSets[i].map(c => c.name));
-        for (const name of intersectedNames) {
-          if (!thisSet.has(name)) intersectedNames.delete(name);
-        }
-      }
-      caps = groupCapSets[0].filter(c => intersectedNames.has(c.name));
+      WizardCore.closeDialog();
     }
 
-    // Build _capEntityMap: attribute name → [entity_id from group 0, entity_id from group 1, ...]
-    // This is what _buildConditionNode reads at commit time instead of _getFlatEntityIds.
-    // Each inner array position corresponds to one physical device group — one entity_id per device.
-    const capEntityMap = new Map();
-    for (const groupCaps of groupCapSets) {
-      for (const cap of groupCaps) {
-        if (!capEntityMap.has(cap.name)) capEntityMap.set(cap.name, []);
-        if (cap.source_entity_id) capEntityMap.get(cap.name).push(cap.source_entity_id);
-      }
+    if (typeof Editor !== 'undefined' && Editor.refreshDisplay) {
+      Editor.refreshDisplay(context);
     }
-    WizardCore.sel._capEntityMap = capEntityMap;
-
-    if (!caps.length) caps = _getCapsForDomain(deviceGroups[0][0]);
   }
 
-  WizardCore.sel._caps = caps;
-  sel.innerHTML = '<option value="">attribute...</option>' +
-    caps.map(c => `<option value="${_esc(c.name)}" data-type="${_esc(c.attribute_type||'')}" data-class="${_esc(c.device_class||'')}" ${_sel.attribute===c.name?'selected':''}>${_esc(c.name)}</option>`).join('');
-  sel.disabled = false;
+  function _commitGroup(designer, parentArray, context) {
+    WizardCore.autoSave();
 
-  if (_sel.attribute) {
-    const opt = sel.querySelector(`option[value="${CSS.escape(_sel.attribute)}"]`);
-    if (opt) WizardCore.sel.device_class = opt.dataset.class || null;
+    if (designer.isNew) {
+      const groupNode = {
+        id:          'cond_' + Math.random().toString(36).slice(2, 10),
+        t:           'group',
+        o:           designer.groupOp,
+        n:           designer.groupNot === '1',
+        c:           [],
+        description: designer.description || null,
+      };
+      groupNode.$$html = null;
+      parentArray.push(groupNode);
+    } else {
+      const node = designer.$node;
+      node.o           = designer.groupOp;
+      node.n           = designer.groupNot === '1';
+      node.description = designer.description || null;
+      node.$$html      = null;
+    }
+
+    WizardCore.closeDialog();
+    if (typeof Editor !== 'undefined' && Editor.refreshDisplay) {
+      Editor.refreshDisplay(context);
+    }
   }
-  // Caps just loaded — re-evaluate Add/Add more in case attribute state changed.
-  _refreshConditionRows();
-}
 
-function _goGroupBuilder() {
-  const { _esc, _render, _pushStep, _newId, close } = WizardCore;
-  WizardCore.step = 'group';
-  _pushStep(_goGroupBuilder);
-  const existingOp = WizardCore.sel.group_condition_operator || 'and';
+  // ─────────────────────────────────────────────────────────────────────────
+  // Build condition node from designer
+  // Shape: PISTON_JSON_STRUCTURE_MAP.md §4
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildConditionNode(designer) {
+    const isTrigger = designer.mode === 'trigger';
+    const id        = _newId();
 
-  _render(
-    'Add a new group',
-    `<div class="wiz-desc">A group is a collection of conditions, connected with a logical operator. Groups can be nested inside other groups.</div>
-     <div class="wiz-row-label">Group logical operator</div>
-     <select id="wiz-grp-op" class="wiz-select-blue wiz-select-full">
-       <option value="and" ${existingOp==='and'?'selected':''}>Logical AND — all conditions must be true</option>
-       <option value="or"  ${existingOp==='or' ?'selected':''}>Logical OR — any condition must be true</option>
-     </select>`,
-    `<button class="btn btn-ghost btn-sm" id="wiz-grp-back">← Back</button>
-     <div class="wiz-footer-right">
-       <button class="btn btn-primary btn-sm" id="wiz-grp-save">Add a group</button>
-     </div>`
-  );
+    // Resolve entity IDs from selected devices + chosen attribute
+    const { role, roleTokens, entityIds } = _resolveEntities(designer);
 
-  document.getElementById('wiz-grp-back')?.addEventListener('click', _goConditionOrGroup);
-  document.getElementById('wiz-grp-save')?.addEventListener('click', () => {
-    const op = document.getElementById('wiz-grp-op')?.value || 'and';
+    const attrMeta = designer.attrMeta || {};
+
     const node = {
-      id: WizardCore.editNode?.id || _newId(),
-      type: 'condition',
-      is_group: true,
-      group_operator: op,
-      conditions: [],
-      description: null,
+      id,
+      is_trigger:     isTrigger,
+      role:           role,
+      role_tokens:    roleTokens,
+      entity_ids:     entityIds,
+      aggregation:    designer.aggregation || 'any',
+      attribute:      designer.selectedAttrKey || '',
+      attribute_type: attrMeta.t || '',
+      device_class:   null,
+      operator:       designer.comparison.operator || '',
+      display_value:  designer.rightValue  || '',
+      compiled_value: designer.rightValue  || '',
+      value_to:       designer.comparison.parameterCount === 2 ? (designer.rightValue2 || null) : null,
+      duration:       designer.durationValue !== '' ? parseFloat(designer.durationValue) : null,
+      duration_unit:  designer.durationValue !== '' ? (designer.durationUnit || 's') : null,
+      interaction:    'any',
+      group_operator: designer.groupOperator || 'and',
     };
-    const ctx = WizardCore.context;
-    const blockId = WizardCore.extra?.['block-id'];
-    const meta = blockId ? { blockId } : {};
-    close();
-    Editor.insertStatement(ctx, node, meta);
-  });
-}
 
-function _goConditionOperatorEditor() {
-  const { _render, _pushStep, close } = WizardCore;
-  WizardCore.step = 'condop';
-  const blockId  = WizardCore.extra?.['block-id'] || null;
-  const currentOp = WizardCore.extra?.['condition-operator'] || WizardCore.sel.condition_operator || 'and';
-
-  _render(
-    'Edit condition group',
-    `<div class="wiz-desc">Choose how the conditions in this block connect to each other.</div>
-     <div class="wiz-row-label">Logical Operator</div>
-     <select id="wiz-condop-op" class="wiz-select-blue wiz-select-full">
-       <option value="and" ${currentOp === 'and' ? 'selected' : ''}>Logical AND — all conditions must be true</option>
-       <option value="or"  ${currentOp === 'or'  ? 'selected' : ''}>Logical OR — any condition must be true</option>
-     </select>`,
-    `<button class="btn btn-ghost btn-sm" id="wiz-condop-cancel">Cancel</button>
-     <div class="wiz-footer-right">
-       <button class="btn btn-primary btn-sm" id="wiz-condop-save">Save</button>
-     </div>`
-  );
-
-  document.getElementById('wiz-condop-cancel')?.addEventListener('click', close);
-  document.getElementById('wiz-condop-save')?.addEventListener('click', () => {
-    const op = document.getElementById('wiz-condop-op')?.value || 'and';
-    if (blockId && Editor.updateConditionOperator) {
-      Editor.updateConditionOperator(blockId, op);
+    // Expression subject override
+    if (designer.leftSourceType === 'expression' && designer.expressionValue) {
+      node.subject    = 'expression';
+      node.role       = '';
+      node.role_tokens = [];
+      node.entity_ids  = [];
+      node.value      = { type: 'expression', expression: designer.expressionValue };
     }
-    close();
-  });
-}
 
-function _commitCondition() {
-  const { _newId, close } = WizardCore;
-  const node = _buildConditionNode();
-  if (!node) return;
+    // Variable subject override
+    if (designer.leftSourceType === 'variable' && designer.variableRef) {
+      node.subject  = 'variable';
+      node.variable = designer.variableRef;
+      node.role     = '';
+      node.entity_ids = [];
+      node.role_tokens = [designer.variableRef];
+    }
 
-  const ctx     = WizardCore.context;
-  const blockId = WizardCore.extra?.['block-id'] || null;
-
-  if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId } : {};
-    close();
-    Editor.insertStatement(ctx, node, meta);
-  } else {
-    const ifBlockId = blockId || _newId();
-    const ifNode = {
-      type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: 'and',
-      then: [], else_ifs: [], else: [],
-      description: null, disabled: false,
-    };
-    close();
-    Editor.insertStatement(ctx, ifNode);
+    return node;
   }
-}
 
-function _commitConditionAndMore() {
-  const { _newId } = WizardCore;
-  const node = _buildConditionNode();
-  if (!node) return;
+  function _applyToNode(designer) {
+    const node     = designer.$node;
+    const attrMeta = designer.attrMeta || {};
 
-  const ctx     = WizardCore.context;
-  const blockId = WizardCore.extra?.['block-id'] || null;
+    const { role, roleTokens, entityIds } = _resolveEntities(designer);
+    if (entityIds.length > 0) {
+      node.role        = role;
+      node.role_tokens = roleTokens;
+      node.entity_ids  = entityIds;
+    }
 
-  if (ctx === 'if_condition' || (ctx === 'trigger_or_condition' && blockId)) {
-    const meta = blockId ? { blockId } : {};
-    Editor.insertStatement(ctx, node, meta);
-    WizardCore.sel = { statement_class: 'condition', group_operator: 'and' };
-  } else {
-    const ifBlockId = blockId || _newId();
-    const ifNode = {
-      type: 'if', id: ifBlockId, async: false,
-      conditions: [node], condition_operator: 'and',
-      then: [], else_ifs: [], else: [],
-      description: null, disabled: false,
-    };
-    Editor.insertStatement(ctx, ifNode);
-    WizardCore.sel = { statement_class: 'condition' };
-    WizardCore.context = 'if_condition';
-    WizardCore.extra = { 'block-id': ifBlockId };
+    node.aggregation    = designer.aggregation || 'any';
+    node.attribute      = designer.selectedAttrKey || node.attribute;
+    node.attribute_type = attrMeta.t || node.attribute_type;
+    node.operator       = designer.comparison.operator || node.operator;
+    node.display_value  = designer.rightValue  || '';
+    node.compiled_value = designer.rightValue  || '';
+    node.value_to       = designer.comparison.parameterCount === 2 ? (designer.rightValue2 || null) : null;
+    node.duration       = designer.durationValue !== '' ? parseFloat(designer.durationValue) : null;
+    node.duration_unit  = designer.durationValue !== '' ? (designer.durationUnit || 's') : null;
+    node.group_operator = designer.groupOperator || node.group_operator;
+
+    return node;
   }
-  WizardCore.editNode = null;
-  WizardCore.stepStack = [];
-  _goConditionBuilder();
-}
 
-// _buildConditionNode — writes the condition node to piston JSON.
-//
-// role:        friendly label derived from token labels (not entity count).
-// role_tokens: the raw tokens the user selected — preserved for edit round-trip.
-// entity_ids:  resolved flat entity_ids at commit time via _getFlatEntityIds.
-function _buildConditionNode() {
-  const { _condId, isTrigger, _needsDuration, NEEDS_TWO_VALUES, _getFlatEntityIds } = WizardCore;
-  const _sel = WizardCore.sel;
-  const op = document.getElementById('wiz-operator')?.value || _sel.operator || '';
-  const subjType = _sel.subject_type || 'device';
+  // ─────────────────────────────────────────────────────────────────────────
+  // Entity resolution — §0.1 Load-Bearing Rule and §0.2
+  // entity_ids: one entity per selected device for the chosen attribute key
+  // role: friendly device name(s)
+  // role_tokens: entity IDs (used for picker re-population on edit)
+  // ─────────────────────────────────────────────────────────────────────────
+  function _resolveEntities(designer) {
+    if (designer.leftSourceType !== 'device' || designer.selectedDeviceKeys.length === 0) {
+      return { role: '', roleTokens: [], entityIds: [] };
+    }
 
-  let role = '';
-  let entity_ids = [];
-  let role_tokens = [];
+    const deviceMap = WizardCore.groupEntitiesByDevice(WizardCore.getDeviceData() || []);
+    const attrKey   = designer.selectedAttrKey;
+    const labels    = [];
+    const entityIds = [];
 
-  if (subjType === 'device') {
-    role        = _sel.device_label || _sel.device_id || '';
-    role_tokens = (_sel.tokens || []).filter(Boolean);
-    // Use _capEntityMap to write only the attribute-bearing entity_id per device.
-    // _capEntityMap is built by _loadCapsIntoSelect: attribute name → [entity_id per group].
-    // This is the correct fix for GAP-S69-9 — the map already holds exactly the right ids.
-    // Fall back to _getFlatEntityIds only if the map is missing (e.g. non-device subject).
-    const chosenAttr = document.getElementById('wiz-attr-select')?.value || _sel.attribute || '';
-    const mapIds = chosenAttr ? (_sel._capEntityMap?.get(chosenAttr) || []).filter(Boolean) : [];
-    if (mapIds.length) {
-      entity_ids = mapIds;
-    } else {
-      entity_ids = _getFlatEntityIds(role_tokens);
-      if (!entity_ids.length && _sel.device_id && !_sel.device_id.startsWith('__')) {
-        entity_ids = [_sel.device_id];
+    for (const devKey of designer.selectedDeviceKeys) {
+      const dev = deviceMap.get(devKey);
+      if (!dev) continue;
+      labels.push(dev.label);
+
+      // For each entity in this device: include its entity_id if it maps to the chosen attr key
+      for (const entity of dev.entities) {
+        const meta = _entityToMeta(entity);
+        const keys = WizardCore.getCapKeysForEntityRaw(meta);
+        if (keys.has(attrKey)) {
+          entityIds.push(entity.entity_id);
+        }
       }
     }
-  } else if (subjType === 'variable') {
-    role = document.getElementById('wiz-subj-var')?.value || _sel.device_id || '';
-    entity_ids = [];
-  } else if (subjType === 'time') {
-    role = 'time';
-    entity_ids = [];
-  } else if (subjType === 'date') {
-    role = 'date';
-    entity_ids = [];
-  } else if (subjType === 'mode') {
-    role = 'mode';
-    entity_ids = [];
+
+    const role       = labels.join(', ');
+    const roleTokens = entityIds.slice();  // same IDs used for re-population
+
+    return { role, roleTokens, entityIds };
   }
 
-  if (!role || !op) return null;
-
-  const attrSel  = document.getElementById('wiz-attr-select');
-  const attrVal  = attrSel ? attrSel.value : (_sel.attribute || '');
-  const attrType = attrSel
-    ? (attrSel.selectedOptions[0]?.dataset.type || '')
-    : (_sel.attribute_type || '');
-  const deviceClass = attrSel
-    ? (attrSel.selectedOptions[0]?.dataset.class || _sel.device_class || null)
-    : (_sel.device_class || null);
-
-  const rawVal1 = document.getElementById('wiz-val-1')?.value || '';
-  const rawVal2 = document.getElementById('wiz-val-2')?.value || '';
-  const isBinary = attrType === 'binary';
-  const BINARY_COMPILED = {
-    open:'on', closed:'off', detected:'on', clear:'off',
-    active:'on', inactive:'off', wet:'on', dry:'off',
-    home:'on', away:'off', locked:'off', unlocked:'on',
-    on:'on', off:'off', true:'on', false:'off',
-  };
-  const compiledVal1 = isBinary
-    ? (BINARY_COMPILED[rawVal1.toLowerCase()] ?? rawVal1)
-    : rawVal1;
-
-  const needsDur  = _needsDuration(op);
-  const durAmount = needsDur ? (parseInt(document.getElementById('wiz-dur-amount')?.value || '1') || 1) : null;
-  const durUnit   = needsDur ? (document.getElementById('wiz-dur-unit')?.value || 'minutes') : null;
-
-  const groupOpEl = document.getElementById('wiz-group-op-selector');
-  const groupOp   = groupOpEl ? groupOpEl.value : 'and';
-
-  const odw = subjType === 'time'
-    ? [...document.querySelectorAll('.wiz-dow-cb:checked')].map(cb => parseInt(cb.value))
-    : (_sel.time_only_on_days || []);
-  const omy = subjType === 'time'
-    ? [...document.querySelectorAll('.wiz-moy-cb:checked')].map(cb => parseInt(cb.value))
-    : (_sel.time_only_on_months || []);
-
-  const node = {
-    id:             WizardCore.editNode?.id || _condId(),
-    is_trigger:     isTrigger(op),
-    role,
-    role_tokens,                       // preserved for edit round-trip
-    entity_ids,                        // resolved flat HA entity_ids
-    attribute:      attrVal,
-    attribute_type: attrType,
-    device_class:   deviceClass,
-    aggregation:    document.getElementById('wiz-agg')?.value || _sel.aggregation || 'any',
-    operator:       op,
-    display_value:  rawVal1,
-    compiled_value: compiledVal1,
-    value_to:       rawVal2 || null,
-    duration:       durAmount,
-    duration_unit:  durUnit,
-    interaction:    document.getElementById('wiz-interaction')?.value || 'any',
-    group_operator: groupOp,
-  };
-
-  if (subjType === 'time') {
-    node.only_on_days   = odw;
-    node.only_on_months = omy;
+  // Convert a raw HA entity object to the entityMeta shape intersectCapKeys expects
+  function _entityToMeta(entity) {
+    const attrs = entity.attributes || {};
+    return {
+      domain:                (entity.entity_id || '').split('.')[0],
+      device_class:          attrs.device_class           || null,
+      supported_features:    attrs.supported_features     || 0,
+      supported_color_modes: attrs.supported_color_modes  || null,
+      state_attributes:      attrs,
+      unit_of_measurement:   attrs.unit_of_measurement    || null,
+    };
   }
 
-  return node;
-}
+  // ─────────────────────────────────────────────────────────────────────────
+  // Utility
+  // ─────────────────────────────────────────────────────────────────────────
+  function _esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ─────────────────────────────────────────────────────────────────────────
+  return {
+    openAdd,
+    openEdit,
+    openEditGroup,
+  };
+
+})();

@@ -914,8 +914,9 @@ Individual CONDITION nodes support `ts[]` (when-true) and `fs[]` (when-false) su
 EDITOR-GAP-4 (from EDITOR_REFERENCE.md) is RESOLVED — ts/fs ARE in the PistonCore structure map.
 
 ### §6.6 Trigger Notes
-TRIGGER shares the CONDITION JSON shape. PistonCore adds `triggers[]` at piston root. Trigger render and edit dialog are original designs — no WebCoRE precedent.
-`[ASSUMED: EDITOR-GAP-1 — RISK medium]`
+TRIGGER shares the CONDITION JSON shape (PISTON_JSON_STRUCTURE_MAP.md §3) and uses the same §6 builder dialog. The only differences: `is_trigger: true` on the node, and the node is saved to `piston.triggers[]` instead of `conditions[]`. No separate trigger dialog exists or is needed.
+
+EDITOR-GAP-1 — CLOSED. This was a false gap: the §6 Condition / Trigger / Restriction Builder already covers triggers. The "no WebCoRE precedent" note referred to PistonCore's separate `triggers[]` array being its own design choice — not to the dialog being undesigned.
 
 ---
 

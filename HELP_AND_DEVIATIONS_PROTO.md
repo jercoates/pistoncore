@@ -40,7 +40,20 @@ To act on a subset, split the devices into separate device variables/defines —
 
 ---
 
-### D-2 — (reserved) Aggregation bar Any/All/None only `[LOCKED]`
+### D-2 — AI-generated pistons must use defines for devices `[LOCKED]`
+
+**DEVIATION / DECISION**
+When an AI assistant generates a piston from the write-a-piston prompt, it must place all devices in the `variables[]` section as device defines — never as direct device picks on nodes. Nodes reference those defines by variable name. The import wizard then walks the user through filling each define with real devices from their HA instance.
+
+**Why:** Defines are the better pattern for maintainability and readability (see H-1). Requiring them in AI-generated pistons sets the right habit from the start and ensures the import wizard's define-mapping step is always exercised. Direct device picks on nodes in AI output would bypass defines entirely and produce lower-quality pistons.
+
+**What this means for write-a-piston.md:** The prompt must instruct the AI to declare all devices as defines in `variables[]` with `var_type: "device"` or `"devices"` and `initial_value: ["__fill_devices__"]`, then reference those defines by name on condition and action nodes. No direct entity picks. The role-mapping import wizard handles filling the defines with real devices.
+
+→ AI PROMPT: AI-generated pistons always use defines — direct device picks on nodes are not valid AI output.
+
+---
+
+### D-3 — (reserved) Aggregation bar Any/All/None only `[LOCKED]`
 Precedent deviation worth recording here for consistency. WebCoRE aggregation bar = 12 options; PistonCore v1 implements Any / All / None only.
 *(Expand later — pulled from project history, confirm exact wording before writing help.)*
 

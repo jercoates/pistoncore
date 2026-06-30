@@ -299,6 +299,22 @@ const WizardStatement = (() => {
   function _buildTypeFormHTML(designer) {
     switch (designer.type) {
       case 'if':
+        return `
+          <p class="wizard-info">An IF block is the simplest decisional block available. It allows you to execute different actions depending on conditions you set.</p>
+          <div class="wizard-card-grid">
+            <div class="wizard-card">
+              <div class="wizard-card-title">Condition</div>
+              <div class="wizard-card-desc">A condition is a single comparison between two or more operands, the basic building block of a decisional statement</div>
+              <button class="btn btn-sm btn-info" id="ws-add-condition">Add a condition</button>
+            </div>
+            <div class="wizard-card">
+              <div class="wizard-card-title">Group</div>
+              <div class="wizard-card-desc">A group is a collection of conditions, with a logical operator between them, allowing for complex decisional statements</div>
+              <button class="btn btn-sm btn-warning" id="ws-add-group">Add a group</button>
+            </div>
+          </div>
+        `;
+
       case 'do':
       case 'while':
       case 'repeat':
@@ -306,13 +322,7 @@ const WizardStatement = (() => {
       case 'break':
       case 'cancel_pending_tasks':
       case 'action':
-        // No scalar form fields — these statements get their content
-        // from child arrays (conditions, tasks, etc.) opened via chaining
-        return `<p class="wizard-info">No options to configure here. ${
-          designer.type === 'if' ? 'Add conditions after this step.' :
-          designer.type === 'action' ? 'Add tasks after this step.' :
-          ''
-        }</p>`;
+        return `<p class="wizard-info">No options to configure here. Statements and tasks are added after this step.</p>`;
 
       case 'every':
         return `
@@ -529,6 +539,17 @@ const WizardStatement = (() => {
 
     // Type-specific live bindings
     _bindTypeFields(modal, designer);
+
+    // IF block — Condition/Group card buttons both commit the IF and chain to condition wizard
+    if (type === 'if') {
+      ['#ws-add-condition', '#ws-add-group'].forEach(id => {
+        const btn = modal.querySelector(id);
+        if (btn) btn.addEventListener('click', () => {
+          _readAdvancedFields(modal, designer, type);
+          _commit(designer, context);
+        });
+      });
+    }
 
     // Commit
     modal.querySelector('#ws-commit').addEventListener('click', () => {

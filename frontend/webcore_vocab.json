@@ -3837,5 +3837,54 @@
     "momentary": "m",
     "presence": "e",
     "piston": "v"
+  },
+
+  "variableTypes": {
+    "basic": [
+      { "key": "dynamic",  "label": "Dynamic" },
+      { "key": "string",   "label": "String (text)" },
+      { "key": "boolean",  "label": "Boolean (true/false)" },
+      { "key": "integer",  "label": "Number (integer)" },
+      { "key": "decimal",  "label": "Number (decimal)" },
+      { "key": "long",     "label": "Large number (long)" },
+      { "key": "datetime", "label": "Date and Time" },
+      { "key": "date",     "label": "Date (date only)" },
+      { "key": "time",     "label": "Time (time only)" },
+      { "key": "device",   "label": "Device" }
+    ],
+    "lists": [
+      { "key": "dynamic[]",  "label": "Dynamic list" },
+      { "key": "string[]",   "label": "String list (text)" },
+      { "key": "boolean[]",  "label": "Boolean list (true/false)" },
+      { "key": "integer[]",  "label": "Number list (integer)" },
+      { "key": "decimal[]",  "label": "Number list (decimal)" },
+      { "key": "long[]",     "label": "Large number list (long)" },
+      { "key": "datetime[]", "label": "Date and Time list" },
+      { "key": "date[]",     "label": "Date list (date only)" },
+      { "key": "time[]",     "label": "Time list (time only)" }
+    ]
+  },
+
+  "operandSources": {
+    "_labels": {
+      "":  "Nothing selected",
+      "d": "Physical device(s)",
+      "v": "Virtual device",
+      "s": "Preset",
+      "c": "Value",
+      "x": "Variable",
+      "e": "Expression",
+      "u": "Argument"
+    },
+    "dynamic":  ["", "d", "v", "c", "x", "e", "u"],
+    "string":   ["", "d", "v", "c", "x", "e", "u"],
+    "boolean":  ["", "d", "c", "x", "e", "u"],
+    "integer":  ["", "d", "c", "x", "e", "u"],
+    "decimal":  ["", "d", "c", "x", "e", "u"],
+    "long":     ["", "d", "v", "c", "x", "e", "u"],
+    "datetime": ["", "s", "c", "x", "e", "u"],
+    "date":     ["", "c", "x", "e", "u"],
+    "time":     ["", "s", "c", "x", "e", "u"],
+    "device":   ["", "d", "e"]
   }
 }

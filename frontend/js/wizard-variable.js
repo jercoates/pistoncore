@@ -14,28 +14,13 @@
 
 const WizardVariable = (() => {
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Type definitions — drives the type picker.
-  // Labels come from the designer; var_type is what the node stores.
-  // ─────────────────────────────────────────────────────────────────────────
-  const PISTON_VAR_TYPES = [
-    { key: 'dynamic',   label: 'Dynamic',        varType: 'dynamic'  },
-    { key: 'string',    label: 'Text (string)',   varType: 'string'   },
-    { key: 'boolean',   label: 'True/False',      varType: 'boolean'  },
-    { key: 'integer',   label: 'Integer number',  varType: 'number'   },
-    { key: 'decimal',   label: 'Decimal number',  varType: 'number'   },
-    { key: 'datetime',  label: 'Date & Time',     varType: 'datetime' },
-    { key: 'device',    label: 'Device',          varType: 'device'   },
-  ];
-
-  const GLOBAL_VAR_TYPES = [
-    { key: 'dynamic',   label: 'Dynamic',        varType: 'dynamic'  },
-    { key: 'string',    label: 'Text (string)',   varType: 'string'   },
-    { key: 'boolean',   label: 'True/False',      varType: 'boolean'  },
-    { key: 'integer',   label: 'Integer number',  varType: 'number'   },
-    { key: 'decimal',   label: 'Decimal number',  varType: 'number'   },
-    { key: 'datetime',  label: 'Date & Time',     varType: 'datetime' },
-    { key: 'device',    label: 'Device',          varType: 'device'   },
+  // Type lists come from webcore_vocab.json variableTypes at runtime via _buildTypeSelectHTML.
+  // This fallback is used only if vocab hasn't loaded yet.
+  const _FALLBACK_TYPES = [
+    { key: 'dynamic', label: 'Dynamic' }, { key: 'string',  label: 'String (text)' },
+    { key: 'boolean', label: 'Boolean (true/false)' }, { key: 'integer', label: 'Number (integer)' },
+    { key: 'decimal', label: 'Number (decimal)' }, { key: 'datetime', label: 'Date and Time' },
+    { key: 'device',  label: 'Device' },
   ];
 
   function _newId() {
@@ -112,25 +97,25 @@ const WizardVariable = (() => {
   // ─────────────────────────────────────────────────────────────────────────
   function _newVarDesigner(varNode) {
     return WizardCore.newDesigner({
-      $dialogType:  'var',
-      isNew:        !varNode,
-      $node:        varNode,
-      name:         '',
-      varType:      'dynamic',
-      initialValue: '',
-      assignment:   's',   // 's'=constant; 'd'=dynamic recalculate
-      description:  '',
+      $dialogType:     'var',
+      isNew:           !varNode,
+      $node:           varNode,
+      name:            '',
+      varType:         'dynamic',
+      initialValue:    '',
+      initialValueSrc: '',
     });
   }
 
   function _newGlobalDesigner(gv) {
     return WizardCore.newDesigner({
-      $dialogType:  'global',
-      isNew:        !gv,
-      $node:        gv,
-      name:         '',
-      varType:      'dynamic',
-      initialValue: '',
+      $dialogType:     'global',
+      isNew:           !gv,
+      $node:           gv,
+      name:            '',
+      varType:         'dynamic',
+      initialValue:    '',
+      initialValueSrc: '',
     });
   }
 
@@ -149,8 +134,16 @@ const WizardVariable = (() => {
   // Map a stored var_type back to the designer type key
   // ─────────────────────────────────────────────────────────────────────────
   function _nodeVarTypeToKey(varType) {
+    if (typeof varType === 'string' && varType.endsWith('[]')) {
+      const base = varType.slice(0, -2);
+      const bmap = { dynamic:'dynamic', string:'string', boolean:'boolean', number:'integer',
+                     decimal:'decimal', long:'long', datetime:'datetime', date:'date', time:'time' };
+      return (bmap[base] || base) + '[]';
+    }
     const map = { dynamic:'dynamic', string:'string', boolean:'boolean',
-                  number:'integer', datetime:'datetime', device:'device', devices:'device' };
+                  number:'integer', integer:'integer', decimal:'decimal', long:'long',
+                  datetime:'datetime', date:'date', time:'time',
+                  device:'device', devices:'device' };
     return map[varType] || 'dynamic';
   }
 
@@ -158,10 +151,32 @@ const WizardVariable = (() => {
   // Map designer type key → stored var_type
   // ─────────────────────────────────────────────────────────────────────────
   function _keyToVarType(key) {
+    if (typeof key === 'string' && key.endsWith('[]')) {
+      const base = key.slice(0, -2);
+      const bmap = { dynamic:'dynamic', string:'string', boolean:'boolean', integer:'number',
+                     decimal:'decimal', long:'long', datetime:'datetime', date:'date', time:'time' };
+      return (bmap[base] || base) + '[]';
+    }
     const map = { dynamic:'dynamic', string:'string', boolean:'boolean',
-                  integer:'number', decimal:'number', datetime:'datetime',
-                  device:'device', devices:'devices' };
+                  integer:'number', decimal:'decimal', long:'long',
+                  datetime:'datetime', date:'date', time:'time', device:'device' };
     return map[key] || 'dynamic';
+  }
+
+  function _srcToTypeName(src) {
+    return { e:'expression', x:'variable', v:'virtual', s:'preset', u:'argument' }[src] || null;
+  }
+
+  function _nodeInitValueType(varNode) {
+    const ivt = varNode.initial_value_type || '';
+    if (ivt === 'device')     return 'd';
+    if (ivt === 'expression') return 'e';
+    if (ivt === 'variable')   return 'x';
+    if (ivt === 'virtual')    return 'v';
+    if (ivt === 'preset')     return 's';
+    if (ivt === 'argument')   return 'u';
+    if (varNode.initial_value) return 'c';
+    return '';
   }
 
   function _isDeviceType(varType) {
@@ -246,14 +261,6 @@ const WizardVariable = (() => {
     [modal.querySelector('#wv-cancel'), modal.querySelector('#wv-cancel-footer')]
       .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
 
-    modal.querySelector('#wv-adv-toggle').addEventListener('click', () => {
-      designer.showAdvancedOptions = !designer.showAdvancedOptions;
-      const sec = modal.querySelector('#wv-advanced');
-      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
-      modal.querySelector('#wv-adv-toggle').textContent =
-        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
-    });
-
     // Name input — live validation to enable/disable buttons
     modal.querySelector('#wv-name').addEventListener('input', e => {
       designer.name = e.target.value;
@@ -302,11 +309,6 @@ const WizardVariable = (() => {
     const typeEl = modal.querySelector('#wv-type');
     if (typeEl) designer.varType = typeEl.value;
 
-    const descEl = modal.querySelector('#wv-description');
-    if (descEl) designer.description = descEl.value.trim();
-
-    const assignEl = modal.querySelector('#wv-assignment');
-    if (assignEl) designer.assignment = assignEl.value;
 
     _readValueInputFields(modal, designer);
   }

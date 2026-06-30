@@ -62,6 +62,9 @@ const WizardCondition = (() => {
       // Advanced
       smode:       'auto',
       description: '',
+
+      // Physical/Programmatic interaction filter — shown when attrMeta.p === true
+      interactionFilter: 'any',
     });
 
     WizardCore.openDialog(designer, null, null);
@@ -118,6 +121,7 @@ const WizardCondition = (() => {
       // Advanced
       smode:       node.smode       || 'auto',
       description: node.description || '',
+      interactionFilter: node.interaction || 'any',
     });
 
     WizardCore.openDialog(designer, null, null);
@@ -305,6 +309,14 @@ const WizardCondition = (() => {
             <label class="wc-section-label">Attribute</label>
             ${attrHtml}
           </div>
+          <div class="wc-section" id="wc-interaction-section" style="${designer.attrMeta && designer.attrMeta.p ? '' : 'display:none'}">
+            <label class="wc-section-label">Which interaction</label>
+            <select id="wc-interaction-select" class="form-select">
+              <option value="any"          ${(designer.interactionFilter||'any') === 'any'          ? 'selected' : ''}>Any interaction</option>
+              <option value="physical"     ${(designer.interactionFilter||'any') === 'physical'     ? 'selected' : ''}>Physical interaction</option>
+              <option value="programmatic" ${(designer.interactionFilter||'any') === 'programmatic' ? 'selected' : ''}>Programmatic interaction</option>
+            </select>
+          </div>
           <div class="wc-section" id="wc-op-section" style="${designer.selectedAttrKey ? '' : 'display:none'}">
             <label class="wc-section-label">Operator</label>
             ${opHtml}
@@ -434,27 +446,40 @@ const WizardCondition = (() => {
   }
 
   // Operator picker — filtered from vocab.comparisons at runtime using attrMeta.t
+  // Shows two optgroups: Conditions operators + Triggers operators (omits Triggers for restrictions)
+  // Singular label (d) for one device, plural (dd) for multiple
   function _buildOperatorHTML(designer, mode) {
     if (!designer.selectedAttrKey || !designer.attrMeta) {
       return `<p class="wizard-hint">Choose an attribute first.</p>`;
     }
 
-    const vocabMode = mode === 'trigger' ? 'triggers' : 'conditions';
-    const operators = WizardCore.getOperatorsForAttrType(designer.attrMeta.t, vocabMode);
+    const single = (designer.selectedDeviceKeys || []).length <= 1;
 
-    if (operators.length === 0) {
+    function _makeOptions(ops) {
+      return ops.map(op => {
+        const label = single ? (op.d || op.key) : (op.dd || op.d || op.key);
+        return `<option value="${_esc(op.key)}" ${designer.comparison.operator === op.key ? 'selected' : ''}>${_esc(label)}</option>`;
+      }).join('');
+    }
+
+    const condOps = WizardCore.getOperatorsForAttrType(designer.attrMeta.t, 'conditions');
+    const trigOps = mode !== 'restriction'
+      ? WizardCore.getOperatorsForAttrType(designer.attrMeta.t, 'triggers')
+      : [];
+
+    if (condOps.length === 0 && trigOps.length === 0) {
       return `<p class="wizard-hint">No operators available for this attribute type.</p>`;
     }
 
-    const options = operators.map(op => {
-      const label = op.dd || op.d || op.key;
-      return `<option value="${_esc(op.key)}" ${designer.comparison.operator === op.key ? 'selected' : ''}>${_esc(label)}</option>`;
-    });
+    const condGroup = condOps.length > 0
+      ? `<optgroup label="Conditions">${_makeOptions(condOps)}</optgroup>` : '';
+    const trigGroup = trigOps.length > 0
+      ? `<optgroup label="Triggers">${_makeOptions(trigOps)}</optgroup>` : '';
 
     return `
       <select id="wc-operator-select" class="form-select">
         <option value="">— choose operator —</option>
-        ${options.join('')}
+        ${condGroup}${trigGroup}
       </select>
     `;
   }
@@ -613,6 +638,12 @@ const WizardCondition = (() => {
       _rerenderOperatorAndBelow(modal, designer);
     });
 
+    // Interaction filter select (shown when attrMeta.p === true)
+    const interSel = modal.querySelector('#wc-interaction-select');
+    if (interSel) interSel.addEventListener('change', () => {
+      designer.interactionFilter = interSel.value;
+    });
+
     // Operator select
     const opSel = modal.querySelector('#wc-operator-select');
     if (opSel) opSel.addEventListener('change', () => {
@@ -715,6 +746,12 @@ const WizardCondition = (() => {
   }
 
   function _rerenderOperatorAndBelow(modal, designer) {
+    // Show/hide "Which interaction" row — only visible when the selected attribute has p:true
+    const interSec = modal.querySelector('#wc-interaction-section');
+    if (interSec) {
+      interSec.style.display = (designer.attrMeta && designer.attrMeta.p) ? '' : 'none';
+    }
+
     const opSec = modal.querySelector('#wc-op-section');
     if (opSec) {
       opSec.style.display = designer.selectedAttrKey ? '' : 'none';
@@ -793,6 +830,9 @@ const WizardCondition = (() => {
     const durUnit = modal.querySelector('#wc-dur-unit');
     if (durVal)  designer.durationValue = durVal.value;
     if (durUnit) designer.durationUnit  = durUnit.value;
+
+    const interSel = modal.querySelector('#wc-interaction-select');
+    if (interSel) designer.interactionFilter = interSel.value;
 
     const smode = modal.querySelector('#wc-smode');
     if (smode) designer.smode = smode.value;
@@ -963,7 +1003,7 @@ const WizardCondition = (() => {
       value_to:       designer.comparison.parameterCount === 2 ? (designer.rightValue2 || null) : null,
       duration:       designer.durationValue !== '' ? parseFloat(designer.durationValue) : null,
       duration_unit:  designer.durationValue !== '' ? (designer.durationUnit || 's') : null,
-      interaction:    'any',
+      interaction:    designer.interactionFilter || 'any',
       group_operator: designer.groupOperator || 'and',
     };
 
@@ -1008,6 +1048,7 @@ const WizardCondition = (() => {
     node.value_to       = designer.comparison.parameterCount === 2 ? (designer.rightValue2 || null) : null;
     node.duration       = designer.durationValue !== '' ? parseFloat(designer.durationValue) : null;
     node.duration_unit  = designer.durationValue !== '' ? (designer.durationUnit || 's') : null;
+    node.interaction    = designer.interactionFilter || 'any';
     node.group_operator = designer.groupOperator || node.group_operator;
 
     return node;

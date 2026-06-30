@@ -1240,6 +1240,16 @@ input::placeholder { color: var(--text-muted); }
 
 .wizard-footer-actions { margin-left: auto; display: flex; gap: var(--space-2); }
 
+/* Variable wizard — name + type on one row */
+.wv-name-type-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+.wv-name-type-row .form-input { flex: 1 1 auto; }
+.wv-type-inline { flex: 0 0 auto; width: auto; min-width: 110px; }
+
 /* Variable wizard — device picker */
 .wv-device-search { margin-bottom: var(--space-2); }
 .wv-device-list {

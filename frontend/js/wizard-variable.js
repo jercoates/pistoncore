@@ -197,33 +197,25 @@ const WizardVariable = (() => {
     return `
       <div class="wizard-dialog" id="wizard-variable-dialog">
         <div class="wizard-header">
-          <span class="wizard-title">${isNew ? 'Add Piston Variable' : 'Edit Piston Variable'}</span>
+          <span class="wizard-title">${isNew ? 'Add variable' : 'Edit variable'}</span>
           <button class="wizard-close btn-icon" id="wv-cancel">✕</button>
         </div>
         <div class="wizard-body">
 
-          <div class="wc-section">
-            <label class="wc-section-label">Variable name</label>
-            <div class="wizard-row">
-              <span class="wv-prefix">$</span>
-              <input type="text" id="wv-name" class="form-input" placeholder="VariableName"
-                value="${_esc(designer.name)}"
-                pattern="[A-Za-z_][A-Za-z0-9_]*"
-                title="Letters, digits, underscores — no spaces">
-            </div>
-          </div>
-
-          <div class="wc-section">
-            <label class="wc-section-label">Type</label>
-            <select id="wv-type" class="form-select">
+          <div class="wv-name-type-row">
+            <select id="wv-type" class="form-select wv-type-inline">
               ${PISTON_VAR_TYPES.map(t =>
                 `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
               ).join('')}
             </select>
+            <input type="text" id="wv-name" class="form-input" placeholder="Variable name"
+              value="${_esc(designer.name)}"
+              pattern="[A-Za-z_][A-Za-z0-9_]*"
+              title="Letters, digits, underscores — no spaces">
           </div>
 
           <div class="wc-section" id="wv-value-section">
-            <label class="wc-section-label">Initial value</label>
+            <label class="wc-section-label">Initial value (optional)</label>
             ${valueHTML}
             ${assignHTML}
           </div>
@@ -409,34 +401,26 @@ const WizardVariable = (() => {
     return `
       <div class="wizard-dialog" id="wizard-global-variable-dialog">
         <div class="wizard-header">
-          <span class="wizard-title">${isNew ? 'Add Global Variable' : 'Edit Global Variable'}</span>
+          <span class="wizard-title">${isNew ? 'Add global' : 'Edit global'}</span>
           <button class="wizard-close btn-icon" id="wgv-cancel">✕</button>
         </div>
         <div class="wizard-body">
 
-          <div class="wc-section">
-            <label class="wc-section-label">Variable name</label>
-            <div class="wizard-row">
-              <span class="wv-prefix">@</span>
-              <input type="text" id="wgv-name" class="form-input" placeholder="GlobalName"
-                value="${_esc(designer.name)}">
-            </div>
-            <div id="wgv-name-error" class="wc-error" style="display:none">
-              A global variable with that name already exists.
-            </div>
-          </div>
-
-          <div class="wc-section">
-            <label class="wc-section-label">Type</label>
-            <select id="wgv-type" class="form-select">
+          <div class="wv-name-type-row">
+            <select id="wgv-type" class="form-select wv-type-inline">
               ${GLOBAL_VAR_TYPES.map(t =>
                 `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
               ).join('')}
             </select>
+            <input type="text" id="wgv-name" class="form-input" placeholder="Variable name"
+              value="${_esc(designer.name)}">
+          </div>
+          <div id="wgv-name-error" class="wc-error" style="display:none">
+            A global variable with that name already exists.
           </div>
 
           <div class="wc-section">
-            <label class="wc-section-label">Value</label>
+            <label class="wc-section-label">Initial value (optional)</label>
             ${valueHTML}
           </div>
         </div>

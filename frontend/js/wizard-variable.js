@@ -19,24 +19,23 @@ const WizardVariable = (() => {
   // Labels come from the designer; var_type is what the node stores.
   // ─────────────────────────────────────────────────────────────────────────
   const PISTON_VAR_TYPES = [
-    { key: 'dynamic',   label: 'Dynamic',       varType: 'dynamic'  },
-    { key: 'string',    label: 'Text (string)',  varType: 'string'   },
-    { key: 'boolean',   label: 'True/False (boolean)', varType: 'boolean' },
-    { key: 'integer',   label: 'Integer number', varType: 'number'   },
-    { key: 'decimal',   label: 'Decimal number', varType: 'number'   },
-    { key: 'datetime',  label: 'Date & Time',    varType: 'datetime' },
-    { key: 'device',    label: 'Device (single)', varType: 'device'  },
-    { key: 'devices',   label: 'Device (multiple)', varType: 'devices' },
+    { key: 'dynamic',   label: 'Dynamic',        varType: 'dynamic'  },
+    { key: 'string',    label: 'Text (string)',   varType: 'string'   },
+    { key: 'boolean',   label: 'True/False',      varType: 'boolean'  },
+    { key: 'integer',   label: 'Integer number',  varType: 'number'   },
+    { key: 'decimal',   label: 'Decimal number',  varType: 'number'   },
+    { key: 'datetime',  label: 'Date & Time',     varType: 'datetime' },
+    { key: 'device',    label: 'Device',          varType: 'device'   },
   ];
 
   const GLOBAL_VAR_TYPES = [
-    { key: 'dynamic',   label: 'Dynamic',       varType: 'dynamic'  },
-    { key: 'string',    label: 'Text (string)',  varType: 'string'   },
-    { key: 'boolean',   label: 'True/False (boolean)', varType: 'boolean' },
-    { key: 'integer',   label: 'Integer number', varType: 'number'   },
-    { key: 'decimal',   label: 'Decimal number', varType: 'number'   },
-    { key: 'datetime',  label: 'Date & Time',    varType: 'datetime' },
-    { key: 'device',    label: 'Device (single)', varType: 'device'  },
+    { key: 'dynamic',   label: 'Dynamic',        varType: 'dynamic'  },
+    { key: 'string',    label: 'Text (string)',   varType: 'string'   },
+    { key: 'boolean',   label: 'True/False',      varType: 'boolean'  },
+    { key: 'integer',   label: 'Integer number',  varType: 'number'   },
+    { key: 'decimal',   label: 'Decimal number',  varType: 'number'   },
+    { key: 'datetime',  label: 'Date & Time',     varType: 'datetime' },
+    { key: 'device',    label: 'Device',          varType: 'device'   },
   ];
 
   function _newId() {
@@ -151,7 +150,7 @@ const WizardVariable = (() => {
   // ─────────────────────────────────────────────────────────────────────────
   function _nodeVarTypeToKey(varType) {
     const map = { dynamic:'dynamic', string:'string', boolean:'boolean',
-                  number:'integer', datetime:'datetime', device:'device', devices:'devices' };
+                  number:'integer', datetime:'datetime', device:'device', devices:'device' };
     return map[varType] || 'dynamic';
   }
 
@@ -621,7 +620,7 @@ const WizardVariable = (() => {
     const vt = designer.varType;
 
     if (vt === 'device' || vt === 'devices') {
-      return _buildDevicePickerHTML(designer, vt === 'devices');
+      return _buildDevicePickerHTML(designer);
     }
 
     if (vt === 'boolean') {
@@ -654,7 +653,7 @@ const WizardVariable = (() => {
       placeholder="Initial value" value="${_esc(designer.initialValue)}">`;
   }
 
-  function _buildDevicePickerHTML(designer, multiSelect) {
+  function _buildDevicePickerHTML(designer) {
     const deviceData = WizardCore.getDeviceData() || [];
     const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
     const selected   = Array.isArray(designer.initialValue)
@@ -668,14 +667,18 @@ const WizardVariable = (() => {
     const rows = [...deviceMap.entries()].map(([, dev]) => {
       const label   = dev.label || 'Unknown device';
       const checked = selected.includes(label);
-      return `<label class="wv-device-row">
-        <input type="${multiSelect ? 'checkbox' : 'radio'}" name="wv-device-pick"
+      return `<label class="wv-device-row${checked ? ' wv-checked' : ''}">
+        <input type="checkbox" name="wv-device-pick"
           class="wv-device-input" value="${_esc(label)}" ${checked ? 'checked' : ''}>
         <span>${_esc(label)}</span>
       </label>`;
     }).join('');
 
-    return `<div class="wv-device-list">${rows}</div>`;
+    return `
+      <input type="text" id="wv-device-search" class="form-input wv-device-search"
+        placeholder="Search devices…" autocomplete="off">
+      <div class="wv-device-list">${rows}</div>
+    `;
   }
 
   function _bindValueInputEvents(modal, designer, onChange) {
@@ -691,15 +694,25 @@ const WizardVariable = (() => {
       });
     }
 
-    // Device radio/checkbox group
+    // Device search filter
+    const searchEl = modal.querySelector('#wv-device-search');
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        const q = searchEl.value.trim().toLowerCase();
+        modal.querySelectorAll('.wv-device-row').forEach(row => {
+          const label = row.querySelector('span')?.textContent.toLowerCase() || '';
+          row.style.display = q === '' || label.includes(q) ? '' : 'none';
+        });
+      });
+      searchEl.focus();
+    }
+
+    // Device checkmark list
     modal.querySelectorAll('.wv-device-input').forEach(el => {
       el.addEventListener('change', () => {
-        if (el.type === 'radio') {
-          designer.initialValue = el.checked ? el.value : '';
-        } else {
-          const all = [...modal.querySelectorAll('.wv-device-input:checked')].map(c => c.value);
-          designer.initialValue = all;
-        }
+        el.closest('.wv-device-row')?.classList.toggle('wv-checked', el.checked);
+        const all = [...modal.querySelectorAll('.wv-device-input:checked')].map(c => c.value);
+        designer.initialValue = all;
         if (onChange) onChange();
       });
     });
@@ -714,11 +727,10 @@ const WizardVariable = (() => {
       return;
     }
 
-    // Device radio/checkbox group
+    // Device checkmark list
     const deviceInputs = [...modal.querySelectorAll('.wv-device-input')];
     if (deviceInputs.length > 0) {
-      const checked = deviceInputs.filter(i => i.checked).map(i => i.value);
-      designer[prop] = deviceInputs[0].type === 'radio' ? (checked[0] || '') : checked;
+      designer[prop] = deviceInputs.filter(i => i.checked).map(i => i.value);
     }
   }
 

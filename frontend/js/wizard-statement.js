@@ -676,9 +676,17 @@ const WizardStatement = (() => {
     node.$$html = null;
 
     // Steps 5 & 6: splice into tree and close dialog
+    // context may be a string ('action', 'if', ...) for edits,
+    // or an object {type, blockId, branch} for branch inserts from the ghost link.
     WizardCore.closeDialog();
     if (typeof Editor !== 'undefined' && Editor.insertStatement) {
-      Editor.insertStatement(context, node, { chain: _chainFor(designer.type) });
+      const ctxStr = typeof context === 'object' ? (context.type || 'action') : context;
+      const meta   = { chain: _chainFor(designer.type) };
+      if (typeof context === 'object') {
+        if (context.blockId) meta.blockId = context.blockId;
+        if (context.branch)  meta.branch  = context.branch;
+      }
+      Editor.insertStatement(ctxStr, node, meta);
     }
   }
 

@@ -624,6 +624,70 @@ If `wait_for_completion: true` with native script target → CompilerError.
 
 ---
 
+## H. Device Global Update — Targeted Patch, Not Full Recompile
+
+**Decision (Jeremy, session — June 2026):** When a device global is edited (devices added
+or removed from the group), updating the referencing pistons is a **targeted patch
+operation**, not a full recompile. The piston logic does not change — only which devices
+are targeted changes.
+
+### H1. What the patch does
+
+For each piston in the global's `used_by` list:
+1. **JSON patch:** Walk the piston's node tree. Find every node whose `role_tokens`
+   contains `@GlobalName`. Update the `entity_ids` array on that node to reflect the
+   global's new device list. No other fields change.
+2. **HA automation patch:** Update just the device/entity references in the deployed
+   automation file — not the logic, triggers, or conditions. The automation structure
+   stays identical; only entity targets change.
+
+This is distinct from the full compile path (D-S6). The compiler is NOT called for a
+device-global patch.
+
+### H2. Update flow
+
+The "Update all now" path from the globals UI routes through the **editor**, not directly
+to the compiler:
+
+```
+Globals UI → "Update all now" → Editor.patchGlobalDevices(globalId, newDeviceList)
+  → for each piston in used_by:
+      if piston is currently open in editor → SKIP, notify user to close and redeploy
+      else → patch JSON entity_ids + patch HA automation file
+```
+
+The editor owns this operation. The compiler is not involved.
+
+### H3. Editor-open guard
+
+If the editor is open with a piston that is in the global's `used_by` list, that piston
+is **skipped** from the batch patch. The user sees: *"1 piston skipped — it is currently
+open in the editor. Close and redeploy it when you are done."* All other pistons in
+`used_by` are patched normally.
+
+### H4. Tracking mechanism
+
+`used_by` on the global object is maintained by the **frontend wizard/editor**, not a
+backend scanner:
+- When a node is committed in the wizard with `@GlobalName` in its `role_tokens` → add
+  this piston `{uuid, name}` to that global's `used_by` via API call.
+- When the piston is saved → walk current nodes, collect referenced globals, remove this
+  piston from `used_by` on any global it no longer references.
+- No background scan. No scheduled job. Event-driven at the point of user action.
+
+The backend stores `used_by` as a plain field on the global object and returns it with
+GET /api/globals. The backend does not manage or validate `used_by` content — that is
+the frontend's responsibility.
+
+### H5. Status at time of writing
+
+The patch operation (H1–H2) is a **future build item** — the globals UI and tracking
+mechanism (H4) are being built first. The patch call will be stubbed in the globals
+"Update all now" button until the patch operation is implemented. The `used_by` data
+will be accurate and ready when the patch is built.
+
+---
+
 ## F. Retirement
 
 When D-S6 runs (compiler spec rewrite, after the v1 JSON locks): extract Sections A–E (and C-TYPES)

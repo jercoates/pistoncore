@@ -236,6 +236,7 @@ const App = (() => {
   // ── Init ─────────────────────────────────────────────────
   function init() {
     _initTheme();
+    if (typeof WizardCore !== 'undefined') WizardCore.init().catch(() => {});
 
     document.getElementById('btn-globals')?.addEventListener('click', () => GlobalsDrawer.open());
 
@@ -243,7 +244,7 @@ const App = (() => {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         ContextMenu.hide();
-        Wizard.close();
+        if (typeof WizardCore !== 'undefined') WizardCore.closeDialog();
         Dialog.close();
         NewPistonModal.close();
       }

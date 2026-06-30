@@ -31,15 +31,17 @@ const Editor = (() => {
     container.innerHTML = `<div class="editor-loading"><div class="spinner"></div> Loading...</div>`;
 
     try {
-      const [piston, vocab, globalsResult] = await Promise.all([
+      const [piston, vocab, globalsResult, devices] = await Promise.all([
         API.getPiston(pistonId),
         _loadVocab(),
         API.getGlobals().catch(() => ({})),
+        API.getDevices().catch(() => []),
       ]);
       _vocab  = vocab;
       _piston = piston;
       _piston._globalsCache = Object.values(globalsResult || {});
       _normalizePiston(_piston);
+      _seedWizardCore(devices || []);
       App.state.unsavedChanges = false;
       _selectedId = null;
       _cutId      = null;
@@ -51,6 +53,7 @@ const Editor = (() => {
         logic_version: 2, ui_version: 1,
       };
       _normalizePiston(_piston);
+      _seedWizardCore([]);
       App.state.unsavedChanges = false;
       _selectedId = null;
       _cutId      = null;
@@ -68,6 +71,17 @@ const Editor = (() => {
     } catch {
       return null;
     }
+  }
+
+  // ── Seed WizardCore ──────────────────────────────────────────────────────
+  // Called after every piston load so all wizard dialogs share the same data.
+  // _piston.variables is passed by reference — mutations in either place are shared.
+  function _seedWizardCore(devices) {
+    if (typeof WizardCore === 'undefined') return;
+    WizardCore.setDeviceData(devices);
+    WizardCore.setPistonVars(_piston.variables);
+    WizardCore.setGlobalsData(_piston._globalsCache || []);
+    WizardCore.registerAutoSave(() => _markUnsaved(true));
   }
 
   // ── Normalize ────────────────────────────────────────────────────────────
@@ -468,7 +482,7 @@ const Editor = (() => {
               ln(`<span class="kw">case</span> ${caseLabel}<span class="kw">:</span>`,
                 pad + 1, { id: c.id, type: 'case' });
               _actionLines(c.statements || [], depth + 3, lines, num, gh);
-              gh('+ add a new statement', 'action', pad + 3, { 'block-id': c.id });
+              gh('+ add a new statement', 'action', pad + 3, { 'block-id': c.id, branch: 'statements' });
             bClose();
           });
           bOpen();
@@ -601,7 +615,7 @@ const Editor = (() => {
     if (!c || typeof c !== 'object') return _ph('[condition]');
 
     // Group — render as group summary
-    if (c.type === 'group' || c.is_group) {
+    if (c.type === 'group' || c.t === 'group' || c.is_group) {
       const op    = _esc(c.group_operator || c.operator || 'and');
       const neg   = c.negated || c.n ? `${_kw('not')} ` : '';
       const count = (c.conditions || []).length;
@@ -847,14 +861,17 @@ const Editor = (() => {
       return;
     }
 
-    // Condition operator (and/or) line — open operator editor
+    // Condition operator (and/or) line — toggle inline, no wizard popup
     const condop = e.target.closest('.doc-condop');
     if (condop) {
       const blockId = condop.dataset.condopBlock;
       if (blockId && blockId !== 'root') {
-        const block   = _findNode(blockId) || _findElseIf(blockId);
-        const current = block?.condition_operator || 'and';
-        Wizard.open('condition_operator', null, { 'block-id': blockId, 'condition-operator': current });
+        const block = _findNode(blockId) || _findElseIf(blockId);
+        if (block) {
+          block.condition_operator = block.condition_operator === 'or' ? 'and' : 'or';
+          _markUnsaved(true);
+          render();
+        }
       }
       return;
     }
@@ -1319,6 +1336,11 @@ const Editor = (() => {
 
     _markUnsaved(true);
     render();
+
+    // §7.4 chaining — after committing IF/ACTION etc., auto-open the next wizard
+    if (meta?.chain && statementData.id) {
+      setTimeout(() => _chainToNextWizard(statementData, meta.chain), 50);
+    }
   }
 
   // Called by wizard with a specific id — does not require _selectedId.
@@ -1410,6 +1432,12 @@ const Editor = (() => {
       const result = await API.savePiston(_piston.id, pistonToSave);
       _piston = result.piston || _piston;
       if (_globalsCache) _piston._globalsCache = _globalsCache;
+      _normalizePiston(_piston);
+      // Re-sync WizardCore vars in case the editor stays open (e.g. save with warnings).
+      if (typeof WizardCore !== 'undefined') {
+        WizardCore.setPistonVars(_piston.variables);
+        WizardCore.setGlobalsData(_piston._globalsCache || []);
+      }
       _isNew = false;
       _markUnsaved(false);
 
@@ -1418,10 +1446,13 @@ const Editor = (() => {
 
       if (errors.length || warnings.length) {
         _showNotice([...errors.map(e => `⚠ ${e}`), ...warnings.map(w => `⚠ ${w}`)].join(' | '), 'warn');
-        return true;
+      } else {
+        _showNotice('Saved.', 'info');
       }
 
-      App.navigate('status', { pistonId: _piston.id });
+      // Reconcile used_by on globals after a successful save — fire and forget.
+      _reconcileGlobalUsedBy(_piston).catch(() => {});
+
       return true;
 
     } catch(e) {
@@ -1474,6 +1505,247 @@ const Editor = (() => {
     patchConditions(_piston.restrictions || []);
   }
 
+  // ── Global used_by reconciliation ─────────────────────────────────────────
+  // Called after every successful piston save. Walks the saved piston to find
+  // every @GlobalName reference in role_tokens, then ensures each referenced
+  // global lists this piston in its used_by — and removes this piston from any
+  // global it no longer references. Never blocks the save; errors are swallowed.
+  async function _reconcileGlobalUsedBy(piston) {
+    if (!piston || !piston.id) return;
+
+    // Collect every @GlobalName token referenced anywhere in this piston
+    const referenced = new Set();
+
+    function scanTokens(tokens) {
+      (tokens || []).forEach(t => {
+        if (typeof t === 'string' && t.startsWith('@')) referenced.add(t.slice(1));
+      });
+    }
+
+    function scanConditions(conditions) {
+      (conditions || []).forEach(c => scanTokens(c.role_tokens));
+    }
+
+    function scanStatements(nodes) {
+      (nodes || []).forEach(node => {
+        if (!node || typeof node !== 'object') return;
+        scanTokens(node.role_tokens);
+        scanConditions(node.conditions       || []);
+        scanConditions(node.until_conditions || []);
+        (node.else_ifs || []).forEach(ei => {
+          scanConditions(ei.conditions || []);
+          scanStatements(ei.statements || []);
+        });
+        scanStatements(node.then       || []);
+        scanStatements(node.else       || []);
+        scanStatements(node.statements || []);
+        scanStatements(node.default    || []);
+        (node.cases || []).forEach(c => scanStatements(c.statements || []));
+      });
+    }
+
+    scanConditions(piston.triggers     || []);
+    scanConditions(piston.conditions   || []);
+    scanConditions(piston.restrictions || []);
+    scanStatements(piston.statements   || []);
+
+    // Load current globals from API to get fresh used_by arrays
+    let globals = [];
+    try {
+      const raw = await API.getGlobals();
+      globals = Object.values(raw || {});
+    } catch { return; }
+
+    const pistonEntry = { uuid: piston.id, name: piston.name || 'Unnamed' };
+
+    // For each global: add or remove this piston from used_by as needed
+    const updates = globals.filter(g => {
+      const isReferenced   = referenced.has(g.name);
+      const usedBy         = Array.isArray(g.used_by) ? g.used_by : [];
+      const alreadyListed  = usedBy.some(e => e.uuid === piston.id);
+      return isReferenced !== alreadyListed; // only update if something changed
+    });
+
+    for (const g of updates) {
+      const usedBy = Array.isArray(g.used_by) ? [...g.used_by] : [];
+      if (referenced.has(g.name)) {
+        usedBy.push(pistonEntry);
+      } else {
+        const idx = usedBy.findIndex(e => e.uuid === piston.id);
+        if (idx >= 0) usedBy.splice(idx, 1);
+      }
+      try {
+        await API.updateGlobal(g.id, { used_by: usedBy });
+      } catch { /* best-effort */ }
+    }
+  }
+
+  // ── Wizard dispatch — routes Wizard.open(ctx, node, extra) to the right module ──
+  //
+  // The editor renders "+" ghost links and clickable statement rows that all call
+  // Wizard.open(). This object is the single routing table that maps each context
+  // string to the correct WizardXxx module function.
+  //
+  // Ghost clicks (node=null) → openAdd functions
+  // Statement clicks (node=object) → openEdit functions
+  // 'action' ghost ctx = "add new statement" (not specifically an action type)
+  const Wizard = {
+    open(ctx, node, extra = {}) {
+      const blockId = extra['block-id']  || null;
+      const branch  = extra['branch']    || null;
+      const taskId  = extra['task-id']   || null;
+
+      if (!node) {
+        // ── Add mode — ghost "+" link clicked ───────────────────────────────
+        switch (ctx) {
+          case 'variable':
+            if (typeof WizardVariable !== 'undefined')
+              WizardVariable.openAdd('variable');
+            break;
+
+          case 'trigger':
+            _piston.triggers = _piston.triggers || [];
+            if (typeof WizardCondition !== 'undefined')
+              WizardCondition.openAdd(_piston.triggers, 'trigger', 'trigger');
+            break;
+
+          case 'condition':
+            _piston.conditions = _piston.conditions || [];
+            if (typeof WizardCondition !== 'undefined')
+              WizardCondition.openAdd(_piston.conditions, 'condition', 'condition');
+            break;
+
+          case 'restriction':
+            _piston.restrictions = _piston.restrictions || [];
+            if (typeof WizardCondition !== 'undefined')
+              WizardCondition.openAdd(_piston.restrictions, 'restriction', 'restriction');
+            break;
+
+          case 'action': {
+            // 'action' ghost = "add a new statement" in a branch or top-level
+            // Pass {type, blockId, branch} so the wizard can relay blockId/branch
+            // into insertStatement's meta parameter for correct tree placement.
+            const insertCtx = { type: 'action', blockId, branch };
+            if (typeof WizardStatement !== 'undefined')
+              WizardStatement.openAdd(insertCtx);
+            break;
+          }
+
+          case 'task': {
+            const actionNode = blockId ? _findAnyNode(blockId) : null;
+            if (actionNode && typeof WizardAction !== 'undefined')
+              WizardAction.openAddTask(actionNode, 'task');
+            break;
+          }
+
+          case 'if_condition': {
+            const block = blockId ? (_findNode(blockId) || _findElseIf(blockId)) : null;
+            if (block) {
+              block.conditions = block.conditions || [];
+              if (typeof WizardCondition !== 'undefined')
+                WizardCondition.openAdd(block.conditions, 'if_condition', 'condition');
+            }
+            break;
+          }
+        }
+        return;
+      }
+
+      // ── Edit mode — existing node clicked ─────────────────────────────────
+      switch (ctx) {
+        case 'trigger':
+          _piston.triggers = _piston.triggers || [];
+          if (typeof WizardCondition !== 'undefined')
+            WizardCondition.openEdit(node, _piston.triggers, 'trigger', 'trigger');
+          break;
+
+        case 'condition':
+        case 'edit_condition':
+          _piston.conditions = _piston.conditions || [];
+          if (typeof WizardCondition !== 'undefined')
+            WizardCondition.openEdit(node, _piston.conditions, 'condition', 'condition');
+          break;
+
+        case 'edit_restriction':
+          _piston.restrictions = _piston.restrictions || [];
+          if (typeof WizardCondition !== 'undefined')
+            WizardCondition.openEdit(node, _piston.restrictions, 'restriction', 'restriction');
+          break;
+
+        case 'if_condition': {
+          const block      = blockId ? (_findNode(blockId) || _findElseIf(blockId)) : null;
+          const conditions = block ? (block.conditions || (block.conditions = [])) : (_piston.conditions || []);
+          if (typeof WizardCondition !== 'undefined')
+            WizardCondition.openEdit(node, conditions, 'if_condition', 'condition');
+          break;
+        }
+
+        case 'variable':
+          if (typeof WizardVariable !== 'undefined')
+            WizardVariable.openEdit(node, 'variable');
+          break;
+
+        case 'task': {
+          // node = action owner; taskId picks the specific task to edit
+          const taskNode = taskId ? (node.tasks || []).find(t => t.id === taskId) : null;
+          if (taskNode && typeof WizardAction !== 'undefined')
+            WizardAction.openEditTask(taskNode, node, 'task');
+          break;
+        }
+
+        case 'action':
+          // Clicking the ACTION statement header — edit which device it targets
+          if (typeof WizardStatement !== 'undefined')
+            WizardStatement.openEdit(node, 'action');
+          break;
+
+        case 'condition_operator':
+          // Handled inline by the editor — no wizard popup
+          break;
+
+        default:
+          // All other statement types: if, for, while, repeat, every, switch, etc.
+          if (typeof WizardStatement !== 'undefined')
+            WizardStatement.openEdit(node, ctx);
+          break;
+      }
+    }
+  };
+
+  // Resolve which array and parent block a "add new statement" ghost targets.
+  function _resolveStatementParent(branch, blockId) {
+    if (!blockId) {
+      return { array: (_piston.statements = _piston.statements || []), blockId: null, branch: null };
+    }
+    if (branch === 'else_if_statements') {
+      const eib = _findElseIf(blockId);
+      if (eib) {
+        eib.statements = eib.statements || [];
+        return { array: eib.statements, blockId, branch };
+      }
+    }
+    const block = _findAnyNode(blockId);
+    if (!block) {
+      return { array: (_piston.statements = _piston.statements || []), blockId: null, branch: null };
+    }
+    block[branch] = block[branch] || [];
+    return { array: block[branch], blockId, branch };
+  }
+
+  // Called after insertStatement when meta.chain is set — auto-opens the next wizard.
+  // §7.4: IF/WHILE/REPEAT/ON_EVENT/WAIT_FOR_STATE → chain:'condition'
+  //        ACTION → chain:'task'
+  function _chainToNextWizard(node, chainType) {
+    if (chainType === 'condition') {
+      node.conditions = node.conditions || [];
+      if (typeof WizardCondition !== 'undefined')
+        WizardCondition.openAdd(node.conditions, 'if_condition', 'condition');
+    } else if (chainType === 'task') {
+      if (typeof WizardAction !== 'undefined')
+        WizardAction.openAddTask(node, 'task');
+    }
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
   return {
     load,
@@ -1483,6 +1755,13 @@ const Editor = (() => {
     getPistonVariables:  () => _piston?.variables     || [],
     getGlobalsCache:     () => _piston?._globalsCache || [],
     getDeviceMap:        () => _piston?.device_map    || {},
+    // Called by wizard modules after they write directly to a node (edit path).
+    // Marks the piston unsaved and re-renders the display.
+    refreshDisplay(_context) {
+      _markUnsaved(true);
+      render();
+    },
+
     updateConditionOperator(blockId, operator) {
       const block = _findNode(blockId) || _findElseIf(blockId);
       if (block) {

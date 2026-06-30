@@ -509,20 +509,22 @@ def list_globals():
 def create_global(body: dict = Body(...)):
     """
     Create a global variable.
-    Body: { "name": str, "var_type": "text"|"number"|"boolean"|"datetime"|"device", "value": str|list[str], "description": str }
-    var_type "device": value is a list of entity_id strings. Baked in at compile time
-      as a group — the compiler expands the list into trigger decorators and service calls.
-    var_type text/number/boolean/datetime: value is a plain string. Backed by HA
-      input_* helpers at deploy time.
+    Body: { "name": str, "var_type": str, "value": str|list[str], "description": str, "used_by": list }
+    var_type values: string | integer | decimal | boolean | datetime | device | dynamic
+    var_type "device": value is a list of friendly name strings (not entity IDs).
+    All other types: value is a plain string.
+    used_by: list of {uuid, name} objects — maintained by the frontend, stored here as-is.
     """
     globals_store = storage.load_globals()
     global_id = str(uuid.uuid4()).replace("-", "")[:8]
+    var_type = body.get("var_type", "string")
     globals_store[global_id] = {
         "id":          global_id,
         "name":        body.get("name", "new_global"),
-        "var_type":    body.get("var_type", "text"),
-        "value":       body.get("value", "" if body.get("var_type") != "device" else []),
+        "var_type":    var_type,
+        "value":       body.get("value", [] if var_type == "device" else ""),
         "description": body.get("description", ""),
+        "used_by":     body.get("used_by", []),
     }
     storage.save_globals(globals_store)
     return globals_store[global_id]
@@ -532,9 +534,10 @@ def create_global(body: dict = Body(...)):
 def update_global(global_id: str, body: dict = Body(...)):
     """
     Update an existing global variable.
-    Body: { "name": str, "var_type": str, "value": str|list[str], "description": str }
-    Only the fields present in the body are updated — missing fields are preserved.
-    For device type: value must be a list of entity_id strings.
+    Body: { "name": str, "var_type": str, "value": str|list[str], "description": str, "used_by": list }
+    Only fields present in the body are updated — missing fields are preserved.
+    var_type "device": value is a list of friendly name strings (not entity IDs).
+    used_by: list of {uuid, name} objects — frontend maintains this, backend stores as-is.
     Pistons referencing this global are marked stale if var_type or value changed.
     """
     globals_store = storage.load_globals()
@@ -551,12 +554,12 @@ def update_global(global_id: str, body: dict = Body(...)):
     existing["var_type"]    = body.get("var_type",    existing["var_type"])
     existing["value"]       = body.get("value",       existing["value"])
     existing["description"] = body.get("description", existing["description"])
+    if "used_by" in body:
+        existing["used_by"] = body["used_by"]
 
     globals_store[global_id] = existing
     storage.save_globals(globals_store)
 
-    # If the value or type changed, any piston using this global may produce
-    # different compiled output — mark stale so the user knows to redeploy.
     if value_changed:
         _mark_pistons_stale_for_global(global_id)
 

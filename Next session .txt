@@ -1,0 +1,41 @@
+PistonCore wizard rebuild — continuation prompt.
+
+Project: open-source WebCoRE-style automation builder for Home Assistant.
+Stack: Python/FastAPI, vanilla JS/HTML/CSS, Jinja2, JSON storage, Docker on Unraid port 7777.
+Repo: C:\Users\Jeremy\Documents\GitHub\pistoncore
+
+Jeremy cannot read code. He verifies by deploying and clicking. Narrate every change in plain
+English as behavior before acting. CLAUDE.md rules are mandatory — read it first every session.
+
+WHERE WE ARE:
+All five wizard JS files have been rebuilt from scratch (spec-driven, no hardcoded data):
+  frontend/js/wizard-core.js       — data engine; loads 3 JSON files at startup
+  frontend/js/wizard-statement.js  — 18 statement types
+  frontend/js/wizard-condition.js  — condition/trigger/restriction builder
+  frontend/js/wizard-action.js     — task command picker + parameter inputs
+  frontend/js/wizard-variable.js   — piston var / global var / local var dialogs
+  frontend/js/wizard-loops.js      — empty stub (all loops handled by wizard-statement.js)
+
+Three runtime JSON files confirmed in frontend/:
+  webcore_vocab.json, picker_capability_map.json, pistoncore_attribute_translation.json
+
+All script tags in index.html are in correct load order.
+
+WHAT REMAINS:
+  globals.js — needs rebuild. Keep the device picker section. Rebuild everything
+  else to match the current spec (FRONTEND_SPEC.md). Do NOT read the old globals.js
+  as authoritative — treat the spec as truth and the existing code as suspect.
+
+SECURITY INVARIANT (verbatim, never violate):
+  "The frontend never calls HA directly. All HA data comes from the PistonCore backend API."
+
+KEY RULES:
+  - §0.6: ALL wizard menus come from the 3 JSON files at runtime. NEVER hardcode
+    operator lists, capability names, command names, enum options, or attribute types.
+  - §0.1: Variables/globals store device FRIENDLY NAMES only, never entity IDs.
+  - §0.5: Every commit calls WizardCore.autoSave() BEFORE writing to the live tree.
+  - §0.4: Every dialog edits a scratch buffer (designer), never the live node directly.
+  - Simple/Advanced toggle is PERMANENTLY REMOVED — always-visible sections only.
+
+START: Read CLAUDE.md, then ask Jeremy what the session goal is and current status.
+Do not read other files or write any code until Jeremy confirms the starting point.

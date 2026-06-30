@@ -6,9 +6,11 @@
 //
 // Entry points (called by editor.js):
 //   WizardAction.openAddTask(actionNode, context)
-//     — opens the task dialog to add a task to an action block
+//     — opens the task dialog to add a task to an action block.
+//     — page 0: device picker (only shown when actionNode.entity_ids is empty)
+//     — page 1: command + parameter picker
 //   WizardAction.openEditTask(taskNode, actionNode, context)
-//     — opens the task dialog to edit an existing task
+//     — opens the task dialog to edit an existing task (goes directly to page 1)
 //
 // On commit: writes task node into actionNode.tasks at insertIndex.
 // Calls Editor.refreshDisplay(context) to redraw the action block.
@@ -54,16 +56,20 @@ const WizardAction = (() => {
   // Build a blank task designer for the given action node
   // ─────────────────────────────────────────────────────────────────────────
   function _newTaskDesigner(actionNode, isNew, existingTask) {
+    // page 0 = device picker (only when action has no devices yet)
+    // page 1 = command + parameter picker
+    const needsDevicePick = isNew && !(actionNode.entity_ids || []).length;
     return WizardCore.newDesigner({
-      isNew:        isNew,
-      page:         0,
-      $node:        existingTask,
-      $action:      actionNode,
-      command:      '',
-      paramVals:    {},      // { "0": value, "1": value, ... } keyed by param position
-      insertIndex:  (actionNode.tasks || []).length,  // append by default
-      description:  '',
+      isNew:               isNew,
+      page:                needsDevicePick ? 0 : 1,
+      $node:               existingTask,
+      $action:             actionNode,
+      command:             '',
+      paramVals:           {},
+      insertIndex:         (actionNode.tasks || []).length,
+      description:         '',
       showAdvancedOptions: false,
+      selectedDeviceKeys:  [],  // device keys chosen on page 0
     });
   }
 
@@ -73,8 +79,110 @@ const WizardAction = (() => {
   function _renderDialog(designer, actionNode, context) {
     const modal = WizardCore.getModalEl();
     if (!modal) return;
-    modal.innerHTML = _buildDialogHTML(designer, actionNode);
-    _bindEvents(modal, designer, actionNode, context);
+    if (designer.page === 0) {
+      modal.innerHTML = _buildDevicePickerHTML(designer, actionNode);
+      _bindDevicePickerEvents(modal, designer, actionNode, context);
+    } else {
+      modal.innerHTML = _buildDialogHTML(designer, actionNode);
+      _bindEvents(modal, designer, actionNode, context);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Page 0: Device picker — which device(s) will this action control?
+  // Shown only for new action blocks with no devices yet selected.
+  // Sets actionNode.entity_ids, actionNode.role_tokens, actionNode.role.
+  // ─────────────────────────────────────────────────────────────────────────
+  function _buildDevicePickerHTML(designer, actionNode) {
+    const deviceData = WizardCore.getDeviceData() || [];
+    const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
+
+    const deviceRows = [...deviceMap.entries()].map(([key, dev]) => `
+      <label class="wc-device-row">
+        <input type="checkbox" class="wa-device-check"
+          data-key="${_esc(key)}"
+          data-entity-ids="${_esc([...new Set(dev.entities.map(e => e.entity_id))].join(','))}"
+          data-label="${_esc(dev.label)}"
+          ${(designer.selectedDeviceKeys || []).includes(key) ? 'checked' : ''}>
+        <span>${_esc(dev.label)}</span>
+      </label>
+    `).join('');
+
+    const noDevices = deviceMap.size === 0
+      ? `<p class="wizard-hint">No devices loaded. Check your HA connection.</p>` : '';
+
+    return `
+      <div class="wizard-dialog" id="wizard-action-device-dialog">
+        <div class="wizard-header">
+          <span class="wizard-title">Choose devices to control</span>
+          <button class="wizard-close btn-icon" id="wa-dp-cancel">✕</button>
+        </div>
+        <div class="wizard-body">
+          <div class="wc-section">
+            <label class="wc-section-label">Select one or more devices</label>
+            <div class="wc-device-list" style="max-height:260px;overflow-y:auto">
+              ${noDevices}${deviceRows}
+            </div>
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn btn-sm btn-secondary" id="wa-dp-cancel-footer">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="wa-dp-next" disabled>Next →</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function _bindDevicePickerEvents(modal, designer, actionNode, context) {
+    [modal.querySelector('#wa-dp-cancel'), modal.querySelector('#wa-dp-cancel-footer')]
+      .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
+
+    const nextBtn = modal.querySelector('#wa-dp-next');
+
+    function _updateNextBtn() {
+      const anyChecked = modal.querySelectorAll('.wa-device-check:checked').length > 0;
+      if (nextBtn) nextBtn.disabled = !anyChecked;
+    }
+
+    modal.querySelectorAll('.wa-device-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const key = cb.dataset.key;
+        designer.selectedDeviceKeys = designer.selectedDeviceKeys || [];
+        if (cb.checked) {
+          if (!designer.selectedDeviceKeys.includes(key)) designer.selectedDeviceKeys.push(key);
+        } else {
+          designer.selectedDeviceKeys = designer.selectedDeviceKeys.filter(k => k !== key);
+        }
+        _updateNextBtn();
+      });
+    });
+
+    _updateNextBtn();  // set initial state based on pre-checked items
+
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        const checked = modal.querySelectorAll('.wa-device-check:checked');
+        const roleTokens = [];
+        const entityIds  = [];
+        const labels     = [];
+        checked.forEach(cb => {
+          roleTokens.push(cb.dataset.key);
+          (cb.dataset.entityIds || '').split(',').filter(Boolean).forEach(id => entityIds.push(id));
+          labels.push(cb.dataset.label || cb.dataset.key);
+        });
+
+        WizardCore.autoSave();  // §0.5: snapshot before mutating the action node
+
+        // Write device selection to the action node so command picker filters by capability
+        actionNode.role_tokens = roleTokens;
+        actionNode.entity_ids  = [...new Set(entityIds)];
+        actionNode.role        = labels.join(', ');
+        actionNode.$$html      = null;
+
+        designer.page = 1;
+        _renderDialog(designer, actionNode, context);
+      });
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

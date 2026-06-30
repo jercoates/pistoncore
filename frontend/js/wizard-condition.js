@@ -87,9 +87,11 @@ const WizardCondition = (() => {
       $node:        node,
       groupOperator: node.group_operator || 'and',
 
-      // Seed left operand display (role from node)
+      // Seed left operand display (role from node).
+      // selectedDeviceKeys re-built from role_tokens so the device picker shows
+      // existing selections checked when the dialog opens in edit mode.
       leftSourceType:    'device',
-      selectedDeviceKeys: [],
+      selectedDeviceKeys: (node.role_tokens || []).slice(),
       capKeys:           [],
       selectedAttrKey:   node.attribute || '',
       attrMeta:          node.attribute ? WizardCore.getAttrMeta(node.attribute) : null,
@@ -1013,7 +1015,9 @@ const WizardCondition = (() => {
   // Entity resolution — §0.1 Load-Bearing Rule and §0.2
   // entity_ids: one entity per selected device for the chosen attribute key
   // role: friendly device name(s)
-  // role_tokens: entity IDs (used for picker re-population on edit)
+  // role_tokens: device keys (device_id or entity_id used as map key) for picker re-population.
+  // NOT entity IDs — the picker restores checked boxes from role_tokens, so they must match
+  // the keys in WizardCore.groupEntitiesByDevice()'s Map (i.e. designer.selectedDeviceKeys).
   // ─────────────────────────────────────────────────────────────────────────
   function _resolveEntities(designer) {
     if (designer.leftSourceType !== 'device' || designer.selectedDeviceKeys.length === 0) {
@@ -1041,7 +1045,7 @@ const WizardCondition = (() => {
     }
 
     const role       = labels.join(', ');
-    const roleTokens = entityIds.slice();  // same IDs used for re-population
+    const roleTokens = designer.selectedDeviceKeys.slice();  // device keys, not entity IDs
 
     return { role, roleTokens, entityIds };
   }

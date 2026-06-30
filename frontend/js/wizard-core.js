@@ -521,6 +521,7 @@ const WizardCore = (() => {
 
     // Capability detection pipeline (§8.2)
     intersectCapKeys,
+    getCapKeysForEntityRaw: _getCapKeysForEntityRaw,
 
     // Attribute metadata (pistoncore_attribute_translation.json — compiler direction)
     getAttrMeta,

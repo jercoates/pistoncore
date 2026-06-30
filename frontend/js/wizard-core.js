@@ -40,26 +40,24 @@ const WizardCore = (() => {
   // code because the spec defines them, not webcore_vocab.json.
   // §5: ELSE_IF is excluded — added via "+ add else if" inside an IF block.
   // ─────────────────────────────────────────────────────────────────────────
-  const STATEMENT_TYPES = [
-    { type: 'if',                   label: 'If Block',              desc: 'Execute different actions based on conditions you define' },
-    { type: 'action',               label: 'Action',                desc: 'A collection of tasks for devices to perform' },
-    { type: 'every',                label: 'Every (Timer)',          desc: 'Repeat statements at a regular interval' },
-    { type: 'switch',               label: 'Switch',                desc: 'Compare an expression against multiple possible values' },
-    { type: 'do',                   label: 'Do Block',              desc: 'Group statements into a single named block' },
-    { type: 'on_event',             label: 'On Event',              desc: 'Execute statements only when a specific event occurs' },
-    { type: 'for',                  label: 'For Loop',              desc: 'Repeat statements for a fixed number of iterations' },
-    { type: 'for_each',             label: 'For Each Loop',         desc: 'Repeat statements for each device in a list' },
-    { type: 'while',                label: 'While Loop',            desc: 'Repeat while a condition remains true' },
-    { type: 'repeat',               label: 'Repeat Loop',           desc: 'Repeat until a condition is met' },
-    { type: 'set_variable',         label: 'Set Variable',          desc: 'Assign a value to a piston variable' },
-    { type: 'wait',                 label: 'Wait',                  desc: 'Pause execution for a duration or until a condition' },
-    { type: 'wait_for_state',       label: 'Wait for State',        desc: 'Pause until device conditions are met' },
-    { type: 'log_message',          label: 'Log Message',           desc: 'Write a message to the log at a chosen level' },
-    { type: 'call_piston',          label: 'Call Piston',           desc: 'Execute another piston' },
-    { type: 'cancel_pending_tasks', label: 'Cancel Pending Tasks',  desc: 'Cancel all pending scheduled tasks in this piston' },
-    { type: 'break',                label: 'Break',                 desc: 'Exit the innermost loop or switch block' },
-    { type: 'exit',                 label: 'Exit',                  desc: 'End the piston run' },
-  ];
+  const STATEMENT_TYPES = {
+    simple: [
+      { type: 'if',      label: 'If Block', color: 'info',    btn: 'an if',     desc: 'An if block allows the piston to execute different actions depending on the truth result of a comparison or set of comparisons' },
+      { type: 'action',  label: 'Action',   color: 'success', btn: 'an action', desc: 'An action allows the piston to control devices and execute tasks' },
+      { type: 'every',   label: 'Timer',    color: 'warning', btn: 'a timer',   desc: 'A timer will trigger execution of the piston at set time intervals' },
+    ],
+    advanced: [
+      { type: 'switch',   label: 'Switch',        color: 'info',    btn: 'a switch',        desc: 'A switch statement compares an operand against a set of values and executes statements corresponding to those matches' },
+      { type: 'do',       label: 'Do Block',      color: 'success', btn: 'a do block',      desc: 'A do block can help organize several statements into a single block' },
+      { type: 'on_event', label: 'On Event',      color: 'warning', btn: 'an on event',     desc: 'An on event executes its statements only when certain events happen' },
+      { type: 'for',      label: 'For Loop',      color: 'warning', btn: 'a for loop',      desc: 'A for loop executes the same statements for a set number of iteration cycles' },
+      { type: 'for_each', label: 'For Each Loop', color: 'warning', btn: 'a for each loop', desc: 'An each loop executes the same statements for each device in a device list' },
+      { type: 'while',    label: 'While Loop',    color: 'warning', btn: 'a while loop',    desc: 'A while loop executes the same statements for as long as a condition is met' },
+      { type: 'repeat',   label: 'Repeat Loop',   color: 'warning', btn: 'a repeat loop',   desc: 'A repeat loop executes the same statements until a condition is met' },
+      { type: 'break',    label: 'Break',          color: 'danger',  btn: 'a break',         desc: 'A break allows the interruption of the inner most switch, for loop, for each loop, while loop, or repeat loop' },
+      { type: 'exit',     label: 'Exit',           color: 'danger',  btn: 'an exit',         desc: 'An exit interrupts the piston execution and exits immediately' },
+    ],
+  };
 
   // Calendar constants — standard, not from vocab
   const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
@@ -71,7 +69,7 @@ const WizardCore = (() => {
   // ─────────────────────────────────────────────────────────────────────────
 
   async function init() {
-    const base = window.location.origin;
+    const base = window.location.origin + '/frontend';
     const [vocabRes, capMapRes, attrRes] = await Promise.all([
       fetch(base + '/webcore_vocab.json'),
       fetch(base + '/picker_capability_map.json'),

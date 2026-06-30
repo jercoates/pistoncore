@@ -65,7 +65,7 @@ const Editor = (() => {
   async function _loadVocab() {
     if (_vocab) return _vocab;
     try {
-      const r = await fetch(window.location.origin + '/webcore_vocab.json');
+      const r = await fetch(window.location.origin + '/frontend/webcore_vocab.json');
       if (!r.ok) return null;
       return await r.json();
     } catch {

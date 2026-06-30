@@ -26,13 +26,15 @@ const WizardCondition = (() => {
   // ─────────────────────────────────────────────────────────────────────────
   // Public: open add dialog
   // ─────────────────────────────────────────────────────────────────────────
-  function openAdd(parentArray, context, mode) {
+  function openAdd(parentArray, context, mode, startType) {
     mode = mode || 'condition';
+    // startType: when caller already knows 'condition' or 'group' (e.g. IF block card button),
+    // skip the type-picker page and go straight to page 1 with that type pre-set.
     const designer = WizardCore.newDesigner({
       isNew:        true,
-      page:         0,
+      page:         startType ? 1 : 0,
       mode:         mode,
-      type:         '',       // 'condition' | 'group' — set by page 0 type picker
+      type:         startType || '',
       groupOperator: parentArray && parentArray.length > 0 ? 'and' : 'and',
 
       // Condition fields

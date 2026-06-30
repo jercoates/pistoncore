@@ -540,14 +540,19 @@ const WizardStatement = (() => {
     // Type-specific live bindings
     _bindTypeFields(modal, designer);
 
-    // IF block — Condition/Group card buttons both commit the IF and chain to condition wizard
+    // IF block — card buttons commit the IF and tell the chain which type to open directly
     if (type === 'if') {
-      ['#ws-add-condition', '#ws-add-group'].forEach(id => {
-        const btn = modal.querySelector(id);
-        if (btn) btn.addEventListener('click', () => {
-          _readAdvancedFields(modal, designer, type);
-          _commit(designer, context);
-        });
+      const addCondBtn  = modal.querySelector('#ws-add-condition');
+      const addGroupBtn = modal.querySelector('#ws-add-group');
+      if (addCondBtn) addCondBtn.addEventListener('click', () => {
+        designer._chainSubtype = 'condition';
+        _readAdvancedFields(modal, designer, type);
+        _commit(designer, context);
+      });
+      if (addGroupBtn) addGroupBtn.addEventListener('click', () => {
+        designer._chainSubtype = 'group';
+        _readAdvancedFields(modal, designer, type);
+        _commit(designer, context);
       });
     }
 
@@ -721,7 +726,7 @@ const WizardStatement = (() => {
     WizardCore.closeDialog();
     if (typeof Editor !== 'undefined' && Editor.insertStatement) {
       const ctxStr = typeof context === 'object' ? (context.type || 'action') : context;
-      const meta   = { chain: _chainFor(designer.type) };
+      const meta   = { chain: _chainFor(designer.type), chainSubtype: designer._chainSubtype || null };
       if (typeof context === 'object') {
         if (context.blockId) meta.blockId = context.blockId;
         if (context.branch)  meta.branch  = context.branch;

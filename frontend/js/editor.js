@@ -1339,7 +1339,7 @@ const Editor = (() => {
 
     // §7.4 chaining — after committing IF/ACTION etc., auto-open the next wizard
     if (meta?.chain && statementData.id) {
-      setTimeout(() => _chainToNextWizard(statementData, meta.chain), 50);
+      setTimeout(() => _chainToNextWizard(statementData, meta.chain, meta.chainSubtype || null), 50);
     }
   }
 
@@ -1735,11 +1735,11 @@ const Editor = (() => {
   // Called after insertStatement when meta.chain is set — auto-opens the next wizard.
   // §7.4: IF/WHILE/REPEAT/ON_EVENT/WAIT_FOR_STATE → chain:'condition'
   //        ACTION → chain:'task'
-  function _chainToNextWizard(node, chainType) {
+  function _chainToNextWizard(node, chainType, chainSubtype) {
     if (chainType === 'condition') {
       node.conditions = node.conditions || [];
       if (typeof WizardCondition !== 'undefined')
-        WizardCondition.openAdd(node.conditions, 'if_condition', 'condition');
+        WizardCondition.openAdd(node.conditions, 'if_condition', 'condition', chainSubtype);
     } else if (chainType === 'task') {
       if (typeof WizardAction !== 'undefined')
         WizardAction.openAddTask(node, 'task');

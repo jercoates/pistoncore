@@ -144,24 +144,34 @@ const WizardStatement = (() => {
   // All types shown in one flat list (simple/advanced toggle permanently removed).
   // ─────────────────────────────────────────────────────────────────────────
   function _buildPage0HTML(designer) {
-    const types = WizardCore.STATEMENT_TYPES;
+    const { simple, advanced } = WizardCore.STATEMENT_TYPES;
 
-    const cards = types.map(t => `
-      <div class="wizard-type-card" data-type="${t.type}">
-        <div class="wizard-type-card-label">${t.label}</div>
-        <div class="wizard-type-card-desc">${t.desc}</div>
-        <button class="btn btn-sm btn-primary wizard-type-select" data-type="${t.type}">Add</button>
-      </div>
-    `).join('');
+    function _cards(types) {
+      return types.map(t => `
+        <div class="ws-type-card">
+          <div class="ws-card-label">${_esc(t.label)}</div>
+          <div class="ws-card-desc">${_esc(t.desc)}</div>
+          <button class="btn btn-sm btn-${t.color} ws-type-select" data-type="${_esc(t.type)}">Add ${_esc(t.btn)}</button>
+        </div>
+      `).join('');
+    }
 
     return `
       <div class="wizard-dialog" id="wizard-statement-dialog">
         <div class="wizard-header">
-          <span class="wizard-title">Add a Statement</span>
+          <span class="wizard-title">Add a new statement</span>
           <button class="wizard-close btn-icon" id="wizard-statement-cancel">✕</button>
         </div>
-        <div class="wizard-body wizard-type-grid">
-          ${cards}
+        <div class="wizard-body">
+          <div class="ws-section-label">Basic statements</div>
+          <div class="ws-card-grid">${_cards(simple)}</div>
+          <div class="ws-adv-toggle">
+            <button class="btn btn-link btn-sm" id="ws-show-advanced">&#9660; Show advanced statements</button>
+          </div>
+          <div id="ws-advanced-section" style="display:none">
+            <div class="ws-section-label">Advanced statements</div>
+            <div class="ws-card-grid">${_cards(advanced)}</div>
+          </div>
         </div>
       </div>
     `;
@@ -171,7 +181,16 @@ const WizardStatement = (() => {
     modal.querySelector('#wizard-statement-cancel')
       .addEventListener('click', () => WizardCore.closeDialog());
 
-    modal.querySelectorAll('.wizard-type-select').forEach(btn => {
+    modal.querySelector('#ws-show-advanced')
+      .addEventListener('click', () => {
+        const sec = modal.querySelector('#ws-advanced-section');
+        const btn = modal.querySelector('#ws-show-advanced');
+        const visible = sec.style.display !== 'none';
+        sec.style.display = visible ? 'none' : '';
+        btn.innerHTML = visible ? '&#9660; Show advanced statements' : '&#9650; Hide advanced statements';
+      });
+
+    modal.querySelectorAll('.ws-type-select').forEach(btn => {
       btn.addEventListener('click', () => {
         const type = btn.dataset.type;
         designer.type = type;
@@ -244,7 +263,7 @@ const WizardStatement = (() => {
   function _buildPage1HTML(designer) {
     const isNew   = designer.isNew;
     const type    = designer.type;
-    const typeInfo = WizardCore.STATEMENT_TYPES.find(t => t.type === type) || { label: type };
+    const typeInfo = [...WizardCore.STATEMENT_TYPES.simple, ...WizardCore.STATEMENT_TYPES.advanced].find(t => t.type === type) || { label: type };
     const backBtn  = isNew ? `<button class="btn btn-sm btn-secondary" id="ws-back">← Back</button>` : '';
 
     const typeForm = _buildTypeFormHTML(designer);

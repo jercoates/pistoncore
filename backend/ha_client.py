@@ -339,15 +339,14 @@ class HAClient:
         return result
 
     async def _fetch_devices(self) -> list[dict]:
-        """Fetch entity list + area + device registries from HA, merge, return normalized list."""
+        """Fetch entity list + area registry from HA, merge, return normalized list."""
         results = await self._ws_call([
             {"id": 1, "type": "get_states"},
             {"id": 2, "type": "config/area_registry/list"},
             {"id": 3, "type": "config/entity_registry/list"},
-            {"id": 4, "type": "config/device_registry/list"},
         ])
 
-        states_resp, areas_resp, entity_resp, device_resp = results
+        states_resp, areas_resp, entity_resp = results
 
         if not states_resp.get("success"):
             raise HAClientError("HA returned error for get_states.")
@@ -356,14 +355,6 @@ class HAClient:
         if areas_resp.get("success"):
             for area in areas_resp.get("result", []):
                 area_map[area["area_id"]] = area["name"]
-
-        # device_id → device friendly name (user-set name takes priority over auto name)
-        device_name_map: dict[str, str] = {}
-        if device_resp.get("success"):
-            for dev in device_resp.get("result", []):
-                did = dev.get("id")
-                if did:
-                    device_name_map[did] = dev.get("name_by_user") or dev.get("name") or ""
 
         entity_meta: dict[str, dict] = {}
         if entity_resp.get("success"):
@@ -387,18 +378,34 @@ class HAClient:
             meta = entity_meta.get(entity_id, {})
             area_id = meta.get("area_id")
             area_name = area_map.get(area_id) if area_id else None
-            device_id = meta.get("device_id")
 
             display_name = _parse_entity_label(entity_id, friendly_name)
-            device_name = device_name_map.get(device_id, "") if device_id else ""
 
             devices.append({
                 "entity_id":   entity_id,
                 "friendly_name": display_name,
-                "device_name": device_name,
                 "domain":      domain,
                 "area":        area_name,
-                "device_id":   device_id,
+                "device_id":   meta.get("device_id"),
+                "state":       state.get("state"),
+                # Capability detection fields (CAPABILITY_DETECTION_TABLE.md steps 2-5)
+                "device_class":          attrs.get("device_class"),
+                "supported_features":    attrs.get("supported_features"),
+                "supported_color_modes": attrs.get("supported_color_modes"),
+                # Declaration attributes (§8.6 / by_declaration_attr in picker_capability_map.json)
+                "hvac_modes":          attrs.get("hvac_modes"),
+                "preset_modes":        attrs.get("preset_modes"),
+                "source_list":         attrs.get("source_list"),
+                "effect_list":         attrs.get("effect_list"),
+                "fan_modes":           attrs.get("fan_modes"),
+                "current_temperature": attrs.get("current_temperature"),
+                "fan_mode":            attrs.get("fan_mode"),
+                "target_temp_high":    attrs.get("target_temp_high"),
+                "target_temp_low":     attrs.get("target_temp_low"),
+                "temperature":         attrs.get("temperature"),
+                "media_title":         attrs.get("media_title"),
+                "latitude":            attrs.get("latitude"),
+                "zone_id":             attrs.get("zone_id"),
             })
 
         devices.sort(key=lambda d: (d["area"] is None, (d["area"] or "").lower(), d["friendly_name"].lower()))

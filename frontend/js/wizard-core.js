@@ -440,13 +440,11 @@ const WizardCore = (() => {
 
   // Group raw entity array into a Map<deviceKey, { label, entities[] }>.
   // Keyed by device_id when present, otherwise by entity_id.
-  // Uses device_name (HA device registry name) as the display label so the
-  // picker shows "Master Bedroom" not "Master Bedroom Battery".
   function groupEntitiesByDevice(rawEntities) {
     const map = new Map();
     for (const e of (rawEntities || [])) {
       const key   = e.device_id || e.entity_id;
-      const label = e.device_name || e.friendly_name || e.entity_id;
+      const label = e.friendly_name || e.entity_id;
       if (!map.has(key)) map.set(key, { label, entities: [] });
       map.get(key).entities.push(e);
     }

@@ -40,12 +40,15 @@ const WizardCondition = (() => {
       // Condition fields
       comparison: WizardCore.newComparison(),
 
-      // Left operand device-picker state (built as user selects)
-      leftSourceType:    'device',  // 'device' | 'variable' | 'expression'
-      selectedDeviceKeys: [],       // device_id or entity_id keys from groupEntitiesByDevice
-      capKeys:           [],        // intersected capability/attribute keys
-      selectedAttrKey:   '',        // chosen WebCoRE attribute key
-      attrMeta:          null,      // from WizardCore.getAttrMeta(selectedAttrKey)
+      // Left operand — source type uses operandSources codes: p/v/c/x/e/u
+      leftSourceType:    'p',
+      selectedDeviceKeys: [],
+      capKeys:           [],
+      selectedAttrKey:   '',
+      attrMeta:          null,
+      lhsVirtualDevice:  '',
+      lhsConstantValue:  '',
+      lhsArgument:       '',
 
       // Right operand value(s) — type driven by attrMeta at runtime
       rightValue:  '',
@@ -95,11 +98,14 @@ const WizardCondition = (() => {
       // Seed left operand display (role from node).
       // selectedDeviceKeys re-built from role_tokens so the device picker shows
       // existing selections checked when the dialog opens in edit mode.
-      leftSourceType:    'device',
+      leftSourceType:    node.subject === 'expression' ? 'e' : node.subject === 'variable' ? 'x' : 'p',
       selectedDeviceKeys: (node.role_tokens || []).slice(),
       capKeys:           [],
       selectedAttrKey:   node.attribute || '',
       attrMeta:          node.attribute ? WizardCore.getAttrMeta(node.attribute) : null,
+      lhsVirtualDevice:  '',
+      lhsConstantValue:  '',
+      lhsArgument:       '',
 
       // Role info from node (for re-display)
       role:        node.role        || '',
@@ -299,7 +305,7 @@ const WizardCondition = (() => {
         <div class="wizard-body">
           ${groupOpHtml}
           <div class="wc-section">
-            <label class="wc-section-label">What to check</label>
+            <label class="wc-section-label">What to compare</label>
             ${leftSourceHtml}
           </div>
           <div class="wc-section" id="wc-attr-section" style="${designer.selectedAttrKey || designer.role ? '' : 'display:none'}">
@@ -325,11 +331,14 @@ const WizardCondition = (() => {
           <div class="wc-section" id="wc-dur-section" style="${designer.comparison.timed > 0 ? '' : 'display:none'}">
             ${durHtml}
           </div>
-          <div class="wc-section">
-            <label class="wc-section-label">Description (optional)</label>
-            <textarea id="wc-description" class="form-input" rows="3"
-              placeholder="Description for this statement">${_esc(designer.description)}</textarea>
-          </div>
+          <details class="wc-advanced-section">
+            <summary>Advanced</summary>
+            <div class="wc-section">
+              <label class="wc-section-label">Description (optional)</label>
+              <textarea id="wc-description" class="form-input" rows="2"
+                placeholder="Description for this condition">${_esc(designer.description)}</textarea>
+            </div>
+          </details>
         </div>
         <div class="wizard-footer">
           ${backBtn}
@@ -341,13 +350,27 @@ const WizardCondition = (() => {
     `;
   }
 
-  // Left source type — device picker, variable, or expression
+  // Left source type — vocab-driven dropdown from operandSources._labels
   function _buildLeftSourceHTML(designer) {
-    const src = designer.leftSourceType;
+    const src    = designer.leftSourceType || 'p';
+    const vocab  = WizardCore.getVocab();
+    const srcCfg = vocab && vocab.operandSources;
+    const labels = (srcCfg && srcCfg._labels) || {};
+    // LHS source options — all except '' (nothing) and 's' (preset, RHS only)
+    const lhsKeys = ['p', 'v', 'c', 'x', 'e', 'u'];
+    const keyLabels = { p: 'Physical device(s)', v: 'Virtual device', c: 'Value',
+                        x: 'Variable', e: 'Expression', u: 'Argument' };
+    const srcOptions = lhsKeys.map(k =>
+      `<option value="${k}" ${src === k ? 'selected' : ''}>${_esc(labels[k] || keyLabels[k] || k)}</option>`
+    ).join('');
+
+    // Physical device panel
     const deviceData = WizardCore.getDeviceData() || [];
     const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
-
-    // Build device list HTML — same wv-device-row/wv-checked structure as variable wizard
+    const existingRole = designer.role && !designer.isNew
+      ? `<div class="wc-existing-role">Currently: <strong>${_esc(designer.role)}</strong></div>` : '';
+    const noDevices = deviceMap.size === 0
+      ? `<p class="wizard-hint">No HA devices loaded. Check your HA connection.</p>` : '';
     const deviceRows = [...deviceMap.entries()].map(([key, dev]) => {
       const checked = (designer.selectedDeviceKeys || []).includes(key);
       return `<label class="wv-device-row${checked ? ' wv-checked' : ''}">
@@ -356,21 +379,16 @@ const WizardCondition = (() => {
       </label>`;
     }).join('');
 
-    const noDevices = deviceMap.size === 0
-      ? `<p class="wizard-hint">No HA devices loaded. Check your HA connection.</p>` : '';
-
-    // If editing and we have a role already set, show it
-    const existingRole = designer.role && !designer.isNew
-      ? `<div class="wc-existing-role">Currently: <strong>${_esc(designer.role)}</strong></div>`
-      : '';
+    // Virtual device panel — from vocab.virtualDevices
+    const vDevs    = (vocab && vocab.virtualDevices) || {};
+    const vDevOpts = Object.keys(vDevs).map(k =>
+      `<option value="${k}" ${designer.lhsVirtualDevice === k ? 'selected' : ''}>${_esc(vDevs[k].n)}</option>`
+    ).join('');
 
     return `
-      <div class="wc-source-tabs">
-        <button class="btn btn-sm ${src === 'device'     ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="device">Device</button>
-        <button class="btn btn-sm ${src === 'variable'   ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="variable">Variable</button>
-        <button class="btn btn-sm ${src === 'expression' ? 'btn-primary' : 'btn-secondary'} wc-src-tab" data-src="expression">Expression</button>
-      </div>
-      <div id="wc-src-device"  style="${src === 'device'     ? '' : 'display:none'}">
+      <select id="wc-lhs-src" class="form-select">${srcOptions}</select>
+
+      <div id="wc-src-p" style="${src === 'p' ? '' : 'display:none'}">
         ${existingRole}
         <input type="text" id="wc-device-search" class="form-input wv-device-search"
           placeholder="Search devices…" autocomplete="off">
@@ -386,18 +404,36 @@ const WizardCondition = (() => {
           </select>
         </div>
       </div>
-      <div id="wc-src-variable" style="${src === 'variable' ? '' : 'display:none'}">
-        <label>Variable name</label>
+
+      <div id="wc-src-v" style="${src === 'v' ? '' : 'display:none'}">
+        <select id="wc-lhs-vdev" class="form-select">
+          <option value="">— select virtual device —</option>${vDevOpts}
+        </select>
+      </div>
+
+      <div id="wc-src-c" style="${src === 'c' ? '' : 'display:none'}">
+        <input type="text" id="wc-lhs-value" class="form-input"
+          placeholder="Enter a value"
+          value="${_esc(String(designer.lhsConstantValue || ''))}">
+      </div>
+
+      <div id="wc-src-x" style="${src === 'x' ? '' : 'display:none'}">
         <select id="wc-var-select" class="form-select">
           <option value="">— pick a variable —</option>
           ${_buildVariableOptions(designer)}
         </select>
       </div>
-      <div id="wc-src-expression" style="${src === 'expression' ? '' : 'display:none'}">
-        <label>Expression</label>
+
+      <div id="wc-src-e" style="${src === 'e' ? '' : 'display:none'}">
         <input type="text" id="wc-expression-input" class="form-input"
-          placeholder="e.g. $device.switch == 'on'"
+          placeholder="e.g. $myVar + 1"
           value="${_esc(designer.expressionValue || '')}">
+      </div>
+
+      <div id="wc-src-u" style="${src === 'u' ? '' : 'display:none'}">
+        <input type="text" id="wc-lhs-argument" class="form-input"
+          placeholder="Argument name"
+          value="${_esc(String(designer.lhsArgument || ''))}">
       </div>
     `;
   }
@@ -592,16 +628,15 @@ const WizardCondition = (() => {
       designer.groupOperator = groupOpSel.value;
     });
 
-    // Left source type tabs
-    modal.querySelectorAll('.wc-src-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        designer.leftSourceType = tab.dataset.src;
-        designer.selectedDeviceKeys = [];
-        designer.capKeys = [];
-        designer.selectedAttrKey = '';
-        designer.attrMeta = null;
-        _rerenderLeft(modal, designer, parentArray, context);
-      });
+    // Left source type dropdown — vocab-driven, reads from operandSources._labels
+    const lhsSrc = modal.querySelector('#wc-lhs-src');
+    if (lhsSrc) lhsSrc.addEventListener('change', () => {
+      designer.leftSourceType = lhsSrc.value;
+      designer.selectedDeviceKeys = [];
+      designer.capKeys = [];
+      designer.selectedAttrKey = '';
+      designer.attrMeta = null;
+      _rerenderLeft(modal, designer, parentArray, context);
     });
 
     // Device search filter — same behaviour as variable wizard
@@ -732,13 +767,10 @@ const WizardCondition = (() => {
   }
 
   function _rerenderLeft(modal, designer, parentArray, context) {
-    const src = designer.leftSourceType;
-    ['device','variable','expression'].forEach(s => {
+    const src = designer.leftSourceType || 'p';
+    ['p','v','c','x','e','u'].forEach(s => {
       const el = modal.querySelector(`#wc-src-${s}`);
       if (el) el.style.display = s === src ? '' : 'none';
-    });
-    modal.querySelectorAll('.wc-src-tab').forEach(tab => {
-      tab.className = `btn btn-sm ${tab.dataset.src === src ? 'btn-primary' : 'btn-secondary'} wc-src-tab`;
     });
 
     const attrSec = modal.querySelector('#wc-attr-section');
@@ -801,11 +833,23 @@ const WizardCondition = (() => {
     const aggSel = modal.querySelector('#wc-aggregation');
     if (aggSel) designer.aggregation = aggSel.value;
 
+    const lhsSrcSel = modal.querySelector('#wc-lhs-src');
+    if (lhsSrcSel) designer.leftSourceType = lhsSrcSel.value;
+
     const varSel = modal.querySelector('#wc-var-select');
     if (varSel) designer.variableRef = varSel.value;
 
     const exprIn = modal.querySelector('#wc-expression-input');
     if (exprIn) designer.expressionValue = exprIn.value.trim();
+
+    const vDevSel = modal.querySelector('#wc-lhs-vdev');
+    if (vDevSel) designer.lhsVirtualDevice = vDevSel.value;
+
+    const lhsVal = modal.querySelector('#wc-lhs-value');
+    if (lhsVal) designer.lhsConstantValue = lhsVal.value;
+
+    const lhsArg = modal.querySelector('#wc-lhs-argument');
+    if (lhsArg) designer.lhsArgument = lhsArg.value.trim();
 
     const attrSel = modal.querySelector('#wc-attr-select');
     if (attrSel && attrSel.value) {
@@ -997,7 +1041,7 @@ const WizardCondition = (() => {
     };
 
     // Expression subject override
-    if (designer.leftSourceType === 'expression' && designer.expressionValue) {
+    if (designer.leftSourceType === 'e' && designer.expressionValue) {
       node.subject    = 'expression';
       node.role       = '';
       node.role_tokens = [];
@@ -1006,12 +1050,39 @@ const WizardCondition = (() => {
     }
 
     // Variable subject override
-    if (designer.leftSourceType === 'variable' && designer.variableRef) {
+    if (designer.leftSourceType === 'x' && designer.variableRef) {
       node.subject  = 'variable';
       node.variable = designer.variableRef;
       node.role     = '';
       node.entity_ids = [];
       node.role_tokens = [designer.variableRef];
+    }
+
+    // Virtual device override
+    if (designer.leftSourceType === 'v' && designer.lhsVirtualDevice) {
+      node.subject        = 'virtual';
+      node.virtual_device = designer.lhsVirtualDevice;
+      node.role           = '';
+      node.entity_ids     = [];
+      node.role_tokens    = [designer.lhsVirtualDevice];
+    }
+
+    // Constant value override
+    if (designer.leftSourceType === 'c') {
+      node.subject = 'constant';
+      node.constant_value = designer.lhsConstantValue || '';
+      node.role = '';
+      node.entity_ids = [];
+      node.role_tokens = [];
+    }
+
+    // Argument override
+    if (designer.leftSourceType === 'u') {
+      node.subject  = 'argument';
+      node.argument = designer.lhsArgument || '';
+      node.role     = '';
+      node.entity_ids  = [];
+      node.role_tokens = [];
     }
 
     return node;
@@ -1020,12 +1091,36 @@ const WizardCondition = (() => {
   function _applyToNode(designer) {
     const node     = designer.$node;
     const attrMeta = designer.attrMeta || {};
+    const src      = designer.leftSourceType || 'p';
 
-    const { role, roleTokens, entityIds } = _resolveEntities(designer);
-    if (entityIds.length > 0) {
-      node.role        = role;
-      node.role_tokens = roleTokens;
-      node.entity_ids  = entityIds;
+    if (src === 'p') {
+      const { role, roleTokens, entityIds } = _resolveEntities(designer);
+      if (entityIds.length > 0) {
+        node.role        = role;
+        node.role_tokens = roleTokens;
+        node.entity_ids  = entityIds;
+        node.subject     = undefined;
+      }
+    } else if (src === 'e') {
+      node.subject = 'expression';
+      node.value   = { type: 'expression', expression: designer.expressionValue || '' };
+      node.role = ''; node.entity_ids = []; node.role_tokens = [];
+    } else if (src === 'x') {
+      node.subject  = 'variable';
+      node.variable = designer.variableRef || '';
+      node.role = ''; node.entity_ids = []; node.role_tokens = [designer.variableRef || ''];
+    } else if (src === 'v') {
+      node.subject        = 'virtual';
+      node.virtual_device = designer.lhsVirtualDevice || '';
+      node.role = ''; node.entity_ids = []; node.role_tokens = [designer.lhsVirtualDevice || ''];
+    } else if (src === 'c') {
+      node.subject        = 'constant';
+      node.constant_value = designer.lhsConstantValue || '';
+      node.role = ''; node.entity_ids = []; node.role_tokens = [];
+    } else if (src === 'u') {
+      node.subject  = 'argument';
+      node.argument = designer.lhsArgument || '';
+      node.role = ''; node.entity_ids = []; node.role_tokens = [];
     }
 
     node.aggregation    = designer.aggregation || 'any';
@@ -1052,7 +1147,7 @@ const WizardCondition = (() => {
   // the keys in WizardCore.groupEntitiesByDevice()'s Map (i.e. designer.selectedDeviceKeys).
   // ─────────────────────────────────────────────────────────────────────────
   function _resolveEntities(designer) {
-    if (designer.leftSourceType !== 'device' || designer.selectedDeviceKeys.length === 0) {
+    if (designer.leftSourceType !== 'p' || designer.selectedDeviceKeys.length === 0) {
       return { role: '', roleTokens: [], entityIds: [] };
     }
 

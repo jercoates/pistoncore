@@ -620,8 +620,8 @@ const WizardVariable = (() => {
     const vocab  = WizardCore.getVocab();
     const srcCfg = vocab && vocab.operandSources;
     const labels = (srcCfg && srcCfg._labels) || {
-      '': 'Nothing selected', 'd': 'Physical device(s)', 'c': 'Value',
-      'x': 'Variable', 'e': 'Expression'
+      '': 'Nothing selected', 'd': 'Physical device(s)', 'v': 'Virtual device',
+      's': 'Preset', 'c': 'Value', 'x': 'Variable', 'e': 'Expression', 'u': 'Argument'
     };
 
     const baseType = vt.replace('[]', '');

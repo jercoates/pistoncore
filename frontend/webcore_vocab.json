@@ -3896,7 +3896,8 @@
     "alarmSystemStatus": { "n": "Alarm system status",  "t": "enum", "o": ["disarmed", "armed_home", "armed_away", "armed_night", "triggered"] },
     "powerSource":       { "n": "Hub power source",     "t": "enum", "o": ["battery", "mains"] },
     "routine":           { "n": "Routine",              "t": "enum", "o": [] },
-    "rule":              { "n": "Rule",                 "t": "enum", "o": [] }
+    "rule":              { "n": "Rule",                 "t": "enum", "o": [] },
+    "webhook":           { "n": "Webhook",              "t": "string" }
   },
 
   "presets": {

@@ -1370,6 +1370,16 @@ input::placeholder { color: var(--text-muted); }
 
 /* Variable wizard — device picker */
 .wv-device-search { margin-bottom: var(--space-2); }
+.wc-var-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: var(--space-1) var(--space-2);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--border-subtle);
+}
 .wv-device-list {
   max-height: 240px;
   overflow-y: auto;

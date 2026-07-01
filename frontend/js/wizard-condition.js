@@ -331,14 +331,11 @@ const WizardCondition = (() => {
           <div class="wc-section" id="wc-dur-section" style="${designer.comparison.timed > 0 ? '' : 'display:none'}">
             ${durHtml}
           </div>
-          <details class="wc-advanced-section">
-            <summary>Advanced</summary>
-            <div class="wc-section">
-              <label class="wc-section-label">Description (optional)</label>
-              <textarea id="wc-description" class="form-input" rows="2"
-                placeholder="Description for this condition">${_esc(designer.description)}</textarea>
-            </div>
-          </details>
+          <div class="wc-section">
+            <label class="wc-section-label">Description (optional)</label>
+            <textarea id="wc-description" class="form-input" rows="2"
+              placeholder="Description for this condition">${_esc(designer.description)}</textarea>
+          </div>
         </div>
         <div class="wizard-footer">
           ${backBtn}
@@ -364,7 +361,7 @@ const WizardCondition = (() => {
       `<option value="${k}" ${src === k ? 'selected' : ''}>${_esc(labels[k] || keyLabels[k] || k)}</option>`
     ).join('');
 
-    // Physical device panel
+    // Physical device panel — HA devices + device-type local/global variables
     const deviceData = WizardCore.getDeviceData() || [];
     const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
     const existingRole = designer.role && !designer.isNew
@@ -378,6 +375,37 @@ const WizardCondition = (() => {
         <span>${_esc(dev.label)}</span>
       </label>`;
     }).join('');
+
+    // Device-type local piston variables
+    const localDevVars = (WizardCore.getPistonVars() || []).filter(v =>
+      v.var_type === 'device' || v.var_type === 'device[]'
+    );
+    const localVarRows = localDevVars.map(v => {
+      const key = '$' + v.name;
+      const checked = (designer.selectedDeviceKeys || []).includes(key);
+      return `<label class="wv-device-row${checked ? ' wv-checked' : ''}">
+        <input type="checkbox" class="wc-device-check" data-key="${_esc(key)}" ${checked ? 'checked' : ''}>
+        <span>$${_esc(v.name)}</span>
+      </label>`;
+    }).join('');
+
+    // Device-type global variables
+    const globalDevVars = (WizardCore.getGlobalsData() || []).filter(v =>
+      v.var_type === 'device' || v.var_type === 'device[]'
+    );
+    const globalVarRows = globalDevVars.map(v => {
+      const key = '@' + v.name;
+      const checked = (designer.selectedDeviceKeys || []).includes(key);
+      return `<label class="wv-device-row${checked ? ' wv-checked' : ''}">
+        <input type="checkbox" class="wc-device-check" data-key="${_esc(key)}" ${checked ? 'checked' : ''}>
+        <span>@${_esc(v.name)}</span>
+      </label>`;
+    }).join('');
+
+    const localVarSection  = localVarRows
+      ? `<div class="wc-var-section-label">Local variables</div>${localVarRows}` : '';
+    const globalVarSection = globalVarRows
+      ? `<div class="wc-var-section-label">Global variables</div>${globalVarRows}` : '';
 
     // Virtual device panel — from vocab.virtualDevices
     const vDevs    = (vocab && vocab.virtualDevices) || {};
@@ -394,6 +422,8 @@ const WizardCondition = (() => {
           placeholder="Search devices…" autocomplete="off">
         <div class="wv-device-list" id="wc-device-list">
           ${noDevices}${deviceRows}
+          ${localVarSection}
+          ${globalVarSection}
         </div>
         <div id="wc-aggregation-row" style="${(designer.selectedDeviceKeys||[]).length > 1 ? '' : 'display:none'}">
           <label>Aggregation (multiple devices)</label>
@@ -632,10 +662,6 @@ const WizardCondition = (() => {
     const lhsSrc = modal.querySelector('#wc-lhs-src');
     if (lhsSrc) lhsSrc.addEventListener('change', () => {
       designer.leftSourceType = lhsSrc.value;
-      designer.selectedDeviceKeys = [];
-      designer.capKeys = [];
-      designer.selectedAttrKey = '';
-      designer.attrMeta = null;
       _rerenderLeft(modal, designer, parentArray, context);
     });
 
@@ -728,8 +754,18 @@ const WizardCondition = (() => {
       return;
     }
 
-    // Build entity meta arrays per device for intersection
-    const devicesEntityArrays = checked.map(key => {
+    // Build entity meta arrays per device for intersection — skip variable keys ($…/@…)
+    const physicalKeys = checked.filter(k => !k.startsWith('$') && !k.startsWith('@'));
+    const attrSec = modal.querySelector('#wc-attr-section');
+
+    if (physicalKeys.length === 0) {
+      // Only variable references selected — can't intersect; hide attribute section
+      if (attrSec) attrSec.style.display = 'none';
+      _rerenderOperatorAndBelow(modal, designer);
+      return;
+    }
+
+    const devicesEntityArrays = physicalKeys.map(key => {
       const dev = deviceMap.get(key);
       if (!dev) return [];
       return dev.entities.map(e => _entityToMeta(e));
@@ -745,7 +781,6 @@ const WizardCondition = (() => {
     }
 
     // Re-render the attribute section
-    const attrSec = modal.querySelector('#wc-attr-section');
     if (attrSec) {
       attrSec.style.display = '';
       attrSec.innerHTML = `<label class="wc-section-label">Attribute</label>${_buildAttrPickerHTML(designer)}`;
@@ -772,6 +807,15 @@ const WizardCondition = (() => {
       const el = modal.querySelector(`#wc-src-${s}`);
       if (el) el.style.display = s === src ? '' : 'none';
     });
+
+    // Always rebuild variable options when switching to variable panel — picks up
+    // variables added in the same session after this dialog was opened.
+    if (src === 'x') {
+      const varSel = modal.querySelector('#wc-var-select');
+      if (varSel) {
+        varSel.innerHTML = `<option value="">— pick a variable —</option>${_buildVariableOptions(designer)}`;
+      }
+    }
 
     const attrSec = modal.querySelector('#wc-attr-section');
     if (attrSec) attrSec.style.display = 'none';

@@ -5,7 +5,7 @@
 // no operator lists, enum options, attribute types, or ranges are hardcoded here.
 //
 // Entry points (called by editor.js):
-//   WizardCondition.openAdd(parentArray, context, mode)
+//   WizardCondition.openAdd(parentArray, context, mode, startType)
 //   WizardCondition.openEdit(node, parentArray, context, mode)
 //   WizardCondition.openEditGroup(groupNode, parentArray, context)
 //
@@ -289,9 +289,6 @@ const WizardCondition = (() => {
 
     // Duration — shown when operator.t > 0
     const durHtml = _buildDurationHTML(designer);
-
-    // Advanced section
-    const advHtml = _buildAdvancedHTML(designer, isRestr);
 
     return `
       <div class="wizard-dialog" id="wizard-condition-dialog">
@@ -587,15 +584,6 @@ const WizardCondition = (() => {
       });
     }
 
-    // Advanced toggle
-    modal.querySelector('#wc-adv-toggle').addEventListener('click', () => {
-      designer.showAdvancedOptions = !designer.showAdvancedOptions;
-      const sec = modal.querySelector('#wc-advanced');
-      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
-      modal.querySelector('#wc-adv-toggle').textContent =
-        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
-    });
-
     // Group operator (connect to previous)
     const groupOpSel = modal.querySelector('#wc-group-operator');
     if (groupOpSel) groupOpSel.addEventListener('change', () => {
@@ -862,13 +850,10 @@ const WizardCondition = (() => {
             <option value="any"  ${displayChoice === 'any'  ? 'selected' : ''}>Any (OR) — at least one must be true</option>
             <option value="none" ${displayChoice === 'none' ? 'selected' : ''}>None — not a single condition may be true</option>
           </select>
-          <div class="wizard-advanced-toggle">
-            <button class="btn btn-sm btn-link" id="wc-adv-toggle">▼ Show advanced</button>
-          </div>
-          <div id="wc-advanced" style="display:none">
-            <label>Description (optional)</label>
-            <input type="text" id="wc-description" class="form-input"
-              placeholder="Description" value="${_esc(designer.description)}">
+          <div class="wv-section">
+            <label class="wv-section-label">Description (optional)</label>
+            <textarea id="wc-description" class="form-input wv-textarea" rows="3"
+              placeholder="Description">${_esc(designer.description)}</textarea>
           </div>
         </div>
         <div class="wizard-footer">
@@ -882,14 +867,6 @@ const WizardCondition = (() => {
   function _bindGroupEvents(modal, designer, parentArray, context) {
     [modal.querySelector('#wc-cancel'), modal.querySelector('#wc-cancel-footer')]
       .filter(Boolean).forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
-
-    modal.querySelector('#wc-adv-toggle').addEventListener('click', () => {
-      designer.showAdvancedOptions = !designer.showAdvancedOptions;
-      const sec = modal.querySelector('#wc-advanced');
-      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
-      modal.querySelector('#wc-adv-toggle').textContent =
-        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
-    });
 
     modal.querySelector('#wc-commit').addEventListener('click', () => {
       const logicSel = modal.querySelector('#wc-group-logic');

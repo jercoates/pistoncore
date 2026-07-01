@@ -199,12 +199,6 @@ const WizardAction = (() => {
     const paramHtml    = designer.command ? _buildParamHTML(designer) : '';
     const taskListHtml = _buildTaskListHTML(actionNode, designer.insertIndex);
 
-    const advHtml = `
-      <label>Description (optional)</label>
-      <input type="text" id="wa-description" class="form-input"
-        placeholder="Description" value="${_esc(designer.description)}">
-    `;
-
     return `
       <div class="wizard-dialog" id="wizard-action-dialog">
         <div class="wizard-header">
@@ -229,13 +223,10 @@ const WizardAction = (() => {
             ${paramHtml}
           </div>
 
-          <div class="wizard-advanced-toggle">
-            <button class="btn btn-sm btn-link" id="wa-adv-toggle">
-              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
-            </button>
-          </div>
-          <div id="wa-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
-            ${advHtml}
+          <div class="wv-section">
+            <label class="wv-section-label">Description (optional)</label>
+            <textarea id="wa-description" class="form-input wv-textarea" rows="3"
+              placeholder="Description">${_esc(designer.description)}</textarea>
           </div>
         </div>
         <div class="wizard-footer">
@@ -428,15 +419,6 @@ const WizardAction = (() => {
     [modal.querySelector('#wa-cancel'), modal.querySelector('#wa-cancel-footer')]
       .filter(Boolean)
       .forEach(el => el.addEventListener('click', () => WizardCore.closeDialog()));
-
-    // Advanced toggle
-    modal.querySelector('#wa-adv-toggle').addEventListener('click', () => {
-      designer.showAdvancedOptions = !designer.showAdvancedOptions;
-      const sec = modal.querySelector('#wa-advanced');
-      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
-      modal.querySelector('#wa-adv-toggle').textContent =
-        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
-    });
 
     // Command selection — when user picks a command, param section appears
     modal.querySelectorAll('.wa-cmd-radio').forEach(radio => {

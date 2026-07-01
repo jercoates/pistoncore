@@ -1616,7 +1616,7 @@ const Editor = (() => {
             if (block) {
               block.conditions = block.conditions || [];
               if (typeof WizardCondition !== 'undefined')
-                WizardCondition.openAdd(block.conditions, 'if_condition', 'condition');
+                WizardCondition.openAdd(block.conditions, 'if_condition', 'condition', 'condition');
             }
             break;
           }

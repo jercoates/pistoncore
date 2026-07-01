@@ -243,15 +243,10 @@ const WizardVariable = (() => {
             ${assignHTML}
           </div>
 
-          <div class="wizard-advanced-toggle">
-            <button class="btn btn-sm btn-link" id="wv-adv-toggle">
-              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
-            </button>
-          </div>
-          <div id="wv-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
-            <label>Description (optional)</label>
-            <input type="text" id="wv-description" class="form-input"
-              placeholder="What this variable is for" value="${_esc(designer.description)}">
+          <div class="wc-section">
+            <label class="wc-section-label">Description (optional)</label>
+            <textarea id="wv-description" class="form-input" rows="3"
+              placeholder="Description for this variable">${_esc(designer.description)}</textarea>
           </div>
         </div>
         <div class="wizard-footer">
@@ -277,8 +272,9 @@ const WizardVariable = (() => {
 
     // Type change — re-render the value section
     modal.querySelector('#wv-type').addEventListener('change', e => {
-      designer.varType      = e.target.value;
-      designer.initialValue = '';
+      designer.varType         = e.target.value;
+      designer.initialValue    = '';
+      designer.initialValueSrc = '';
       _renderVarDialog(designer, context);
     });
 
@@ -299,7 +295,7 @@ const WizardVariable = (() => {
       });
     }
 
-    _bindValueInputEvents(modal, designer, () => _updateVarButtons(modal, designer));
+    _bindValueInputEvents(modal, designer, () => _updateVarButtons(modal, designer), context);
   }
 
   function _updateVarButtons(modal, designer) {
@@ -489,7 +485,7 @@ const WizardVariable = (() => {
       });
     }
 
-    _bindValueInputEvents(modal, designer, () => _updateGlobalButtons(modal, designer));
+    _bindValueInputEvents(modal, designer, () => _updateGlobalButtons(modal, designer), context);
   }
 
   function _updateGlobalButtons(modal, designer) {
@@ -611,40 +607,59 @@ const WizardVariable = (() => {
   // For string/dynamic and onlyConstants: plain text
   // ─────────────────────────────────────────────────────────────────────────
   function _buildValueInputHTML(designer, onlyConstants) {
-    const vt = designer.varType;
+    const vt     = designer.varType;
+    const src    = designer.initialValueSrc || '';
+    const vocab  = WizardCore.getVocab();
+    const srcCfg = vocab && vocab.operandSources;
+    const labels = (srcCfg && srcCfg._labels) || {
+      '': 'Nothing selected', 'd': 'Physical device(s)', 'c': 'Value',
+      'x': 'Variable', 'e': 'Expression'
+    };
 
-    if (vt === 'device' || vt === 'devices') {
-      return _buildDevicePickerHTML(designer);
+    // Source keys for this var type from vocab; fallback for unknown types
+    const baseType   = vt.replace('[]', '');
+    let   sourceKeys = (srcCfg && srcCfg[baseType]) || ['', 'c'];
+    if (onlyConstants) sourceKeys = sourceKeys.filter(k => k === '' || k === 'c');
+
+    const srcOptions = sourceKeys.map(k =>
+      `<option value="${k}" ${src === k ? 'selected' : ''}>${_esc(labels[k] || k || 'Nothing selected')}</option>`
+    ).join('');
+
+    const srcPicker = `<select id="wv-init-src" class="form-select">${srcOptions}</select>`;
+    const noVal     = src === '' ? `<span class="wv-no-value">(no value set)</span>` : '';
+
+    // Value widget driven by selected source
+    let valueWidget = '';
+    if (src === 'd') {
+      valueWidget = _buildDevicePickerHTML(designer);
+    } else if (src === 'e' || src === 'x') {
+      valueWidget = `<input type="text" id="wv-value" class="form-input"
+        placeholder="${src === 'e' ? 'e.g. $myVar + 1' : 'Variable name'}"
+        value="${_esc(String(designer.initialValue || ''))}">`;
+    } else if (src === 'c') {
+      if (vt === 'boolean') {
+        const cur = String(designer.initialValue);
+        valueWidget = `<select id="wv-value" class="form-select">
+          <option value="">— pick a value —</option>
+          <option value="true"  ${cur === 'true'  ? 'selected' : ''}>true</option>
+          <option value="false" ${cur === 'false' ? 'selected' : ''}>false</option>
+        </select>`;
+      } else if (vt === 'integer') {
+        valueWidget = `<input type="number" id="wv-value" class="form-input" step="1"
+          value="${_esc(String(designer.initialValue || ''))}" placeholder="0">`;
+      } else if (vt === 'decimal') {
+        valueWidget = `<input type="number" id="wv-value" class="form-input" step="0.01"
+          value="${_esc(String(designer.initialValue || ''))}" placeholder="0.0">`;
+      } else if (vt === 'datetime') {
+        valueWidget = `<input type="datetime-local" id="wv-value" class="form-input"
+          value="${_esc(String(designer.initialValue || ''))}">`;
+      } else {
+        valueWidget = `<input type="text" id="wv-value" class="form-input"
+          placeholder="Enter value" value="${_esc(String(designer.initialValue || ''))}">`;
+      }
     }
 
-    if (vt === 'boolean') {
-      const cur = String(designer.initialValue);
-      return `<select id="wv-value" class="form-select">
-        <option value="">— pick a value —</option>
-        <option value="true"  ${cur === 'true'  ? 'selected' : ''}>true</option>
-        <option value="false" ${cur === 'false' ? 'selected' : ''}>false</option>
-      </select>`;
-    }
-
-    if (vt === 'integer') {
-      return `<input type="number" id="wv-value" class="form-input" step="1"
-        value="${_esc(designer.initialValue)}" placeholder="0">`;
-    }
-
-    if (vt === 'decimal') {
-      return `<input type="number" id="wv-value" class="form-input" step="0.01"
-        value="${_esc(designer.initialValue)}" placeholder="0.0">`;
-    }
-
-    if (vt === 'datetime') {
-      // datetime-local input covers date and time
-      return `<input type="datetime-local" id="wv-value" class="form-input"
-        value="${_esc(designer.initialValue)}">`;
-    }
-
-    // string, dynamic — text input
-    return `<input type="text" id="wv-value" class="form-input"
-      placeholder="Initial value" value="${_esc(designer.initialValue)}">`;
+    return `<div class="wv-src-row">${srcPicker}${noVal}</div>${valueWidget}`;
   }
 
   function _buildDevicePickerHTML(designer) {
@@ -675,7 +690,15 @@ const WizardVariable = (() => {
     `;
   }
 
-  function _bindValueInputEvents(modal, designer, onChange) {
+  function _bindValueInputEvents(modal, designer, onChange, context) {
+    // Source type picker (device variables: nothing vs physical device)
+    const initSrc = modal.querySelector('#wv-init-src');
+    if (initSrc) initSrc.addEventListener('change', () => {
+      designer.initialValueSrc = initSrc.value;
+      designer.initialValue    = '';
+      _renderVarDialog(designer, context);
+    });
+
     const simpleInput = modal.querySelector('#wv-value');
     if (simpleInput) {
       simpleInput.addEventListener('change', e => {

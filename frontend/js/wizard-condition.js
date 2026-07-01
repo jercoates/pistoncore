@@ -328,13 +328,10 @@ const WizardCondition = (() => {
           <div class="wc-section" id="wc-dur-section" style="${designer.comparison.timed > 0 ? '' : 'display:none'}">
             ${durHtml}
           </div>
-          <div class="wizard-advanced-toggle">
-            <button class="btn btn-sm btn-link" id="wc-adv-toggle">
-              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
-            </button>
-          </div>
-          <div id="wc-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
-            ${advHtml}
+          <div class="wc-section">
+            <label class="wc-section-label">Description (optional)</label>
+            <textarea id="wc-description" class="form-input" rows="3"
+              placeholder="Description for this statement">${_esc(designer.description)}</textarea>
           </div>
         </div>
         <div class="wizard-footer">

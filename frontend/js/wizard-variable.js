@@ -237,15 +237,15 @@ const WizardVariable = (() => {
               title="Letters, digits, underscores — no spaces">
           </div>
 
-          <div class="wc-section" id="wv-value-section">
-            <label class="wc-section-label">Initial value (optional)</label>
+          <div class="wv-section" id="wv-value-section">
+            <label class="wv-section-label">Initial value (optional)</label>
             ${valueHTML}
             ${assignHTML}
           </div>
 
-          <div class="wc-section">
-            <label class="wc-section-label">Description (optional)</label>
-            <textarea id="wv-description" class="form-input" rows="3"
+          <div class="wv-section">
+            <label class="wv-section-label">Description (optional)</label>
+            <textarea id="wv-description" class="form-input wv-textarea" rows="3"
               placeholder="Description for this variable">${_esc(designer.description)}</textarea>
           </div>
         </div>
@@ -295,7 +295,7 @@ const WizardVariable = (() => {
       });
     }
 
-    _bindValueInputEvents(modal, designer, () => _updateVarButtons(modal, designer), context);
+    _bindValueInputEvents(modal, designer, () => _updateVarButtons(modal, designer), context, _renderVarDialog);
   }
 
   function _updateVarButtons(modal, designer) {
@@ -425,8 +425,8 @@ const WizardVariable = (() => {
             A global variable with that name already exists.
           </div>
 
-          <div class="wc-section">
-            <label class="wc-section-label">Initial value (optional)</label>
+          <div class="wv-section">
+            <label class="wv-section-label">Initial value (optional)</label>
             ${valueHTML}
           </div>
         </div>
@@ -485,7 +485,7 @@ const WizardVariable = (() => {
       });
     }
 
-    _bindValueInputEvents(modal, designer, () => _updateGlobalButtons(modal, designer), context);
+    _bindValueInputEvents(modal, designer, () => _updateGlobalButtons(modal, designer), context, _renderGlobalDialog);
   }
 
   function _updateGlobalButtons(modal, designer) {
@@ -619,7 +619,7 @@ const WizardVariable = (() => {
     // Source keys for this var type from vocab; fallback for unknown types
     const baseType   = vt.replace('[]', '');
     let   sourceKeys = (srcCfg && srcCfg[baseType]) || ['', 'c'];
-    if (onlyConstants) sourceKeys = sourceKeys.filter(k => k === '' || k === 'c');
+    if (onlyConstants) sourceKeys = sourceKeys.filter(k => k === '' || k === 'c' || (k === 'd' && _isDeviceType(vt)));
 
     const srcOptions = sourceKeys.map(k =>
       `<option value="${k}" ${src === k ? 'selected' : ''}>${_esc(labels[k] || k || 'Nothing selected')}</option>`
@@ -690,13 +690,12 @@ const WizardVariable = (() => {
     `;
   }
 
-  function _bindValueInputEvents(modal, designer, onChange, context) {
-    // Source type picker (device variables: nothing vs physical device)
+  function _bindValueInputEvents(modal, designer, onChange, context, renderFn) {
     const initSrc = modal.querySelector('#wv-init-src');
     if (initSrc) initSrc.addEventListener('change', () => {
       designer.initialValueSrc = initSrc.value;
       designer.initialValue    = '';
-      _renderVarDialog(designer, context);
+      (renderFn || _renderVarDialog)(designer, context);
     });
 
     const simpleInput = modal.querySelector('#wv-value');

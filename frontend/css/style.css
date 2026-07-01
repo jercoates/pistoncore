@@ -1325,6 +1325,40 @@ input::placeholder { color: var(--text-muted); }
 .wv-name-type-row .form-input { flex: 1 1 auto; }
 .wv-type-inline { flex: 0 0 auto; width: auto; min-width: 110px; }
 
+/* Variable wizard — section layout */
+.wv-section {
+  display: block;
+  margin-bottom: var(--space-4);
+}
+.wv-section-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+.wv-src-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.wv-src-row select {
+  flex: 0 0 auto;
+}
+.wv-no-value {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.wv-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
 /* Variable wizard — device picker */
 .wv-device-search { margin-bottom: var(--space-2); }
 .wv-device-list {

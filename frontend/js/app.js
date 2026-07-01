@@ -396,7 +396,7 @@ const ContextMenu = (() => {
       const el = document.createElement('div');
       el.className = 'context-menu-item' + (item.danger ? ' danger' : '');
       el.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
-      el.addEventListener('click', (e) => { e.stopPropagation(); hide(); _onAction && _onAction(item.action); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); const cb = _onAction; hide(); cb && cb(item.action); });
       menu.appendChild(el);
     });
     menu.classList.add('visible');

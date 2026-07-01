@@ -624,9 +624,8 @@ const WizardVariable = (() => {
       'x': 'Variable', 'e': 'Expression'
     };
 
-    // Source keys for this var type from vocab; fallback for unknown types
-    const baseType   = vt.replace('[]', '');
-    let   sourceKeys = (srcCfg && srcCfg[baseType]) || ['', 'c'];
+    const baseType = vt.replace('[]', '');
+    let sourceKeys = (srcCfg && srcCfg[baseType]) || ['', 'c'];
     if (onlyConstants) sourceKeys = sourceKeys.filter(k => k === '' || k === 'c' || (k === 'd' && _isDeviceType(vt)));
 
     const srcOptions = sourceKeys.map(k =>
@@ -634,40 +633,80 @@ const WizardVariable = (() => {
     ).join('');
 
     const srcPicker = `<select id="wv-init-src" class="wv-src-select">${srcOptions}</select>`;
-    const noVal     = src === '' ? `<p class="wv-no-value">(no value set)</p>` : '';
 
-    // Value widget driven by selected source
-    let valueWidget = '';
+    // Inline widget sits to the right of the source picker in the same flex row.
+    // Device picker is the exception — it goes below as a full-width search + list.
+    let inlineWidget = '';
+    let belowWidget  = '';
+
     if (src === 'd') {
-      valueWidget = _buildDevicePickerHTML(designer);
+      belowWidget = _buildDevicePickerHTML(designer);
+    } else if (src === 'v') {
+      const vDevs    = (vocab && vocab.virtualDevices) || {};
+      const vDevKeys = Object.keys(vDevs);
+      if (vDevKeys.length > 0) {
+        const opts = vDevKeys.map(k =>
+          `<option value="${k}" ${designer.initialValue === k ? 'selected' : ''}>${_esc(vDevs[k].n)}</option>`
+        ).join('');
+        inlineWidget = `<select id="wv-value" class="wv-value-input">
+          <option value="">— select virtual device —</option>${opts}</select>`;
+      } else {
+        inlineWidget = `<input type="text" id="wv-value" class="wv-value-input"
+          placeholder="Virtual device name"
+          value="${_esc(String(designer.initialValue || ''))}">`;
+      }
+    } else if (src === 's') {
+      const presetList = (vocab && vocab.presets && vocab.presets[baseType]) || [];
+      if (presetList.length > 0) {
+        const opts = presetList.map(p =>
+          `<option value="${p}" ${designer.initialValue === p ? 'selected' : ''}>${_esc(p.charAt(0).toUpperCase() + p.slice(1))}</option>`
+        ).join('');
+        inlineWidget = `<select id="wv-value" class="wv-value-input">
+          <option value="">— select preset —</option>${opts}</select>`;
+      } else {
+        inlineWidget = `<input type="text" id="wv-value" class="wv-value-input"
+          placeholder="Preset value"
+          value="${_esc(String(designer.initialValue || ''))}">`;
+      }
+    } else if (src === 'u') {
+      inlineWidget = `<input type="text" id="wv-value" class="wv-value-input"
+        placeholder="Argument"
+        value="${_esc(String(designer.initialValue || ''))}">`;
     } else if (src === 'e' || src === 'x') {
-      valueWidget = `<input type="text" id="wv-value" class="wv-value-input"
+      inlineWidget = `<input type="text" id="wv-value" class="wv-value-input"
         placeholder="${src === 'e' ? 'e.g. $myVar + 1' : 'Variable name'}"
         value="${_esc(String(designer.initialValue || ''))}">`;
     } else if (src === 'c') {
       if (vt === 'boolean') {
         const cur = String(designer.initialValue);
-        valueWidget = `<select id="wv-value" class="wv-value-input">
+        inlineWidget = `<select id="wv-value" class="wv-value-input">
           <option value="">— pick a value —</option>
           <option value="true"  ${cur === 'true'  ? 'selected' : ''}>true</option>
           <option value="false" ${cur === 'false' ? 'selected' : ''}>false</option>
         </select>`;
       } else if (vt === 'integer') {
-        valueWidget = `<input type="number" id="wv-value" class="wv-value-input" step="1"
+        inlineWidget = `<input type="number" id="wv-value" class="wv-value-input" step="1"
           value="${_esc(String(designer.initialValue || ''))}" placeholder="0">`;
       } else if (vt === 'decimal') {
-        valueWidget = `<input type="number" id="wv-value" class="wv-value-input" step="0.01"
+        inlineWidget = `<input type="number" id="wv-value" class="wv-value-input" step="0.01"
           value="${_esc(String(designer.initialValue || ''))}" placeholder="0.0">`;
       } else if (vt === 'datetime') {
-        valueWidget = `<input type="datetime-local" id="wv-value" class="wv-value-input"
+        inlineWidget = `<input type="datetime-local" id="wv-value" class="wv-value-input"
           value="${_esc(String(designer.initialValue || ''))}">`;
       } else {
-        valueWidget = `<input type="text" id="wv-value" class="wv-value-input"
+        inlineWidget = `<input type="text" id="wv-value" class="wv-value-input"
           placeholder="Enter value" value="${_esc(String(designer.initialValue || ''))}">`;
       }
     }
 
-    return `${srcPicker}${noVal}${valueWidget}`;
+    const noVal = src === '' ? `<p class="wv-no-value">(no value set)</p>` : '';
+
+    return `
+      <div class="wv-operand-row">
+        ${srcPicker}${inlineWidget}
+      </div>
+      ${noVal}${belowWidget}
+    `;
   }
 
   function _buildDevicePickerHTML(designer) {

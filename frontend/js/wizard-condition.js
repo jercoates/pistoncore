@@ -347,14 +347,14 @@ const WizardCondition = (() => {
     const deviceData = WizardCore.getDeviceData() || [];
     const deviceMap  = WizardCore.groupEntitiesByDevice(deviceData);
 
-    // Build device list HTML
-    const deviceRows = [...deviceMap.entries()].map(([key, dev]) => `
-      <label class="wc-device-row">
-        <input type="checkbox" class="wc-device-check" data-key="${_esc(key)}"
-          ${(designer.selectedDeviceKeys || []).includes(key) ? 'checked' : ''}>
+    // Build device list HTML — same wv-device-row/wv-checked structure as variable wizard
+    const deviceRows = [...deviceMap.entries()].map(([key, dev]) => {
+      const checked = (designer.selectedDeviceKeys || []).includes(key);
+      return `<label class="wv-device-row${checked ? ' wv-checked' : ''}">
+        <input type="checkbox" class="wc-device-check" data-key="${_esc(key)}" ${checked ? 'checked' : ''}>
         <span>${_esc(dev.label)}</span>
-      </label>
-    `).join('');
+      </label>`;
+    }).join('');
 
     const noDevices = deviceMap.size === 0
       ? `<p class="wizard-hint">No HA devices loaded. Check your HA connection.</p>` : '';
@@ -372,7 +372,9 @@ const WizardCondition = (() => {
       </div>
       <div id="wc-src-device"  style="${src === 'device'     ? '' : 'display:none'}">
         ${existingRole}
-        <div class="wc-device-list" id="wc-device-list" style="max-height:180px;overflow-y:auto">
+        <input type="text" id="wc-device-search" class="form-input wv-device-search"
+          placeholder="Search devices…" autocomplete="off">
+        <div class="wv-device-list" id="wc-device-list">
           ${noDevices}${deviceRows}
         </div>
         <div id="wc-aggregation-row" style="${(designer.selectedDeviceKeys||[]).length > 1 ? '' : 'display:none'}">
@@ -602,10 +604,24 @@ const WizardCondition = (() => {
       });
     });
 
+    // Device search filter — same behaviour as variable wizard
+    const deviceSearch = modal.querySelector('#wc-device-search');
+    if (deviceSearch) {
+      deviceSearch.addEventListener('input', () => {
+        const q = deviceSearch.value.trim().toLowerCase();
+        modal.querySelectorAll('.wv-device-row').forEach(row => {
+          const label = row.querySelector('span')?.textContent.toLowerCase() || '';
+          row.style.display = q === '' || label.includes(q) ? '' : 'none';
+        });
+      });
+      deviceSearch.focus();
+    }
+
     // Device checkboxes
     modal.querySelector('#wc-device-list') &&
       modal.querySelector('#wc-device-list').addEventListener('change', e => {
         if (!e.target.classList.contains('wc-device-check')) return;
+        e.target.closest('.wv-device-row')?.classList.toggle('wv-checked', e.target.checked);
         _onDeviceSelectionChange(modal, designer, parentArray, context);
       });
 

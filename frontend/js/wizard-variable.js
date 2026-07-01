@@ -625,41 +625,41 @@ const WizardVariable = (() => {
       `<option value="${k}" ${src === k ? 'selected' : ''}>${_esc(labels[k] || k || 'Nothing selected')}</option>`
     ).join('');
 
-    const srcPicker = `<select id="wv-init-src" class="form-select">${srcOptions}</select>`;
-    const noVal     = src === '' ? `<span class="wv-no-value">(no value set)</span>` : '';
+    const srcPicker = `<select id="wv-init-src" class="wv-src-select">${srcOptions}</select>`;
+    const noVal     = src === '' ? `<p class="wv-no-value">(no value set)</p>` : '';
 
     // Value widget driven by selected source
     let valueWidget = '';
     if (src === 'd') {
       valueWidget = _buildDevicePickerHTML(designer);
     } else if (src === 'e' || src === 'x') {
-      valueWidget = `<input type="text" id="wv-value" class="form-input"
+      valueWidget = `<input type="text" id="wv-value" class="wv-value-input"
         placeholder="${src === 'e' ? 'e.g. $myVar + 1' : 'Variable name'}"
         value="${_esc(String(designer.initialValue || ''))}">`;
     } else if (src === 'c') {
       if (vt === 'boolean') {
         const cur = String(designer.initialValue);
-        valueWidget = `<select id="wv-value" class="form-select">
+        valueWidget = `<select id="wv-value" class="wv-value-input">
           <option value="">— pick a value —</option>
           <option value="true"  ${cur === 'true'  ? 'selected' : ''}>true</option>
           <option value="false" ${cur === 'false' ? 'selected' : ''}>false</option>
         </select>`;
       } else if (vt === 'integer') {
-        valueWidget = `<input type="number" id="wv-value" class="form-input" step="1"
+        valueWidget = `<input type="number" id="wv-value" class="wv-value-input" step="1"
           value="${_esc(String(designer.initialValue || ''))}" placeholder="0">`;
       } else if (vt === 'decimal') {
-        valueWidget = `<input type="number" id="wv-value" class="form-input" step="0.01"
+        valueWidget = `<input type="number" id="wv-value" class="wv-value-input" step="0.01"
           value="${_esc(String(designer.initialValue || ''))}" placeholder="0.0">`;
       } else if (vt === 'datetime') {
-        valueWidget = `<input type="datetime-local" id="wv-value" class="form-input"
+        valueWidget = `<input type="datetime-local" id="wv-value" class="wv-value-input"
           value="${_esc(String(designer.initialValue || ''))}">`;
       } else {
-        valueWidget = `<input type="text" id="wv-value" class="form-input"
+        valueWidget = `<input type="text" id="wv-value" class="wv-value-input"
           placeholder="Enter value" value="${_esc(String(designer.initialValue || ''))}">`;
       }
     }
 
-    return `<div class="wv-src-row">${srcPicker}${noVal}</div>${valueWidget}`;
+    return `${srcPicker}${noVal}${valueWidget}`;
   }
 
   function _buildDevicePickerHTML(designer) {

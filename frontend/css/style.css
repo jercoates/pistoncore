@@ -1339,19 +1339,23 @@ input::placeholder { color: var(--text-muted); }
   color: var(--text-muted);
   margin-bottom: var(--space-2);
 }
-.wv-src-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.wv-src-select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   margin-bottom: var(--space-2);
 }
-.wv-src-row select {
-  flex: 0 0 auto;
+.wv-value-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: var(--space-2);
 }
 .wv-no-value {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   font-style: italic;
+  margin: 0 0 var(--space-2);
 }
 .wv-textarea {
   width: 100%;

@@ -143,7 +143,7 @@ const Editor = (() => {
             <button class="btn btn-ghost btn-sm" id="btn-snapshot" title="Share-safe export">📷 Snapshot</button>
             <button class="btn btn-ghost btn-sm" id="btn-backup"   title="Full export including device IDs">📷 Backup</button>
             <button class="btn btn-danger btn-sm" id="btn-editor-delete">🗑 Delete</button>
-            <button class="btn btn-primary btn-sm" id="btn-save">💾 Save to PistonCore</button>
+            <button class="btn btn-primary btn-sm" id="btn-save">💾 Save</button>
           </div>
         </div>
 
@@ -1420,18 +1420,10 @@ const Editor = (() => {
       _isNew = false;
       _markUnsaved(false);
 
-      const warnings = result.compile_check?.warnings || [];
-      const errors   = result.compile_check?.errors   || [];
-
-      if (errors.length || warnings.length) {
-        _showNotice([...errors.map(e => `⚠ ${e}`), ...warnings.map(w => `⚠ ${w}`)].join(' | '), 'warn');
-      } else {
-        _showNotice('Saved.', 'info');
-      }
-
       // Reconcile used_by on globals after a successful save — fire and forget.
       _reconcileGlobalUsedBy(_piston).catch(() => {});
 
+      App.navigate('status');
       return true;
 
     } catch(e) {
@@ -1439,7 +1431,7 @@ const Editor = (() => {
       return false;
 
     } finally {
-      if (btn) { btn.textContent = '💾 Save to PistonCore'; btn.disabled = false; }
+      if (btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
     }
   }
 

@@ -257,7 +257,6 @@ const Editor = (() => {
     blk();
 
     // ── PISTON VARIABLES ────────────────────────────────────────────────────
-    hdr('PISTON VARIABLES');
     ln(`<span class="kw">define</span>`, 0);
     (p.variables || []).forEach(v => {
       if (v._corrupt) {
@@ -281,26 +280,6 @@ const Editor = (() => {
     });
     gh('+ add a new variable', 'variable', 1);
     ln(`<span class="kw">end define;</span>`, 0);
-    blk();
-
-    // ── TRIGGERS ────────────────────────────────────────────────────────────
-    hdr('TRIGGERS');
-    (p.triggers || []).forEach(t => {
-      ln(`<span class="doc-bolt">⚡</span> ${_condLine(t)}`, 1, { id: t.id, type: 'trigger' });
-    });
-    gh('+ add a new trigger', 'trigger', 1);
-    blk();
-
-    // ── CONDITIONS ──────────────────────────────────────────────────────────
-    hdr('CONDITIONS');
-    (p.conditions || []).forEach((c, i) => {
-      if (i > 0) {
-        const op = c.group_operator || 'and';
-        ln(`<span class="doc-condop kw">${_esc(op)}</span>`, 1);
-      }
-      ln(_condLine(c), 1, { id: c.id, type: 'condition' });
-    });
-    gh('+ add a new condition', 'condition', 1);
     blk();
 
     // ── RESTRICTIONS ────────────────────────────────────────────────────────

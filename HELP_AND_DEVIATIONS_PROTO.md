@@ -57,6 +57,20 @@ When an AI assistant generates a piston from the write-a-piston prompt, it must 
 Precedent deviation worth recording here for consistency. WebCoRE aggregation bar = 12 options; PistonCore v1 implements Any / All / None only.
 *(Expand later — pulled from project history, confirm exact wording before writing help.)*
 
+### D-4 — "Which interaction" row — UI and JSON storage in, compiler routing pending sandbox `[LOCKED]`
+
+**STATUS**
+UI row is implemented and the selected value is stored in JSON. Compiler routing is not yet wired — all conditions behave as "any interaction" at runtime until PyScript routing is validated.
+
+**What is implemented**
+The condition wizard shows a "Which interaction" row (Any / Physical / Programmatic) whenever the selected attribute has `p: true` in the vocab. The value is stored as `interaction: 'any'|'physical'|'programmatic'` on the condition node.
+
+**PyScript feasibility research (Jeremy, 2026-06-30)**
+HA state change events carry `context.id` and `context.parent_id`. Physical interactions originate from a user/device directly and have no parent context; programmatic interactions are triggered by automations and carry a parent_id chain. PyScript can inspect these fields on the triggering event to discriminate physical vs. programmatic. **Next step: evaluate in the PyScript sandbox before committing the compiler to this approach. If not feasible, the compiler ignores the `interaction` field entirely (treats all conditions as "any"), the UI row and stored value remain, and a note is added that interaction filtering is not currently active.**
+
+**WebCoRE behavior**
+WebCoRE shows the same three-option row (values `a`/`p`/`s`) when `operand.showInteraction` is true. PistonCore stores `any`/`physical`/`programmatic` in JSON.
+
 ---
 
 ## PART B — HELP IDEAS / BEST PRACTICES

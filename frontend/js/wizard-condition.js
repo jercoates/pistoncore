@@ -746,7 +746,6 @@ const WizardCondition = (() => {
   }
 
   function _rerenderOperatorAndBelow(modal, designer) {
-    // Show/hide "Which interaction" row — only visible when the selected attribute has p:true
     const interSec = modal.querySelector('#wc-interaction-section');
     if (interSec) {
       interSec.style.display = (designer.attrMeta && designer.attrMeta.p) ? '' : 'none';

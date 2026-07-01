@@ -23,6 +23,14 @@ const WizardVariable = (() => {
     { key: 'device',  label: 'Device' },
   ];
 
+  function _getVarTypes() {
+    const vocab = WizardCore.getVocab();
+    if (vocab && vocab.variableTypes && vocab.variableTypes.basic) {
+      return [...vocab.variableTypes.basic, ...(vocab.variableTypes.lists || [])];
+    }
+    return _FALLBACK_TYPES;
+  }
+
   function _newId() {
     return 'var_' + Math.random().toString(36).slice(2, 10);
   }
@@ -219,7 +227,7 @@ const WizardVariable = (() => {
 
           <div class="wv-name-type-row">
             <select id="wv-type" class="form-select wv-type-inline">
-              ${PISTON_VAR_TYPES.map(t =>
+              ${_getVarTypes().map(t =>
                 `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
               ).join('')}
             </select>
@@ -410,7 +418,7 @@ const WizardVariable = (() => {
 
           <div class="wv-name-type-row">
             <select id="wgv-type" class="form-select wv-type-inline">
-              ${GLOBAL_VAR_TYPES.map(t =>
+              ${_getVarTypes().map(t =>
                 `<option value="${t.key}" ${designer.varType === t.key ? 'selected' : ''}>${_esc(t.label)}</option>`
               ).join('')}
             </select>

@@ -1201,6 +1201,12 @@ const Editor = (() => {
     return false;
   }
 
+  function _fireChain(statementData, meta) {
+    if (meta?.chain && statementData.id) {
+      setTimeout(() => _chainToNextWizard(statementData, meta.chain, meta.chainSubtype || null), 50);
+    }
+  }
+
   // ── insertStatement — called by wizard on commit ───────────────────────────
   // Routes based on context so each section receives its own node type correctly.
   //
@@ -1249,21 +1255,21 @@ const Editor = (() => {
         const ti = action.tasks.findIndex(t => t.id === statementData.id);
         if (ti >= 0) action.tasks[ti] = statementData;
         else action.tasks.push(statementData);
-        _markUnsaved(true); render(); return;
+        _markUnsaved(true); render(); _fireChain(statementData, meta); return;
       }
     }
 
     // ── Branch insertion (then / else / statements / default) ─────────────
     if (meta?.blockId && meta?.branch) {
       if (!statementData.id) statementData.id = _nextStmtId();
-      if (_replaceNode(statementData)) { _markUnsaved(true); render(); return; }
+      if (_replaceNode(statementData)) { _markUnsaved(true); render(); _fireChain(statementData, meta); return; }
 
       if (meta.branch === 'else_if_statements') {
         const eib = _findElseIf(meta.blockId);
         if (eib) {
           eib.statements = eib.statements || [];
           eib.statements.push(statementData);
-          _markUnsaved(true); render(); return;
+          _markUnsaved(true); render(); _fireChain(statementData, meta); return;
         }
       }
 
@@ -1271,7 +1277,7 @@ const Editor = (() => {
       if (block) {
         block[meta.branch] = block[meta.branch] || [];
         block[meta.branch].push(statementData);
-        _markUnsaved(true); render(); return;
+        _markUnsaved(true); render(); _fireChain(statementData, meta); return;
       }
     }
 
@@ -1315,11 +1321,7 @@ const Editor = (() => {
 
     _markUnsaved(true);
     render();
-
-    // §7.4 chaining — after committing IF/ACTION etc., auto-open the next wizard
-    if (meta?.chain && statementData.id) {
-      setTimeout(() => _chainToNextWizard(statementData, meta.chain, meta.chainSubtype || null), 50);
-    }
+    _fireChain(statementData, meta);
   }
 
   // Called by wizard with a specific id — does not require _selectedId.

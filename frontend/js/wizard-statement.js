@@ -165,13 +165,8 @@ const WizardStatement = (() => {
         <div class="wizard-body">
           <div class="ws-section-label">Basic statements</div>
           <div class="ws-card-grid">${_cards(simple)}</div>
-          <div class="ws-adv-toggle">
-            <button class="btn btn-link btn-sm" id="ws-show-advanced">&#9660; Show advanced statements</button>
-          </div>
-          <div id="ws-advanced-section" style="display:none">
-            <div class="ws-section-label">Advanced statements</div>
-            <div class="ws-card-grid">${_cards(advanced)}</div>
-          </div>
+          <div class="ws-section-label">Advanced statements</div>
+          <div class="ws-card-grid">${_cards(advanced)}</div>
         </div>
       </div>
     `;
@@ -181,14 +176,6 @@ const WizardStatement = (() => {
     modal.querySelector('#wizard-statement-cancel')
       .addEventListener('click', () => WizardCore.closeDialog());
 
-    modal.querySelector('#ws-show-advanced')
-      .addEventListener('click', () => {
-        const sec = modal.querySelector('#ws-advanced-section');
-        const btn = modal.querySelector('#ws-show-advanced');
-        const visible = sec.style.display !== 'none';
-        sec.style.display = visible ? 'none' : '';
-        btn.innerHTML = visible ? '&#9660; Show advanced statements' : '&#9650; Hide advanced statements';
-      });
 
     modal.querySelectorAll('.ws-type-select').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -278,13 +265,10 @@ const WizardStatement = (() => {
         </div>
         <div class="wizard-body">
           ${typeForm}
-          <div class="wizard-advanced-toggle">
-            <button class="btn btn-sm btn-link" id="ws-advanced-toggle">
-              ${designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced'}
-            </button>
-          </div>
-          <div class="wizard-advanced-section" id="ws-advanced" style="${designer.showAdvancedOptions ? '' : 'display:none'}">
-            ${advancedFields}
+          <div class="wv-section">
+            <label class="wv-section-label">Description (optional)</label>
+            <textarea id="ws-description" class="form-input wv-textarea" rows="3"
+              placeholder="Description for this statement">${_esc(designer.description)}</textarea>
           </div>
         </div>
         <div class="wizard-footer">
@@ -528,15 +512,6 @@ const WizardStatement = (() => {
       });
     }
 
-    // Advanced toggle
-    modal.querySelector('#ws-advanced-toggle').addEventListener('click', () => {
-      designer.showAdvancedOptions = !designer.showAdvancedOptions;
-      const sec = modal.querySelector('#ws-advanced');
-      if (sec) sec.style.display = designer.showAdvancedOptions ? '' : 'none';
-      modal.querySelector('#ws-advanced-toggle').textContent =
-        designer.showAdvancedOptions ? '▲ Hide advanced' : '▼ Show advanced';
-    });
-
     // Type-specific live bindings
     _bindTypeFields(modal, designer);
 
@@ -611,10 +586,8 @@ const WizardStatement = (() => {
       const asyncEl = modal.querySelector('#ws-async');
       if (asyncEl) designer.async = asyncEl.value;
     }
-    const descEl     = modal.querySelector('#ws-description');
-    const disabledEl = modal.querySelector('#ws-disabled');
-    if (descEl)     designer.description = descEl.value.trim();
-    if (disabledEl) designer.disabled    = disabledEl.value;
+    const descEl = modal.querySelector('#ws-description');
+    if (descEl) designer.description = descEl.value.trim();
   }
 
   function _readTypeFields(modal, designer) {

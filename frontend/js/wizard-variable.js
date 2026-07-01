@@ -54,6 +54,9 @@ const WizardVariable = (() => {
     designer.varType      = _nodeVarTypeToKey(varNode.var_type);
     designer.initialValue = varNode.initial_value || '';
     designer.description  = varNode.description || '';
+    designer.initialValueSrc = varNode.initial_value_src ||
+      (varNode.initial_value_type === 'device' ? 'd' :
+       (varNode.initial_value ? 'c' : ''));
 
     WizardCore.openDialog(designer, null, null);
     _renderVarDialog(designer, context);
@@ -78,6 +81,9 @@ const WizardVariable = (() => {
     designer.name         = gv.name || '';
     designer.varType      = _nodeVarTypeToKey(gv.var_type);
     designer.initialValue = gv.initial_value || '';
+    designer.initialValueSrc = gv.initial_value_src ||
+      (gv.initial_value_type === 'device' ? 'd' :
+       (gv.initial_value ? 'c' : ''));
 
     WizardCore.openDialog(designer, null, null);
     _renderGlobalDialog(designer, context);
@@ -354,11 +360,12 @@ const WizardVariable = (() => {
       : designer.initialValue;
 
     const node = {
-      type:          'variable',
-      id:            _newId(),
-      name:          designer.name,
-      var_type:      varType,
-      initial_value: initialVal,
+      type:              'variable',
+      id:                _newId(),
+      name:              designer.name,
+      var_type:          varType,
+      initial_value:     initialVal,
+      initial_value_src: designer.initialValueSrc || '',
     };
 
     if (isDeviceT) node.initial_value_type = 'device';
@@ -370,11 +377,12 @@ const WizardVariable = (() => {
   function _applyVarToNode(designer, node) {
     const varType   = _keyToVarType(designer.varType);
     const isDeviceT = _isDeviceType(designer.varType);
-    node.name        = designer.name;
-    node.var_type    = varType;
-    node.initial_value = isDeviceT
+    node.name              = designer.name;
+    node.var_type          = varType;
+    node.initial_value     = isDeviceT
       ? (Array.isArray(designer.initialValue) ? designer.initialValue : [designer.initialValue].filter(Boolean))
       : designer.initialValue;
+    node.initial_value_src = designer.initialValueSrc || '';
     if (isDeviceT) {
       node.initial_value_type = 'device';
     } else {
